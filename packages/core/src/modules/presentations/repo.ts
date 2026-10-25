@@ -4,7 +4,7 @@
  */
 import type { Tx } from '@inmolink/db';
 import { selectionInteractions, selectionItems, selections } from '@inmolink/db/schema/presentations';
-import { and, eq, inArray, isNull, type SQL, sql } from 'drizzle-orm';
+import { and, eq, type SQL, sql } from 'drizzle-orm';
 import { type KeysetCursor, keysetAfterRaw, keysetOrderRaw, keysetStamp } from '../../pagination';
 
 export type SelectionRow = typeof selections.$inferSelect;
@@ -165,7 +165,7 @@ export async function listInteractions(tx: Tx, selectionId: string, cursor: Keys
     .limit(limit + 1);
 }
 
-// ── Public pages (app_public: the registry's live predicate; app_intake: interactions) ─────────────────────────────
+// ── Public pages (app_public: `selection_by_token`; app_intake: interactions) ────────────────────────────────────
 
 export interface PublicSelectionRow {
   id: string;
@@ -178,34 +178,23 @@ export interface PublicSelectionRow {
 }
 
 /**
- * The live selection a token names, with its items in order (one statement). `app_public` sees only live rows (not
- * revoked, not expired): the policy says so, and the query too.
+ * The live selection a token names, with its items in order (one statement). S13-F1: `app_public` reads neither table;
+ * the SECURITY DEFINER `selection_by_token` answers one live (not revoked, not expired, agency not suspended) selection
+ * for the token's keyed hashes, and nothing else.
  */
 export async function liveSelectionByTokenHash(tx: Tx, hashes: readonly string[]): Promise<PublicSelectionRow | null> {
-  if (hashes.length === 0) return null;
-  const [row] = await tx
-    .select({
-      id: selections.id,
-      agencyId: selections.agencyId,
-      title: selections.title,
-      message: selections.message,
-      locale: selections.locale,
-      expiresAt: selections.expiresAt,
-      items: sql<PublicSelectionRow['items']>`coalesce((
-        select json_agg(json_build_object('targetId', i.target_id, 'position', i.position,
-                                          'titleOverride', i.title_override, 'note', i.note) order by i.position)
-          from ${selectionItems} i where i.selection_id = selections.id), '[]'::json)`,
-    })
-    .from(selections)
-    .where(
-      and(
-        inArray(selections.tokenHash, [...hashes]),
-        isNull(selections.revokedAt),
-        sql`(${selections.expiresAt} is null or ${selections.expiresAt} > now())`,
-      ),
-    )
-    .limit(1);
-  return row ?? null;
+  // the HMAC rotation candidates: one per key (the function reads at most 8)
+  if (hashes.length === 0 || hashes.length > 8) return null;
+  const res = await tx.execute(sql`
+    select s.id, s.agency_id as "agencyId", s.title, s.message, s.locale, s.expires_at as "expiresAt", s.items
+      from public.selection_by_token(array[${sql.join(
+        hashes.map((h) => sql`${h}`),
+        sql`, `,
+      )}]::text[]) s`);
+  const row = res.rows[0] as (Omit<PublicSelectionRow, 'expiresAt'> & { expiresAt: Date | string | null }) | undefined;
+  if (!row) return null;
+  // `execute` returns timestamps as the driver parses them (a string for timestamptz)
+  return { ...row, expiresAt: row.expiresAt === null ? null : new Date(row.expiresAt) };
 }
 
 export async function insertInteraction(tx: Tx, row: InteractionInsert): Promise<void> {

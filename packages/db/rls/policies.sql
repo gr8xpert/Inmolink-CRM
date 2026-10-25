@@ -137,10 +137,26 @@ create function calendar_feed_tag(hash text)
           join public.agencies g on g.agency_id = f.agency_id and g.status <> 'SUSPENDED'
          where f.token_hash = hash and f.revoked_at is null and f.live;
 end $$;
-revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), website_network_open(uuid, integer, integer), agency_ai_features(uuid), legacy_target_ids(text[]), legacy_ids_of(uuid[]), portal_feed_by_token(text), calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer), calendar_feed_tag(text) from public;
+drop function if exists selection_by_token(text[]);
+create function selection_by_token(hashes text[])
+  returns table(id uuid, agency_id uuid, title text, message text, locale text, expires_at timestamptz, items json)
+  language sql stable security definer set search_path = pg_catalog, pg_temp
+  as $$ select s.id, s.agency_id, s.title, s.message, s.locale, s.expires_at,
+               coalesce((select json_agg(json_build_object('targetId', i.target_id, 'position', i.position,
+                                                           'titleOverride', i.title_override, 'note', i.note)
+                                         order by i.position)
+                           from public.selection_items i
+                          where i.selection_id = s.id and i.agency_id = s.agency_id), '[]'::json)
+          from public.selections s
+          join public.agencies g on g.agency_id = s.agency_id and g.status <> 'SUSPENDED'
+         where s.token_hash = any(hashes[1:8]) and s.revoked_at is null
+           and (s.expires_at is null or s.expires_at > now())
+         limit 1 $$;
+revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), website_network_open(uuid, integer, integer), agency_ai_features(uuid), legacy_target_ids(text[]), legacy_ids_of(uuid[]), portal_feed_by_token(text), calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer), calendar_feed_tag(text), selection_by_token(text[]) from public;
 grant execute on function calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer) to app_public;
 grant execute on function calendar_feed_tag(text) to app_public;
 grant execute on function portal_feed_by_token(text) to app_public;
+grant execute on function selection_by_token(text[]) to app_public;
 grant execute on function website_network_open(uuid, integer, integer) to app_public;
 grant execute on function agency_ai_features(uuid) to app_public;
 alter function agency_ai_features(uuid) owner to app_owner;
@@ -150,6 +166,7 @@ alter function legacy_ids_of(uuid[]) owner to app_owner;
 alter function portal_feed_by_token(text) owner to app_owner;
 alter function calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer) owner to app_owner;
 alter function calendar_feed_tag(text) owner to app_owner;
+alter function selection_by_token(text[]) owner to app_owner;
 grant execute on function app_agency(), app_user_id() to app_user, app_system, app_public, app_auth, app_staff;
 grant execute on function app_impersonated_by() to app_user;
 grant execute on function app_agency() to app_intake;
@@ -1752,35 +1769,25 @@ create policy intake_select on public."selection_interactions" for select to app
 grant insert on table public."selection_interactions" to app_intake;
 grant select ("id", "selection_id", "kind", "created_at") on table public."selection_interactions" to app_intake;
 
--- selection_items: PUBLIC_READ
+-- selection_items: STRICT
 alter table public."selection_items" enable row level security;
 alter table public."selection_items" force row level security;
 create policy own_rows on public."selection_items" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
-create policy public_read on public."selection_items" for select to app_public
-  using (exists (select 1 from public.selections s where s.id = selection_items.selection_id and s.revoked_at is null and (s.expires_at is null or s.expires_at > now())));
 revoke all on table public."selection_items" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."selection_items" to app_user;
 grant select, insert, update, delete on table public."selection_items" to app_system;
-grant select on table public."selection_items" to app_public;
+create policy definer_read on public."selection_items" for select to app_owner using (true);
 
--- selections: PUBLIC_READ
+-- selections: STRICT
 alter table public."selections" enable row level security;
 alter table public."selections" force row level security;
 create policy own_rows on public."selections" to app_user
   using (agency_id = app_agency()) with check (agency_id = app_agency());
-create policy public_read on public."selections" for select to app_public
-  using (revoked_at is null and (expires_at is null or expires_at > now()));
 revoke all on table public."selections" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."selections" to app_user;
 grant select, insert, update, delete on table public."selections" to app_system;
-do $$
-declare cols text;
-begin
-  select string_agg(format('%I', attname), ', ' order by attnum) into cols from pg_attribute
-   where attrelid = 'public."selections"'::regclass and attnum > 0 and not attisdropped and attname <> all (array['created_by', 'contact_id', 'token_hint', 'version', 'created_at', 'updated_at']);
-  execute format('grant select (%s) on table public."selections" to app_public', cols);
-end $$;
+create policy definer_read on public."selections" for select to app_owner using (true);
 
 -- seller_prospects: STRICT
 alter table public."seller_prospects" enable row level security;

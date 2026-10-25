@@ -168,8 +168,8 @@ describe('RLS generator', () => {
   it('[S1-08] partition maintenance is a SECURITY DEFINER helper executable by app_system only (the other: [S7-03])', () => {
     // S8-02 adds the two legacy-id lookups (app_public), S9-03 the portal feed token lookup (app_public), S10-06 the
     // calendar feed token lookup (app_public), S11-F7 the calendar feed fingerprint (app_public), S13-F17 the AI toggles
-    // lookup (app_public).
-    expect(out.match(/security definer/gi)).toHaveLength(8);
+    // lookup (app_public), S13-F1 the selection token lookup (app_public).
+    expect(out.match(/security definer/gi)).toHaveLength(9);
     expect(out).toContain(
       'create or replace function app_partition_maintenance() returns void language plpgsql security definer',
     );
@@ -251,6 +251,30 @@ describe('RLS generator', () => {
       'create policy definer_read on public."agency_portal_connections" for select to app_owner using (true);',
     );
     expect(table).not.toMatch(/to [^;]*app_public/);
+  });
+
+  it('[S13-F1] selections and their items are closed to app_public; selection_by_token answers one live token', () => {
+    expect(HELPER_FUNCTIONS as readonly string[]).toContain('selection_by_token');
+    expect(out).toContain('drop function if exists selection_by_token(text[]);');
+    const body = out.split('create function selection_by_token(')[1]?.split('$$;')[0] ?? '';
+    expect(body).toContain(
+      'returns table(id uuid, agency_id uuid, title text, message text, locale text, expires_at timestamptz, items json)',
+    );
+    expect(body).toContain('security definer set search_path = pg_catalog, pg_temp');
+    expect(body).toContain('s.token_hash = any(hashes[1:8]) and s.revoked_at is null');
+    expect(body).toContain('s.expires_at is null or s.expires_at > now()');
+    expect(body).toContain("join public.agencies g on g.agency_id = s.agency_id and g.status <> 'SUSPENDED'");
+    expect(body).not.toMatch(/created_by|contact_id|token_hint|s\.version/);
+    expect(out).toContain('grant execute on function selection_by_token(text[]) to app_public;');
+    expect(out).not.toMatch(/selection_by_token\(text\[\]\) to [^;]*app_(?:user|system|auth|staff|intake|media)/);
+    const owner = 'alter function selection_by_token(text[]) owner to app_owner;';
+    expect(out.indexOf(owner)).toBeGreaterThan(out.indexOf('create function selection_by_token('));
+    const tables = tablesSql(registry);
+    for (const name of ['selections', 'selection_items']) {
+      const table = tables.split(`-- ${name}:`)[1]?.split('\n\n')[0] ?? '';
+      expect(table).toContain(`create policy definer_read on public."${name}" for select to app_owner using (true);`);
+      expect(table).not.toMatch(/to [^;]*app_public/);
+    }
   });
 
   it('[S10-06] calendar feed tokens resolve through a SECURITY DEFINER lookup for app_public: the member’s own events, names only', () => {

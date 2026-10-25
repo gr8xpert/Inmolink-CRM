@@ -11,8 +11,9 @@ import { agencies } from './agencies';
  * Selections (S12-04, PLAN §7 M13): listings and units an agent picked for a client, shown on a branded live page in
  * `apps/public` (`/s/<token>`) — prices and status from the read models at view time, white-labelled, in the
  * client's language. The page is found by its token's keyed hash (`token_hash`, HMAC `HMAC_KEY`), never by id; the
- * token itself is never stored. PUBLIC_READ while live (not revoked, not expired): the public pages (`app_public`)
- * read it; who made it and for which client never leave the agency (hidden columns).
+ * token itself is never stored. STRICT (S13-F1): the public pages (`app_public`) read no row; the SECURITY DEFINER
+ * `selection_by_token(hashes)` answers the live one (not revoked, not expired) a token names — who made it and for
+ * which client never leave the agency.
  */
 export const selections = pgTable(
   'selections',
@@ -57,8 +58,8 @@ export const selections = pgTable(
 
 /**
  * A selection's items, in the agent's order: a listing or a unit (its read model target), with the agent's own note
- * and title for it (escaped and white-labelled like the website serializer's overrides when rendered). PUBLIC_READ
- * while its selection is live.
+ * and title for it (escaped and white-labelled like the website serializer's overrides when rendered). STRICT: the
+ * public pages read them only with their live selection, through `selection_by_token` (S13-F1).
  */
 export const selectionItems = pgTable(
   'selection_items',

@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- feat(presentations): selection reads locked to the link token — selection_by_token SECURITY DEFINER lookup (live selections of non-suspended agencies only); app_public loses SELECT on selections and selection_items [S13-F1]
 - feat(agencies): AI features switched on/off per agency, one audited admin toggle per feature (default off), checked by every call site via one cached read; FAST tier only; migration 0158 [S13-F17]
 - feat(onboarding): idempotent keyset backfill of checklist steps from current state + pnpm ops:onboarding-backfill [S13-F26]
 - feat(onboarding): role-based checklist completed from outbox events, in-house dynamically imported product tour (no new dependency), help links via HELP_CENTER_URL, progress on the staff tenant page; optional networkHidden on properties.listing.visibilityChanged; migration 0157 [S13-04]

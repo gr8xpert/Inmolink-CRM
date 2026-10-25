@@ -1,7 +1,8 @@
 /**
  * Selections — the public page side (S12-04): what `apps/public` renders at `/s/<token>` and the client's actions on
  * it. No `ctx`: the visitor is anonymous and the token (a 32-byte secret) is the only key — it is hashed with
- * `HMAC_KEY` (rotation candidates included) and looked up as `app_public`, which sees live selections only.
+ * `HMAC_KEY` (rotation candidates included) and looked up as `app_public` through `selection_by_token` (S13-F1:
+ * the live selection the token names and nothing else; `app_public` reads neither table).
  *
  * Live data, never per-request joins over raw tables (CLAUDE.md rule 9): the documents are the read models
  * (`search.publicDocs`, `app_public`: PUBLIC ones only — an item no longer public shows as unavailable), so an owner's

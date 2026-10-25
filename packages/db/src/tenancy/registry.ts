@@ -1488,28 +1488,18 @@ export const tenantTables: Record<string, TenantTable> = {
   // S5-06: the last state of each listing the matching worker saw (owned by the listing's agency); worker-only in
   // practice — app_user has no path that reads or writes it.
   matching_listing_states: { kind: 'STRICT', base: { status: 'ACTIVE', version: 1 } },
-  // S12-04: selections. The public pages (`app_public`) find a live one by its token's keyed hash; who made it, for
-  // which client and its link hint never leave the agency.
+  // S12-04: selections. S13-F1: the public pages (`app_public`, which also serves feed-api, export downloads and
+  // websites) read no row of either table: a live selection and its items are answered only by the SECURITY DEFINER
+  // `selection_by_token(hashes)` (owner app_owner, `definerRead`) for the token's keyed hash — never a scan, never
+  // another selection, never who made it, for which client or its link hint.
   selections: {
-    kind: 'PUBLIC_READ',
-    publicReadSql: 'revoked_at is null and (expires_at is null or expires_at > now())',
-    publicHiddenColumns: ['created_by', 'contact_id', 'token_hint', 'version', 'created_at', 'updated_at'],
+    kind: 'STRICT',
+    definerRead: true,
     base: { title: 'Isolation', locale: 'en', token_hint: 'abcd' },
-    samples: {
-      visible: [{}],
-      hidden: [{ revoked_at: '2026-01-01T00:00:00Z' }, { expires_at: '2020-01-01T00:00:00Z' }],
-    },
   },
-  // A selection's items: readable by the public pages while their selection is live (the `exists` runs under
-  // `app_public`'s policy on `selections`). The generated suite seeds no parent selection, so these rows are hidden
-  // there; the readable side is tested in the presentations module (`selections.int.test.ts`).
-  selection_items: {
-    kind: 'PUBLIC_READ',
-    publicReadSql: `exists (select 1 from public.selections s where s.id = selection_items.selection_id
-      and s.revoked_at is null and (s.expires_at is null or s.expires_at > now()))`,
-    base: { position: 0 },
-    samples: { visible: [], hidden: [{}] },
-  },
+  // A selection's items: the agent's notes can name the client — read by the public pages only with their selection,
+  // through `selection_by_token` (S13-F1).
+  selection_items: { kind: 'STRICT', definerRead: true, base: { position: 0 } },
   // What clients did on a selection's page: written by the public pages as `app_intake` (pinned to the selection's
   // agency), read by the agency only.
   selection_interactions: {

@@ -41,6 +41,7 @@ export const HELPER_FUNCTIONS = [
   'portal_feed_by_token',
   'calendar_feed_by_token',
   'calendar_feed_tag',
+  'selection_by_token',
 ] as const;
 
 /**
@@ -679,10 +680,34 @@ end $$;`,
           join public.agencies g on g.agency_id = f.agency_id and g.status <> 'SUSPENDED'
          where f.token_hash = hash and f.revoked_at is null and f.live;
 end $$;`,
-    `revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), website_network_open(uuid, integer, integer), agency_ai_features(uuid), legacy_target_ids(text[]), legacy_ids_of(uuid[]), portal_feed_by_token(text), calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer), calendar_feed_tag(text) from public;`,
+    // S13-F1: a selection's public page (`/s/<token>`, app_public — which reads neither selections nor selection_items:
+    // it also serves feed-api, export downloads and websites, and the agent's notes can name the client). For the
+    // token's keyed hashes (HMAC rotation candidates, at most 8): the live selection (not revoked, not expired, its
+    // agency not SUSPENDED, as `portal_feed_by_token` — S13-F1 security review) — its id, agency, title, message, locale
+    // and expiry — with its items in order, and nothing else (never who made it, for which client, its link hint or
+    // hash). No row for an unknown, revoked or expired token. One statement: the token's unique index, the agency's
+    // primary key, then the items' (selection, position) index. SQL, not plpgsql: a cold session pays ~1 ms, not
+    // plpgsql's ~3-5 ms compile.
+    `drop function if exists selection_by_token(text[]);`,
+    `create function selection_by_token(hashes text[])
+  returns table(id uuid, agency_id uuid, title text, message text, locale text, expires_at timestamptz, items json)
+  language sql stable security definer set search_path = pg_catalog, pg_temp
+  as $$ select s.id, s.agency_id, s.title, s.message, s.locale, s.expires_at,
+               coalesce((select json_agg(json_build_object('targetId', i.target_id, 'position', i.position,
+                                                           'titleOverride', i.title_override, 'note', i.note)
+                                         order by i.position)
+                           from public.selection_items i
+                          where i.selection_id = s.id and i.agency_id = s.agency_id), '[]'::json)
+          from public.selections s
+          join public.agencies g on g.agency_id = s.agency_id and g.status <> 'SUSPENDED'
+         where s.token_hash = any(hashes[1:8]) and s.revoked_at is null
+           and (s.expires_at is null or s.expires_at > now())
+         limit 1 $$;`,
+    `revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), website_network_open(uuid, integer, integer), agency_ai_features(uuid), legacy_target_ids(text[]), legacy_ids_of(uuid[]), portal_feed_by_token(text), calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer), calendar_feed_tag(text), selection_by_token(text[]) from public;`,
     `grant execute on function calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer) to app_public;`,
     `grant execute on function calendar_feed_tag(text) to app_public;`,
     `grant execute on function portal_feed_by_token(text) to app_public;`,
+    `grant execute on function selection_by_token(text[]) to app_public;`,
     `grant execute on function website_network_open(uuid, integer, integer) to app_public;`,
     `grant execute on function agency_ai_features(uuid) to app_public;`,
     // S13-F17: reads agency_settings through its `definer_read` policy (app_owner), whichever role ran the SQL.
@@ -698,6 +723,9 @@ end $$;`,
     // S10-06: reads the calendar tables, contacts, agency_members, users and agencies through their `definer_read` policies.
     `alter function calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer) owner to app_owner;`,
     `alter function calendar_feed_tag(text) owner to app_owner;`,
+    // S13-F1: reads selections, selection_items and agencies through their `definer_read` policies; recreated on every
+    // run.
+    `alter function selection_by_token(text[]) owner to app_owner;`,
     `grant execute on function app_agency(), app_user_id() to app_user, app_system, app_public, app_auth, app_staff;`,
     `grant execute on function app_impersonated_by() to app_user;`,
     `grant execute on function app_agency() to app_intake;`,

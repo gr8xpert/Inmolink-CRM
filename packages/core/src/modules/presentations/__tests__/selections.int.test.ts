@@ -5,7 +5,7 @@ import {
   ListActivitiesQuery,
   UpdateListingBody,
 } from '@inmolink/contracts';
-import { closeDb, countQueries, withSystem } from '@inmolink/db';
+import { closeDb, countQueries, withPublicRead, withSystem } from '@inmolink/db';
 import { setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
 import { closeCache, configureCache } from '@inmolink/platform/cache';
 import { isAppError } from '@inmolink/platform/errors';
@@ -25,7 +25,9 @@ import * as properties from '../../properties';
 import * as search from '../../search';
 import * as taxonomy from '../../taxonomy';
 import * as websiteApi from '../../website-api';
+import { selectionTokenHash } from '../config';
 import * as presentations from '../index';
+import * as repo from '../repo';
 
 /**
  * Selections end to end (S12-04): an agent (a) makes a selection of their own listing and another agency's (b) network
@@ -82,6 +84,17 @@ async function listing(m: Founder, priceCents: number, description: string): Pro
   );
   await rebuild(id);
   return id;
+}
+
+/** The Postgres SQLSTATE a statement failed with ('ok' when it did not). */
+async function pgState(promise: Promise<unknown>): Promise<string> {
+  try {
+    await promise;
+  } catch (err) {
+    const e = err as { code?: string; cause?: { code?: string } };
+    return e.code ?? e.cause?.code ?? 'unknown';
+  }
+  return 'ok';
 }
 
 async function refusal(promise: Promise<unknown>): Promise<string> {
@@ -352,11 +365,12 @@ describe('selections (S12-04)', () => {
     const shown = async () => (await presentations.selectionPage(made.share.token)).items.map((i) => i.detail !== null);
     expect(await shown()).toEqual([true, true]);
     try {
-      for (const status of ['SUSPENDED', 'PENDING'] as const) {
-        await setAgencyStatus(a.agencyId, status);
-        // a's own listing stays (its read model is not rebuilt here); b's is gone at once.
-        expect(await shown()).toEqual([false, true]);
-      }
+      // Unverified: a's own listing stays (its read model is not rebuilt here); b's is gone at once.
+      await setAgencyStatus(a.agencyId, 'PENDING');
+      expect(await shown()).toEqual([false, true]);
+      // S13-F1 review: suspended, the whole page is gone (an unknown link), as a suspended agency's portal feeds.
+      await setAgencyStatus(a.agencyId, 'SUSPENDED');
+      expect(await refusal(presentations.selectionPage(made.share.token))).toBe('SELECTION_NOT_FOUND');
       await setAgencyStatus(a.agencyId, 'VERIFIED');
       expect(await shown()).toEqual([true, true]);
       // The owner suspended: its listing leaves a's page at the next view, before any rebuild.
@@ -443,5 +457,149 @@ describe('selections (S12-04)', () => {
     const forAna = await as(a, (ctx) => presentations.listSelections(ctx, { limit: 50, contactId }));
     expect(forAna.items.every((i) => i.contactId === contactId)).toBe(true);
     expect(forAna.items.find((i) => i.title === 'Tracked')?.stats.views).toBe(1);
+  });
+
+  it('[S13-F1] app_public reads no selection or item row: RLS refuses both tables, even with the token hash', async () => {
+    const made = await create({
+      title: 'Locked',
+      locale: 'en',
+      message: `For Ms Locked ${RUN}`,
+      items: [{ targetId: L.own, note: `Ms Locked ${RUN} loved the terrace` }],
+    });
+    const hash = selectionTokenHash(made.share.token);
+    const id = made.selection.id;
+    const reads = [
+      sql`select count(*) from selections`,
+      sql`select title, message from selections where token_hash = ${hash}`,
+      sql`select count(*) from selection_items`,
+      sql`select note from selection_items where selection_id = ${id}`,
+    ];
+    for (const read of reads) {
+      expect(await pgState(withPublicRead((tx) => tx.execute(read)))).toBe('42501');
+    }
+    // No hash, or another token's: nothing.
+    const by = (hashes: string[]) => {
+      const list =
+        hashes.length === 0
+          ? sql`array[]`
+          : sql`array[${sql.join(
+              hashes.map((h) => sql`${h}`),
+              sql`, `,
+            )}]`;
+      return withPublicRead(
+        async (tx) => (await tx.execute(sql`select * from selection_by_token(${list}::text[])`)).rows,
+      );
+    };
+    expect(await by([])).toHaveLength(0);
+    expect(await by([selectionTokenHash(`${'x'.repeat(35)}${RUN}`)])).toHaveLength(0);
+    expect(
+      await withPublicRead(async (tx) => (await tx.execute(sql`select * from selection_by_token(null)`)).rows),
+    ).toHaveLength(0);
+  });
+
+  it('[S13-F1] selection_by_token answers the live selection its hash names, with its items, and nothing else', async () => {
+    const made = await create({
+      title: 'Locked live',
+      locale: 'en',
+      message: 'Hello',
+      items: [{ targetId: L.own, note: 'Terrace' }, { targetId: L.network }],
+    });
+    const hash = selectionTokenHash(made.share.token);
+    const read = () =>
+      withPublicRead(
+        async (tx) => (await tx.execute(sql`select * from selection_by_token(array[${hash}]::text[])`)).rows,
+      );
+    const [row, ...rest] = await read();
+    expect(rest).toHaveLength(0);
+    // Only the page's columns: never who made it, the contact, the link hint or hash, the version.
+    expect(Object.keys(row ?? {}).sort()).toEqual([
+      'agency_id',
+      'expires_at',
+      'id',
+      'items',
+      'locale',
+      'message',
+      'title',
+    ]);
+    expect(row).toMatchObject({ id: made.selection.id, agency_id: a.agencyId, title: 'Locked live', message: 'Hello' });
+    expect(
+      ((row?.items ?? []) as { targetId: string; note: string | null }[]).map((i) => [i.targetId, i.note]),
+    ).toEqual([
+      [L.own, 'Terrace'],
+      [L.network, null],
+    ]);
+    // The page itself still renders through it.
+    expect((await presentations.selectionPage(made.share.token)).items).toHaveLength(2);
+    // Expired or revoked: no row.
+    await withSystem('sel.test', (tx) =>
+      tx.execute(sql`update selections set expires_at = now() - interval '1 minute' where id = ${made.selection.id}`),
+    );
+    expect(await read()).toHaveLength(0);
+    await withSystem('sel.test', (tx) =>
+      tx.execute(sql`update selections set expires_at = null, revoked_at = now() where id = ${made.selection.id}`),
+    );
+    expect(await read()).toHaveLength(0);
+    // Only app_public may call it: a member session (app_user) is refused, and still reads its own rows directly.
+    expect(
+      await pgState(as(a, (ctx) => ctx.tx.execute(sql`select * from selection_by_token(array[${hash}]::text[])`))),
+    ).toBe('42501');
+    const own = await as(a, (ctx) =>
+      ctx.tx.execute(sql`select count(*)::int as n from selections where id = ${made.selection.id}`),
+    );
+    expect(own.rows[0]).toEqual({ n: 1 });
+    const other = await as(b, (ctx) =>
+      ctx.tx.execute(sql`select count(*)::int as n from selections where id = ${made.selection.id}`),
+    );
+    expect(other.rows[0]).toEqual({ n: 0 });
+  });
+
+  it('[S13-F1] review: a suspended agency’s links answer nothing; a revoked or expired selection among the candidates neither', async () => {
+    const live = await create({ title: 'Candidate live', locale: 'en', items: [{ targetId: L.own }] });
+    const gone = await create({ title: 'Candidate gone', locale: 'en', items: [{ targetId: L.own }] });
+    const liveHash = selectionTokenHash(live.share.token);
+    const goneHash = selectionTokenHash(gone.share.token);
+    const read = (hashes: string[]) =>
+      withPublicRead(
+        async (tx) =>
+          (
+            await tx.execute(
+              sql`select id from selection_by_token(array[${sql.join(
+                hashes.map((h) => sql`${h}`),
+                sql`, `,
+              )}]::text[])`,
+            )
+          ).rows as { id: string }[],
+      );
+    // Two candidates (as with a rotated HMAC key), one of them revoked, then expired: only the live one answers.
+    await withSystem('sel.test', (tx) =>
+      tx.execute(sql`update selections set revoked_at = now() where id = ${gone.selection.id}`),
+    );
+    expect(await read([goneHash])).toEqual([]);
+    expect(await read([goneHash, liveHash])).toEqual([{ id: live.selection.id }]);
+    await withSystem('sel.test', (tx) =>
+      tx.execute(
+        sql`update selections set revoked_at = null, expires_at = now() - interval '1 minute' where id = ${gone.selection.id}`,
+      ),
+    );
+    expect(await read([goneHash])).toEqual([]);
+    expect(await read([liveHash, goneHash])).toEqual([{ id: live.selection.id }]);
+    // A suspended agency's links answer nothing: the page is an unknown link.
+    try {
+      await setAgencyStatus(a.agencyId, 'SUSPENDED');
+      expect(await read([liveHash])).toEqual([]);
+      expect(await refusal(presentations.selectionPage(live.share.token))).toBe('SELECTION_NOT_FOUND');
+      expect(await refusal(presentations.recordSelectionInteraction(live.share.token, { kind: 'VIEW' }))).toBe(
+        'SELECTION_NOT_FOUND',
+      );
+    } finally {
+      await setAgencyStatus(a.agencyId, 'VERIFIED');
+    }
+    expect(await read([liveHash])).toEqual([{ id: live.selection.id }]);
+    // No candidates, or more than the function reads (8): no lookup at all.
+    expect(await withPublicRead((tx) => repo.liveSelectionByTokenHash(tx, []))).toBeNull();
+    expect(await withPublicRead((tx) => repo.liveSelectionByTokenHash(tx, Array(9).fill(liveHash)))).toBeNull();
+    expect((await withPublicRead((tx) => repo.liveSelectionByTokenHash(tx, [goneHash, liveHash])))?.id).toBe(
+      live.selection.id,
+    );
   });
 });
