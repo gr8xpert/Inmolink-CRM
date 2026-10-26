@@ -744,7 +744,10 @@ describe('CSV import', () => {
     expect((await refusal(crm.uploadContactImport(runner(a), pdf))).code).toBe('CONTACT_IMPORT_FILE_INVALID');
 
     const idle = await crm.uploadContactImport(runner(a), csv(['email', email('idle')]));
-    const result = await sweepContactImports({ now: new Date(Date.now() + 25 * 3_600_000) });
+    const result = await sweepContactImports({
+      now: new Date(Date.now() + 25 * 3_600_000),
+      agencyIds: [a.agencyId, b.agencyId],
+    });
     expect(result.expired).toBeGreaterThanOrEqual(1);
     expect((await as(a, (ctx) => crm.getContactImport(ctx, idle.id))).status).toBe('EXPIRED');
     expect(await store.get('private', contactImportKey(a.agencyId, idle.id), { maxBytes: 1_000_000 })).toBeNull();
@@ -761,7 +764,7 @@ describe('CSV import', () => {
     await store.put('private', key, csv(['email', email('left')]), { contentType: 'text/csv' });
     await system((tx) => tx.execute(sql`update contact_imports set file_deleted_at = null where id = ${upload.id}`));
 
-    const result = await sweepContactImports({ now: new Date(Date.now() + 2 * 3_600_000) });
+    const result = await sweepContactImports({ now: new Date(Date.now() + 2 * 3_600_000), agencyIds: [a.agencyId] });
     expect(result.filesDeleted).toBeGreaterThanOrEqual(1);
     expect(await store.get('private', key, { maxBytes: 1_000_000 })).toBeNull();
     const [state] = await rows<{ status: string; file_deleted_at: Date | null }>(

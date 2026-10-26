@@ -663,9 +663,12 @@ export const IMPORT_FINISHED_GRACE_MS = 3_600_000;
  * `crm.sweepContactImports` (daily): deletes the files left in storage — uploads never started within
  * `IMPORT_UPLOAD_TTL_MS` (expired first, so a start racing the sweep finds `EXPIRED`), and finished runs whose own
  * delete failed (`file_deleted_at` null after `IMPORT_FINISHED_GRACE_MS`). System role (every agency); a file whose
- * delete fails again stays listed for the next pass.
+ * delete fails again stays listed for the next pass. `agencyIds` limits the pass to those agencies (tests on a shared
+ * database; the job passes none).
  */
-export async function sweepContactImports(opts: { now?: Date; signal?: AbortSignal } = {}): Promise<{
+export async function sweepContactImports(
+  opts: { now?: Date; signal?: AbortSignal; agencyIds?: readonly string[] } = {},
+): Promise<{
   expired: number;
   filesDeleted: number;
 }> {
@@ -678,9 +681,9 @@ export async function sweepContactImports(opts: { now?: Date; signal?: AbortSign
   for (;;) {
     if (opts.signal?.aborted) break;
     const batch = await withSystem('crm.sweepContactImports', async (tx) => {
-      const rows = (await repo.filesToSweep(tx, uploadedBefore, finishedBefore, SWEEP_BATCH + failed.size)).filter(
-        (r) => !failed.has(r.id),
-      );
+      const rows = (
+        await repo.filesToSweep(tx, uploadedBefore, finishedBefore, SWEEP_BATCH + failed.size, opts.agencyIds)
+      ).filter((r) => !failed.has(r.id));
       await repo.expireImports(
         tx,
         rows.filter((r) => r.status === 'UPLOADED').map((r) => r.id),

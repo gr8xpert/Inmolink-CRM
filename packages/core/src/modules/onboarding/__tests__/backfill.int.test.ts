@@ -154,51 +154,48 @@ describe('onboarding backfill', () => {
     expect(await onboarding.backfillAgency(full.agencyId)).toBe(0);
     expect(await steps(full.agencyId)).toEqual(before);
 
-    // The shared test database holds thousands of agencies and other files add more meanwhile (CI): walk from just
-    // before this file's agencies (ids are time-ordered), so the keyset pages over them and whatever came later.
+    // The shared test database holds thousands of agencies and other files add more meanwhile: walk from just before
+    // this file's agencies (ids are time-ordered) and stop at a fixed bound — the page that passes the last of them.
     const ours = [full.agencyId, listingOnly.agencyId, empty.agencyId].sort();
+    const last = ours[ours.length - 1] as string;
     const start = await system(async (tx) => {
       const r = await tx.execute<{ id: string | null }>(
         sql`select agency_id::text as id from agencies where agency_id < ${ours[0]}::uuid order by agency_id desc limit 1`,
       );
       return r.rows[0]?.id ?? undefined;
     });
-    const countBefore = await system(async (tx) =>
-      Number(
-        (
-          await tx.execute(
-            start
-              ? sql`select count(*) as n from agencies where agency_id > ${start}::uuid`
-              : sql`select count(*) as n from agencies`,
-          )
-        ).rows[0]?.n,
-      ),
-    );
-    const pages: onboarding.BackfillProgress[] = [];
-    const all = await onboarding.backfillOnboarding({
-      ...(start ? { after: start } : {}),
-      batch: 2,
-      onPage: (p) => pages.push(p),
-    });
-    expect(all.agencies).toBeGreaterThanOrEqual(countBefore);
-    expect(pages.length).toBeGreaterThanOrEqual(Math.ceil(countBefore / 2));
-    expect(all.changed).toBeGreaterThanOrEqual(0);
+    const STOP = new Error('walk bound reached');
+    const walk = async (after: string | undefined, batch: number) => {
+      const pages: onboarding.BackfillProgress[] = [];
+      try {
+        await onboarding.backfillOnboarding({
+          ...(after ? { after } : {}),
+          batch,
+          onPage: (p) => {
+            pages.push(p);
+            if ((p.lastAgencyId ?? '') >= last) throw STOP;
+          },
+        });
+      } catch (e) {
+        if (e !== STOP) throw e;
+      }
+      return pages;
+    };
+    const pages = await walk(start, 2);
+    // every one of this file's agencies lies in the walked range, two per page at most
+    expect(pages.length).toBeGreaterThanOrEqual(2);
+    expect(pages[pages.length - 1]?.agencies).toBeGreaterThanOrEqual(ours.length);
     expect(await steps(full.agencyId)).toEqual(before);
 
-    // resumable: starting after an agency visits only the ones after it
-    // (other files keep creating agencies — newer ids — so count only the ones after the cursor at the start)
-    const afterCursor = await system(async (tx) =>
-      Number(
-        (await tx.execute(sql`select count(*) as n from agencies where agency_id > ${full.agencyId}::uuid`)).rows[0]?.n,
-      ),
-    );
-    const resumed = await onboarding.backfillOnboarding({ after: full.agencyId, batch: 2 });
-    expect(resumed.agencies).toBeGreaterThanOrEqual(afterCursor);
+    // resumable: starting after an agency visits the ones after it (the walk stops at the same bound)
+    const resumed = await walk(ours[0], 2);
+    expect(resumed[resumed.length - 1]?.agencies).toBeGreaterThanOrEqual(ours.length - 1);
+    expect((resumed[0]?.lastAgencyId as string) > (ours[0] as string)).toBe(true);
     expect(await steps(full.agencyId)).toEqual(before);
 
-    // idempotent: a second full run changes nothing for agencies already backfilled
+    // idempotent: a second walk changes nothing for agencies already backfilled
     const listingOnlyBefore = await steps(listingOnly.agencyId);
-    await onboarding.backfillOnboarding({ ...(start ? { after: start } : {}), batch: 500 });
+    await walk(start, 500);
     expect(await steps(full.agencyId)).toEqual(before);
     expect(await steps(listingOnly.agencyId)).toEqual(listingOnlyBefore);
   });

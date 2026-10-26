@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- test(crm,onboarding): shared-DB-safe tests — sweepContactImports agency scope, bounded backfill walk, studio event ordering [S14-F3]
 - feat(billing): one plan in force (SQL plansInForce, batched in the grant/grace jobs), one graceStart helper; null past_due_since grace end announced [S14-F1]
 - feat(migration): read-only legacy extract to NDJSON staging plus entity inventory (pnpm legacy:extract) [S14-01]
 - fix(outbox): dispatcher claim runs with JIT off (a ~540k-row outbox made Postgres JIT-compile it: 6 s per claim); worker: every pool loads MEDIA_URL_KEY (read-model rebuilds outside the media pool failed); e2e: collaboration asserts the listing reference shown since S12-F21 [S13 review]

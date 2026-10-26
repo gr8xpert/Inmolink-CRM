@@ -778,11 +778,18 @@ export async function filesToSweep(
   uploadedBefore: Date,
   finishedBefore: Date,
   limit: number,
+  agencyIds?: readonly string[],
 ): Promise<{ id: string; agencyId: string; status: string }[]> {
+  const scope = agencyIds
+    ? sql`and agency_id in (${sql.join(
+        agencyIds.map((id) => sql`${id}::uuid`),
+        sql`, `,
+      )})`
+    : sql``;
   const latest = uploadedBefore > finishedBefore ? uploadedBefore : finishedBefore;
   const res = await tx.execute(sql`
     select id, agency_id as "agencyId", status from ${contactImports}
-    where file_deleted_at is null and created_at < ${latest.toISOString()}::timestamptz
+    where file_deleted_at is null and created_at < ${latest.toISOString()}::timestamptz ${scope}
       and ((status = 'UPLOADED' and created_at < ${uploadedBefore.toISOString()}::timestamptz)
         or (status in ('SUCCEEDED', 'FAILED', 'EXPIRED')
           and coalesce(finished_at, created_at) < ${finishedBefore.toISOString()}::timestamptz))
