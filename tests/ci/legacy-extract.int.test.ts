@@ -37,6 +37,7 @@ beforeAll(async () => {
     CREATE TABLE properties (id int PRIMARY KEY, agency_id int, ref text, price bigint, meta jsonb);
     CREATE TABLE property_images (id int PRIMARY KEY, property_id int, url text);
     CREATE TABLE developments (id int PRIMARY KEY, agency_id int, name text);
+    CREATE TABLE development_units (id int PRIMARY KEY, development_id int, ref text);
     CREATE TABLE mystery_log (id int PRIMARY KEY);
     INSERT INTO agencies VALUES (1,'Alpha'),(2,'Beta');
     INSERT INTO users VALUES (1,1,'a@x.test'),(2,2,'b@x.test');
@@ -45,6 +46,7 @@ beforeAll(async () => {
     INSERT INTO properties SELECT g, 1 + g % 2, 'R' || g, 100000000000 + g, '{"z":1,"a":[2]}' FROM generate_series(1, 12) g;
     INSERT INTO property_images SELECT g, 1 + g % 12, 'http://img/' || g FROM generate_series(1, 40) g;
     INSERT INTO developments VALUES (1,1,'Dev');
+    INSERT INTO development_units VALUES (1,1,'A1'),(2,1,'A2');
   `);
   await c.end();
 });
@@ -67,6 +69,7 @@ describe('legacy extract', () => {
       property_images: 40,
       leads: 2,
       developments: 1,
+      development_units: 2,
     });
     const a1 = inv.agencies[0]?.entities;
     expect(a1?.contacts).toMatchObject({ legacyRows: 12, extractedRows: 12 });

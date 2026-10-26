@@ -18,6 +18,13 @@ export {
 } from './feed';
 export { DEVELOPMENT_DOCUMENT_ORPHAN_MIN_AGE_MS, developmentsJobs, PURGE_UNIT_BUDGET } from './jobs';
 export {
+  importLegacyDevelopments,
+  type LegacyDevelopmentInput,
+  type LegacyDevelopmentsResult,
+  type LegacyOutcome,
+  type LegacyUnitInput,
+} from './legacy';
+export {
   developmentLabels,
   leadTargetOwner,
   type NetworkDevelopmentTerms,

@@ -31,6 +31,7 @@
     "wp:test": "tsx scripts/ops/wp-test.ts",
     "legacy:extract": "tsx scripts/legacy-migration/extract.ts",
     "legacy:taxonomy": "tsx --conditions=@inmolink/source scripts/legacy-migration/taxonomy.ts",
+    "legacy:developments": "tsx --conditions=@inmolink/source scripts/legacy-migration/developments.ts",
     "legacy:traffic": "tsx scripts/legacy-api/traffic.ts",
     "legacy:record": "tsx scripts/legacy-api/record.ts",
     "legacy:scan": "tsx scripts/legacy-api/scan.ts",

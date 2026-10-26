@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- feat(migration): legacy new-build import — staged developments and units to v2 with legacy id maps and a count report; reusable load toolkit [S4-04]
 - test(crm,onboarding): shared-DB-safe tests — sweepContactImports agency scope, bounded backfill walk, studio event ordering [S14-F3]
 - feat(billing): one plan in force (SQL plansInForce, batched in the grant/grace jobs), one graceStart helper; null past_due_since grace end announced [S14-F1]
 - feat(migration): read-only legacy extract to NDJSON staging plus entity inventory (pnpm legacy:extract) [S14-01]

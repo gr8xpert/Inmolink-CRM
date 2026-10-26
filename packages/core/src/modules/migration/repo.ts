@@ -7,14 +7,17 @@ import { legacyIdMaps } from '@inmolink/db/schema/migration';
 import { and, eq, inArray, type SQL, sql } from 'drizzle-orm';
 
 export type MapEntity = 'location' | 'propertyType' | 'feature';
-/** Every entity a legacy id may name: taxonomy (S2-06) and, from the legacy migration (S14), listings and units. */
-export type LegacyEntity = MapEntity | 'listing' | 'unit';
+/**
+ * Every entity a legacy id may name: taxonomy (S2-06), the agency a legacy agency became and, from the legacy
+ * migration (S4-04, S14), developments, units, listings and the rest.
+ */
+export type LegacyEntity = MapEntity | 'agency' | 'development' | 'unit' | 'listing';
 export type IdMapRow = { id: string; legacyId: string; newId: string; method: string };
 
 /** Current maps of the given legacy IDs of one entity (one statement per chunk). */
 export async function getMaps(
   tx: Tx,
-  entity: MapEntity,
+  entity: LegacyEntity,
   legacyIds: readonly string[],
 ): Promise<Map<string, { newId: string; method: string }>> {
   const out = new Map<string, { newId: string; method: string }>();
@@ -32,7 +35,7 @@ export async function getMaps(
  * Idempotent: a re-run with the same pair changes nothing visible; a moved target is replaced. A staff-set
  * map (`method = 'manual'`) is never overwritten.
  */
-export async function upsertMaps(tx: Tx, entity: MapEntity, rows: readonly IdMapRow[]): Promise<void> {
+export async function upsertMaps(tx: Tx, entity: LegacyEntity, rows: readonly IdMapRow[]): Promise<void> {
   for (let i = 0; i < rows.length; i += 1000) {
     await tx
       .insert(legacyIdMaps)

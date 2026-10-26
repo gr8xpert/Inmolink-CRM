@@ -1062,3 +1062,270 @@ export async function withdrawFeedUnits(
     .returning({ id: units.id });
   return rows.map((r) => r.id);
 }
+
+// ── Legacy import (S4-04) ─────────────────────────────────────────────────────────────────────────────────────────
+
+/** A development the legacy import may match: by its legacy id, or holding the reference it would take. */
+export type LegacyMatchRow = Pick<
+  typeof developments.$inferSelect,
+  | 'id'
+  | 'ref'
+  | 'legacyId'
+  | 'name'
+  | 'status'
+  | 'completionDate'
+  | 'locationId'
+  | 'lat'
+  | 'lng'
+  | 'commissionBp'
+  | 'currency'
+  | 'version'
+  | 'deletedAt'
+>;
+
+/**
+ * The agency's developments with these legacy ids or these references (deleted ones included), row-locked in
+ * reference order. One statement (`developments_agency_legacy_idx`, `developments_agency_ref_uq`). Reads `legacy_id`:
+ * `app_system` only (registry `hiddenColumns`).
+ */
+export async function legacyMatchesForUpdate(
+  tx: Tx,
+  agencyId: string,
+  legacyIds: readonly string[],
+  refs: readonly string[],
+): Promise<LegacyMatchRow[]> {
+  if (legacyIds.length === 0 && refs.length === 0) return [];
+  return tx
+    .select({
+      id: developments.id,
+      ref: developments.ref,
+      legacyId: developments.legacyId,
+      name: developments.name,
+      status: developments.status,
+      completionDate: developments.completionDate,
+      locationId: developments.locationId,
+      lat: developments.lat,
+      lng: developments.lng,
+      commissionBp: developments.commissionBp,
+      currency: developments.currency,
+      version: developments.version,
+      deletedAt: developments.deletedAt,
+    })
+    .from(developments)
+    .where(
+      and(
+        eq(developments.agencyId, agencyId),
+        sql`(${developments.legacyId} = any(${array(legacyIds, 'text')}) or ${developments.ref} = any(${array(refs, 'text')}))`,
+      ),
+    )
+    .orderBy(asc(developments.ref))
+    .for('update');
+}
+
+/** The legacy-owned columns of a development (S4-04). */
+export interface LegacyDevelopmentValues {
+  id: string;
+  name: string;
+  status: DevelopmentRow['status'];
+  completionDate: string | null;
+  locationId: string;
+  lat: number | null;
+  lng: number | null;
+  commissionBp: number | null;
+}
+
+export interface LegacyDevelopmentInsert extends LegacyDevelopmentValues {
+  ref: string;
+  legacyId: string;
+  currency: string;
+}
+
+const legacyDevelopmentColumns = (rows: readonly LegacyDevelopmentValues[]) => {
+  const col = <K extends keyof LegacyDevelopmentValues>(k: K, type: string) =>
+    array(
+      rows.map((r) => r[k]),
+      type,
+    );
+  return sql`${col('id', 'uuid')}, ${col('name', 'text')}, ${col('status', 'development_status')}, ${col('completionDate', 'date')}, ${col('locationId', 'uuid')}, ${col('lat', 'numeric')}, ${col('lng', 'numeric')}, ${col('commissionBp', 'integer')}`;
+};
+const LEGACY_DEVELOPMENT_NAMES = sql.raw('id, name, status, completion_date, location_id, lat, lng, commission_bp');
+
+/** Many legacy developments of one agency, one statement (one parameter per column). Returns ids and versions. */
+export async function insertLegacyDevelopments(
+  tx: Tx,
+  agencyId: string,
+  rows: readonly LegacyDevelopmentInsert[],
+): Promise<{ id: string; version: number }[]> {
+  if (rows.length === 0) return [];
+  const result = await tx.execute(sql`insert into ${developments}
+      (id, agency_id, ref, legacy_id, currency, name, status, completion_date, location_id, lat, lng, commission_bp)
+    select v.id, ${agencyId}::uuid, v.ref, v.legacy_id, v.currency, v.name, v.status, v.completion_date, v.location_id,
+           v.lat, v.lng, v.commission_bp
+      from unnest(${legacyDevelopmentColumns(rows)}, ${array(
+        rows.map((r) => r.ref),
+        'text',
+      )}, ${array(
+        rows.map((r) => r.legacyId),
+        'text',
+      )}, ${array(
+        rows.map((r) => r.currency),
+        'text',
+      )}) as v(${LEGACY_DEVELOPMENT_NAMES}, ref, legacy_id, currency)
+    returning id, version`);
+  return result.rows as { id: string; version: number }[];
+}
+
+/** The legacy-owned columns of many developments, one statement. Returns ids and new versions. */
+export async function setLegacyDevelopments(
+  tx: Tx,
+  agencyId: string,
+  rows: readonly LegacyDevelopmentValues[],
+): Promise<{ id: string; version: number }[]> {
+  if (rows.length === 0) return [];
+  const v = sql`v`;
+  return tx
+    .update(developments)
+    .set({
+      name: sql`${v}.name`,
+      status: sql`${v}.status`,
+      completionDate: sql`${v}.completion_date`,
+      locationId: sql`${v}.location_id`,
+      lat: sql`${v}.lat`,
+      lng: sql`${v}.lng`,
+      commissionBp: sql`${v}.commission_bp`,
+      version: sql`${developments.version} + 1`,
+      updatedAt: sql`now()`,
+    })
+    .from(sql`unnest(${legacyDevelopmentColumns(rows)}) as v(${LEGACY_DEVELOPMENT_NAMES})`)
+    .where(and(eq(developments.agencyId, agencyId), sql`${developments.id} = ${v}.id`))
+    .returning({ id: developments.id, version: developments.version });
+}
+
+export type LegacyTextRow = {
+  developmentId: string;
+  locale: string;
+  title: string;
+  description: string | null;
+  slug: string;
+};
+
+/** The title, description and slug of these developments per locale, and whether a person locked them. One statement. */
+export async function legacyTextsOf(
+  tx: Tx,
+  developmentIds: readonly string[],
+): Promise<(LegacyTextRow & { locked: boolean })[]> {
+  if (developmentIds.length === 0) return [];
+  return tx
+    .select({
+      developmentId: developmentTranslations.developmentId,
+      locale: developmentTranslations.locale,
+      title: developmentTranslations.title,
+      description: developmentTranslations.description,
+      slug: developmentTranslations.slug,
+      locked: developmentTranslations.locked,
+    })
+    .from(developmentTranslations)
+    .where(sql`${developmentTranslations.developmentId} = any(${array(developmentIds, 'uuid')})`);
+}
+
+/** Inserts or updates these texts, one statement; a locked text (a person fixed it) is never overwritten. */
+export async function upsertLegacyTexts(tx: Tx, agencyId: string, rows: readonly LegacyTextRow[]): Promise<void> {
+  if (rows.length === 0) return;
+  const col = <K extends keyof LegacyTextRow>(k: K, type: string) =>
+    array(
+      rows.map((r) => r[k]),
+      type,
+    );
+  await tx.execute(sql`insert into ${developmentTranslations} (development_id, agency_id, locale, title, description, slug)
+    select v.development_id, ${agencyId}::uuid, v.locale, v.title, v.description, v.slug
+      from unnest(${col('developmentId', 'uuid')}, ${col('locale', 'text')}, ${col('title', 'text')},
+                  ${col('description', 'text')}, ${col('slug', 'text')}) as v(development_id, locale, title, description, slug)
+    on conflict (development_id, locale) do update
+      set title = excluded.title, description = excluded.description, slug = excluded.slug, updated_at = now()
+      where not ${developmentTranslations}.locked`);
+}
+
+/** The legacy-owned columns of a unit (S4-04). */
+export interface LegacyUnitValues {
+  id: string;
+  developmentId: string;
+  ref: string;
+  propertyTypeId: string;
+  bedrooms: number | null;
+  bathrooms: number | null;
+  internalM2: number | null;
+  terraceM2: number | null;
+  plotM2: number | null;
+  floor: number | null;
+  orientation: UnitRow['orientation'];
+  priceCents: number | null;
+  status: UnitRow['status'];
+}
+
+const legacyUnitColumns = (values: readonly LegacyUnitValues[]) => {
+  const col = <K extends keyof LegacyUnitValues>(k: K, type: string) =>
+    array(
+      values.map((r) => r[k]),
+      type,
+    );
+  return sql`${col('id', 'uuid')}, ${col('developmentId', 'uuid')}, ${col('ref', 'text')}, ${col('propertyTypeId', 'uuid')}, ${col('bedrooms', 'integer')}, ${col('bathrooms', 'integer')}, ${col('internalM2', 'numeric')}, ${col('terraceM2', 'numeric')}, ${col('plotM2', 'numeric')}, ${col('floor', 'smallint')}, ${col('orientation', 'orientation')}, ${col('priceCents', 'bigint')}, ${col('status', 'unit_status')}`;
+};
+const LEGACY_UNIT_NAMES = sql.raw(
+  'id, development_id, ref, property_type_id, bedrooms, bathrooms, internal_m2, terrace_m2, plot_m2, floor, orientation, price_cents, status',
+);
+
+/** Many legacy units of many developments of one agency, one statement. Returns how many were written. */
+export async function insertLegacyUnits(
+  tx: Tx,
+  agencyId: string,
+  values: readonly (LegacyUnitValues & { currency: string })[],
+): Promise<number> {
+  if (values.length === 0) return 0;
+  const result = await tx.execute(sql`insert into ${units}
+      (id, development_id, agency_id, ref, property_type_id, bedrooms, bathrooms, internal_m2, terrace_m2, plot_m2,
+       floor, orientation, price_cents, status, currency)
+    select v.id, v.development_id, ${agencyId}::uuid, v.ref, v.property_type_id, v.bedrooms, v.bathrooms, v.internal_m2,
+           v.terrace_m2, v.plot_m2, v.floor, v.orientation, v.price_cents, v.status, v.currency
+      from unnest(${legacyUnitColumns(values)}, ${array(
+        values.map((r) => r.currency),
+        'text',
+      )}) as v(${LEGACY_UNIT_NAMES}, currency)`);
+  return result.rowCount ?? values.length;
+}
+
+/** The legacy-owned columns of many units, one statement. Returns ids and new versions. */
+export async function setLegacyUnits(
+  tx: Tx,
+  agencyId: string,
+  values: readonly LegacyUnitValues[],
+): Promise<{ id: string; version: number }[]> {
+  if (values.length === 0) return [];
+  const v = sql`v`;
+  return tx
+    .update(units)
+    .set({
+      ref: sql`${v}.ref`,
+      propertyTypeId: sql`${v}.property_type_id`,
+      bedrooms: sql`${v}.bedrooms`,
+      bathrooms: sql`${v}.bathrooms`,
+      internalM2: sql`${v}.internal_m2`,
+      terraceM2: sql`${v}.terrace_m2`,
+      plotM2: sql`${v}.plot_m2`,
+      floor: sql`${v}.floor`,
+      orientation: sql`${v}.orientation`,
+      priceCents: sql`${v}.price_cents`,
+      status: sql`${v}.status`,
+      version: sql`${units.version} + 1`,
+      updatedAt: sql`now()`,
+    })
+    .from(sql`unnest(${legacyUnitColumns(values)}) as v(${LEGACY_UNIT_NAMES})`)
+    .where(
+      and(
+        eq(units.agencyId, agencyId),
+        sql`${units.developmentId} = any(${array([...new Set(values.map((r) => r.developmentId))], 'uuid')})`,
+        sql`${units.id} = ${v}.id`,
+        sql`${units.developmentId} = ${v}.development_id`,
+      ),
+    )
+    .returning({ id: units.id, version: units.version });
+}
