@@ -7,7 +7,8 @@ import type { Ctx, StaffCtx } from '../../context';
  * Every member reads their own checklist; Client Mode reaches nothing (the checklist is the agency's business, not a
  * client's). Nobody ticks a step: steps complete from the agency's events only.
  */
-export type OnboardingAction = 'onboarding.read';
+export const ONBOARDING_ACTIONS = ['onboarding.read'] as const;
+export type OnboardingAction = (typeof ONBOARDING_ACTIONS)[number];
 
 /** Client Mode is read-only (PATTERNS §6) — and the checklist is not part of it at all. */
 export const CLIENT_MODE_ALLOWED: ReadonlySet<OnboardingAction> = new Set<OnboardingAction>();

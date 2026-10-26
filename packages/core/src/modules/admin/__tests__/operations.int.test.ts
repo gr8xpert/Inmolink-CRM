@@ -107,7 +107,7 @@ describe('outbox replay policy (S13-03 review)', () => {
           }),
         ),
       );
-    expect(await start(dataOps, 'properties.listing.updated')).toBe('accepted');
+    expect(await start(dataOps, 'properties.listing.created')).toBe('accepted');
     await endActive();
     expect(await start(dataOps, 'agencies.status.changed')).toBe('OUTBOX_REPLAY_TYPE_REFUSED');
     expect(await start(superAdmin, 'agencies.status.changed')).toBe('accepted');
@@ -122,7 +122,27 @@ describe('outbox replay policy (S13-03 review)', () => {
     ]) {
       expect(await start(superAdmin, type), type).toBe('OUTBOX_REPLAY_TYPE_REFUSED');
     }
-    expect(admin.replayClass('properties.listing.updated')).toBe('SAFE');
+    expect(admin.replayClass('properties.listing.created')).toBe('SAFE');
+  });
+
+  it('[S13 review] events whose portal-feed subscriber queues portal pushes need a super admin', async () => {
+    const m = await createFounder();
+    for (const type of ['exports.connection.changed', 'imports.run.finished', 'properties.listing.updated']) {
+      expect(admin.replayClass(type), type).toBe('SUPER_ADMIN');
+      expect(
+        await refusal(
+          asStaff(dataOps, (ctx) =>
+            admin.startOperation(ctx, {
+              kind: 'REPLAY_OUTBOX',
+              agencyId: m.agencyId,
+              reason: REASON,
+              replay: { ...window(), type, deadOnly: false },
+            }),
+          ),
+        ),
+        type,
+      ).toBe('OUTBOX_REPLAY_TYPE_REFUSED');
+    }
   });
 
   it('[S13-03] a replay window over the configured cap ends FAILED (REPLAY_TOO_LARGE) without re-queueing anything', async () => {

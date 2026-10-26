@@ -1,7 +1,8 @@
 import { ONBOARDING_STEPS } from '@inmolink/contracts';
 import { describe, expect, it } from 'vitest';
 import type { Ctx, StaffCtx } from '../../../context';
-import { CLIENT_MODE_ALLOWED, can, canStaff, ROLE_STEPS, stepsForRole } from '../policy';
+import { expectClientModePinned } from '../../../testing/client-mode-pin';
+import { CLIENT_MODE_ALLOWED, can, canStaff, ONBOARDING_ACTIONS, ROLE_STEPS, stepsForRole } from '../policy';
 
 const AGENCY = '01900000-0000-7000-8000-000000000001';
 const OTHER_AGENCY = '01900000-0000-7000-8000-000000000002';
@@ -22,6 +23,16 @@ const staff = (role: StaffCtx['actor']['role']) =>
   ({ tx: {}, actor: { kind: 'staff', userId: 'u', role }, requestId: 't' }) as unknown as StaffCtx;
 
 describe('onboarding policy', () => {
+  it('[S13 review] Client Mode allow-list pinned: nothing', () => {
+    expectClientModePinned({
+      actions: ONBOARDING_ACTIONS,
+      allowed: CLIENT_MODE_ALLOWED,
+      pinned: [],
+      can: (ctx, action) => can(ctx, action),
+      admin: ctxAs({ kind: 'user', userId: '01900000-0000-7000-8000-0000000000ab', role: 'AGENCY_ADMIN' }),
+    });
+  });
+
   it('lets a user read their own agency', () => {
     expect(can(user, 'onboarding.read')).toBe(true);
     expect(can(user, 'onboarding.read', { agencyId: AGENCY })).toBe(true);

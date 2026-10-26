@@ -199,8 +199,9 @@ export async function createContact(
   }
   if (owners.length > 0) throw new AppError('CONTACT_DUPLICATE', { matches: matchesOf(owners) });
   await assertOwner(ctx, input.ownerUserId);
-  // S13-F21: Free's CRM holds 100 contacts (PLAN §11); counted only when the plan has a limit (merges add none).
-  await billing.requireQuota(ctx, 'crm_contacts', (limit) => repo.countLiveContactsUpTo(ctx.tx, agencyId, limit));
+  // S13-F21: Free's CRM holds 100 contacts (PLAN §11); counted only when the plan has a limit (merges add none),
+  // under the agency's contact-quota lock (S13 review: parallel creates at the limit cannot both pass).
+  await billing.requireQuota(ctx, 'crm_contacts', repo.contactQuotaUsed(ctx.tx, agencyId));
 
   const id = newId();
   const now = new Date();

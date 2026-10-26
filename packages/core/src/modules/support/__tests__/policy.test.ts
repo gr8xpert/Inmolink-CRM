@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Ctx, StaffCtx } from '../../../context';
-import { CLIENT_MODE_ALLOWED, can, canStaff } from '../policy';
+import { expectClientModePinned } from '../../../testing/client-mode-pin';
+import { CLIENT_MODE_ALLOWED, can, canStaff, SUPPORT_ACTIONS } from '../policy';
 
 const AGENCY = '01900000-0000-7000-8000-000000000001';
 const OTHER_AGENCY = '01900000-0000-7000-8000-000000000002';
@@ -25,6 +26,16 @@ const staff = (role: StaffCtx['actor']['role']): StaffCtx => ({
 });
 
 describe('support policy', () => {
+  it('[S13 review] Client Mode allow-list pinned: nothing', () => {
+    expectClientModePinned({
+      actions: SUPPORT_ACTIONS,
+      allowed: CLIENT_MODE_ALLOWED,
+      pinned: [],
+      can: (ctx, action) => can(ctx, action),
+      admin: ctxAs({ kind: 'user', userId: '01900000-0000-7000-8000-0000000000ab', role: 'AGENCY_ADMIN' }),
+    });
+  });
+
   it('[S13-05] every member reads and writes their own agency’s tickets', () => {
     for (const action of ['support.read', 'support.write'] as const) {
       expect(can(user, action)).toBe(true);

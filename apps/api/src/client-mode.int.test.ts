@@ -339,3 +339,61 @@ describe('Client Mode refusals (S13-F4)', () => {
     ]);
   });
 });
+
+/**
+ * S13 review: the S13 member routes a client must never reach — support tickets, the onboarding checklist, billing and
+ * the AI-feature settings / Studio batches. Bodies the schemas accept, so the 403 is the policy's. A new route under
+ * these prefixes fails the first check until it is listed.
+ */
+const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]);
+const S13_CLIENT_MODE_REFUSED: Record<string, (() => unknown) | null> = {
+  'GET /v1/support/tickets': null,
+  'POST /v1/support/tickets': () => ({ subject: 'Help please', category: 'ACCOUNT', body: 'Something is wrong.' }),
+  'GET /v1/support/tickets/:id': null,
+  'POST /v1/support/tickets/:id/messages': () => ({ body: 'More detail.' }),
+  'POST /v1/support/tickets/:id/resolve': null,
+  'POST /v1/support/tickets/:id/attachments': null,
+  'GET /v1/support/tickets/:id/attachments/:attachmentId/url': null,
+  'GET /v1/onboarding': null,
+  'GET /v1/billing': null,
+  'GET /v1/billing/invoices': null,
+  'POST /v1/billing/checkout': () => ({ planCode: 'pro' }),
+  'POST /v1/billing/portal': null,
+  'GET /v1/agency/ai-features': null,
+  'PUT /v1/agency/ai-features/:feature': () => ({ enabled: true }),
+  'POST /v1/listing-studio-batches': () => ({ listingIds: [ids.ownListing] }),
+};
+
+describe('Client Mode refusals, S13 member routes (S13 review)', () => {
+  it('[S13 review] a Client Mode token gets 403 on /v1/support/*, /v1/onboarding, /v1/billing* and the AI-feature settings', async () => {
+    const covered = app.registeredRoutes
+      .filter((r) => !['HEAD', 'OPTIONS'].includes(r.method))
+      .filter((r) =>
+        /^\/v1\/(support\/|onboarding$|billing($|\/)|agency\/ai-features|listing-studio-batches)/.test(r.url),
+      )
+      // Stripe's webhook has no session (signature-verified, no member token): not a Client Mode route.
+      .filter((r) => r.url !== '/v1/billing/stripe/webhook')
+      .map((r) => `${r.method} ${r.url}`)
+      .sort();
+    expect(covered).toEqual(Object.keys(S13_CLIENT_MODE_REFUSED).sort());
+
+    const cm = await bearer(a, true);
+    const notRefused: string[] = [];
+    for (const [route, body] of Object.entries(S13_CLIENT_MODE_REFUSED)) {
+      const [method, pattern] = route.split(' ') as [string, string];
+      let url = urlFor(pattern.replace(':feature', 'LISTING_STUDIO'), ids.ownListing);
+      const upload = pattern.endsWith('/attachments');
+      if (upload) url += '?fileName=shot.png';
+      const res = await app.inject({
+        method: method as 'GET',
+        url,
+        headers: upload ? { ...cm, 'content-type': 'image/png' } : cm,
+        ...(upload ? { payload: Buffer.from(PNG) } : body ? { payload: body() as object } : {}),
+      });
+      if (res.statusCode !== 403 || res.json().error?.code !== 'FORBIDDEN') {
+        notRefused.push(`${route}: ${res.statusCode} ${res.body.slice(0, 200)}`);
+      }
+    }
+    expect(notRefused).toEqual([]);
+  });
+});

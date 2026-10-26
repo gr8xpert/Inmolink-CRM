@@ -6,6 +6,9 @@ import { deniedByImpersonation, type ImpersonationRules } from '../../impersonat
 export const BILLING_ACTIONS = ['billing.read', 'billing.manage'] as const;
 export type BillingAction = (typeof BILLING_ACTIONS)[number];
 
+/** Client Mode is read-only (PATTERNS §6) — and the plan, prices and invoices are not part of it at all. */
+export const CLIENT_MODE_ALLOWED: ReadonlySet<BillingAction> = new Set<BillingAction>();
+
 /** Staff impersonating a member (S1-09) may see the plan, never change plans, payment methods or invoices. */
 export const BILLING_IMPERSONATION: ImpersonationRules<BillingAction> = {
   'billing.read': 'allowed',
@@ -17,6 +20,7 @@ const ADMIN_ROLES = new Set(['AGENCY_ADMIN', 'DEVELOPER_ADMIN']);
 
 export function can(ctx: Ctx, action: BillingAction, resource?: { agencyId: string }): boolean {
   if (ctx.actor.kind !== 'user') return false;
+  if (ctx.clientMode && !CLIENT_MODE_ALLOWED.has(action)) return false;
   if (deniedByImpersonation(ctx, BILLING_IMPERSONATION, action)) return false;
   const sameAgency = !resource || resource.agencyId === ctx.tenant.agencyId;
   switch (action) {

@@ -1,9 +1,11 @@
+import { readFileSync } from 'node:fs';
 import { closeDb, withSystem } from '@inmolink/db';
 import { loadStackEnv, setupTestDb } from '@inmolink/db/testing';
 import { newId } from '@inmolink/platform/ids';
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createFounder, type Founder } from '../../../testing/factories';
+import * as billing from '../index';
 import * as billingWorker from '../worker';
 
 /** Billing notices to the agency's admins (S13-F22): dunning, Free, and the 3-days-before sweep. */
@@ -87,6 +89,18 @@ describe('billing notices (S13-F22)', () => {
     expect(await billingWorker.notifyAdmins(p)).toEqual({ notified: 1 });
     expect(await billingWorker.notifyAdmins(p)).toEqual({ notified: 0 });
     expect((await notesOf(f.agencyId, 'BILLING_PLAN_FREE')).map((n) => n.user_id)).toEqual([f.userId]);
+  });
+
+  it('[S13 review] a FREE notice for an agency actually on Pro sends nothing (the plan is read again)', async () => {
+    const catalog = JSON.parse(
+      readFileSync(new URL('../../../../../../scripts/ops/billing-catalog.json', import.meta.url), 'utf8'),
+    ) as { items: billing.CatalogInput[] };
+    await system((tx) => billing.upsertCatalog(tx, catalog.items, newId));
+    const f = await createFounder();
+    await grant(f, 'STAFF', 30); // on Pro until the grant ends
+    const p = { kind: 'FREE' as const, eventId: newId(), agencyId: f.agencyId, occurredAt: new Date().toISOString() };
+    expect(await billingWorker.notifyAdmins(p)).toEqual({ notified: 0 });
+    expect(await notesOf(f.agencyId, 'BILLING_PLAN_FREE')).toHaveLength(0);
   });
 
   it('[S13-F22] the sweep announces a trial or grant 3 days before it ends, once, to admins only', async () => {

@@ -182,9 +182,7 @@ export async function startContactImport(
   if (!current) throw new AppError('CONTACT_IMPORT_NOT_FOUND');
   if (current.status !== 'UPLOADED') throw new AppError('CONTACT_IMPORT_STARTED');
   // S13-F21: an agency already at its plan's contacts cannot start one (each batch is counted again by the run).
-  await billing.requireQuota(ctx, 'crm_contacts', (limit) =>
-    repo.countLiveContactsUpTo(ctx.tx, current.agencyId, limit),
-  );
+  await billing.requireQuota(ctx, 'crm_contacts', repo.contactQuotaUsed(ctx.tx, current.agencyId));
   const { onDuplicate, ...settings } = input;
   const m = settings.mapping;
   const columns = [m.firstName, m.lastName, m.fullName, m.language, m.tags, m.types, m.consentMarketing]
@@ -473,13 +471,7 @@ export async function importBatch(
   // under the agency's contact-quota lock (merges add none); a batch that would cross it is refused whole and the run
   // fails with `PLAN_REQUIRED` — the batches before it stay imported (their counts are on the import).
   if (created.length > 0) {
-    await billing.requireAgencyQuota(
-      tx,
-      agencyId,
-      'crm_contacts',
-      (limit) => repo.countLiveContactsUpTo(tx, agencyId, limit),
-      created.length,
-    );
+    await billing.requireAgencyQuota(tx, agencyId, 'crm_contacts', repo.contactQuotaUsed(tx, agencyId), created.length);
   }
   await repo.insertContacts(
     tx,

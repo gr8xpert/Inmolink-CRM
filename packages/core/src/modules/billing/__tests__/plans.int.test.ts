@@ -281,6 +281,31 @@ describe('plan gates (S13-02)', () => {
     expect(await planEvents(m.agencyId)).toHaveLength(2);
   });
 
+  it('[S13 review] RLS: a support session cannot append billing.plan.changed nor write the plan catalog', async () => {
+    const m = await createFounder();
+    const support = (await createStaffUser('STAFF_SUPPORT')).userId;
+    const attempt = (query: ReturnType<typeof sql>) =>
+      asStaff(support, (ctx) => ctx.tx.execute(query)).then(
+        () => 'inserted',
+        (err: Error & { cause?: Error }) => err.cause?.message ?? err.message,
+      );
+    // A forged plan notice: only an active super admin (the grant's own gate) may append it.
+    expect(
+      await attempt(sql`insert into outbox_events (id, agency_id, type, version, payload)
+        values (${newId()}::uuid, ${m.agencyId}::uuid, 'billing.plan.changed', 1,
+                ${JSON.stringify({ agencyId: m.agencyId, plan: 'free', reason: 'GRANT_ENDED' })}::jsonb)`),
+    ).toMatch(/row-level security/);
+    // The catalog is written by withSystem only; staff writes need a super admin.
+    const updated = await asStaff(support, (ctx) =>
+      ctx.tx.execute(sql`update billing_prices set amount_cents = 1 where currency = 'EUR' returning id`),
+    );
+    expect(updated.rows).toHaveLength(0);
+    expect(
+      await attempt(sql`insert into billing_catalog_items (id, code, kind, rank, features)
+        values (${newId()}::uuid, ${`forged-${newId().slice(-8)}`}, 'PLAN', 999, '{}')`),
+    ).toMatch(/row-level security/);
+  });
+
   it('[S13-02] plans not enforced (billing not live): every feature and seat stays open', async () => {
     const m = await createFounder();
     billing.configureBilling({});

@@ -11,7 +11,13 @@ import { registerSubscriptions } from './subscriptions';
 
 /** Subscribers that rebuild a projection or cache from current state (nothing reaches a person). */
 const PROJECTION =
-  /^(search\.(readModel|index)\.|quality\.recompute\.|websiteApi\.(edge|feed)\.|exports\.feed\.|properties\.overrides\.|taxonomy\.cache\.|agencies\.settingsCache\.|websites\.siteCache\.|media\.objects\.|onboarding\.progress\.)/;
+  /^(search\.(readModel|index)\.|quality\.recompute\.|websiteApi\.(edge|feed)\.|properties\.overrides\.|taxonomy\.cache\.|agencies\.settingsCache\.|websites\.siteCache\.|media\.objects\.|onboarding\.progress\.)/;
+
+/**
+ * Subscribers that call an outside system (S13 review): a portal feed pass (`exports.feed.*`) queues
+ * `exports.pushPortalListings` (idealista / Fotocasa API calls), so it is not a projection and its events are never SAFE.
+ */
+const EXTERNAL_PUSH = /^exports\.feed\./;
 
 /** Subscribers that mail, notify, alert, bill, call AI, post, write a timeline or start work. */
 const SIDE_EFFECT =
@@ -32,5 +38,15 @@ describe('outbox replay policy (S13-03)', () => {
     }
     expect(replayClass('identity.passwordReset.requested')).toBe('REFUSED');
     expect(replayClass('billing.plan.changed')).toBe('REFUSED');
+  });
+
+  it('[S13 review] events with a portal-push-queuing subscriber are never SAFE', () => {
+    const entries = defaultSubscribers.entries();
+    const pushing = entries.filter((e) => e.names.some((n) => EXTERNAL_PUSH.test(n)));
+    expect(pushing.length).toBeGreaterThan(0);
+    for (const { type, names } of pushing) expect(replayClass(type), `${type} (${names.join(', ')})`).not.toBe('SAFE');
+    for (const type of ['exports.connection.changed', 'imports.run.finished', 'properties.listing.updated']) {
+      expect(replayClass(type), type).toBe('SUPER_ADMIN');
+    }
   });
 });

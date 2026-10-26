@@ -236,9 +236,9 @@ export async function listInvoices(ctx: Ctx, q: ListInvoicesQuery): Promise<Invo
  * itself is recorded by the webhook job when Stripe confirms it.
  */
 export async function startCheckout(run: CtxRunner, input: StartCheckoutBody): Promise<BillingRedirectDto> {
-  const { stripe, returnUrl } = enabled();
   const plan = await run(async (ctx) => {
     assertCan(ctx, 'billing.manage');
+    enabled(); // S13 review: the policy answers first (Client Mode, roles), then whether billing is live
     const { agencyId } = ctx.tenant;
     const sub = await repo.subscriptionOf(ctx.tx, agencyId);
     const customer = await repo.customerOf(ctx.tx, agencyId);
@@ -271,6 +271,7 @@ export async function startCheckout(run: CtxRunner, input: StartCheckoutBody): P
     }
     return { agencyId, customer, lineItems, coupon, locale: ctx.locale, requestId: ctx.requestId };
   });
+  const { stripe, returnUrl } = enabled();
 
   // S13-01 security review: the webhook may not have reported a subscription yet, and another tab may hold an open
   // Checkout — ask Stripe, and expire open sessions so only this one can be paid.
@@ -329,11 +330,12 @@ const MONTH_MS = 30.4375 * 86_400_000;
 
 /** A Customer Portal session (plan changes, payment methods, VAT ID, cancellation, invoices). Admins only. */
 export async function openCustomerPortal(run: CtxRunner): Promise<BillingRedirectDto> {
-  const { stripe, returnUrl } = enabled();
   const customer = await run(async (ctx) => {
     assertCan(ctx, 'billing.manage');
+    enabled(); // S13 review: the policy answers first, then whether billing is live
     return repo.customerOf(ctx.tx, ctx.tenant.agencyId);
   });
+  const { stripe, returnUrl } = enabled();
   if (!customer) throw new AppError('BILLING_NO_CUSTOMER');
   return { url: (await callStripe(() => stripe.createPortalSession(customer, returnUrl))).url };
 }

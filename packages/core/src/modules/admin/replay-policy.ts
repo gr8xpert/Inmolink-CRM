@@ -4,8 +4,11 @@
  * alert or an AI call must never go out twice because an index was rebuilt.
  *
  * - `SAFE`: every subscriber is a projection or cache (read models, search index, quality scores, edge / feed caches,
- *   portal feed regeneration, override clean-up) — rebuilt from current state, nothing reaches a person. Data ops and
- *   super admins replay them.
+ *   override clean-up) — rebuilt from current state, nothing reaches a person or an outside system. Data ops and super
+ *   admins replay them. Portal feed passes (`exports.feed.*`) are not projections: a pass queues
+ *   `exports.pushPortalListings` (idealista / Fotocasa API calls), so `exports.connection.changed`,
+ *   `imports.run.finished` and `properties.listing.updated` are super-admin only (S13 review). The push sends only what
+ *   changed, so a replay is not always a re-push, but it does call the portals.
  * - `REFUSED`: identity, billing, notification, chat, e-mail, AI, social, CRM-timeline and job-starting events — never
  *   replayed by anyone (`OUTBOX_REPLAY_TYPE_REFUSED`).
  * - anything else: super admins only, naming the type.
@@ -16,7 +19,7 @@
 
 export type ReplayClass = 'SAFE' | 'REFUSED' | 'SUPER_ADMIN';
 
-/** Events whose subscribers only rebuild projections and caches (see the worker test). */
+/** Events whose subscribers only rebuild projections and caches (see the worker test); no portal-feed subscriber. */
 export const REPLAY_SAFE_TYPES: ReadonlySet<string> = new Set([
   'agencies.preferred.added',
   'agencies.preferred.removed',
@@ -30,15 +33,12 @@ export const REPLAY_SAFE_TYPES: ReadonlySet<string> = new Set([
   'developments.unit.priceChanged',
   'developments.unit.statusChanged',
   'developments.unit.updated',
-  'exports.connection.changed',
-  'imports.run.finished',
   'media.listing.changed',
   'media.object.referencesChanged',
   'properties.listing.confirmationDue',
   'properties.listing.created',
   'properties.listing.deleted',
   'properties.listing.restored',
-  'properties.listing.updated',
   'properties.listing.visibilityChanged',
   'properties.listings.imported',
   'taxonomy.data.changed',

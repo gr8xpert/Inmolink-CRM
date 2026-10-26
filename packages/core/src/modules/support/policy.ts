@@ -6,7 +6,8 @@ import type { Ctx, StaffCtx, StaffRole } from '../../context';
  * Every member of an agency reads and opens its tickets (support is for everyone, not only admins). Client Mode
  * reaches nothing here: a ticket is the agency's own business, not something to show a client.
  */
-export type SupportAction = 'support.read' | 'support.write';
+export const SUPPORT_ACTIONS = ['support.read', 'support.write'] as const;
+export type SupportAction = (typeof SUPPORT_ACTIONS)[number];
 
 /** Client Mode is read-only (PATTERNS §6) — and support is not part of it at all. */
 export const CLIENT_MODE_ALLOWED: ReadonlySet<SupportAction> = new Set<SupportAction>();

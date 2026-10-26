@@ -450,10 +450,9 @@ revoke all on table public."billing_catalog_items" from public, app_user, app_sy
 grant select on table public."billing_catalog_items" to app_user;
 grant select, insert, update, delete on table public."billing_catalog_items" to app_system;
 create policy staff_select on public."billing_catalog_items" for select to app_staff using ((select public.app_is_staff()));
-create policy staff_insert on public."billing_catalog_items" for insert to app_staff with check ((select public.app_is_staff()));
-create policy staff_update on public."billing_catalog_items" for update to app_staff using ((select public.app_is_staff())) with check ((select public.app_is_staff()));
-create policy staff_delete on public."billing_catalog_items" for delete to app_staff using ((select public.app_is_staff()));
-grant select, insert, update, delete on table public."billing_catalog_items" to app_staff;
+create policy staff_insert on public."billing_catalog_items" for insert to app_staff with check ((select public.app_is_staff()) and (exists (select 1 from public.staff_users s where s.user_id = app_user_id() and s.role = 'SUPER_ADMIN' and s.deactivated_at is null)));
+create policy staff_update on public."billing_catalog_items" for update to app_staff using ((select public.app_is_staff()) and (exists (select 1 from public.staff_users s where s.user_id = app_user_id() and s.role = 'SUPER_ADMIN' and s.deactivated_at is null))) with check ((select public.app_is_staff()) and (exists (select 1 from public.staff_users s where s.user_id = app_user_id() and s.role = 'SUPER_ADMIN' and s.deactivated_at is null)));
+grant select, insert, update on table public."billing_catalog_items" to app_staff;
 
 -- billing_customers: STRICT
 alter table public."billing_customers" enable row level security;
@@ -515,10 +514,9 @@ revoke all on table public."billing_prices" from public, app_user, app_system, a
 grant select on table public."billing_prices" to app_user;
 grant select, insert, update, delete on table public."billing_prices" to app_system;
 create policy staff_select on public."billing_prices" for select to app_staff using ((select public.app_is_staff()));
-create policy staff_insert on public."billing_prices" for insert to app_staff with check ((select public.app_is_staff()));
-create policy staff_update on public."billing_prices" for update to app_staff using ((select public.app_is_staff())) with check ((select public.app_is_staff()));
-create policy staff_delete on public."billing_prices" for delete to app_staff using ((select public.app_is_staff()));
-grant select, insert, update, delete on table public."billing_prices" to app_staff;
+create policy staff_insert on public."billing_prices" for insert to app_staff with check ((select public.app_is_staff()) and (exists (select 1 from public.staff_users s where s.user_id = app_user_id() and s.role = 'SUPER_ADMIN' and s.deactivated_at is null)));
+create policy staff_update on public."billing_prices" for update to app_staff using ((select public.app_is_staff()) and (exists (select 1 from public.staff_users s where s.user_id = app_user_id() and s.role = 'SUPER_ADMIN' and s.deactivated_at is null))) with check ((select public.app_is_staff()) and (exists (select 1 from public.staff_users s where s.user_id = app_user_id() and s.role = 'SUPER_ADMIN' and s.deactivated_at is null)));
+grant select, insert, update on table public."billing_prices" to app_staff;
 
 -- billing_stripe_events: GLOBAL
 alter table public."billing_stripe_events" enable row level security;
@@ -1451,7 +1449,7 @@ create policy auth_append on public."outbox_events" for insert to app_auth
   with check (agency_id = '00000000-0000-0000-0000-000000000000'::uuid and starts_with("type", 'identity.'));
 grant insert on table public."outbox_events" to app_auth;
 create policy staff_insert on public."outbox_events" for insert to app_staff
-  with check ((select public.app_is_staff()) and (((starts_with(type, 'agencies.') or type = 'billing.plan.changed') and agency_id <> '00000000-0000-0000-0000-000000000000'::uuid) or (type = 'taxonomy.data.changed' and agency_id = '00000000-0000-0000-0000-000000000000'::uuid) or (type = 'admin.operation.requested' and agency_id = '00000000-0000-0000-0000-000000000000'::uuid and exists (select 1 from public.staff_users s where s.user_id = app_user_id() and s.role in ('SUPER_ADMIN', 'STAFF_DATA_OPS') and s.deactivated_at is null)) or (type = 'support.message.posted' and agency_id <> '00000000-0000-0000-0000-000000000000'::uuid and exists (select 1 from public.staff_users s where s.user_id = app_user_id() and s.role in ('SUPER_ADMIN', 'STAFF_SUPPORT') and s.deactivated_at is null))));
+  with check ((select public.app_is_staff()) and ((starts_with(type, 'agencies.') and agency_id <> '00000000-0000-0000-0000-000000000000'::uuid) or (type = 'billing.plan.changed' and agency_id <> '00000000-0000-0000-0000-000000000000'::uuid and exists (select 1 from public.staff_users s where s.user_id = app_user_id() and s.role = 'SUPER_ADMIN' and s.deactivated_at is null)) or (type = 'taxonomy.data.changed' and agency_id = '00000000-0000-0000-0000-000000000000'::uuid) or (type = 'admin.operation.requested' and agency_id = '00000000-0000-0000-0000-000000000000'::uuid and exists (select 1 from public.staff_users s where s.user_id = app_user_id() and s.role in ('SUPER_ADMIN', 'STAFF_DATA_OPS') and s.deactivated_at is null)) or (type = 'support.message.posted' and agency_id <> '00000000-0000-0000-0000-000000000000'::uuid and exists (select 1 from public.staff_users s where s.user_id = app_user_id() and s.role in ('SUPER_ADMIN', 'STAFF_SUPPORT') and s.deactivated_at is null))));
 grant insert on table public."outbox_events" to app_staff;
 
 -- pipeline_stages: STRICT

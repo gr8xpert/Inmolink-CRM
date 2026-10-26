@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { Ctx } from '../../../context';
+import { expectClientModePinned } from '../../../testing/client-mode-pin';
 import { expectImpersonationRules } from '../../../testing/impersonation-rules';
-import { BILLING_ACTIONS, BILLING_IMPERSONATION, can } from '../policy';
+import { BILLING_ACTIONS, BILLING_IMPERSONATION, CLIENT_MODE_ALLOWED, can } from '../policy';
 
 const AGENCY = '01900000-0000-7000-8000-000000000001';
 const OTHER_AGENCY = '01900000-0000-7000-8000-000000000002';
@@ -20,6 +21,16 @@ function ctxAs(actor: Ctx['actor']): Ctx {
 const user = ctxAs({ kind: 'user', userId: '01900000-0000-7000-8000-0000000000aa', role: 'AGENT' });
 
 describe('billing policy', () => {
+  it('[S13 review] Client Mode allow-list pinned: nothing', () => {
+    expectClientModePinned({
+      actions: BILLING_ACTIONS,
+      allowed: CLIENT_MODE_ALLOWED,
+      pinned: [],
+      can: (ctx, action) => can(ctx, action),
+      admin: ctxAs({ kind: 'user', userId: '01900000-0000-7000-8000-0000000000ab', role: 'AGENCY_ADMIN' }),
+    });
+  });
+
   it('lets a user read their own agency', () => {
     expect(can(user, 'billing.read')).toBe(true);
     expect(can(user, 'billing.read', { agencyId: AGENCY })).toBe(true);

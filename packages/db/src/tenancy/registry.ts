@@ -363,7 +363,9 @@ export const tenantTables: Record<string, TenantTable> = {
       // S13-02: a staff plan grant announces the agency's plan (`billing.plan.changed`). S13-03: a staff bulk operation
       // asks for its job (`admin.operation.requested`, a platform event). S13-05: a support agent's reply on a ticket
       // (`support.message.posted`, the ticket's agency; support staff and super admins only) e-mails the member.
-      insert: `((starts_with(type, 'agencies.') or type = 'billing.plan.changed') and agency_id <> '${PLATFORM_AGENCY_ID}'::uuid) or (type = 'taxonomy.data.changed' and agency_id = '${PLATFORM_AGENCY_ID}'::uuid) or (type = 'admin.operation.requested' and agency_id = '${PLATFORM_AGENCY_ID}'::uuid and ${STAFF_OPERATOR}) or (type = 'support.message.posted' and agency_id <> '${PLATFORM_AGENCY_ID}'::uuid and ${SUPPORT_AGENT})`,
+      // S13 review: only an active super admin (the plan grant's own gate) may append `billing.plan.changed` — a
+      // support or data-ops session cannot forge a plan notice.
+      insert: `(starts_with(type, 'agencies.') and agency_id <> '${PLATFORM_AGENCY_ID}'::uuid) or (type = 'billing.plan.changed' and agency_id <> '${PLATFORM_AGENCY_ID}'::uuid and ${SUPER_ADMIN}) or (type = 'taxonomy.data.changed' and agency_id = '${PLATFORM_AGENCY_ID}'::uuid) or (type = 'admin.operation.requested' and agency_id = '${PLATFORM_AGENCY_ID}'::uuid and ${STAFF_OPERATOR}) or (type = 'support.message.posted' and agency_id <> '${PLATFORM_AGENCY_ID}'::uuid and ${SUPPORT_AGENT})`,
     },
   },
   // The tenant itself (S1-01). Sign-up (app_auth) creates it PENDING; a repeated sign-up for an
@@ -1567,14 +1569,16 @@ export const globalTables: Record<string, GlobalTable> = {
   // Portal catalog (S9-01): Kyero, thinkSPAIN, A Place in the Sun, generic XML (idealista and Fotocasa planned).
   // S13-01: the plan catalog (plans, add-ons, prices) — the same for every agency; seeded / staff-edited, synced to
   // Stripe by billing.syncCatalog via withSystem(). Members read it to choose a plan.
+  // S13 review: no staff path writes the catalog (only withSystem: the seed, `pnpm billing:catalog`, billing.syncCatalog),
+  // but plan grants read it in the staff transaction — so staff keep SELECT and writes need an active super admin.
   billing_catalog_items: {
     reason: 'plan and add-on catalog (platform data), synced to Stripe',
-    staffWrite: true,
+    staffWrite: { sql: SUPER_ADMIN, noDelete: true },
     base: { code: 'iso_item' },
   },
   billing_prices: {
     reason: 'catalog prices (platform data), synced to Stripe',
-    staffWrite: true,
+    staffWrite: { sql: SUPER_ADMIN, noDelete: true },
     base: { currency: 'EUR' },
   },
   // S13-01: Stripe webhook events already applied (idempotency); webhook job only.

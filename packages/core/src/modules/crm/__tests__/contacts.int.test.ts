@@ -804,6 +804,31 @@ describe('CSV import and the plan contact quota (S13-F21)', () => {
       crm.startContactImport(ctx, id, StartContactImportBody.parse({ mapping: { firstName: 0, emails: [1] } })),
     );
 
+  it('[S13 review] parallel creates at the Free contact limit: exactly one passes (contact-quota lock)', async () => {
+    const catalog = JSON.parse(
+      readFileSync(new URL('../../../../../../scripts/ops/billing-catalog.json', import.meta.url), 'utf8'),
+    ) as { items: billing.CatalogInput[] };
+    await system((tx) => billing.upsertCatalog(tx, catalog.items, newId));
+    const f = await createFounder(); // Free: 100 contacts
+    await system((tx) =>
+      tx.execute(sql`insert into contacts (id, agency_id, first_name)
+        select gen_random_uuid(), ${f.agencyId}::uuid, 'Seeded ' || g from generate_series(1, 99) g`),
+    );
+    billing.configureBilling({ enforcePlans: true });
+    try {
+      const outcomes = await Promise.all(
+        [1, 2, 3, 4].map((i) =>
+          refusal(create(f, { firstName: `Race ${i}`, emails: [email(`race-${i}-${f.agencyId.slice(-6)}`)] })),
+        ),
+      );
+      expect(outcomes.filter((o) => o.code === 'accepted')).toHaveLength(1);
+      expect(outcomes.filter((o) => o.code === 'PLAN_REQUIRED')).toHaveLength(3);
+      expect(await live(f)).toBe(100);
+    } finally {
+      billing.configureBilling({});
+    }
+  });
+
   it('[S13-F21] a CSV import crossing the plan contact quota is refused (PLAN_REQUIRED); within it, it imports', async () => {
     const catalog = JSON.parse(
       readFileSync(new URL('../../../../../../scripts/ops/billing-catalog.json', import.meta.url), 'utf8'),
