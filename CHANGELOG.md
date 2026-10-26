@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- docs(ops): S14-F8 perf re-measures deferred to the staging box [S14-F8]
 - feat(migration): per-agency cutover checklists (pnpm legacy:cutover — freeze, final delta, validation gate, delta stop, member access, notify; Path B renewal tracking, parity gate, feed switch), step-wise rollback, DNS/cutover runbook; migration 0171 [S14-06]
 - feat(migration): hourly legacy → v2 delta sync with watermarks, legacy deletions withdrawn, cutover stop and legacy:delta script [S14-04]
 - feat(migration): per-agency legacy validation reports (counts, images, sampled field diffs, URL checks) with a staff console list and drill-down [S14-03]
