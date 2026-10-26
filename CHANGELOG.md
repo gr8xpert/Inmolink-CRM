@@ -5,6 +5,9 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- fix(e2e): S15-F7 waits out the listing tag's 30 s settle window before expecting an ISR HIT (CI reached the page inside it) [S15-F7]
+- fix(platform): legacy DB in production accepts only verify-full / verify-ca with sslrootcert, never adds uselibpqcompat, refuses repeated TLS URL parameters [S15-F4]
+- fix(website-api,public): portal item gate passes uncounted only a known code's canonical slug per kind and locale; other slugs of a real code are counted [S15-01]
 - fix(public): portal listing / development pages s-maxage 60 s + stale-while-revalidate 30 s + stale-if-error 600; all portal pages stale-if-error 600; shared cache-control constants [S15 review]
 - fix(website-api,public): the proxy counts made-up listing / development codes against the per-IP page limit and answers their legacy URLs (portalPageCode); 404s in a separate page-cache LRU [S15 review]
 - fix(platform): legacy-db requires TLS (sslmode require / verify-ca / verify-full) in production [S15 review]

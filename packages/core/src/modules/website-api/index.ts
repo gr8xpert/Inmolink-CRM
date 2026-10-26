@@ -90,6 +90,7 @@ export {
   type PortalCard,
   type PortalCatalog,
   type PortalDevelopment,
+  type PortalItemPage,
   type PortalListing,
   type PortalLocation,
   type PortalNamed,

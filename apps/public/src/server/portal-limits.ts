@@ -23,13 +23,14 @@ export async function portalPageGate(
 }
 
 /**
- * S15 review: the listing / development page gate (core `portalPageCode`): a known public code passes unlimited; a
- * made-up code or a slug without one first costs the client one unit of its page limit (`beforeProbe`).
+ * S15 review: the listing / development page gate (core `portalPageCode`): a known public code's canonical slug passes
+ * unlimited; a made-up code, a slug without one or a made-up slug of a real code first costs the client one unit of
+ * its page limit (`beforeProbe`).
  */
 export async function portalCodeGate(
-  slug: string,
+  page: websiteApi.PortalItemPage,
   beforeProbe: () => Promise<boolean>,
 ): Promise<'known' | 'unknown' | 'limited'> {
   await publicConfig();
-  return websiteApi.portalPageCode(slug, beforeProbe);
+  return websiteApi.portalPageCode(page, beforeProbe);
 }

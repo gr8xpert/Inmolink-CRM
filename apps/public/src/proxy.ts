@@ -56,15 +56,26 @@ const PORTAL_SEARCH_PATH = /^\/[a-z]{2}\/(?:properties|zone|agency)(?:\/|$)/;
  * the visitor's own.
  */
 
-/** S15 review: listing and development pages (`/en/property/<slug>`, `/en/development/<slug>`): the slug's code. */
-const PORTAL_ITEM_PATH = /^\/[a-z]{2}\/(?:property|development)\/([^/]+)\/?$/;
+/** S15 review: listing and development pages (`/en/property/<slug>`, `/en/development/<slug>`): locale, kind, slug. */
+const PORTAL_ITEM_PATH = /^\/([a-z]{2})\/(property|development)\/([^/]+)\/?$/;
+
+/** A listing or development page request (core `PortalItemPage`). */
+export interface ItemPage {
+  kind: 'listing' | 'development';
+  locale: string;
+  slug: string;
+}
 
 /**
- * S15 review: the gate of a listing or development page (core `portalPageCode`): `known` — a real public code, passed
- * unlimited; `unknown` / `limited` — a made-up code or a slug without one, counted against the client's page limit
- * (`beforeProbe`) before any probe.
+ * S15 review: the gate of a listing or development page (core `portalPageCode`): `known` — a real public code (its
+ * canonical slug passed unlimited; any other slug of it counted, its page 301s to the canonical); `unknown` /
+ * `limited` — a made-up code or a slug without one, counted against the client's page limit (`beforeProbe`) before any
+ * probe.
  */
-export type CodeGate = (slug: string, beforeProbe: () => Promise<boolean>) => Promise<'known' | 'unknown' | 'limited'>;
+export type CodeGate = (
+  page: ItemPage,
+  beforeProbe: () => Promise<boolean>,
+) => Promise<'known' | 'unknown' | 'limited'>;
 
 const intl = createMiddleware(routing);
 
@@ -121,17 +132,18 @@ async function legacyTarget(
 }
 
 /**
- * S15 review: a listing or development page request. A known code renders (unlimited: its ISR copy or a render). A
- * made-up code or a code-less slug has cost the client one unit of its page limit (`codeGate`'s `beforeProbe`; over
- * it: 429), and is then looked up as a legacy URL (a true 301; the limit is not counted twice) before the page's 404.
- * Fails open: a gate or lookup outage renders the page.
+ * S15 review: a listing or development page request. A known code renders (its canonical slug unlimited: its ISR
+ * copy or a render; another slug of it counted first, then its page's 301). A made-up code or a code-less slug has
+ * cost the client one unit of its page limit (`codeGate`'s `beforeProbe`; over it: 429), and is then looked up as a
+ * legacy URL (a true 301; the limit is not counted twice) before the page's 404. Fails open: a gate or lookup outage
+ * renders the page.
  */
 async function itemPage(
   codeGate: CodeGate,
   legacyGate: LegacyGate,
   portalGate: PortalGate,
   request: NextRequest,
-  slug: string,
+  page: ItemPage,
 ): Promise<LegacyAnswer> {
   let limited: { retryAfterSeconds: number } | null = null;
   const beforeProbe = async () => {
@@ -140,7 +152,7 @@ async function itemPage(
     return limit.allowed;
   };
   try {
-    const answer = await codeGate(slug, beforeProbe);
+    const answer = await codeGate(page, beforeProbe);
     if (answer === 'limited') return { kind: 'limited', ...(limited ?? { retryAfterSeconds: 60 }) };
     if (answer === 'known') return null;
     const { pathname, search } = request.nextUrl;
@@ -202,7 +214,12 @@ export function createProxy(
     }
     const item = PORTAL_ITEM_PATH.exec(pathname);
     if (item) {
-      const answer = await itemPage(codeGate, legacyGate, portalGate, request, item[1] as string);
+      const page: ItemPage = {
+        locale: item[1] as string,
+        kind: item[2] === 'property' ? 'listing' : 'development',
+        slug: item[3] as string,
+      };
+      const answer = await itemPage(codeGate, legacyGate, portalGate, request, page);
       if (answer?.kind === 'limited') return refuse(429, answer.retryAfterSeconds);
       if (answer?.kind === 'redirect') return movedTo(await portalOrigin(), answer.targetPath, answer.status);
     }
@@ -222,8 +239,8 @@ async function defaultLegacyGate(pathWithQuery: string, beforeProbe: () => Promi
   return (await import('./server/legacy-redirects')).legacyRedirect(pathWithQuery, beforeProbe);
 }
 
-async function defaultCodeGate(slug: string, beforeProbe: () => Promise<boolean>) {
-  return (await import('./server/portal-limits')).portalCodeGate(slug, beforeProbe);
+async function defaultCodeGate(page: ItemPage, beforeProbe: () => Promise<boolean>) {
+  return (await import('./server/portal-limits')).portalCodeGate(page, beforeProbe);
 }
 
 async function defaultPortalOrigin() {

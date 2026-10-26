@@ -1,5 +1,7 @@
 import { randomInt } from 'node:crypto';
+import { RENDER_MARGIN_MS } from '@inmolink/platform/cache';
 import type { APIRequestContext, Browser } from '@playwright/test';
+import { Redis } from 'ioredis';
 import { expect, test } from './fixtures';
 import {
   LISTING_TAXONOMY,
@@ -19,6 +21,21 @@ import { PUBLIC_URL, testStackEnv } from './stack';
 const env = testStackEnv();
 const API_URL = env.API_URL as string;
 const WEB_URL = env.WEB_URL as string;
+
+/**
+ * S15-F7: when the worker last marked a listing's page tag changed (epoch ms; `pageTags.markChanged` on redis-cache,
+ * key `<prefix>:ptag:<tag>`, the stack's default prefix `inl:c`), or null before the first mark.
+ */
+async function listingTagTime(listingId: string): Promise<number | null> {
+  const redis = new Redis(env.REDIS_CACHE_URL as string, { lazyConnect: true, maxRetriesPerRequest: 1 });
+  try {
+    await redis.connect();
+    const raw = await redis.get(`inl:c:ptag:portal:t:${listingId}`);
+    return raw === null ? null : Number(raw);
+  } finally {
+    redis.disconnect();
+  }
+}
 
 /** A verified agency's agent, signed in on the dashboard; its api token comes from the web session. */
 async function agent(browser: Browser) {
@@ -313,8 +330,19 @@ test('[S15-F7] portal: a cached listing page shows a price change, 404s once wit
   const money = (n: number) =>
     new Intl.NumberFormat('en', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(n);
 
-  // The page is ISR: served from the page cache (bounded, `cache-handler.mjs`).
-  await expect.poll(async () => (await request.get(url)).headers()['x-nextjs-cache'], { timeout: 30_000 }).toBe('HIT');
+  // The page is ISR: served from the page cache (bounded, `cache-handler.mjs`). Publishing marked the listing's tag
+  // (outbox → worker), and a page stored up to `RENDER_MARGIN_MS` after a mark may have read before it: dropped. So no
+  // copy is kept until the mark's settle window is over — the listing reaches the search within seconds of the mark,
+  // so a visitor opening it at once gets fresh renders (MISS) for up to 30 s. Wait out that window explicitly (bounded:
+  // the mark lands within a minute), then the second request after it is a HIT.
+  let marked: number | null = null;
+  await expect
+    .poll(async () => (marked = await listingTagTime(id)), { timeout: 60_000, intervals: [500, 1_000] })
+    .not.toBeNull();
+  const settled = (marked as unknown as number) + RENDER_MARGIN_MS;
+  console.log(`[S15-F7] the listing's tag was marked ${RENDER_MARGIN_MS - (settled - Date.now())} ms ago`);
+  await new Promise((r) => setTimeout(r, Math.max(0, settled - Date.now()) + 1_000));
+  await expect.poll(async () => (await request.get(url)).headers()['x-nextjs-cache'], { timeout: 15_000 }).toBe('HIT');
 
   const patch = async (data: Record<string, unknown>) => {
     const current = await request.get(`${API_URL}/v1/listings/${id}`, { headers });

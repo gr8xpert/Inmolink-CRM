@@ -317,7 +317,7 @@ describe('listing and development page misses (S15 review)', () => {
   /** A gate like core's: a known code passes; anything else costs the client's limit first. */
   const gate =
     (knownSlugs: string[]): CodeGate =>
-    async (slug, beforeProbe) => {
+    async ({ slug }, beforeProbe) => {
       if (knownSlugs.includes(slug)) return 'known';
       return (await beforeProbe()) ? 'unknown' : 'limited';
     };
@@ -340,6 +340,29 @@ describe('listing and development page misses (S15 review)', () => {
       expect((await run(request(path, { 'x-forwarded-for': '9.9.9.9' }))).status, path).toBe(200);
     }
     expect(counted).toHaveBeenCalledTimes(3);
+  });
+
+  it('[S15-01] review: the gate gets the page kind and locale with the slug (canonical slugs are per kind and locale); another slug of a real code is counted, then renders its 301', async () => {
+    const seen: unknown[] = [];
+    const counted: PortalGate = vi.fn(async () => ({ allowed: true, retryAfterSeconds: 0 }));
+    const canonicalOnly: CodeGate = async (page, beforeProbe) => {
+      seen.push(page);
+      if (page.slug === 'villa-in-x-ab12cd34' && page.kind === 'listing' && page.locale === 'en') return 'known';
+      return (await beforeProbe()) ? 'known' : 'limited';
+    };
+    const run = createProxy(ok(), counted, legacy, undefined, canonicalOnly);
+    expect((await run(request('/en/property/villa-in-x-ab12cd34', { 'x-forwarded-for': '9.9.9.9' }))).status).toBe(200);
+    expect(counted).not.toHaveBeenCalled();
+    expect((await run(request('/es/development/made-up-ab12cd34/', { 'x-forwarded-for': '9.9.9.9' }))).status).toBe(
+      200,
+    );
+    expect(counted).toHaveBeenCalledTimes(1);
+    // A known code: no legacy lookup (its page answers the 301 to the canonical slug).
+    expect(legacy).not.toHaveBeenCalledWith('/es/development/made-up-ab12cd34/', expect.any(Function));
+    expect(seen).toEqual([
+      { kind: 'listing', locale: 'en', slug: 'villa-in-x-ab12cd34' },
+      { kind: 'development', locale: 'es', slug: 'made-up-ab12cd34' },
+    ]);
   });
 
   it('[S15-01] review: past the page limit, made-up codes get a 429 (no-store); real pages and outages still render', async () => {

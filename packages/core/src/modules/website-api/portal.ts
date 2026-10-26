@@ -854,32 +854,86 @@ export async function portalListing(input: {
 /** How long a code known to exist / not to exist is remembered per process. */
 export const PORTAL_KNOWN_CODE_TTL_MS = 10 * 60_000;
 export const PORTAL_UNKNOWN_CODE_TTL_MS = 60_000;
-/** Remembered codes per process (bounded apart, so made-up codes never evict real ones). */
-const knownCodes = new LocalLru<true>(100_000);
+/**
+ * Remembered codes per process (bounded apart, so made-up codes never evict real ones). A known code keeps the
+ * canonical slugs it was looked up with, by page kind and locale (`<kind>:<locale>` → slug): one or two per code.
+ */
+const knownCodes = new LocalLru<Readonly<Record<string, string>>>(100_000);
 const unknownCodes = new LocalLru<true>(10_000);
+
+/** A listing or development page request the proxy gates (`/<locale>/property/<slug>`, `/<locale>/development/<slug>`). */
+export interface PortalItemPage {
+  kind: 'listing' | 'development';
+  locale: string;
+  slug: string;
+}
+
+const itemPrefix = (page: PortalItemPage) => `/${page.locale}/${page.kind === 'listing' ? 'property' : 'development'}/`;
+
+/**
+ * The page's canonical slug in its locale (what its page would not 301), null when the portal shows nothing under the
+ * code in that kind. The same reads as the page (`portalListing`, the development's detail row): 1–2 statements.
+ */
+async function canonicalSlugOf(page: PortalItemPage, code: string): Promise<string | null> {
+  const requestId = `portal-gate:${code}`;
+  let paths: Record<string, string> | null = null;
+  if (page.kind === 'listing') {
+    paths = (await portalListing({ locale: page.locale, code, requestId }))?.paths ?? null;
+  } else {
+    const locale = contentLocale(page.locale);
+    const inventory = await developmentInventory(requestId);
+    if (inventory) {
+      paths = await withPublicRead(async (tx) => {
+        const row = await search.developmentByCode(tx, inventory, code, locale, fallbackOf(locale));
+        if (!row) return null;
+        const agency = (await agenciesOf(tx, [row.ownerAgencyId])).get(row.ownerAgencyId) ?? null;
+        const detail = websites.serializeDevelopmentDetail(ownView(row.ownerAgencyId, agency), {
+          ...row,
+          doc: row.doc as UnitDetailDoc,
+        });
+        return portalDevelopmentPaths(detail, code);
+      });
+    }
+  }
+  const path = paths?.[page.locale];
+  const prefix = itemPrefix(page);
+  return path?.startsWith(prefix) ? path.slice(prefix.length) : null;
+}
 
 /**
  * S15 review: the proxy's gate for a listing or development page (`/…/property/<slug>`, `/…/development/<slug>`).
- * A slug whose public code is known to exist passes at once — real pages are never limited, and their ISR copies are
- * served as before. Anything else costs the client one unit of its page limit first (`beforeProbe`, false: `limited`):
- * a slug without a code, a code remembered as unknown, or a code not seen yet — then one unique-index probe
- * (`listing_public_codes`, listings and developments alike). So a flood of made-up codes is cut off per client before
- * it renders 404s or probes the legacy redirects. A known code may still name nothing the portal shows (withdrawn, an
- * unlisted agency's): the page answers its 404, cached apart from the pages. An unknown code is remembered a minute, so
- * a code given out meanwhile soon passes.
+ * Only the canonical slug of a code known to exist passes at once (by kind and locale, remembered from the lookup) —
+ * real pages are never limited, and their ISR copies are served as before. Anything else costs the client one unit of
+ * its page limit first (`beforeProbe`, false: `limited`): a slug without a code, a code remembered as unknown, a code
+ * not seen yet, and a made-up slug of a real code — each distinct slug renders (and caches) a page, its 301 to the
+ * canonical one, so made-up slugs of a real code may not bypass the limit or churn the page cache. Then the lookup:
+ * the page's own reads (1–2 statements) give the canonical slug; a code the portal shows nothing under (withdrawn, an
+ * unlisted agency's, the other kind) is probed in the unique index (`listing_public_codes`) — `known` either way, its
+ * page answers the 404 (cached apart from the pages) or the 301. So a flood of made-up codes or slugs is cut off per
+ * client before it renders or probes the legacy redirects. An unknown code is remembered a minute, so a code given out
+ * meanwhile soon passes; a renamed listing's new slug is counted once, then passes.
  */
 export async function portalPageCode(
-  slug: string,
+  page: PortalItemPage,
   beforeProbe: () => Promise<boolean>,
 ): Promise<'known' | 'unknown' | 'limited'> {
-  const code = codeOfSlug(slug);
-  if (code && knownCodes.get(code)) return 'known';
+  const code = codeOfSlug(page.slug);
+  const key = `${page.kind}:${page.locale}`;
+  const remembered = code ? knownCodes.get(code) : undefined;
+  if (remembered?.[key] === page.slug) return 'known';
   if (!(await beforeProbe())) return 'limited';
   if (!code || unknownCodes.get(code)) return 'unknown';
-  const known = await withPublicRead((tx) => search.publicCodeInUse(tx, code));
-  if (known) knownCodes.set(code, true, PORTAL_KNOWN_CODE_TTL_MS);
-  else unknownCodes.set(code, true, PORTAL_UNKNOWN_CODE_TTL_MS);
-  return known ? 'known' : 'unknown';
+  const canonical = await canonicalSlugOf(page, code);
+  const known =
+    canonical !== null || remembered !== undefined || (await withPublicRead((tx) => search.publicCodeInUse(tx, code)));
+  if (!known) {
+    unknownCodes.set(code, true, PORTAL_UNKNOWN_CODE_TTL_MS);
+    return 'unknown';
+  }
+  const slugs = { ...(remembered ?? {}) };
+  if (canonical !== null) slugs[key] = canonical;
+  knownCodes.set(code, slugs, PORTAL_KNOWN_CODE_TTL_MS);
+  return 'known';
 }
 
 /**

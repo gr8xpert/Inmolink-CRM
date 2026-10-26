@@ -422,7 +422,7 @@ describe('public portal reads (S15-01)', () => {
     expect(websiteApi.ownerScopeOf(names(3, 'l'), names(max + 1, 'u'))).toEqual({ show: names(3, 'l') });
   });
 
-  it('[S15-01] review: the page gate — a known code passes unlimited; made-up codes and code-less slugs cost the client’s limit', async () => {
+  it('[S15-01] review: the page gate — a known code’s canonical slug passes unlimited; made-up codes and code-less slugs cost the client’s limit', async () => {
     websiteApi.resetPortalCaches();
     let counted = 0;
     let allow = true;
@@ -430,32 +430,89 @@ describe('public portal reads (S15-01)', () => {
       counted++;
       return allow;
     };
-    const real = `villa-in-town-${(await codeOf(L.aVilla)).toLowerCase()}`;
-    // First sight: counted once and probed (one statement), then remembered: no count, no statement.
-    expect(await websiteApi.portalPageCode(real, beforeProbe)).toBe('known');
+    const listing = (slug: string) => ({ kind: 'listing' as const, locale: 'en', slug });
+    const villaCode = await codeOf(L.aVilla);
+    const found = await websiteApi.portalListing({ locale: 'en', code: villaCode, requestId: newId() });
+    const real = (found?.paths.en ?? '').replace('/en/property/', '');
+    expect(real).toMatch(new RegExp(`-${villaCode.toLowerCase()}$`));
+    // First sight: counted once and looked up (the page's reads), then remembered: no count, no statement.
+    expect(await websiteApi.portalPageCode(listing(real), beforeProbe)).toBe('known');
     expect(counted).toBe(1);
     expect(
-      await countQueries(async () => expect(await websiteApi.portalPageCode(real, beforeProbe)).toBe('known')),
+      await countQueries(async () => expect(await websiteApi.portalPageCode(listing(real), beforeProbe)).toBe('known')),
     ).toBe(0);
     expect(counted).toBe(1);
-    // A development's code is known too (one code table).
-    expect(await websiteApi.portalPageCode(`x-${(await codeOf(D.open)).toLowerCase()}`, beforeProbe)).toBe('known');
-    // A made-up code: counted every time (remembered as unknown: no second probe); a slug without a code likewise.
+    // A development's code is known too (one code table): its canonical slug passes uncounted once looked up.
+    const devCode = await codeOf(D.open);
+    const devPath = (await websiteApi.portalDevelopment({ locale: 'en', code: devCode, requestId: newId() }))?.paths
+      .en as string;
+    const dev = { kind: 'development' as const, locale: 'en', slug: devPath.replace('/en/development/', '') };
+    expect(await websiteApi.portalPageCode(dev, beforeProbe)).toBe('known');
     counted = 0;
+    expect(await websiteApi.portalPageCode(dev, beforeProbe)).toBe('known');
+    expect(counted).toBe(0);
+    // A made-up code: counted every time (remembered as unknown: no second probe); a slug without a code likewise.
     const madeUp = 'villa-in-town-zzzzzzzz';
-    expect(await websiteApi.portalPageCode(madeUp, beforeProbe)).toBe('unknown');
+    expect(await websiteApi.portalPageCode(listing(madeUp), beforeProbe)).toBe('unknown');
     expect(
-      await countQueries(async () => expect(await websiteApi.portalPageCode(madeUp, beforeProbe)).toBe('unknown')),
+      await countQueries(async () =>
+        expect(await websiteApi.portalPageCode(listing(madeUp), beforeProbe)).toBe('unknown'),
+      ),
     ).toBe(0);
-    expect(await websiteApi.portalPageCode('no-code-here', beforeProbe)).toBe('unknown');
+    expect(await websiteApi.portalPageCode(listing('no-code-here'), beforeProbe)).toBe('unknown');
     expect(counted).toBe(3);
-    // Over the limit: refused before any probe; a known code still passes.
+    // Over the limit: refused before any probe; a known code's canonical slug still passes.
     allow = false;
     expect(
       await countQueries(async () =>
-        expect(await websiteApi.portalPageCode('x-yyyyyyyy', beforeProbe)).toBe('limited'),
+        expect(await websiteApi.portalPageCode(listing('x-yyyyyyyy'), beforeProbe)).toBe('limited'),
       ),
     ).toBe(0);
-    expect(await websiteApi.portalPageCode(real, beforeProbe)).toBe('known');
+    expect(await websiteApi.portalPageCode(listing(real), beforeProbe)).toBe('known');
+  });
+
+  it('[S15-01] review: made-up slugs of a real code are counted (each renders its 301) — canonical per kind and locale', async () => {
+    websiteApi.resetPortalCaches();
+    let counted = 0;
+    let allow = true;
+    const beforeProbe = async () => {
+      counted++;
+      return allow;
+    };
+    const code = (await codeOf(L.aVilla)).toLowerCase();
+    const paths = (await websiteApi.portalListing({ locale: 'en', code, requestId: newId() }))?.paths as Record<
+      string,
+      string
+    >;
+    const real = (paths.en as string).replace('/en/property/', '');
+    expect(await websiteApi.portalPageCode({ kind: 'listing', locale: 'en', slug: real }, beforeProbe)).toBe('known');
+    counted = 0;
+    // Any other slug of the code: still `known` (its page 301s to the canonical), but counted every time.
+    for (const slug of [`a-${code}`, `b-${code}`, `x-${code.toUpperCase()}`]) {
+      expect(await websiteApi.portalPageCode({ kind: 'listing', locale: 'en', slug }, beforeProbe), slug).toBe('known');
+    }
+    expect(counted).toBe(3);
+    // The canonical slug is per locale and kind: the English one under Spanish or as a development is counted too.
+    expect(await websiteApi.portalPageCode({ kind: 'listing', locale: 'es', slug: real }, beforeProbe)).toBe('known');
+    expect(await websiteApi.portalPageCode({ kind: 'development', locale: 'en', slug: real }, beforeProbe)).toBe(
+      'known',
+    );
+    expect(counted).toBe(5);
+    // The Spanish canonical slug, once looked up, passes uncounted; the English one still does.
+    const es = (paths.es as string).replace('/es/property/', '');
+    expect(await websiteApi.portalPageCode({ kind: 'listing', locale: 'es', slug: es }, beforeProbe)).toBe('known');
+    counted = 0;
+    expect(await websiteApi.portalPageCode({ kind: 'listing', locale: 'es', slug: es }, beforeProbe)).toBe('known');
+    expect(await websiteApi.portalPageCode({ kind: 'listing', locale: 'en', slug: real }, beforeProbe)).toBe('known');
+    expect(counted).toBe(0);
+    // Over the limit, a made-up slug of a real code is refused before any statement.
+    allow = false;
+    expect(
+      await countQueries(async () =>
+        expect(await websiteApi.portalPageCode({ kind: 'listing', locale: 'en', slug: `z-${code}` }, beforeProbe)).toBe(
+          'limited',
+        ),
+      ),
+    ).toBe(0);
   });
 });
