@@ -1,4 +1,5 @@
-// pnpm perf:lighthouse [--url <url> …] [--min 90] [--portal-min-performance 80] [--desktop] [--json]
+// pnpm perf:lighthouse [--url <url> …] [--only <text>] [--save <dir>] [--min 90] [--portal-min-performance 80]
+//   [--desktop] [--json]
 //
 // Lighthouse CI for public pages (S7-F8, PLAN §15, frontend rules: performance, accessibility and SEO ≥ 90).
 //
@@ -15,7 +16,7 @@
 // number the median of the runs. Exits 1 when a page's median is below `--min` (90) in performance, accessibility or
 // SEO, or its median LCP is at or over `--max-lcp-ms` (2000); best practices is reported only.
 import { type ChildProcess, spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { chromium } from '@playwright/test';
@@ -37,6 +38,12 @@ const { values } = parseArgs({
      * is this level (noise margin below the measured medians); accessibility and SEO keep `--min`.
      */
     'portal-min-performance': { type: 'string', default: '80' },
+    /**
+     * ADR 0019 (A), S15-F9: the portal pages' LCP budget until the staging measurement (H4). Lighthouse's simulation
+     * counts the framework's async scripts into LCP on a fast local load (the development page: 2.2–2.6 s, its LCP text
+     * painted in the first frame); the 2.0 s PLAN budget stays for the zero-JS pages.
+     */
+    'portal-max-lcp-ms': { type: 'string', default: '2500' },
     desktop: { type: 'boolean', default: false },
     json: { type: 'boolean', default: false },
     /** Lighthouse runs per page; each number reported (and gated) is the median of the runs. */
@@ -49,6 +56,13 @@ const { values } = parseArgs({
      * (`NOINDEX_PATHS`); the portal's pages are indexed and scored with it (S15-01).
      */
     'allow-noindex': { type: 'boolean', default: false },
+    /** S15-F9: audit only the pages whose path contains this text (e.g. `development`). */
+    only: { type: 'string' },
+    /**
+     * S15-F9: save each run's full Lighthouse report (`<page>.runN.json`: the LCP element, LCP breakdown, network and
+     * main-thread audits) and its artifacts (`<page>.runN.artifacts.json`: trace and devtools log) into this directory.
+     */
+    save: { type: 'string' },
   },
 });
 const MIN = Number(values.min);
@@ -61,6 +75,11 @@ function minimumFor(url: string, category: string): number {
 }
 const RUNS = Math.max(1, Number(values.runs));
 const MAX_LCP_MS = Number(values['max-lcp-ms']);
+const PORTAL_MAX_LCP_MS = Number(values['portal-max-lcp-ms']);
+/** The LCP budget of one page (portal pages: ADR 0019 A). */
+function maxLcpFor(url: string): number {
+  return PORTAL_PATHS.test(new URL(url).pathname) ? PORTAL_MAX_LCP_MS : MAX_LCP_MS;
+}
 
 /** The median of numbers (the lower middle one for an even count). */
 function median(xs: readonly number[]): number {
@@ -176,7 +195,7 @@ async function audit(urls: readonly string[]): Promise<PageScores[]> {
       // Warm the server (first render compiles nothing in production, but caches the site scope).
       await fetch(url).catch(() => undefined);
       const runs: PageScores[] = [];
-      for (let run = 0; run < RUNS; run++) runs.push(await auditOnce(url, flags));
+      for (let run = 0; run < RUNS; run++) runs.push(await auditOnce(url, flags, run));
       const mid = (pick: (r: PageScores) => number | null) => {
         const xs = runs.map(pick).filter((x): x is number => x !== null);
         return xs.length > 0 ? median(xs) : null;
@@ -200,7 +219,7 @@ async function audit(urls: readonly string[]): Promise<PageScores[]> {
 }
 
 /** One Lighthouse run of a page. */
-async function auditOnce(url: string, flags: Flags): Promise<PageScores> {
+async function auditOnce(url: string, flags: Flags, run: number): Promise<PageScores> {
   const result = await lighthouse(url, {
     port: DEVTOOLS_PORT,
     logLevel: 'error',
@@ -211,6 +230,13 @@ async function auditOnce(url: string, flags: Flags): Promise<PageScores> {
   const lhr = result?.lhr;
   if (!lhr) throw new Error(`Lighthouse returned no result for ${url}`);
   if (lhr.runtimeError) throw new Error(`${url}: ${lhr.runtimeError.message}`);
+  if (values.save) {
+    mkdirSync(values.save, { recursive: true });
+    const name = new URL(url).pathname.replace(/[^a-z0-9]+/gi, '_').replace(/^_|_$/g, '') || 'root';
+    writeFileSync(join(values.save, `${name}.run${run + 1}.json`), JSON.stringify(lhr));
+    // The artifacts (trace, devtools log): Lantern's simulated LCP can be recomputed and explained from them.
+    writeFileSync(join(values.save, `${name}.run${run + 1}.artifacts.json`), JSON.stringify(result?.artifacts));
+  }
   // Local runs excuse only the pages that are noindex on purpose (embeds, selections); portal pages are indexed (S15-01).
   const noindexPage = values['allow-noindex'] || (local && NOINDEX_PATHS.test(new URL(url).pathname));
   const excused = new Set(noindexPage ? ['is-crawlable'] : []);
@@ -241,9 +267,10 @@ const local = !values.url?.length;
 /** Local pages that are `noindex` on purpose: iFrame embeds and selection links (S15-01: not the portal's). */
 const NOINDEX_PATHS = /^\/(embed|s)\//;
 const target = local ? await localTarget() : { urls: values.url ?? [], stop: async () => {} };
+const only = values.only;
 let results: PageScores[];
 try {
-  results = await audit(target.urls);
+  results = await audit(only ? target.urls.filter((u) => new URL(u).pathname.includes(only)) : target.urls);
 } finally {
   await target.stop();
 }
@@ -269,10 +296,12 @@ const low = results.flatMap((r) => [
   ...[...GATED]
     .filter((c) => (r.scores[c] ?? 0) < minimumFor(r.url, c))
     .map((c) => `${new URL(r.url).pathname}: ${c} ${r.scores[c]} (minimum ${minimumFor(r.url, c)})`),
-  ...(r.lcpMs !== null && r.lcpMs >= MAX_LCP_MS ? [`${new URL(r.url).pathname}: LCP ${r.lcpMs} ms`] : []),
+  ...(r.lcpMs !== null && r.lcpMs >= maxLcpFor(r.url)
+    ? [`${new URL(r.url).pathname}: LCP ${r.lcpMs} ms (budget ${maxLcpFor(r.url)} ms)`]
+    : []),
 ]);
 if (low.length > 0) {
-  console.error(`[S7-F8] perf:lighthouse: below the minimum or LCP ≥ ${MAX_LCP_MS} ms:\n  ${low.join('\n  ')}`);
+  console.error(`[S7-F8] perf:lighthouse: below the minimum or over the LCP budget:\n  ${low.join('\n  ')}`);
   process.exit(1);
 }
 process.exit(0);
