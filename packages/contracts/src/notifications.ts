@@ -36,6 +36,8 @@ export const NOTIFICATION_TYPES = [
   'BILLING_PAYMENT_FAILED',
   'BILLING_PLAN_ENDING',
   'BILLING_PLAN_FREE',
+  // S14-06: the agency was cut over to v2 (legacy migration / Path B) — to its admins, once per cutover.
+  'MIGRATION_CUT_OVER',
 ] as const;
 export const NotificationType = z.enum(NOTIFICATION_TYPES);
 export type NotificationType = z.infer<typeof NotificationType>;

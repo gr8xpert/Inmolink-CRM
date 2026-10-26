@@ -55,6 +55,15 @@ export function countNetworkSharedListingsOf(
 }
 
 /**
+ * S14-06 (Path B parity, the operator's cutover script in `withSystem`): ACTIVE listings of every agency shared with the
+ * whole network (SHARED or PUBLIC, scope ALL, not hidden for freshness) located in any of these locations (at any level:
+ * the listing's own location, its city, region or country), counted up to `cap`. One statement; never on a request path.
+ */
+export function countNetworkListingsInArea(tx: Tx, locationIds: readonly string[], cap: number): Promise<number> {
+  return repo.countNetworkInArea(tx, locationIds, cap);
+}
+
+/**
  * S10-02 (CRM leads, raw `tx` of the caller's agency, inbound promotion included): a listing as a lead's target — its
  * owner agency, and its responsible agent when the caller owns it (`OWNER_AGENT` assignment). Null when the caller
  * cannot read it (RLS) or it is deleted.

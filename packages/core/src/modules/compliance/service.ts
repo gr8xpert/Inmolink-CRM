@@ -149,6 +149,14 @@ export const AUDIT_TYPES = [
   // S12-F13: a network board post published / closed (target: the post; metadata: its kind — never title or body).
   'network.post.published',
   'network.post.closed',
+  // S14-06: an agency's cutover checklist (actor: system — the operator's cutover script; target: the checklist;
+  // metadata: path, step, mode and counts — never names or e-mails): planned, a step done / rolled back, the agency cut
+  // over, the cutover rolled back.
+  'migration.cutover.planned',
+  'migration.cutover.stepDone',
+  'migration.cutover.stepRolledBack',
+  'migration.cutover.completed',
+  'migration.cutover.rolledBack',
 ] as const;
 export type AuditType = (typeof AUDIT_TYPES)[number];
 
@@ -186,7 +194,9 @@ export interface AuditTarget {
     | 'staffOperation'
     | 'planGrant'
     | 'priceLock'
-    | 'supportTicket';
+    | 'supportTicket'
+    // S14-06
+    | 'cutover';
   id: string;
 }
 

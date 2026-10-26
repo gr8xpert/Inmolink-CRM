@@ -256,7 +256,8 @@ are `{ "status": "error", "message": … }`.
 2. Cloudflare on the legacy hostname: a transform rule rewriting `/api/*` to `/v1/*` (`legacyShimPath`), and **strip
    `api_key` from logs**: Logpush/log fields exclude the query string (or `ClientRequestURI`), and the origin proxy
    (kamal-proxy) logs no query strings.
-3. Flip DNS to feed-api; rollback is the DNS flip.
+3. Flip DNS to feed-api; rollback is the DNS flip (cutover.md › DNS switch: `pnpm legacy:cutover dns-check` first;
+   each agency's own cutover is `pnpm legacy:cutover run`).
 4. After cutover, as each site moves to the plugin or header keys: rotate its key (the old one has lived in URLs) and
    clear its legacy flag (`pnpm legacy:key-flag … --off`).
 5. Change a `/v1` answer only with an approved golden update in STATUS.

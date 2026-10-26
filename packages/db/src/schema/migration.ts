@@ -10,6 +10,7 @@ import {
   boolean,
   char,
   check,
+  date,
   index,
   integer,
   jsonb,
@@ -167,5 +168,69 @@ export const migrationValidationReports = pgTable(
       'migration_validation_reports_counts_ck',
       sql`${t.legacyRows} >= 0 and ${t.unexplained} >= 0 and ${t.sampleDiffs} >= 0 and ${t.urlFailures} >= 0`,
     ),
+  ],
+);
+
+/**
+ * Per-agency cutover checklist (S14-06, PLAN §14 Path A step 7 / Path B): one row per v2 agency being moved to v2 —
+ * a legacy Inmolink agency (Path A: freeze legacy, final delta, validation gate, stop the delta, dashboard access,
+ * notify) or an agency coming from another provider (Path B: renewal date, parallel inventory and its parity gate,
+ * website feed switch, notify). `steps` records each step's outcome (`{ <STEP>: { status, at, … } }`), so a re-run
+ * skips what is done and resumes at the first open step; a rollback reverts the reversible steps in reverse order.
+ * `lease_owner` / `lease_until` keep two runs of one agency apart (a crashed run's lease expires). Operator data written
+ * by the cutover script via `withSystem()` only (an operator table: `target_agency_id`, not `agency_id`).
+ */
+export const migrationCutovers = pgTable(
+  'migration_cutovers',
+  {
+    id: uuid('id').primaryKey(),
+    targetAgencyId: uuid('target_agency_id').notNull(),
+    /** A (legacy Inmolink) | B (another provider) */
+    path: text('path').notNull(),
+    /** Path A: the legacy agency (its `agency` map points at `target_agency_id`); null for Path B. */
+    legacyAgencyId: text('legacy_agency_id'),
+    /** Path B: the agency's current provider (`resales-online`, …), informational. */
+    provider: text('provider'),
+    /** The current provider's renewal date (H11): the cutover is scheduled just before it — nobody pays twice. */
+    renewalDate: date('renewal_date', { mode: 'string' }),
+    scheduledFor: date('scheduled_for', { mode: 'string' }),
+    /** PLANNED | IN_PROGRESS | CUT_OVER | ROLLED_BACK */
+    state: text('state').notNull().default('PLANNED'),
+    steps: jsonb('steps').notNull().default(sql`'{}'::jsonb`),
+    /** Path B website inventory: PARALLEL (old provider and v2 side by side) until the switch, then V2. */
+    inventoryMode: text('inventory_mode'),
+    /** Path B parity area: location ids (any level) whose v2 network listings are compared with the old provider's. */
+    areaLocationIds: uuid('area_location_ids').array().notNull().default(sql`'{}'::uuid[]`),
+    /** Path B: the old provider's listings in that area (the operator's count from its feed). */
+    oldAreaListings: integer('old_area_listings'),
+    /** The last error code of a run (no data), cleared by the next step done. */
+    lastError: text('last_error'),
+    leaseOwner: uuid('lease_owner'),
+    leaseUntil: timestamp('lease_until', { withTimezone: true }),
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    cutOverAt: timestamp('cut_over_at', { withTimezone: true }),
+    rolledBackAt: timestamp('rolled_back_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // one checklist per agency (the script's lookups and upserts)
+    uniqueIndex('migration_cutovers_agency_uq').on(t.targetAgencyId),
+    // one checklist per legacy agency
+    uniqueIndex('migration_cutovers_legacy_uq').on(t.legacyAgencyId).where(sql`${t.legacyAgencyId} is not null`),
+    // renewal tracking: open cutovers by scheduled date (`legacy:cutover due`)
+    index('migration_cutovers_due_idx')
+      .on(t.scheduledFor, t.id)
+      .where(sql`${t.state} in ('PLANNED', 'IN_PROGRESS', 'ROLLED_BACK')`),
+    check(
+      'migration_cutovers_path_ck',
+      sql`${t.path} in ('A', 'B') and (${t.path} = 'B' or ${t.legacyAgencyId} is not null)`,
+    ),
+    check('migration_cutovers_state_ck', sql`${t.state} in ('PLANNED', 'IN_PROGRESS', 'CUT_OVER', 'ROLLED_BACK')`),
+    check(
+      'migration_cutovers_inventory_ck',
+      sql`${t.inventoryMode} is null or ${t.inventoryMode} in ('PARALLEL', 'V2')`,
+    ),
+    check('migration_cutovers_old_area_ck', sql`${t.oldAreaListings} is null or ${t.oldAreaListings} >= 0`),
   ],
 );

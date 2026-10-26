@@ -1793,6 +1793,13 @@ export const globalTables: Record<string, GlobalTable> = {
     staffRead: true,
     base: { status: 'PASS' },
   },
+  // S14-06: per-agency cutover checklists (steps, renewal dates, parity counts: ids and counts only), written and read
+  // by the cutover script via withSystem() only; no app role reads it.
+  migration_cutovers: {
+    reason: 'per agency cutover checklist of the legacy / Path B migration (PLAN §14), operator data',
+    noUserRead: true,
+    base: { path: 'B', state: 'PLANNED' },
+  },
 };
 
 export const registry: TenantRegistry = { tenant: tenantTables, global: globalTables };

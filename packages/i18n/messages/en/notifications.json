@@ -12,7 +12,8 @@
     "SAVED_SEARCH_ALERT": "{kind, select, NEW {New listing} PRICE_DROP {Price drop} BACK_ON_MARKET {Back on the market} other {{count, plural, one {# new match} other {# new matches}}}} for your saved search “{subject}”: {refs}",
     "BILLING_PAYMENT_FAILED": "Payment failed: your plan stays active until {date, date, medium}. Update your payment method on the billing page.",
     "BILLING_PLAN_ENDING": "Your {subject} {kind, select, TRIAL {trial} other {plan}} ends on {date, date, medium}. Subscribe on the billing page to keep it.",
-    "BILLING_PLAN_FREE": "Your agency is on the Free plan now. Your data is untouched; subscribe on the billing page to get your plan back."
+    "BILLING_PLAN_FREE": "Your agency is on the Free plan now. Your data is untouched; subscribe on the billing page to get your plan back.",
+    "MIGRATION_CUT_OVER": "Your agency now works on Inmolink v2: your listings, contacts and leads are here, and your team has been sent sign-in e-mails."
   },
   "typeLabels": {
     "LEAD_ASSIGNED": "Leads assigned to me",
@@ -27,7 +28,8 @@
     "SAVED_SEARCH_ALERT": "My saved searches",
     "BILLING_PAYMENT_FAILED": "Payment failures",
     "BILLING_PLAN_ENDING": "Trial or plan ending soon",
-    "BILLING_PLAN_FREE": "Plan changed to Free"
+    "BILLING_PLAN_FREE": "Plan changed to Free",
+    "MIGRATION_CUT_OVER": "Move to Inmolink v2 completed"
   },
   "email": {
     "subject": "{count, plural, one {You have # new notification} other {You have # new notifications}}",

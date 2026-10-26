@@ -2,6 +2,27 @@
 
 export { type BatchRunOptions, type BatchStep, CHECKPOINT_MAX_ISSUES, runBatches, type StepOutcome } from './batches';
 export {
+  areaParity,
+  CUTOVER,
+  CUTOVER_STEPS,
+  type CutoverConfirmation,
+  type CutoverDto,
+  CutoverError,
+  CutoverPlanInput,
+  type CutoverRunResult,
+  type CutoverStep,
+  dueCutovers,
+  getCutover,
+  type LegacyControl,
+  legacyDnsReadiness,
+  planCutover,
+  type RollbackCutoverInput,
+  type RunCutoverInput,
+  registerLegacyControl,
+  rollbackCutover,
+  runCutover,
+} from './cutover';
+export {
   DELTA,
   deltaAgencies,
   type LegacyDeltaSource,

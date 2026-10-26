@@ -35,6 +35,7 @@
     "legacy:load": "tsx --conditions=@inmolink/source scripts/legacy-migration/load.ts",
     "legacy:validate": "tsx --conditions=@inmolink/source scripts/legacy-migration/validate.ts",
     "legacy:delta": "tsx --conditions=@inmolink/source scripts/legacy-migration/delta.ts",
+    "legacy:cutover": "tsx --conditions=@inmolink/source scripts/legacy-migration/cutover.ts",
     "legacy:traffic": "tsx scripts/legacy-api/traffic.ts",
     "legacy:record": "tsx scripts/legacy-api/record.ts",
     "legacy:scan": "tsx scripts/legacy-api/scan.ts",

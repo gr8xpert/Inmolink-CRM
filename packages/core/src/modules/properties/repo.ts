@@ -1521,6 +1521,22 @@ export async function countNetworkSharedOf(
   return new Map((result.rows as { agency_id: string; n: number }[]).map((r) => [r.agency_id, r.n]));
 }
 
+/** S14-06: network-shared ACTIVE listings of every agency in these locations (any level), counted up to `cap`. */
+export async function countNetworkInArea(tx: Tx, locationIds: readonly string[], cap: number): Promise<number> {
+  const ids = [...new Set(locationIds)];
+  if (ids.length === 0) return 0;
+  const arr = sql`${`{${ids.join(',')}}`}::uuid[]`;
+  const result = await tx.execute(sql`
+    select count(*)::int as n from (
+      select 1 from ${properties}
+       where ${properties.visibility} <> 'PRIVATE' and ${properties.status} = 'ACTIVE' and ${properties.deletedAt} is null
+         and ${properties.networkHiddenAt} is null and ${properties.shareScope} = 'ALL'
+         and (${properties.locationId} = any(${arr}) or ${properties.cityId} = any(${arr})
+              or ${properties.regionId} = any(${arr}) or ${properties.countryId} = any(${arr}))
+       limit ${cap}) s`);
+  return (result.rows[0] as { n: number } | undefined)?.n ?? 0;
+}
+
 /** Commission terms of these listings for the search index (S7-F4): worker-facing, no RLS (`withSystem`). */
 export async function commissionTermsOf(tx: Tx, ids: readonly string[]) {
   if (ids.length === 0) return [];
