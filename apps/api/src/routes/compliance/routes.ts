@@ -111,8 +111,7 @@ export async function complianceRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: EXPORT_GET_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) =>
         compliance.getDataExport(ctx, req.params.id, { download: req.query.download === '1' }),
       );
@@ -132,8 +131,7 @@ export async function complianceRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: STAFF_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withStaffCtx(req, 'compliance.listAuditLogForStaff', (ctx) => listStaffAuditLog(ctx, req.query));
     },
   );

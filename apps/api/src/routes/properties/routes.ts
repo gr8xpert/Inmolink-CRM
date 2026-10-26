@@ -75,7 +75,6 @@ export async function propertiesRoutes(app: FastifyZod): Promise<void> {
       config: { rateLimit: WRITE_LIMITS },
     },
     async (req, reply) => {
-      reply.header('cache-control', 'no-store');
       return reply.code(201).send(await app.withCtx(req, (ctx) => properties.createListing(ctx, req.body)));
     },
   );
@@ -93,8 +92,7 @@ export async function propertiesRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: READ_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => properties.listListings(ctx, req.query));
     },
   );
@@ -112,8 +110,7 @@ export async function propertiesRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: READ_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => properties.getListing(ctx, req.params.id));
     },
   );
@@ -132,8 +129,7 @@ export async function propertiesRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: WRITE_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => properties.updateListing(ctx, req.params.id, req.body));
     },
   );
@@ -152,7 +148,6 @@ export async function propertiesRoutes(app: FastifyZod): Promise<void> {
       config: { rateLimit: WRITE_LIMITS },
     },
     async (req, reply) => {
-      reply.header('cache-control', 'no-store');
       await app.withCtx(req, (ctx) => properties.deleteListing(ctx, req.params.id));
       return reply.code(204).send(null);
     },
@@ -171,8 +166,7 @@ export async function propertiesRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: WRITE_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => properties.restoreListing(ctx, req.params.id));
     },
   );
@@ -190,8 +184,7 @@ export async function propertiesRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: WRITE_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => properties.confirmListing(ctx, req.params.id));
     },
   );
@@ -211,8 +204,7 @@ export async function propertiesRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: READ_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => properties.getListingContent(ctx, req.params.id));
     },
   );
@@ -231,8 +223,7 @@ export async function propertiesRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: WRITE_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) =>
         properties.saveListingTranslation(ctx, req.params.id, req.params.locale, req.body),
       );
@@ -253,8 +244,7 @@ export async function propertiesRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: WRITE_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) =>
         properties.deleteListingTranslation(ctx, req.params.id, req.params.locale, req.query.version),
       );
@@ -275,8 +265,7 @@ export async function propertiesRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: WRITE_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => properties.setListingFeatures(ctx, req.params.id, req.body));
     },
   );
@@ -295,8 +284,7 @@ export async function propertiesRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: READ_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => properties.listListingViews(ctx));
     },
   );
@@ -315,7 +303,6 @@ export async function propertiesRoutes(app: FastifyZod): Promise<void> {
       config: { rateLimit: WRITE_LIMITS },
     },
     async (req, reply) => {
-      reply.header('cache-control', 'no-store');
       return reply.code(201).send(await app.withCtx(req, (ctx) => properties.createListingView(ctx, req.body)));
     },
   );
@@ -334,8 +321,7 @@ export async function propertiesRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: WRITE_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => properties.updateListingView(ctx, req.params.id, req.body));
     },
   );
@@ -354,7 +340,6 @@ export async function propertiesRoutes(app: FastifyZod): Promise<void> {
       config: { rateLimit: WRITE_LIMITS },
     },
     async (req, reply) => {
-      reply.header('cache-control', 'no-store');
       await app.withCtx(req, (ctx) => properties.deleteListingView(ctx, req.params.id));
       return reply.code(204).send(null);
     },
@@ -374,7 +359,6 @@ export async function propertiesRoutes(app: FastifyZod): Promise<void> {
       config: { rateLimit: BULK_LIMITS },
     },
     async (req, reply) => {
-      reply.header('cache-control', 'no-store');
       return reply.code(202).send(await app.withCtx(req, (ctx) => properties.startBulkAction(ctx, req.body)));
     },
   );
@@ -392,8 +376,7 @@ export async function propertiesRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: READ_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => properties.getBulkAction(ctx, req.params.id));
     },
   );
@@ -412,8 +395,7 @@ export async function propertiesRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: READ_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => properties.listBookmarkFolders(ctx));
     },
   );
@@ -432,7 +414,6 @@ export async function propertiesRoutes(app: FastifyZod): Promise<void> {
       config: { rateLimit: WRITE_LIMITS },
     },
     async (req, reply) => {
-      reply.header('cache-control', 'no-store');
       return reply.code(201).send(await app.withCtx(req, (ctx) => properties.createBookmarkFolder(ctx, req.body)));
     },
   );
@@ -451,8 +432,7 @@ export async function propertiesRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: WRITE_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => properties.renameBookmarkFolder(ctx, req.params.id, req.body));
     },
   );
@@ -471,7 +451,6 @@ export async function propertiesRoutes(app: FastifyZod): Promise<void> {
       config: { rateLimit: WRITE_LIMITS },
     },
     async (req, reply) => {
-      reply.header('cache-control', 'no-store');
       await app.withCtx(req, (ctx) => properties.deleteBookmarkFolder(ctx, req.params.id));
       return reply.code(204).send(null);
     },
@@ -491,8 +470,7 @@ export async function propertiesRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: READ_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => properties.listBookmarks(ctx, req.params.id, req.query));
     },
   );
@@ -510,8 +488,7 @@ export async function propertiesRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: READ_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => properties.listListingBookmarks(ctx, req.params.id));
     },
   );
@@ -530,7 +507,6 @@ export async function propertiesRoutes(app: FastifyZod): Promise<void> {
       config: { rateLimit: WRITE_LIMITS },
     },
     async (req, reply) => {
-      reply.header('cache-control', 'no-store');
       return reply.code(201).send(await app.withCtx(req, (ctx) => properties.createBookmark(ctx, req.body)));
     },
   );
@@ -549,8 +525,7 @@ export async function propertiesRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: WRITE_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => properties.updateBookmark(ctx, req.params.id, req.body));
     },
   );
@@ -569,7 +544,6 @@ export async function propertiesRoutes(app: FastifyZod): Promise<void> {
       config: { rateLimit: WRITE_LIMITS },
     },
     async (req, reply) => {
-      reply.header('cache-control', 'no-store');
       await app.withCtx(req, (ctx) => properties.deleteBookmark(ctx, req.params.id));
       return reply.code(204).send(null);
     },
@@ -589,8 +563,7 @@ export async function propertiesRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: READ_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) =>
         properties.listListingOverrides(ctx, req.params.targetKind, req.params.targetId),
       );
@@ -611,8 +584,7 @@ export async function propertiesRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: WRITE_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       const { targetKind, targetId, locale } = req.params;
       return app.withCtx(req, (ctx) => properties.saveListingOverride(ctx, targetKind, targetId, locale, req.body));
     },
@@ -632,7 +604,6 @@ export async function propertiesRoutes(app: FastifyZod): Promise<void> {
       config: { rateLimit: WRITE_LIMITS },
     },
     async (req, reply) => {
-      reply.header('cache-control', 'no-store');
       const { targetKind, targetId, locale } = req.params;
       await app.withCtx(req, (ctx) => properties.deleteListingOverride(ctx, targetKind, targetId, locale));
       return reply.code(204).send(null);

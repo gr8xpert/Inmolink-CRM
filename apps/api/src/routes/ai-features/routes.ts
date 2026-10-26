@@ -40,7 +40,6 @@ export async function aiFeaturesRoutes(app: FastifyZod): Promise<void> {
       config: { rateLimit: STUDIO_LIMITS },
     },
     async (req, reply) => {
-      reply.header('cache-control', 'no-store');
       return reply
         .code(202)
         .send(await app.withCtx(req, (ctx) => aiFeatures.requestListingStudio(ctx, req.params.id, req.body)));
@@ -61,7 +60,6 @@ export async function aiFeaturesRoutes(app: FastifyZod): Promise<void> {
       config: { rateLimit: STUDIO_BULK_LIMITS },
     },
     async (req, reply) => {
-      reply.header('cache-control', 'no-store');
       return reply.code(202).send(await app.withCtx(req, (ctx) => aiFeatures.requestListingStudioBulk(ctx, req.body)));
     },
   );

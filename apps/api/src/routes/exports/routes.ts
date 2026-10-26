@@ -90,10 +90,7 @@ export async function exportsRoutes(app: FastifyZod): Promise<void> {
           idempotencyKey: req.headers['idempotency-key'],
         }),
       );
-      return reply
-        .code(replayed ? 200 : 201)
-        .header('Cache-Control', 'no-store')
-        .send(secret);
+      return reply.code(replayed ? 200 : 201).send(secret);
     },
   );
 

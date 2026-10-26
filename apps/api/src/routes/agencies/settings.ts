@@ -74,9 +74,8 @@ export async function settingsRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: READ_LIMITS },
     },
-    async (req, reply) => {
+    async (req, _reply) => {
       // The link is a bearer credential for the file: never cached on the way.
-      reply.header('cache-control', 'no-store');
       return app.withCtx(req, (ctx) => agencies.getAgencyLogoUrl(ctx));
     },
   );
@@ -111,8 +110,7 @@ export async function settingsRoutes(app: FastifyZod): Promise<void> {
       config: { rateLimit: READ_LIMITS },
     },
     // Commission, split and PIN policy: never kept by a browser or proxy cache.
-    (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    (req, _reply) => {
       return app.withCtx(req, (ctx) => agencies.getMyAgencySettings(ctx));
     },
   );
@@ -130,8 +128,7 @@ export async function settingsRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: WRITE_LIMITS },
     },
-    (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    (req, _reply) => {
       return app.withCtx(req, (ctx) => agencies.updateAgencySettings(ctx, req.body));
     },
   );
@@ -148,8 +145,7 @@ export async function settingsRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: READ_LIMITS },
     },
-    (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    (req, _reply) => {
       return app.withCtx(req, (ctx) => agencies.getAgencyAiFeatures(ctx));
     },
   );
@@ -168,8 +164,7 @@ export async function settingsRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: WRITE_LIMITS },
     },
-    (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    (req, _reply) => {
       return agencies.setAgencyAiFeature(app.ctxRunner(req), req.params.feature, req.body.enabled);
     },
   );

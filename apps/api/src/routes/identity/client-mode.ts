@@ -27,8 +27,7 @@ export async function clientModeRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: CLIENT_MODE_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => identity.startClientMode(ctx, req.body));
     },
   );

@@ -132,10 +132,7 @@ export async function websitesRoutes(app: FastifyZod): Promise<void> {
           idempotencyKey: req.headers['idempotency-key'] as string | undefined,
         }),
       );
-      return reply
-        .code(result.replayed ? 200 : 201)
-        .header('Cache-Control', 'no-store')
-        .send(result.secret);
+      return reply.code(result.replayed ? 200 : 201).send(result.secret);
     },
   );
 

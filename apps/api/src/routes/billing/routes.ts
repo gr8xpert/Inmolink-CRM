@@ -49,8 +49,6 @@ export const WEBHOOK_BACKSTOP_LIMITS: RateLimitRule[] = [
 /** Stripe's event payloads are small; anything larger is not Stripe. */
 const WEBHOOK_MAX_BYTES = 256 * 1024;
 
-const NO_STORE = 'no-store';
-
 /**
  * Billing (S13-01, PLAN §3 #28): the plan in force and the catalog, Stripe Checkout and the Customer Portal (admins),
  * invoices, and Stripe's webhook.
@@ -68,8 +66,7 @@ export async function billingRoutes(app: FastifyZod, opts: { limiter: RateLimite
       onRequest: [app.requireSession],
       config: { rateLimit: READ_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', NO_STORE);
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => billing.getBillingOverview(ctx));
     },
   );
@@ -87,8 +84,7 @@ export async function billingRoutes(app: FastifyZod, opts: { limiter: RateLimite
       onRequest: [app.requireSession],
       config: { rateLimit: READ_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', NO_STORE);
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => billing.listInvoices(ctx, req.query));
     },
   );
@@ -106,8 +102,7 @@ export async function billingRoutes(app: FastifyZod, opts: { limiter: RateLimite
       onRequest: [app.requireSession],
       config: { rateLimit: STRIPE_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', NO_STORE);
+    async (req, _reply) => {
       return billing.startCheckout(app.ctxRunner(req), req.body);
     },
   );
@@ -124,8 +119,7 @@ export async function billingRoutes(app: FastifyZod, opts: { limiter: RateLimite
       onRequest: [app.requireSession],
       config: { rateLimit: STRIPE_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', NO_STORE);
+    async (req, _reply) => {
       return billing.openCustomerPortal(app.ctxRunner(req));
     },
   );

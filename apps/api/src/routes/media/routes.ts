@@ -58,8 +58,7 @@ export async function mediaRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: WRITE_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return media.checkUploads(app.ctxRunner(req), req.body);
     },
   );
@@ -77,8 +76,7 @@ export async function mediaRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: WRITE_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return media.registerUploads(app.ctxRunner(req), req.body);
     },
   );
@@ -96,8 +94,7 @@ export async function mediaRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: READ_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => media.listListingMedia(ctx, req.params.id));
     },
   );
@@ -116,7 +113,6 @@ export async function mediaRoutes(app: FastifyZod): Promise<void> {
       config: { rateLimit: WRITE_LIMITS },
     },
     async (req, reply) => {
-      reply.header('cache-control', 'no-store');
       await app.withCtx(req, (ctx) =>
         media.detachListingMedia(ctx, { listingId: req.params.id, mediaId: req.params.mediaId }),
       );
@@ -138,8 +134,7 @@ export async function mediaRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: WRITE_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) =>
         media.updateListingMedia(ctx, { listingId: req.params.id, mediaId: req.params.mediaId, patch: req.body }),
       );
@@ -160,8 +155,7 @@ export async function mediaRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: WRITE_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => media.reorderListingMedia(ctx, { listingId: req.params.id, ids: req.body.ids }));
     },
   );
@@ -184,7 +178,7 @@ export async function mediaRoutes(app: FastifyZod): Promise<void> {
       const list = await app.withCtx(req, (ctx) =>
         media.addListingVideo(ctx, { listingId: req.params.id, url: req.body.url }),
       );
-      return reply.status(201).header('cache-control', 'no-store').send(list);
+      return reply.status(201).send(list);
     },
   );
 
@@ -201,8 +195,7 @@ export async function mediaRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: READ_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => media.listListingDocuments(ctx, req.params.id));
     },
   );
@@ -220,8 +213,7 @@ export async function mediaRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: READ_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) =>
         media.openListingDocument(ctx, { listingId: req.params.id, documentId: req.params.documentId }),
       );

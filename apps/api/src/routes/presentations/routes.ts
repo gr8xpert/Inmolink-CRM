@@ -46,8 +46,7 @@ export async function presentationsRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: READ_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => presentations.listSelections(ctx, req.query));
     },
   );
@@ -66,7 +65,6 @@ export async function presentationsRoutes(app: FastifyZod): Promise<void> {
       config: { rateLimit: WRITE_LIMITS },
     },
     async (req, reply) => {
-      reply.header('cache-control', 'no-store');
       return reply.code(201).send(await app.withCtx(req, (ctx) => presentations.createSelection(ctx, req.body)));
     },
   );
@@ -84,8 +82,7 @@ export async function presentationsRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: READ_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => presentations.getSelection(ctx, req.params.id));
     },
   );
@@ -104,8 +101,7 @@ export async function presentationsRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: WRITE_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => presentations.updateSelection(ctx, req.params.id, req.body));
     },
   );
@@ -126,7 +122,6 @@ export async function presentationsRoutes(app: FastifyZod): Promise<void> {
       config: { rateLimit: DOCUMENT_RENDER_LIMITS },
     },
     async (req, reply) => {
-      reply.header('cache-control', 'no-store');
       return reply.code(202).send(await presentations.selectionPdf((fn) => app.withCtx(req, fn), req.params.id));
     },
   );
@@ -145,8 +140,7 @@ export async function presentationsRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: WRITE_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => presentations.rotateSelectionLink(ctx, req.params.id, req.body.version));
     },
   );
@@ -165,8 +159,7 @@ export async function presentationsRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: READ_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => presentations.listSelectionInteractions(ctx, req.params.id, req.query));
     },
   );

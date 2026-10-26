@@ -39,8 +39,7 @@ export async function staffImportsRoutes(app: FastifyZod): Promise<void> {
       onRequest: staff,
       config: { rateLimit: READ_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withStaffCtx(req, 'imports.staffGetImportHealth', (ctx) => imports.getImportHealth(ctx));
     },
   );
@@ -60,8 +59,7 @@ export async function staffImportsRoutes(app: FastifyZod): Promise<void> {
       onRequest: staff,
       config: { rateLimit: WRITE_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withStaffCtx(req, 'imports.staffResumeFeedConnection', (ctx) =>
         imports.staffResumeFeedConnection(ctx, req.params.id, req.body),
       );

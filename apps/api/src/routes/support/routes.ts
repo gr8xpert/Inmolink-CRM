@@ -147,9 +147,8 @@ export async function supportRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: READ_LIMITS },
     },
-    async (req, reply) => {
+    async (req, _reply) => {
       // The link is a bearer credential for the file: never cached on the way.
-      reply.header('cache-control', 'no-store');
       return app.withCtx(req, (ctx) => support.getAttachmentUrl(ctx, req.params));
     },
   );
@@ -245,8 +244,7 @@ export async function supportRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: STAFF_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withStaffCtx(req, 'support.getStaffAttachmentUrl', (ctx) =>
         support.getStaffAttachmentUrl(ctx, req.params),
       );

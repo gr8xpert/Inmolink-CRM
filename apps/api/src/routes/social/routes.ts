@@ -32,8 +32,6 @@ const CONNECT_LIMITS: readonly RateLimitRule[] = [
   { name: 'social.connect.tenant', scope: 'tenant', limit: 30, windowSeconds: 3_600 },
 ];
 
-const NO_STORE = 'no-store';
-
 /** Social posting (S12-07): connected Facebook Pages and Instagram accounts, posts from listings and their history. */
 export async function socialRoutes(app: FastifyZod): Promise<void> {
   app.get(
@@ -48,8 +46,7 @@ export async function socialRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: READ_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', NO_STORE);
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => social.listSocialAccounts(ctx));
     },
   );
@@ -66,8 +63,7 @@ export async function socialRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: CONNECT_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', NO_STORE);
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => social.startSocialConnect(ctx));
     },
   );
@@ -85,8 +81,7 @@ export async function socialRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: CONNECT_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', NO_STORE);
+    async (req, _reply) => {
       return social.completeSocialConnect(app.ctxRunner(req), req.body);
     },
   );
@@ -123,8 +118,7 @@ export async function socialRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: READ_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', NO_STORE);
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => social.listSocialPosts(ctx, req.query));
     },
   );
@@ -158,8 +152,7 @@ export async function socialRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: READ_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', NO_STORE);
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => social.getSocialPost(ctx, req.params.postId));
     },
   );

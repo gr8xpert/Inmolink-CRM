@@ -48,11 +48,7 @@ export async function apiKeyRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: WRITE_LIMITS },
     },
-    async (req, reply) =>
-      reply
-        .code(201)
-        .header('cache-control', 'no-store')
-        .send(await app.withCtx(req, (ctx) => identity.createApiKey(ctx, req.body))),
+    async (req, reply) => reply.code(201).send(await app.withCtx(req, (ctx) => identity.createApiKey(ctx, req.body))),
   );
 
   app.post(
@@ -68,10 +64,7 @@ export async function apiKeyRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: WRITE_LIMITS },
     },
-    async (req, reply) =>
-      reply
-        .header('cache-control', 'no-store')
-        .send(await app.withCtx(req, (ctx) => identity.rotateApiKey(ctx, req.params))),
+    async (req, reply) => reply.send(await app.withCtx(req, (ctx) => identity.rotateApiKey(ctx, req.params))),
   );
 
   app.delete(

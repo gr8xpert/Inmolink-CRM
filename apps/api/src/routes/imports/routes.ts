@@ -95,8 +95,7 @@ export async function importsRoutes(app: FastifyZod): Promise<void> {
       },
       ...read,
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => imports.listFeedConnections(ctx, req.query));
     },
   );
@@ -114,7 +113,6 @@ export async function importsRoutes(app: FastifyZod): Promise<void> {
       ...write,
     },
     async (req, reply) => {
-      reply.header('cache-control', 'no-store');
       return reply.code(201).send(await app.withCtx(req, (ctx) => imports.createFeedConnection(ctx, req.body)));
     },
   );
@@ -131,8 +129,7 @@ export async function importsRoutes(app: FastifyZod): Promise<void> {
       },
       ...read,
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => imports.getFeedConnection(ctx, req.params.id));
     },
   );
@@ -150,8 +147,7 @@ export async function importsRoutes(app: FastifyZod): Promise<void> {
       },
       ...write,
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => imports.updateFeedConnection(ctx, req.params.id, req.body));
     },
   );
@@ -169,7 +165,6 @@ export async function importsRoutes(app: FastifyZod): Promise<void> {
       ...write,
     },
     async (req, reply) => {
-      reply.header('cache-control', 'no-store');
       await app.withCtx(req, (ctx) => imports.deleteFeedConnection(ctx, req.params.id));
       return reply.code(204).send(null);
     },
@@ -189,7 +184,6 @@ export async function importsRoutes(app: FastifyZod): Promise<void> {
       config: { rateLimit: [...WRITE_LIMITS, ...RUN_LIMITS] },
     },
     async (req, reply) => {
-      reply.header('cache-control', 'no-store');
       return reply.code(202).send(await app.withCtx(req, (ctx) => imports.requestFeedRun(ctx, req.params.id)));
     },
   );
@@ -207,8 +201,7 @@ export async function importsRoutes(app: FastifyZod): Promise<void> {
       },
       ...write,
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => imports.resumeFeedConnection(ctx, req.params.id, req.body));
     },
   );
@@ -226,8 +219,7 @@ export async function importsRoutes(app: FastifyZod): Promise<void> {
       },
       ...read,
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => imports.listFeedRuns(ctx, req.params.id, req.query));
     },
   );
@@ -244,8 +236,7 @@ export async function importsRoutes(app: FastifyZod): Promise<void> {
       },
       ...read,
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => imports.getFeedRun(ctx, req.params.runId));
     },
   );
@@ -263,8 +254,7 @@ export async function importsRoutes(app: FastifyZod): Promise<void> {
       },
       ...read,
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => imports.listFeedItemErrors(ctx, req.params.runId, req.query));
     },
   );
@@ -283,8 +273,7 @@ export async function importsRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession, takeSampleSlot],
       config: { rateLimit: SAMPLE_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return imports.sampleFromUrl(app.ctxRunner(req), req.body);
     },
   );
@@ -303,8 +292,7 @@ export async function importsRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: PREVIEW_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => imports.previewMapping(ctx, req.body));
     },
   );
@@ -322,8 +310,7 @@ export async function importsRoutes(app: FastifyZod): Promise<void> {
       bodyLimit: 2 * 1024 * 1024,
       ...write,
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => imports.dryRunMapping(ctx, req.body));
     },
   );
@@ -340,8 +327,7 @@ export async function importsRoutes(app: FastifyZod): Promise<void> {
       },
       ...read,
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => imports.listMappingProfiles(ctx, req.query));
     },
   );
@@ -359,7 +345,6 @@ export async function importsRoutes(app: FastifyZod): Promise<void> {
       ...write,
     },
     async (req, reply) => {
-      reply.header('cache-control', 'no-store');
       return reply.code(201).send(await app.withCtx(req, (ctx) => imports.createMappingProfile(ctx, req.body)));
     },
   );
@@ -376,8 +361,7 @@ export async function importsRoutes(app: FastifyZod): Promise<void> {
       },
       ...read,
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => imports.getMappingProfile(ctx, req.params.id));
     },
   );
@@ -396,8 +380,7 @@ export async function importsRoutes(app: FastifyZod): Promise<void> {
       },
       ...write,
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => imports.updateMappingProfile(ctx, req.params.id, req.body));
     },
   );
@@ -418,7 +401,6 @@ export async function importsRoutes(app: FastifyZod): Promise<void> {
       config: { rateLimit: RUN_LIMITS },
     },
     async (req, reply) => {
-      reply.header('cache-control', 'no-store');
       return reply.code(201).send(await app.withCtx(req, (ctx) => imports.startSheetImport(ctx, req.body)));
     },
   );
@@ -452,9 +434,8 @@ async function sampleUploadRoute(upload: FastifyZod): Promise<void> {
       onRequest: [upload.requireSession, takeSampleSlot],
       config: { rateLimit: SAMPLE_LIMITS },
     },
-    async (req, reply) => {
+    async (req, _reply) => {
       if (!Buffer.isBuffer(req.body)) throw new AppError('UNSUPPORTED_MEDIA_TYPE');
-      reply.header('cache-control', 'no-store');
       const bytes = new Uint8Array(req.body.buffer, req.body.byteOffset, req.body.byteLength);
       return imports.sampleFromUpload(upload.ctxRunner(req), bytes, { recordElement: req.query.recordElement });
     },
@@ -506,9 +487,8 @@ async function sheetUploadRoute(upload: FastifyZod): Promise<void> {
       onRequest: [upload.requireSession, (req) => upload.withCtx(req, imports.authorizeSheetUpload), takeSheetSlot],
       config: { rateLimit: SHEET_LIMITS },
     },
-    async (req, reply) => {
+    async (req, _reply) => {
       if (!Buffer.isBuffer(req.body)) throw new AppError('UNSUPPORTED_MEDIA_TYPE');
-      reply.header('cache-control', 'no-store');
       const bytes = new Uint8Array(req.body.buffer, req.body.byteOffset, req.body.byteLength);
       return imports.uploadSheet(upload.ctxRunner(req), bytes);
     },

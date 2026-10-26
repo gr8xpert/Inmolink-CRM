@@ -149,9 +149,8 @@ export async function verificationRoutes(app: FastifyZod): Promise<void> {
       onRequest: [app.requireSession],
       config: { rateLimit: STAFF_LIMITS },
     },
-    async (req, reply) => {
+    async (req, _reply) => {
       // The link is a bearer credential for the file: never cached on the way.
-      reply.header('cache-control', 'no-store');
       return app.withStaffCtx(req, 'agencies.getVerificationDocumentUrl', (ctx) =>
         agencies.getVerificationDocumentUrl(ctx, req.params),
       );

@@ -56,8 +56,7 @@ export async function staffTaxonomyRoutes(app: FastifyZod): Promise<void> {
       onRequest: staff,
       config: { rateLimit: READ_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withStaffCtx(req, 'taxonomy.staffGetTaxonomy', (ctx) => taxonomy.getStaffTaxonomy(ctx));
     },
   );
@@ -75,8 +74,7 @@ export async function staffTaxonomyRoutes(app: FastifyZod): Promise<void> {
       onRequest: staff,
       config: { rateLimit: READ_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withStaffCtx(req, 'taxonomy.staffGetLocation', (ctx) => taxonomy.getStaffLocation(ctx, req.params.id));
     },
   );
@@ -94,8 +92,7 @@ export async function staffTaxonomyRoutes(app: FastifyZod): Promise<void> {
       onRequest: staff,
       config: { rateLimit: READ_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withStaffCtx(req, 'taxonomy.staffGetLocationChildren', (ctx) =>
         taxonomy.getStaffLocationChildren(ctx, req.params.id),
       );
@@ -218,8 +215,7 @@ export async function staffTaxonomyRoutes(app: FastifyZod): Promise<void> {
       onRequest: staff,
       config: { rateLimit: READ_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withStaffCtx(req, 'taxonomy.staffGetCatalogItem', (ctx) =>
         taxonomy.getStaffCatalogItem(ctx, req.params.kind, req.params.scope, req.params.id),
       );
@@ -319,8 +315,7 @@ export async function staffTaxonomyRoutes(app: FastifyZod): Promise<void> {
       onRequest: staff,
       config: { rateLimit: READ_LIMITS },
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withStaffCtx(req, 'taxonomy.staffListUnmatched', (ctx) => taxonomy.listStaffUnmatched(ctx, req.query));
     },
   );

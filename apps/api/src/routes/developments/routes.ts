@@ -67,7 +67,6 @@ export async function developmentsRoutes(app: FastifyZod): Promise<void> {
       ...write,
     },
     async (req, reply) => {
-      reply.header('cache-control', 'no-store');
       return reply.code(201).send(await app.withCtx(req, (ctx) => developments.createDevelopment(ctx, req.body)));
     },
   );
@@ -84,8 +83,7 @@ export async function developmentsRoutes(app: FastifyZod): Promise<void> {
       },
       ...read,
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => developments.listDevelopments(ctx, req.query));
     },
   );
@@ -102,8 +100,7 @@ export async function developmentsRoutes(app: FastifyZod): Promise<void> {
       },
       ...read,
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => developments.getDevelopment(ctx, req.params.id));
     },
   );
@@ -121,8 +118,7 @@ export async function developmentsRoutes(app: FastifyZod): Promise<void> {
       },
       ...write,
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => developments.updateDevelopment(ctx, req.params.id, req.body));
     },
   );
@@ -140,8 +136,7 @@ export async function developmentsRoutes(app: FastifyZod): Promise<void> {
       },
       ...write,
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => developments.setDevelopmentAccess(ctx, req.params.id, req.body));
     },
   );
@@ -160,7 +155,6 @@ export async function developmentsRoutes(app: FastifyZod): Promise<void> {
       ...write,
     },
     async (req, reply) => {
-      reply.header('cache-control', 'no-store');
       await app.withCtx(req, (ctx) => developments.deleteDevelopment(ctx, req.params.id, req.query.version));
       return reply.code(204).send(null);
     },
@@ -179,8 +173,7 @@ export async function developmentsRoutes(app: FastifyZod): Promise<void> {
       },
       ...read,
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => developments.listUnits(ctx, req.params.id, req.query));
     },
   );
@@ -199,7 +192,6 @@ export async function developmentsRoutes(app: FastifyZod): Promise<void> {
       ...write,
     },
     async (req, reply) => {
-      reply.header('cache-control', 'no-store');
       return reply
         .code(201)
         .send(await app.withCtx(req, (ctx) => developments.createUnits(ctx, req.params.id, req.body)));
@@ -219,8 +211,7 @@ export async function developmentsRoutes(app: FastifyZod): Promise<void> {
       },
       ...write,
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => developments.bulkUpdateUnits(ctx, req.params.id, req.body));
     },
   );
@@ -238,8 +229,7 @@ export async function developmentsRoutes(app: FastifyZod): Promise<void> {
       },
       ...write,
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => developments.updateUnit(ctx, req.params.id, req.params.unitId, req.body));
     },
   );
@@ -257,7 +247,6 @@ export async function developmentsRoutes(app: FastifyZod): Promise<void> {
       ...write,
     },
     async (req, reply) => {
-      reply.header('cache-control', 'no-store');
       await app.withCtx(req, (ctx) => developments.deleteUnit(ctx, req.params.id, req.params.unitId));
       return reply.code(204).send(null);
     },
@@ -276,8 +265,7 @@ export async function developmentsRoutes(app: FastifyZod): Promise<void> {
       },
       ...read,
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => developments.listPriceLists(ctx, req.params.id, req.query));
     },
   );
@@ -296,7 +284,6 @@ export async function developmentsRoutes(app: FastifyZod): Promise<void> {
       ...write,
     },
     async (req, reply) => {
-      reply.header('cache-control', 'no-store');
       return reply
         .code(201)
         .send(await app.withCtx(req, (ctx) => developments.createPriceList(ctx, req.params.id, req.body)));
@@ -315,8 +302,7 @@ export async function developmentsRoutes(app: FastifyZod): Promise<void> {
       },
       ...read,
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => developments.getPriceList(ctx, req.params.id, req.params.version));
     },
   );
@@ -333,8 +319,7 @@ export async function developmentsRoutes(app: FastifyZod): Promise<void> {
       },
       ...write,
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => developments.approvePriceList(ctx, req.params.id, req.params.version));
     },
   );
@@ -353,8 +338,7 @@ export async function developmentsRoutes(app: FastifyZod): Promise<void> {
       },
       ...read,
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) => developments.listDevelopmentDocuments(ctx, req.params.id));
     },
   );
@@ -371,8 +355,7 @@ export async function developmentsRoutes(app: FastifyZod): Promise<void> {
       },
       ...read,
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) =>
         developments.openDevelopmentDocument(ctx, { developmentId: req.params.id, documentId: req.params.documentId }),
       );
@@ -392,8 +375,7 @@ export async function developmentsRoutes(app: FastifyZod): Promise<void> {
       },
       ...write,
     },
-    async (req, reply) => {
-      reply.header('cache-control', 'no-store');
+    async (req, _reply) => {
       return app.withCtx(req, (ctx) =>
         developments.updateDevelopmentDocument(ctx, {
           developmentId: req.params.id,
