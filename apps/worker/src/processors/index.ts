@@ -88,6 +88,7 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     websiteApiJobs.refreshSiteFeeds,
     websiteApiJobs.deleteSiteFeedFiles,
     websiteApiJobs.sweepNetworkFeeds,
+    websiteApiJobs.generatePortalSitemaps,
     // S9-03: portal feeds — one pass per agency (events, nightly) and the nightly sweep.
     exportsJobs.generatePortalFeeds,
     exportsJobs.generateNightlyPortalFeeds,

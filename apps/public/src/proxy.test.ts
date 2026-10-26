@@ -3,7 +3,15 @@ import { getRedirectUrl, unstable_doesMiddlewareMatch } from 'next/experimental/
 import { NextRequest } from 'next/server';
 import { describe, expect, it, vi } from 'vitest';
 import { EMBED_GATE_HEADER } from './embed/csp';
-import proxy, { config, createProxy, type EmbedGate, type PortalGate } from './proxy';
+import proxy, { config, createProxy, type EmbedGate, type LegacyGate, type PortalGate } from './proxy';
+
+// S15-02: the default legacy lookup needs the database; these checks pass their own (`createProxy`'s third gate).
+vi.mock('./server/legacy-redirects', () => ({ legacyRedirect: async () => null }));
+// Redirects are built on the configured portal origin, never the request's Host (`portal.test` in these requests).
+vi.mock('./server/env', () => ({
+  publicConfig: async () => ({}),
+  portalOriginOf: () => 'https://inmolink.test',
+}));
 
 const request = (path: string, headers: Record<string, string> = {}) =>
   new NextRequest(`http://portal.test${path}`, { headers });
@@ -129,7 +137,8 @@ describe('portal search pages (S15-01)', () => {
     for (const [from, to] of cases) {
       const res = await run(request(from));
       expect(res.status, from).toBe(301);
-      expect(res.headers.get('location'), from).toBe(`http://portal.test${to}`);
+      // On the configured portal origin, never the request's Host header (S15-02 review).
+      expect(res.headers.get('location'), from).toBe(`https://inmolink.test${to}`);
       expect(res.headers.get('set-cookie'), from).toBeNull();
     }
     for (const path of ['/en/properties', '/en/properties?price_min=100000&page=2', '/es/zone/costa?type=villa']) {
@@ -166,5 +175,86 @@ describe('portal search pages (S15-01)', () => {
     const unprefixed = await run(request('/properties', { 'accept-language': 'es-ES' }));
     expect(getRedirectUrl(unprefixed)).toBe('http://portal.test/es/properties');
     expect(unprefixed.headers.get('set-cookie')).toBeNull();
+  });
+});
+
+describe('legacy inmolink.es URLs (S15-02)', () => {
+  const allow: PortalGate = async () => ({ allowed: true, retryAfterSeconds: 0 });
+  const known: Record<string, { targetPath: string; status: 301 | 308 }> = {
+    '/property-details/AB-123/villa-in-rojales': { targetPath: '/es/property/villa-en-rojales-ab12cd34', status: 301 },
+    '/agent/42/jane-doe': { targetPath: '/en/properties', status: 301 },
+    '/?page_id=12': { targetPath: '/es', status: 301 },
+    '/contacto.php': { targetPath: '/es', status: 308 },
+    '/evil': { targetPath: '//evil.example/', status: 301 },
+    '/evil2': { targetPath: 'https://evil.example/', status: 301 },
+  };
+  /** The resolver: a cached answer for a known path; a probe (after `beforeProbe`) otherwise. */
+  const legacy: LegacyGate = vi.fn(async (path, beforeProbe) => {
+    const hit = known[path];
+    if (hit) return hit;
+    await beforeProbe();
+    return null;
+  });
+
+  it('[S15-02] a legacy URL answers 301 (or its own 308) to its new page before locale routing; Location is a path', async () => {
+    const run = createProxy(ok(), allow, legacy);
+    for (const [from, to] of Object.entries(known).slice(0, 4)) {
+      const res = await run(request(from, { host: 'attacker.example' }));
+      expect(res.status, from).toBe(to.status);
+      expect(res.headers.get('location'), from).toBe(`https://inmolink.test${to.targetPath}`);
+      expect(res.headers.get('x-frame-options')).toBe('DENY');
+    }
+  });
+
+  it('[S15-02] never a redirect off the portal; an outage or an unknown path falls through to the page', async () => {
+    const run = createProxy(ok(), allow, legacy);
+    for (const path of ['/evil', '/evil2']) expect((await run(request(path))).status, path).not.toBe(301);
+    const broken = createProxy(ok(), allow, async () => {
+      throw new Error('db down');
+    });
+    expect(getRedirectUrl(await broken(request('/property-details/AB-123/x', { 'accept-language': 'es' })))).toBe(
+      'http://portal.test/es/property-details/AB-123/x',
+    );
+    // An old page with an extension that names nothing now: a plain 404.
+    expect((await run(request('/unknown.php'))).status).toBe(404);
+  });
+
+  it('[S15-02] a lookup that needs a database probe counts against the client page limit first (429 past it)', async () => {
+    const limited: PortalGate = vi.fn(async () => ({ allowed: false, retryAfterSeconds: 7 }));
+    const run = createProxy(ok(), limited, legacy);
+    // A cached answer needs no probe: never limited.
+    expect((await run(request('/agent/42/jane-doe', { 'x-forwarded-for': '9.9.9.9' }))).status).toBe(301);
+    expect(limited).not.toHaveBeenCalled();
+    const res = await run(request('/made-up-123', { 'x-forwarded-for': '9.9.9.9' }));
+    expect(res.status).toBe(429);
+    expect(res.headers.get('retry-after')).toBe('7');
+    expect(limited).toHaveBeenCalledWith('9.9.9.9');
+  });
+
+  it('[S15-02] the portal page shapes and the bare root are not looked up (their pages ask only on a 404)', async () => {
+    const counted: LegacyGate = vi.fn(async () => null);
+    const run = createProxy(ok(), allow, counted);
+    for (const path of [
+      '/',
+      '/en',
+      '/es/',
+      '/en/properties/spain',
+      '/en/property/x-ab12cd34',
+      '/es/zone/x',
+      '/en/development/x',
+    ]) {
+      await run(request(path));
+    }
+    expect(counted).not.toHaveBeenCalled();
+    await run(request('/en/old-page'));
+    expect(counted).toHaveBeenCalledWith('/en/old-page', expect.any(Function));
+  });
+
+  it('[S15-02] old pages with an extension reach the proxy; sitemaps, robots.txt and the enquiry post do not', () => {
+    const runs = (url: string) => unstable_doesMiddlewareMatch({ config, url });
+    for (const url of ['/index.php', '/contacto.html', '/old/page.aspx']) expect(runs(url), url).toBe(true);
+    for (const url of ['/sitemap.xml', '/sitemaps/en-listings-1.xml', '/robots.txt', '/api/portal/enquiry']) {
+      expect(runs(url), url).toBe(false);
+    }
   });
 });

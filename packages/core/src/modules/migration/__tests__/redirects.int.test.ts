@@ -1,6 +1,7 @@
 import { closeDb, withPublicRead, withSystem } from '@inmolink/db';
 import { legacyUrlRedirects } from '@inmolink/db/schema/migration';
 import { setupTestDb } from '@inmolink/db/testing';
+import { closeCache, configureCache } from '@inmolink/platform/cache';
 import { newId } from '@inmolink/platform/ids';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -90,6 +91,63 @@ describe('legacy redirects', () => {
     );
     expect(row?.targetPath).toBe('/es/moved');
     expect(row?.hits).toBe(3);
+  });
+
+  it('[S15-02] a cache miss asks the caller first (its client limit): refused, no probe and nothing cached', async () => {
+    const r = rowFor('limited', '/es/limited');
+    await migration.saveRedirects([r]);
+    migration.resetRedirectCache();
+    let asked = 0;
+    const refuse = async () => {
+      asked += 1;
+      return false;
+    };
+    expect(await migration.resolveLegacyRedirect('portal', HOST, r.pathKey, { beforeProbe: refuse })).toBeNull();
+    expect(asked).toBe(1);
+    // Not cached as a miss: the next allowed lookup probes and finds it; a cached answer never asks again.
+    const allow = async () => {
+      asked += 1;
+      return true;
+    };
+    expect(await migration.resolveLegacyRedirect('portal', HOST, r.pathKey, { beforeProbe: allow })).toEqual({
+      status: 301,
+      targetPath: '/es/limited',
+    });
+    expect(await migration.resolveLegacyRedirect('portal', HOST, r.pathKey, { beforeProbe: refuse })).not.toBeNull();
+    expect(asked).toBe(2);
+    migration.resetRedirectCache();
+  });
+
+  it('[S15-02] a resolving process pushes its hits to the shared counters; the worker flush writes them', async () => {
+    const r = rowFor('pushed', '/es/pushed');
+    await migration.saveRedirects([r]);
+    migration.resetRedirectCache();
+    await configureCache({ prefix: `t:redirect-hits:${RUN}` });
+    try {
+      // The public pages: resolve (counted in memory), then hand the counts over — no database write.
+      for (let i = 0; i < 2; i++) await migration.resolveLegacyRedirect('portal', HOST, r.pathKey);
+      expect(await migration.pushRedirectHits()).toBe(1);
+      expect(await migration.pushRedirectHits()).toBe(0);
+      const before = await withSystem('migration.test', (tx) =>
+        tx
+          .select({ hits: legacyUrlRedirects.hits })
+          .from(legacyUrlRedirects)
+          .where(eq(legacyUrlRedirects.pathKey, r.pathKey)),
+      );
+      expect(before[0]?.hits).toBe(0);
+      // The worker: drains the shared counters (its own buffer is empty) into the table.
+      expect(await migration.flushRedirectHits()).toBe(1);
+      expect(await migration.flushRedirectHits()).toBe(0);
+      const [row] = await withSystem('migration.test', (tx) =>
+        tx
+          .select({ hits: legacyUrlRedirects.hits })
+          .from(legacyUrlRedirects)
+          .where(eq(legacyUrlRedirects.pathKey, r.pathKey)),
+      );
+      expect(row?.hits).toBe(2);
+    } finally {
+      await closeCache();
+    }
   });
 
   it('[S14-review] two agencies with the same plugin path on different hosts keep their own redirects', async () => {

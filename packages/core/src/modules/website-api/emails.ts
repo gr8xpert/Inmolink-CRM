@@ -184,8 +184,8 @@ export interface LeadNotifyInput {
   locale: string;
   kind: 'ENQUIRY' | 'VIEWING_REQUEST';
   ref: string | null;
-  /** The site as the agency knows it (its name in the dashboard). */
-  siteName: string;
+  /** The site as the agency knows it (its name in the dashboard); null: the public portal (S15-02). */
+  siteName: string | null;
   lead: {
     name: string;
     email: string;
@@ -230,7 +230,9 @@ export function renderLeadNotification(input: LeadNotifyInput): EmailMessage {
     [t('notify.marketing'), l.marketingConsent ? t('notify.yes') : t('notify.no')],
     ...(l.pageUrl ? [[t('notify.page'), l.pageUrl] as [string, string]] : []),
   ];
-  const intro = t(viewing ? 'notify.introViewing' : 'notify.intro', { site: input.siteName });
+  // S15-02: a portal lead has no site: "the Inmolink portal"
+  const site = input.siteName ?? t('notify.portalName');
+  const intro = t(viewing ? 'notify.introViewing' : 'notify.intro', { site });
   const text = [
     intro,
     '',

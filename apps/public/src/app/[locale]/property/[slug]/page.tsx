@@ -3,14 +3,14 @@ import { DEFAULT_UI_LOCALE } from '@inmolink/i18n';
 import type { Metadata } from 'next';
 import { notFound, permanentRedirect } from 'next/navigation';
 import { getTranslations, setRequestLocale } from 'next-intl/server';
-import { assertPortalLocale, listingByCode, PORTAL_LOCALES, placeOf, portalSettings } from '@/portal/data';
+import { assertPortalLocale, listingByCode, placeOf, portalSettings } from '@/portal/data';
 import { legacyRedirectFor } from '@/portal/legacy';
 import { breadcrumbJsonLd, type Crumb, languageAlternates, listingJsonLd, serializeJsonLd } from '@/portal/seo';
 import { JsonLd } from '@/portal/ui/breadcrumbs';
 import { ListingView } from '@/portal/ui/listing';
 import { priceOf, titleOf, townOf } from '@/portal/ui/results';
 import { PortalShell } from '@/portal/ui/shell';
-import { agencyPath, codeOfSlug, homePath, listingPath, profileUrl, searchPath } from '@/portal/urls';
+import { agencyPath, codeOfSlug, homePath, profileUrl, searchPath } from '@/portal/urls';
 
 /**
  * A listing page (S15-01, PATTERNS §19): `/property/<type-in-town>-<code>` — the listing a public code names, ISR
@@ -50,11 +50,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     town: townOf(detail.place),
     price: priceOf(t, locale, detail.price),
   });
-  const paths: Record<string, string> = {};
-  for (const l of PORTAL_LOCALES) {
-    const tl = await getTranslations({ locale: l, namespace: 'portal' });
-    paths[l] = listingPath(l, titleOf(tl, detail), listing.code);
-  }
+  // Every locale's URL from core (S15-02): the same the sitemaps list, each named in its own locale.
+  const { paths } = listing;
   const description = detail.metaDescription ?? (detail.description ? excerpt(detail.description, 160) : title);
   const image = detail.cover ? ogImage(detail.cover.urls) : null;
   const canonical = `${origin}${paths[locale]}`;
@@ -87,7 +84,7 @@ export default async function ListingPage({ params }: Props) {
   const t = await getTranslations({ locale, namespace: 'portal' });
   const { detail } = listing;
   const title = titleOf(t, detail);
-  const path = listingPath(locale, title, listing.code);
+  const path = listing.paths[locale] as string;
   // One URL per listing and locale: an old slug (type or town renamed) moves to the current one.
   if (path !== `/${locale}/property/${slug}`) permanentRedirect(path);
   const settings = await portalSettings();
@@ -101,11 +98,7 @@ export default async function ListingPage({ params }: Props) {
       : []),
     { name: title, path },
   ];
-  const alternates: Record<string, string> = {};
-  for (const l of PORTAL_LOCALES) {
-    const tl = await getTranslations({ locale: l, namespace: 'portal' });
-    alternates[l] = listingPath(l, titleOf(tl, detail), listing.code);
-  }
+  const alternates = listing.paths;
   const images = [detail.cover, ...detail.media]
     .flatMap((m) => (m && m.kind === 'IMAGE' ? [ogImage(m.urls)] : []))
     .filter((u): u is string => u !== null);

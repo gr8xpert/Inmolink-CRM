@@ -8,7 +8,8 @@
  * stream), so a document of any size never sits in memory as one string.
  */
 
-const NAME = /^[A-Za-z_][A-Za-z0-9_.-]*$/;
+/** A plain XML name, optionally with one namespace prefix (`xhtml:link`, `xmlns:xhtml`: S15-02 sitemaps). */
+const NAME = /^[A-Za-z_][A-Za-z0-9_.-]*(?::[A-Za-z_][A-Za-z0-9_.-]*)?$/;
 /** Not allowed in XML 1.0 text: C0 controls but tab/LF/CR, U+FFFE/U+FFFF, and unpaired surrogates. */
 const INVALID = /[^\t\n\r -퟿-�\u{10000}-\u{10FFFF}]/gu;
 

@@ -1,12 +1,14 @@
 import type { PortalAgency } from '@inmolink/core/modules/website-api';
 import type { getTranslations } from 'next-intl/server';
+import type { ReactNode } from 'react';
 import { agencyPath, EXTERNAL_REL, mailtoHref, safeHttpUrl } from '../urls';
 
 type T = Awaited<ReturnType<typeof getTranslations<'portal'>>>;
 
 /**
  * The listing agency beside a listing or development (S15-01): its published name and contact details and its profile
- * (S15-03). The enquiry form joins it in S15-02. Only an http(s) website becomes a link (never `javascript:` / `data:`).
+ * (S15-03), and the enquiry form (S15-02, `children`). Only an http(s) website becomes a link (never `javascript:` /
+ * `data:`).
  */
 export function AgencyBox(props: {
   locale: string;
@@ -16,6 +18,8 @@ export function AgencyBox(props: {
   /** The reference to quote. */
   reference: string;
   t: T;
+  /** S15-02: the enquiry form (listing pages), under the contact details. */
+  children?: ReactNode;
 }) {
   const { agency, t } = props;
   const website = safeHttpUrl(agency?.website);
@@ -75,6 +79,7 @@ export function AgencyBox(props: {
                 </a>
               </p>
             ) : null}
+            {props.children}
           </>
         ) : (
           <p className="mt-2 text-sm text-stone">{t('listing.unlisted')}</p>

@@ -2,10 +2,9 @@
  * migration worker jobs (PATTERNS §12): `defineJob({ name: 'migration.<verb><Entity>', … })` from
  * `@inmolink/platform/queue`. Idempotent, batched, per-tenant fair share.
  *
- * `migration.flushRedirectHits` (S14-05, schedule: every minute): writes the legacy-redirect hit counters buffered in
- * the worker process's own memory — a no-op today, since no app resolves legacy redirects before S15 (the portal and
- * the plugin shim). Kept so the schedule exists; the S15 processes that call `resolveLegacyRedirect` must also call
- * `flushRedirectHits` on their own interval (counters live in the resolving process).
+ * `migration.flushRedirectHits` (S14-05, schedule: every minute): writes the legacy-redirect hit counters — those the
+ * resolving processes (S15-02: the portal's public pages) pushed to the shared counters on redis-cache
+ * (`pushRedirectHits`), and the worker process's own buffer.
  *
  * `migration.scheduleLegacyDeltas` (S14-04, schedule: hourly, pool `maintenance`): queues one
  * `migration.syncLegacyDelta` per migrated legacy agency not cut over (`deltaAgencies`, `enqueueMany` per page), job

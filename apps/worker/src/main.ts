@@ -133,6 +133,10 @@ try {
   if (config.WORKER_POOLS.includes('email') && config.WEB_URL) {
     support.configureSupport({ webUrl: config.WEB_URL, staffInbox: config.SUPPORT_INBOX_EMAIL ?? null });
   }
+  // S15-02: the public portal's sitemaps (exports pool) — absolute URLs on the portal's origin; unset, none generated.
+  if (config.WORKER_POOLS.includes('exports') && config.PORTAL_URL) {
+    websiteApi.configurePortalSitemaps({ origin: config.PORTAL_URL });
+  }
   // S9-03: portal feeds (exports pool) — image URLs under the media CDN, the nightly hour and the pool caps.
   if (config.WORKER_POOLS.includes('exports') && config.MEDIA_CDN_URL) {
     exportsWorker.configurePortalFeeds({ mediaBaseUrl: config.MEDIA_CDN_URL });

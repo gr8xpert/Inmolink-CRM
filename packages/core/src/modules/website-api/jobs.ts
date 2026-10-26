@@ -50,6 +50,7 @@ import {
   takePendingPurges,
 } from './edge-purge';
 import { notifyLocale, renderLeadAck, renderLeadNotification } from './emails';
+import { generatePortalSitemaps, PORTAL_SITEMAP_EVERY_MS } from './portal-sitemaps';
 import { type ApiSite, searchListings, siteForKey } from './service';
 import { websiteLimits } from './settings';
 import {
@@ -153,7 +154,8 @@ async function notifyAgency(
   const loaded = await load(p.leadId, 'agencyNotifiedAt', `lead-notify:${p.leadId}`);
   if (!loaded) return { queued: 0 };
   const { lead, site } = loaded;
-  const recipients = await leadNotifyRecipients(lead.agencyId, Boolean(site.scope.presenter.email), p.assignedUserId);
+  // S15-02: a portal lead (no site) has no site contact: the assigned agent, else the agency's admins
+  const recipients = await leadNotifyRecipients(lead.agencyId, Boolean(site?.scope.presenter.email), p.assignedUserId);
   for (const recipient of recipients) {
     await websiteApiJobs.notifyLeadRecipient.enqueue({ leadId: lead.id, agencyId: lead.agencyId, recipient });
   }
@@ -169,11 +171,13 @@ async function notifyAgency(
  */
 export const LEAD_NOTIFY_FALLBACK_MS = 2 * 60_000;
 
-/** The lead and its site, or null when there is nothing (left) to send. */
+/**
+ * The lead and its site (null: a portal lead, S15-02 — no site), or null when there is nothing (left) to send.
+ */
 async function load(leadId: string, done: 'ackSentAt' | 'agencyNotifiedAt', requestId: string) {
   const lead = await withSystem(`websiteApi.lead ${done}`, (tx) => websites.inboundLead(tx, leadId));
   if (!lead || lead[done]) return null;
-  const site = await siteForKey({ agencyId: lead.agencyId, siteId: lead.siteId }, requestId);
+  const site = lead.siteId ? await siteForKey({ agencyId: lead.agencyId, siteId: lead.siteId }, requestId) : null;
   return { lead, site };
 }
 
@@ -304,15 +308,22 @@ export const websiteApiJobs = {
         return { sent: false };
       }
       const { lead, site } = loaded;
+      if (!site) {
+        // S15-02 ASSUMPTION: a portal (marketplace) lead gets no automatic reply in R1 — the reply is the listing
+        // agency's (its branding, caps and suggestions are per site); the agency is notified as always.
+        log.info({ leadId: lead.id }, 'lead acknowledgement skipped (portal lead)');
+        return { sent: false, skipped: 'PORTAL' };
+      }
+      const siteId = site.scope.siteId;
       // A form can name anyone's address: cap the automatic replies per recipient and per site (S7-05 review). The
       // decision and the slot are taken atomically — under advisory locks on the recipient and the site, the slot
       // counted at once (`ack_sent_at`) — so concurrent jobs for one recipient never all pass the cap.
       const reservedAt = clock.now();
       const decision = await withSystem('websiteApi.sendLeadAcknowledgement limits', async (tx) => {
-        await websites.lockAckSlots(tx, { siteId: lead.siteId, emailHash: lead.emailHash });
+        await websites.lockAckSlots(tx, { siteId, emailHash: lead.emailHash });
         const reason = ackCapReached(
           await websites.ackUsage(tx, {
-            siteId: lead.siteId,
+            siteId,
             emailHash: lead.emailHash,
             since: new Date(reservedAt.getTime() - DAY_MS),
           }),
@@ -442,10 +453,12 @@ export const websiteApiJobs = {
     async run(p, { log }) {
       const lead = await withSystem('websiteApi.notifyLeadRecipient', (tx) => websites.inboundLead(tx, p.leadId));
       if (!lead) return { sent: false };
-      const site = await siteForKey({ agencyId: lead.agencyId, siteId: lead.siteId }, `lead-notify:${p.leadId}`);
+      const site = lead.siteId
+        ? await siteForKey({ agencyId: lead.agencyId, siteId: lead.siteId }, `lead-notify:${p.leadId}`)
+        : null;
       const to =
         p.recipient === 'contact'
-          ? site.scope.presenter.email
+          ? site?.scope.presenter.email
             ? { email: site.scope.presenter.email, locale: site.scope.defaultLocale }
             : null
           : await withSystem('websiteApi.notifyLeadRecipient', (tx) =>
@@ -461,7 +474,7 @@ export const websiteApiJobs = {
           locale: notifyLocale(to.locale),
           kind: lead.kind,
           ref: lead.shownRef,
-          siteName: site.scope.name,
+          siteName: site?.scope.name ?? null,
           lead: {
             name: lead.name,
             email: lead.email,
@@ -562,6 +575,27 @@ export const websiteApiJobs = {
       await queueSiteFeeds(due, SITE_FEED_SOON_MS);
       if (due.length > 0) log.info({ feeds: due.length }, 'site feeds queued for refresh');
       return { queued: due.length };
+    },
+  }),
+
+  /**
+   * S15-02, every 6 hours (`PORTAL_SITEMAP_EVERY_MS`): the portal's per-locale sitemaps and their index, written to
+   * object storage (`portal-sitemaps.ts`). One run at a time across the pool; skipped until the worker knows the
+   * portal's origin (`PORTAL_URL`).
+   */
+  generatePortalSitemaps: defineJob({
+    name: 'websiteApi.generatePortalSitemaps',
+    pool: 'exports',
+    payload: z.object({}),
+    every: PORTAL_SITEMAP_EVERY_MS,
+    globalConcurrency: 1,
+    attempts: 2,
+    backoff: { type: 'exponential', delay: 60_000 },
+    timeoutMs: 60 * 60_000,
+    async run(_p, { log, signal, progress }) {
+      const result = await generatePortalSitemaps({ signal, log, progress: (urls) => progress({ urls }) });
+      if (result.skipped) log.info({ skipped: result.skipped }, 'portal sitemaps skipped');
+      return result;
     },
   }),
 };

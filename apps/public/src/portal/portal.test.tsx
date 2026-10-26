@@ -204,6 +204,7 @@ function listing(website: string | null, developmentCode: string | null = null):
     agency: { id: '01900000-0000-7000-8000-0000000000a1', name: 'Move Homes', email: null, phone: null, website },
     updatedAt: new Date('2026-10-26T00:00:00Z'),
     developmentCode,
+    paths: { en: '/en/property/villa-in-rojales-m2q7zk4p', es: '/es/property/chalet-en-rojales-m2q7zk4p' },
   };
 }
 
@@ -214,7 +215,7 @@ const renderListing = async (website: string | null, developmentCode: string | n
       listing: listing(website, developmentCode),
       title: 'Villa in Rojales',
       crumbs: [{ name: 'Home', path: '/en' }, { name: 'Villa in Rojales' }],
-      settings: { origin: 'https://inmolink.test', map: null },
+      settings: { origin: 'https://inmolink.test', map: null, turnstileSiteKey: 'turnstile-site-key' },
     }),
   );
 
@@ -247,6 +248,7 @@ describe('portal development page (S15-01)', () => {
     agency: { id: '01900000-0000-7000-8000-0000000000a1', name: 'Move Homes', email: null, phone: null, website: null },
     updatedAt: new Date('2026-10-26T00:00:00Z'),
     moreUnits: false,
+    paths: { en: '/en/development/marina-d4v3l0pm', es: '/es/development/marina-d4v3l0pm' },
     detail: {
       kind: 'DEVELOPMENT',
       id: '01900000-0000-7000-8000-0000000000e1',
@@ -327,5 +329,35 @@ describe('portal development page (S15-01)', () => {
   it('[S15-01] a listing that belongs to a development links to the development page', async () => {
     const html = await renderListing(null, 'D4V3L0PM');
     expect(html).toContain('/en/development/development-d4v3l0pm');
+  });
+});
+
+describe('portal enquiry form (S15-02)', () => {
+  it('[S15-02] the listing page carries the enquiry form: a plain POST with the code, consent text and Turnstile', async () => {
+    const html = await renderListing('https://move-homes.example');
+    expect(html).toContain('action="/api/portal/enquiry"');
+    expect(html).toContain('method="post"');
+    expect(html).toMatch(/name="code" value="[A-Z0-9]{8}"/);
+    expect(html).toContain('name="back" value="/en/property/villa-in-rojales-');
+    expect(html).toMatch(/<input type="checkbox" required=""[^>]*name="privacyAccepted"/);
+    expect(html).toContain('I agree that Move Homes and Inmolink process my details');
+    expect(html).toContain('data-sitekey="turnstile-site-key"');
+    expect(html).toContain('data-action="website-lead"');
+    // No third-party script on page load: Turnstile is loaded by the island on first use.
+    expect(html).not.toContain('<script src="https://challenges.cloudflare.com');
+  });
+
+  it('[S15-02] without Turnstile configured there is no form, only a note (an enquiry could only be refused)', async () => {
+    const html = renderToStaticMarkup(
+      await ListingView({
+        locale: 'es',
+        listing: listing('https://move-homes.example'),
+        title: 'Chalet en Rojales',
+        crumbs: [{ name: 'Inicio', path: '/es' }],
+        settings: { origin: 'https://inmolink.test', map: null, turnstileSiteKey: null },
+      }),
+    );
+    expect(html).not.toContain('/api/portal/enquiry');
+    expect(html).toContain('Las consultas no están disponibles ahora');
   });
 });

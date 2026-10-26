@@ -1782,6 +1782,15 @@ export async function publicDetailWhere(
 }
 
 /**
+ * S15-02: for the rest of the caller's transaction, the planner walks an ordered index instead of a bitmap scan and a
+ * sort (a job's whole-inventory keyset walk: past the first page the planner otherwise bitmap-scans every remaining
+ * code and top-N sorts it on every page — quadratic over the walk). Transaction-scoped (`set local`); one statement.
+ */
+export async function preferOrderedWalk(tx: Tx): Promise<void> {
+  await tx.execute(sql`set local enable_bitmapscan = off`);
+}
+
+/**
  * One sitemap page (S7-03): the site's matching targets in public-code order after the code `after` (codes are shown
  * anyway; ids are not), each with its card in the best locale (the serializer makes the shown reference and slug);
  * `limit + 1` rows (an extra one: a next page). Targets without a code yet (written before S7-02, until the deploy
@@ -1802,9 +1811,10 @@ export async function sitemapPage(
     /**
      * `none` (S7-07, the XML feed reads details per locale itself): codes and ids only, no document. `sitemap`
      * (S7-F10 review): the card's fields a sitemap entry shows (kind, id, ref, slug, title, development) — a fraction of
-     * the card's JSON to send and parse for 500 entries.
+     * the card's JSON to send and parse for 500 entries. `portal` (S15-02, the portal's sitemaps): what a portal
+     * listing URL is made of (kind, property type, place).
      */
-    part?: 'card' | 'none' | 'sitemap';
+    part?: 'card' | 'none' | 'sitemap' | 'portal';
   },
 ): Promise<PublicDocRow[]> {
   const after = q.after ? sql`and public_code > ${q.after}` : sql``;
@@ -1832,12 +1842,66 @@ export async function sitemapPage(
                : q.part === 'sitemap'
                  ? sql`jsonb_build_object('kind', m.card -> 'kind', 'id', m.card -> 'id', 'ref', m.card -> 'ref',
                      'slug', m.card -> 'slug', 'title', m.card -> 'title', 'development', m.card -> 'development')`
-                 : sql`m.card`
+                 : q.part === 'portal'
+                   ? sql`jsonb_build_object('kind', m.card -> 'kind', 'propertyType', m.card -> 'propertyType',
+                       'place', m.card -> 'place')`
+                   : sql`m.card`
            } as doc, m.updated_at as "updatedAt"
       from s join ${listingReadModels} m on m.target_id = s.target_id
        and m.locale = ${bestLocale(sql`s.target_id`, q.locale, q.fallback)}
      order by s.public_code`);
   return docRows(res.rows);
+}
+
+/**
+ * S15-02: one step of the portal's sitemap walk — the next `limit` coded documents matching `filter` in public-code
+ * order after `after` (an ordered walk on `listing_search_docs_public_code_idx`), each with what its portal URL is made
+ * of (kind, type, place) from its read model in the best locale. `last` is the last code scanned — the cursor, also
+ * when the last documents had no read model — and `more` whether more follow. One statement.
+ */
+export async function portalSitemapWalk(
+  tx: Tx,
+  q: { filter: Filter; after?: string; limit: number; locale: string; fallback: string },
+): Promise<{ rows: PublicDocRow[]; last: string | null; more: boolean }> {
+  const after = q.after ? sql`and public_code > ${q.after}` : sql``;
+  const res = await tx.execute<{
+    targetId: string;
+    publicCode: string;
+    ownerAgencyId: string;
+    kind: string | null;
+    doc: unknown;
+    updatedAt: string | Date | null;
+  }>(sql`
+    with s as (
+      select target_id, public_code, owner_agency_id from ${listingSearchDocs}
+       where ${fallbackCondition(q.filter)} and public_code is not null ${after}
+       order by public_code limit ${q.limit + 1})
+    select s.target_id as "targetId", s.public_code as "publicCode", s.owner_agency_id as "ownerAgencyId", m.kind,
+           case when m.target_id is null then null
+                else jsonb_build_object('kind', m.card -> 'kind', 'propertyType', m.card -> 'propertyType',
+                       'place', m.card -> 'place') end as doc,
+           m.updated_at as "updatedAt"
+      from s left join ${listingReadModels} m on m.target_id = s.target_id
+       and m.locale = ${bestLocale(sql`s.target_id`, q.locale, q.fallback)}
+     order by s.public_code`);
+  const page = res.rows.slice(0, q.limit);
+  const rows = page.flatMap((r) =>
+    r.doc === null || r.updatedAt === null
+      ? []
+      : [
+          {
+            targetId: r.targetId,
+            kind: r.kind,
+            ownerAgencyId: r.ownerAgencyId,
+            publicCode: r.publicCode,
+            developmentCode: null,
+            developmentOwnRef: null,
+            doc: r.doc,
+            updatedAt: new Date(r.updatedAt),
+          } as PublicDocRow,
+        ],
+  );
+  return { rows, last: page[page.length - 1]?.publicCode ?? null, more: res.rows.length > q.limit };
 }
 
 // ── Website developments (S7-F6) ───────────────────────────────────────────────────────────────────────────────

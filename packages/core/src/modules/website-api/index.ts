@@ -75,6 +75,7 @@ export { legacyProperties, legacyProperty, legacyTypes, resetLegacyCaches } from
 export { checkWebsiteLimits, creditChangeFeed, type SliceEndpoint, SYNC_CREDIT_POOL, sliceSignature } from './limits';
 // S15-01: the public portal's reads (inmolink.es search, listing and location pages).
 export {
+  localizedListingNames,
   PORTAL_DEVELOPMENT_UNITS,
   PORTAL_EXCERPT_CHARS,
   PORTAL_MAX_FILTER_TYPES,
@@ -86,6 +87,7 @@ export {
   type PortalDevelopment,
   type PortalListing,
   type PortalLocation,
+  type PortalNamed,
   type PortalPlace,
   type PortalSearchInput,
   type PortalSearchPage,
@@ -93,8 +95,10 @@ export {
   type PortalZone,
   portalCatalog,
   portalDevelopment,
+  portalDevelopmentPaths,
   portalDirectory,
   portalListing,
+  portalListingPaths,
   portalLocation,
   portalLocationPaths,
   portalPlaceOf,
@@ -104,6 +108,38 @@ export {
   portalZoneSlugs,
   resetPortalCaches,
 } from './portal';
+// S15-02: portal enquiries (marketplace leads → the listing owner), sitemaps and URL shapes.
+export {
+  checkPortalLeadLimits,
+  PORTAL_LEAD_LIMITS,
+  PORTAL_LEAD_STATEMENTS,
+  type PortalLeadInput,
+  submitPortalLead,
+} from './portal-leads';
+export {
+  configurePortalSitemaps,
+  generatePortalSitemaps,
+  PORTAL_SITEMAP_FILE,
+  PORTAL_SITEMAP_INDEX,
+  PORTAL_SITEMAP_URLS,
+  type PortalSitemapFile,
+  type PortalSitemapManifest,
+  type PortalSitemapRun,
+  portalSitemapFile,
+  portalSitemapsConfigured,
+  resetPortalSitemapCache,
+} from './portal-sitemaps';
+export {
+  developmentNameOf,
+  developmentPath,
+  homePath,
+  listingPath,
+  type PortalPlaceNames,
+  portalListingTitle,
+  searchPath,
+  townOf,
+  zonePath,
+} from './portal-urls';
 // S13-F11: public documents presented as an agency's own site (selections, listing PDFs).
 export {
   type PresentableDocRow,

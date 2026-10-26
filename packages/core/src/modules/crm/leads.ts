@@ -266,6 +266,8 @@ const languageOf = (locale: string): string | null => (/^[a-z]{2}(-[A-Z]{2})?$/.
  * lead is never refused or lost because of the agency's plan; only member creates and CSV imports are counted.
  */
 async function contactForVisitor(tx: Tx, agencyId: string, visitor: websites.LeadRow): Promise<string> {
+  // S15-02: a visitor from the public portal (no site) is a portal contact
+  const source = visitor.siteId === null ? 'PORTAL' : 'WEBSITE';
   const email = normalizeEmail(visitor.email);
   const phone = visitor.phone ? normalizePhone(visitor.phone, DEFAULT_PHONE_COUNTRY) : null;
   const owners = await repo.identifierOwners(tx, agencyId, email ? [email] : [], phone ? [phone] : []);
@@ -285,7 +287,7 @@ async function contactForVisitor(tx: Tx, agencyId: string, visitor: websites.Lea
       primaryEmail: email,
       primaryPhone: phone,
       language: languageOf(visitor.locale),
-      source: 'WEBSITE',
+      source,
       tags: [],
       consentMarketing: visitor.marketingConsent,
       consentMarketingAt: visitor.marketingConsent ? now : null,
@@ -302,7 +304,7 @@ async function contactForVisitor(tx: Tx, agencyId: string, visitor: websites.Lea
     phone ? [{ contactId: id, value: phone, position: 0 }] : [],
   );
   await repo.syncFacets(tx, agencyId, [id]);
-  await emit(tx, crmEvents.contactCreated({ agencyId, contactId: id, source: 'WEBSITE' }));
+  await emit(tx, crmEvents.contactCreated({ agencyId, contactId: id, source }));
   return id;
 }
 
@@ -311,6 +313,8 @@ async function contactForVisitor(tx: Tx, agencyId: string, visitor: websites.Lea
  * agency's inbox (PLAN §3 #12: agency website → presenting agency), its visitor a contact, assigned by the agency's
  * rule — in one transaction as that agency (RLS). Idempotent per inbound lead: the promotion is serialized on the
  * inbound id and `leads_inbound_uq` holds one lead per inbound lead, so a redelivered event changes nothing.
+ * S15-02: a portal lead (no site) is a `MARKETPLACE` lead of the listing's owner (§3 #12: marketplace → the listing
+ * owner), with no presenting agency — the inbound row already belongs to the owner.
  */
 export async function promoteInboundLead(p: {
   agencyId: string;
@@ -324,25 +328,27 @@ export async function promoteInboundLead(p: {
     if (!form || form.agencyId !== p.agencyId) return { leadId: null, created: false };
 
     const contactId = await contactForVisitor(tx, p.agencyId, form);
+    const marketplace = form.siteId === null;
     const target =
       form.targetKind && form.targetId
         ? {
             kind: form.targetKind as LeadTargetKind,
             id: form.targetId,
-            ownerAgencyId: form.ownerAgencyId,
+            // routing reads the owner: a marketplace lead's owner is this agency (the lead stores no introduction)
+            ownerAgencyId: marketplace ? p.agencyId : form.ownerAgencyId,
             shownRef: form.shownRef,
           }
         : null;
     // the responsible agent of the agency's own listing (OWNER_AGENT); a network listing's agent is not ours
     const listingAgentId =
-      target?.kind === 'LISTING' && !target.ownerAgencyId
+      target?.kind === 'LISTING' && !form.ownerAgencyId
         ? ((await properties.leadTargetListing(tx, p.agencyId, target.id))?.ownerUserId ?? null)
         : null;
     const lead = await receiveLead(tx, p.agencyId, {
-      source: 'WEBSITE',
+      source: marketplace ? 'MARKETPLACE' : 'WEBSITE',
       kind: form.kind,
       contactId,
-      presentingAgencyId: p.agencyId,
+      presentingAgencyId: marketplace ? null : p.agencyId,
       target,
       listingAgentId,
       message: form.message,

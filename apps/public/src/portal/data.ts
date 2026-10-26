@@ -16,6 +16,8 @@ export interface PortalSettings {
   origin: string;
   /** Map tiles (`{z}/{x}/{y}`) and their attribution; null: no map. */
   map: { tileUrl: string; attribution: string } | null;
+  /** S15-02: the enquiry form's Turnstile site key; null: no form (enquiries could only be refused). */
+  turnstileSiteKey: string | null;
 }
 
 export const portalSettings = cache(async (): Promise<PortalSettings> => {
@@ -23,6 +25,7 @@ export const portalSettings = cache(async (): Promise<PortalSettings> => {
   return {
     origin: c.PORTAL_URL ?? c.PUBLIC_URL ?? LOCAL_PUBLIC_URL,
     map: c.PORTAL_MAP_TILE_URL ? { tileUrl: c.PORTAL_MAP_TILE_URL, attribution: c.PORTAL_MAP_ATTRIBUTION ?? '' } : null,
+    turnstileSiteKey: c.TURNSTILE_SITE_KEY ?? null,
   };
 });
 

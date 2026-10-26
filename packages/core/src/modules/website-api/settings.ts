@@ -60,6 +60,11 @@ export interface WebsiteApiSettings {
    */
   embedOrigin?: string;
   /**
+   * S15-02: the portal's origin (`PORTAL_URL`, else `PUBLIC_URL`): portal enquiry forms solve their Turnstile challenge
+   * on this host. Unset: portal enquiries are refused (`TURNSTILE_FAILED`).
+   */
+  portalOrigin?: string;
+  /**
    * S13-F21: plans are enforced (`BILLING_ENFORCE_PLANS`): only then does a site past its plan cut-off (`planEndsAt`,
    * the end of the notice after its agency's plan lost the website API) answer `PLAN_REQUIRED` (402). Off by default.
    */

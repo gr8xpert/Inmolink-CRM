@@ -1,10 +1,18 @@
 import { slugOf } from '@inmolink/core/modules/websites';
 
+// S15-02: the page shapes live in core (the sitemaps job builds the same URLs); re-exported for the pages.
+export {
+  developmentPath,
+  homePath,
+  listingPath,
+  searchPath,
+  zonePath,
+} from '@inmolink/core/modules/website-api';
 export { hasFilters, queryString } from './query';
 
 /**
- * The portal's URL shapes (S15-01). Pure: pages, links, canonicals and tests build every portal URL here, so the
- * legacy redirects (S15-02) and the profile pages (S15-03) have one place to read them from.
+ * The portal's URL shapes (S15-01). Pure: pages, links, canonicals and tests build every portal URL here (the page
+ * shapes from core, S15-02), so the legacy redirects and the profile pages (S15-03) have one place to read them from.
  *
  * - `/{locale}/properties` — every listing; `/{locale}/properties/{country}/{region}/{city}/{area}` — a location page
  * - `/{locale}/zone/{slug}` — a location group (a comarca, a coast)
@@ -14,15 +22,6 @@ export { hasFilters, queryString } from './query';
  *   `AGENCY_PROFILES_LIVE`)
  * Filters ride in the query string (`PortalQuery`), numbered pages as `?page=N`.
  */
-
-export const homePath = (locale: string) => `/${locale}`;
-export const searchPath = (locale: string, placePath: readonly string[] = []) =>
-  ['', locale, 'properties', ...placePath.map(encodeURIComponent)].join('/');
-export const zonePath = (locale: string, slug: string) => `/${locale}/zone/${encodeURIComponent(slug)}`;
-export const listingPath = (locale: string, title: string, code: string) =>
-  `/${locale}/property/${slugOf(title, 'property')}-${code.toLowerCase()}`;
-export const developmentPath = (locale: string, name: string, code: string) =>
-  `/${locale}/development/${slugOf(name, 'development')}-${code.toLowerCase()}`;
 
 /**
  * The agency profile pages are live (S15-03 flips this): until then the portal names the listing agency without a

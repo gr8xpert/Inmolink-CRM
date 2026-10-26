@@ -2,11 +2,13 @@ import { Redis, type RedisOptions } from 'ioredis';
 import { loadConfig, realtimeEventsEnv, redisEnv } from '../config';
 import { createLogger, type Logger } from '../logger';
 import { Cache, type CacheGetOptions } from './cache';
+import { Counters } from './counts';
 import type { CacheKey } from './key';
 import { SeenTimes } from './seen';
 import { encodeUserEvent, USER_EVENTS_CHANNEL, type UserEvent } from './user-events';
 
 export { Cache, type CacheGetOptions, type CacheOptions } from './cache';
+export { Counters } from './counts';
 export { assertCacheKey, type CacheKey, type CacheKeyParts, cacheKey } from './key';
 export { LocalLru } from './lru';
 export { whenReady } from './ready';
@@ -46,6 +48,7 @@ interface State {
   redis?: Redis;
   cache?: Cache;
   seen?: SeenTimes;
+  counts?: Counters;
 }
 
 let state: State | undefined;
@@ -159,6 +162,18 @@ export const seen = {
   mark: (set: string, id: string, at: Date): Promise<void> => seenInstance().mark(set, id, at),
   drain: (set: string): Promise<Map<string, Date>> => seenInstance().drain(set),
 };
+
+/** Process-wide shared counters on redis-cache (S15-02: legacy redirect hits). */
+export const counts = {
+  add: (set: string, values: ReadonlyMap<string, number>): Promise<void> => countsInstance().add(set, values),
+  drain: (set: string): Promise<Map<string, number>> => countsInstance().drain(set),
+};
+
+function countsInstance(): Counters {
+  const s = current();
+  s.counts ??= new Counters(cacheConnection(), s.prefix, s.logger);
+  return s.counts;
+}
 
 function seenInstance(): SeenTimes {
   const s = current();

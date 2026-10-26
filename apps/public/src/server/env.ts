@@ -17,12 +17,14 @@ import {
   rateLimitEnv,
   redisEnv,
   searchEnv,
+  siteFeedStorageEnv,
   turnstileEnv,
   websiteSearchEnv,
 } from '@inmolink/platform/config';
 import { createLogger } from '@inmolink/platform/logger';
 import { configureRateLimit } from '@inmolink/platform/rate-limit';
 import { configureSearch, requestSearchConfig } from '@inmolink/platform/search';
+import { configureStorage, storageConfigForBuckets } from '@inmolink/platform/storage';
 import { createTurnstileVerifier } from '@inmolink/platform/turnstile';
 import { z } from 'zod';
 
@@ -80,11 +82,31 @@ export const publicEnv = {
   PORTAL_MAP_ATTRIBUTION: z.string().max(200).optional(),
   /** S15-01: portal search, location and zone pages one client address may load per minute (fails open). */
   PORTAL_PAGE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).max(100_000).default(240),
+  /**
+   * S15-02: the portal's sitemaps are read from the feeds bucket (`portal-sitemaps/…`, written by the worker), like
+   * feed-api's site feeds — production gives a read-only token for that bucket. Required in production; unset
+   * elsewhere: `/sitemap.xml` answers 404.
+   */
+  S3_ENDPOINT: siteFeedStorageEnv.S3_ENDPOINT.optional(),
+  S3_REGION: siteFeedStorageEnv.S3_REGION.optional(),
+  S3_ACCESS_KEY_ID: siteFeedStorageEnv.S3_ACCESS_KEY_ID.optional(),
+  S3_SECRET_ACCESS_KEY: siteFeedStorageEnv.S3_SECRET_ACCESS_KEY.optional(),
+  /** The feeds bucket only (no fallback to another bucket: the token reads this one, S15-02 review). */
+  S3_BUCKET_FEEDS: siteFeedStorageEnv.S3_BUCKET_FEEDS,
+  /**
+   * S15-02, tests only: Turnstile's siteverify endpoint (the e2e stack's stub). Refused in production: there, tokens are
+   * always checked by Cloudflare.
+   */
+  TURNSTILE_VERIFY_URL: z.url().optional(),
 };
 export type PublicConfig = Config<typeof publicEnv>;
 
 /** `PUBLIC_URL` outside production when unset (`next dev` / `next start` port). */
 export const LOCAL_PUBLIC_URL = 'http://localhost:3101';
+
+/** S15-02: the portal's origin (`PORTAL_URL`, else `PUBLIC_URL`): redirects and the enquiry form's origin check. */
+export const portalOriginOf = (config: Pick<PublicConfig, 'PORTAL_URL' | 'PUBLIC_URL'>): string =>
+  new URL(config.PORTAL_URL ?? config.PUBLIC_URL ?? LOCAL_PUBLIC_URL).origin;
 
 let ready: Promise<PublicConfig> | undefined;
 
@@ -101,7 +123,31 @@ export function loadPublicConfig(env: Record<string, string | undefined> = proce
       { key: 'PUBLIC_URL', message: 'must be the https origin of the public pages in production' },
     ]);
   }
+  if (config.NODE_ENV === 'production' && config.TURNSTILE_VERIFY_URL) {
+    throw new ConfigError([{ key: 'TURNSTILE_VERIFY_URL', message: 'tests only: not allowed in production' }]);
+  }
+  if (config.NODE_ENV === 'production' && !storageOf(config)) {
+    // The sitemaps live in object storage: without it crawlers find no sitemap.
+    throw new ConfigError([{ key: 'S3_ENDPOINT', message: 'the feeds bucket (S3_*) is required in production' }]);
+  }
   return config;
+}
+
+/** The feeds bucket's storage settings, or null when not configured. */
+function storageOf(config: PublicConfig) {
+  const bucket = config.S3_BUCKET_FEEDS;
+  if (!config.S3_ENDPOINT || !config.S3_REGION || !config.S3_ACCESS_KEY_ID || !config.S3_SECRET_ACCESS_KEY || !bucket) {
+    return null;
+  }
+  return storageConfigForBuckets(
+    {
+      S3_ENDPOINT: config.S3_ENDPOINT,
+      S3_REGION: config.S3_REGION,
+      S3_ACCESS_KEY_ID: config.S3_ACCESS_KEY_ID,
+      S3_SECRET_ACCESS_KEY: config.S3_SECRET_ACCESS_KEY,
+    },
+    { feeds: bucket },
+  );
 }
 
 async function setup(): Promise<PublicConfig> {
@@ -121,9 +167,15 @@ async function setup(): Promise<PublicConfig> {
     mediaBaseUrl: config.MEDIA_CDN_URL,
     cursorKey: config.HMAC_KEY,
     turnstile: config.TURNSTILE_SECRET_KEY
-      ? createTurnstileVerifier({ secretKey: config.TURNSTILE_SECRET_KEY, logger })
+      ? createTurnstileVerifier({
+          secretKey: config.TURNSTILE_SECRET_KEY,
+          logger,
+          ...(config.TURNSTILE_VERIFY_URL ? { endpoint: config.TURNSTILE_VERIFY_URL } : {}),
+        })
       : null,
     embedOrigin: config.PUBLIC_URL ?? LOCAL_PUBLIC_URL,
+    // S15-02: portal enquiry forms solve Turnstile on the portal's host.
+    portalOrigin: config.PORTAL_URL ?? config.PUBLIC_URL ?? LOCAL_PUBLIC_URL,
     // S13-F21: the website API cut-off of a site whose plan lost it applies only while plans are enforced.
     enforcePlans: config.BILLING_ENFORCE_PLANS === 'true',
   });
@@ -134,6 +186,10 @@ async function setup(): Promise<PublicConfig> {
   });
   // S7-06 edge tags on embed pages: a listing or site change purges them like the website API's answers.
   websiteApi.configureEdgeCache({ tagKey: config.HMAC_KEY });
+  // S15-02: the portal's sitemaps (read only).
+  const store = storageOf(config);
+  if (store) configureStorage(store);
+  else logger.warn('no S3_* storage: the portal sitemaps answer 404 until it is set');
   const searchConfig = requestSearchConfig(config);
   if (searchConfig) configureSearch(searchConfig);
   else logger.warn('no MEILI_SEARCH_KEY: embed search pages fail until it is set');

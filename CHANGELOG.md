@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- feat(website-api,public): portal enquiries as MARKETPLACE leads to the listing owner (Turnstile, per-address / listing / agency limits), localized portal URLs, per-locale sitemaps with hreflang written by a job to storage, legacy-URL 301s, robots.txt [S15-02] (no new dependencies)
 - feat(platform,migration,worker): platform/legacy-db read-only adapter (SELECT-only login enforced); delta + extract readers moved onto it; worker registers LEGACY_DATABASE_URL [S15-F4] (new dependency: pg, @types/pg in @inmolink/platform — already used in the repo)
 - feat(taxonomy): refuse zones over 50 members and type groups over 50 types at save, shared caps in contracts [S15-F8]
 - feat(website-api,public): inmolink.es portal — search, location, zone, listing and development pages from read models (listed agencies only, canonical URLs, per-IP page limit) [S15-01]

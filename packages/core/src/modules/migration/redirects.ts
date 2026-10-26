@@ -11,12 +11,15 @@
  *   ids are not guessed here. An entry that yields no row is returned as `unmapped` (reported, never dropped).
  * - `resolveLegacyRedirect` is the request-path lookup for the portal and the plugin shim (S15; no app calls it yet):
  *   one indexed probe, answers kept in process (hits 10 min, misses 1 min, bounded LRUs so made-up URLs cannot evict
- *   real ones), hit counts buffered in memory and written by `flushRedirectHits`: no write per request.
+ *   real ones), hit counts buffered in memory: no write per request. S15-02: the resolving process (the public pages)
+ *   hands its buffer to the shared counters on redis-cache every `REDIRECT_HITS_PUSH_MS` (`pushRedirectHits`: the
+ *   public pages have no role that may write the table); the worker's `flushRedirectHits` drains them (and its own
+ *   buffer) into `legacy_url_redirects` in batched statements.
  * - A target is a path on this site only (`isSafeRedirectTarget`, and the table's CHECK): never protocol-relative
  *   (`//`, `/\`), no backslash or control character anywhere — browsers read `/\evil.example` as another host.
  */
 import { withPublicRead, withSystem } from '@inmolink/db';
-import { LocalLru } from '@inmolink/platform/cache';
+import { counts, LocalLru } from '@inmolink/platform/cache';
 import { clock } from '@inmolink/platform/clock';
 import * as repo from './repo';
 
@@ -211,6 +214,13 @@ export async function resolveLegacyRedirect(
   source: RedirectSource,
   host: string,
   rawUrl: string,
+  options: {
+    /**
+     * S15-02: asked before a database probe (a cache miss) — false skips it (null, nothing cached): the caller's
+     * per-client limit, so made-up URLs cannot drive probes or churn the miss cache.
+     */
+    beforeProbe?: () => Promise<boolean>;
+  } = {},
 ): Promise<ResolvedRedirect | null> {
   const key = normalizeLegacyUrl(rawUrl, host);
   if (!key) return null;
@@ -218,6 +228,7 @@ export async function resolveLegacyRedirect(
   let hit = found.get(ck);
   if (hit === undefined) {
     if (missing.get(ck)) return null;
+    if (options.beforeProbe && !(await options.beforeProbe())) return null;
     const row = await withPublicRead((tx) => repo.redirectByKey(tx, source, key.host, key.locale, key.pathKey));
     // The table's CHECK keeps unsafe targets out; checked again on the way out.
     if (!row || !isSafeRedirectTarget(row.targetPath)) {
@@ -235,20 +246,72 @@ export async function resolveLegacyRedirect(
   return JSON.parse(hit) as ResolvedRedirect;
 }
 
-/** Writes the buffered hit counts (one statement per 1,000 URLs) and clears the buffer. Returns URLs flushed. */
-export async function flushRedirectHits(): Promise<number> {
+/** The shared counter set the resolving processes push their hits to (redis-cache). */
+export const REDIRECT_HITS_SET = 'legacy-redirect-hits';
+/** How often a resolving process pushes its buffered hits (the public pages' timer). */
+export const REDIRECT_HITS_PUSH_MS = 30_000;
+
+const hitName = (h: repo.RedirectHit) => JSON.stringify([h.source, h.host, h.locale, h.pathKey]);
+
+function hitOf(name: string, hits: number): repo.RedirectHit | null {
+  try {
+    const v = JSON.parse(name) as unknown;
+    if (!Array.isArray(v) || v.length !== 4 || !v.every((x) => typeof x === 'string')) return null;
+    const [source, host, locale, pathKey] = v as [string, string, string, string];
+    if (source !== 'portal' && source !== 'plugin') return null;
+    return { source, host, locale, pathKey, hits };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The resolving process's buffered hits → the shared counters (one Redis pipeline), buffer cleared. No database
+ * statement: the worker's `flushRedirectHits` writes them. Returns the URLs pushed. Best effort (never throws).
+ */
+export async function pushRedirectHits(): Promise<number> {
   if (pendingHits.size === 0) return 0;
   const batch = [...pendingHits.values()];
   pendingHits.clear();
+  await Promise.resolve()
+    .then(() => counts.add(REDIRECT_HITS_SET, new Map(batch.map((h) => [hitName(h), h.hits]))))
+    .catch(() => undefined);
+  return batch.length;
+}
+
+/**
+ * Writes the hit counts — the shared counters the resolving processes pushed and this process's own buffer — in one
+ * statement per 1,000 URLs, and clears them. Returns URLs flushed.
+ */
+export async function flushRedirectHits(): Promise<number> {
+  const merged = new Map<string, repo.RedirectHit>();
+  // No redis-cache in this process (a script), or an outage: this process's own buffer only.
+  const shared = await Promise.resolve()
+    .then(() => counts.drain(REDIRECT_HITS_SET))
+    .catch(() => new Map<string, number>());
+  for (const [name, n] of shared) {
+    const h = hitOf(name, n);
+    if (h) merged.set(name, h);
+  }
+  for (const h of pendingHits.values()) {
+    const name = hitName(h);
+    const cur = merged.get(name);
+    if (cur) cur.hits += h.hits;
+    else merged.set(name, { ...h });
+  }
+  pendingHits.clear();
+  if (merged.size === 0) return 0;
+  const batch = [...merged.values()];
   try {
     await withSystem('S14-05 flush legacy redirect hit counters', (tx) => repo.addRedirectHits(tx, batch, clock.now()));
   } catch (err) {
-    // Put the counts back for the next flush.
+    // Put the counts back for the next flush — within the buffer's cap (S15-02 review: the drained shared counters
+    // must not grow it past `REDIRECT_HIT_BUFFER_MAX`; counters are statistics).
     for (const b of batch) {
       const k = `${b.source}|${b.host}|${b.locale}|${b.pathKey}`;
       const cur = pendingHits.get(k);
       if (cur) cur.hits += b.hits;
-      else pendingHits.set(k, b);
+      else if (pendingHits.size < REDIRECT_HIT_BUFFER_MAX) pendingHits.set(k, b);
     }
     throw err;
   }

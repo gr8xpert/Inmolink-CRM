@@ -25,9 +25,10 @@ const PRUNE_MAX_BATCHES = 20;
 
 export interface InboundLead {
   id: string;
-  /** The presenting agency: the site's. */
+  /** The presenting agency: the site's — or, for a portal lead (S15-02, no site), the listing's owner. */
   agencyId: string;
-  siteId: string;
+  /** Null: the public portal (a marketplace lead). */
+  siteId: string | null;
   kind: repo.LeadKind;
   idempotencyHash: string;
   requestHash: string;
@@ -95,7 +96,11 @@ export async function recordInboundLead(
 const replaySince = () => new Date(clock.now().getTime() - LEAD_IDEMPOTENCY_HOURS * 3_600_000);
 
 /** The lead a site's idempotency key names within the replay window (intake: its receipt only). */
-export function leadByIdempotency(tx: Tx, siteId: string, idempotencyHash: string): Promise<repo.LeadReceipt | null> {
+export function leadByIdempotency(
+  tx: Tx,
+  siteId: string | null,
+  idempotencyHash: string,
+): Promise<repo.LeadReceipt | null> {
   return repo.leadByIdempotency(tx, siteId, idempotencyHash, replaySince());
 }
 

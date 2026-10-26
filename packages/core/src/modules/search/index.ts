@@ -136,6 +136,7 @@ export {
   PUBLIC_CHANGES_RETENTION_DAYS,
   PUBLIC_CHANGES_SINCE_MARGIN_SECONDS,
   type PublicDocRow,
+  portalSitemapPage,
   prunePublicChanges,
   publicDetailByCode,
   publicDetailById,

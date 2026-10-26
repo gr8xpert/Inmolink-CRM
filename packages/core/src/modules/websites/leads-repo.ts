@@ -6,7 +6,7 @@
 import type { Tx } from '@inmolink/db';
 import { websiteLeads } from '@inmolink/db/schema/websites';
 import { emitFrom, type OutboxMessage } from '@inmolink/platform/outbox';
-import { and, eq, gt, inArray, sql } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
 
 export type LeadKind = (typeof websiteLeads.$inferSelect)['kind'];
 export type LeadVerification = (typeof websiteLeads.$inferSelect)['verification'];
@@ -14,7 +14,8 @@ export type LeadVerification = (typeof websiteLeads.$inferSelect)['verification'
 export type NewLeadRow = typeof websiteLeads.$inferInsert & {
   id: string;
   agencyId: string;
-  siteId: string;
+  /** Null: a portal lead (S15-02; `agency_id` is the listing owner). */
+  siteId: string | null;
   idempotencyHash: string;
 };
 
@@ -27,17 +28,25 @@ export interface LeadReceipt {
 
 /**
  * Inserts the lead and its event in **one** statement (a writable CTE: the event is written only when the row was),
- * unless the site already has a lead with this idempotency key (`website_leads_idempotency_uq`). Returns the new
- * row's receipt, or null when the key was taken (a replay, or a concurrent duplicate).
+ * unless the site already has a lead with this idempotency key (`website_leads_idempotency_uq`; a portal lead, S15-02:
+ * `website_leads_portal_idempotency_uq`). Returns the new row's receipt, or null when the key was taken
+ * (a replay, or a concurrent duplicate).
  */
 export async function insertLeadWithEvent(tx: Tx, row: NewLeadRow, event: OutboxMessage): Promise<LeadReceipt | null> {
   const insert = tx
     .insert(websiteLeads)
     .values(row)
-    .onConflictDoNothing({
-      target: [websiteLeads.siteId, websiteLeads.idempotencyHash],
-      where: sql`${websiteLeads.idempotencyHash} is not null`,
-    })
+    .onConflictDoNothing(
+      row.siteId === null
+        ? {
+            target: [websiteLeads.idempotencyHash],
+            where: sql`${websiteLeads.siteId} is null and ${websiteLeads.idempotencyHash} is not null`,
+          }
+        : {
+            target: [websiteLeads.siteId, websiteLeads.idempotencyHash],
+            where: sql`${websiteLeads.idempotencyHash} is not null`,
+          },
+    )
     .returning({ id: websiteLeads.id, kind: websiteLeads.kind, requestHash: websiteLeads.requestHash });
   const res = await tx.execute<{ id: string; kind: LeadKind; request_hash: string }>(sql`
     with ins as (${insert.getSQL()}), ev as (${emitFrom(event, sql`ins`, { agencyId: row.agencyId })})
@@ -46,10 +55,13 @@ export async function insertLeadWithEvent(tx: Tx, row: NewLeadRow, event: Outbox
   return r ? { id: r.id, kind: r.kind, requestHash: r.request_hash } : null;
 }
 
-/** The lead a site's idempotency key names within the replay window (`since`: the window's start). */
+/**
+ * The lead a site's idempotency key names within the replay window (`since`: the window's start). `siteId` null: the
+ * portal's (S15-02) — of the agency the intake transaction is pinned to (RLS; `app_intake` cannot read `agency_id`).
+ */
 export async function leadByIdempotency(
   tx: Tx,
-  siteId: string,
+  siteId: string | null,
   idempotencyHash: string,
   since: Date,
 ): Promise<LeadReceipt | null> {
@@ -58,7 +70,7 @@ export async function leadByIdempotency(
     .from(websiteLeads)
     .where(
       and(
-        eq(websiteLeads.siteId, siteId),
+        siteId === null ? isNull(websiteLeads.siteId) : eq(websiteLeads.siteId, siteId),
         eq(websiteLeads.idempotencyHash, idempotencyHash),
         gt(websiteLeads.createdAt, since),
       ),
@@ -70,7 +82,8 @@ export async function leadByIdempotency(
 export interface LeadRow {
   id: string;
   agencyId: string;
-  siteId: string;
+  /** Null: a portal lead (S15-02). */
+  siteId: string | null;
   kind: LeadKind;
   targetKind: string | null;
   targetId: string | null;

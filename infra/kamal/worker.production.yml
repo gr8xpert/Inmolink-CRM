@@ -9,3 +9,5 @@ env:
     DEPLOY_ENV: "production"
     OTEL_TRACES_SAMPLE_RATIO: "0.05"
     WEB_URL: "https://app.inmolink.es"
+    # S15-02: the public portal's origin — its sitemaps' URLs (exports pool).
+    PORTAL_URL: "https://inmolink.es"

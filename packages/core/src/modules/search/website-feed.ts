@@ -110,7 +110,7 @@ export async function publicDetailById(
 export function sitemapPage(
   tx: Tx,
   site: PublicSearchSite,
-  q: { after?: string; limit: number; locale: string; fallback: string; part?: 'card' | 'none' | 'sitemap' },
+  q: { after?: string; limit: number; locale: string; fallback: string; part?: 'card' | 'none' | 'sitemap' | 'portal' },
 ): Promise<repo.PublicDocRow[]> {
   return repo.sitemapPage(tx, {
     filter: siteInventoryFilter(site),
@@ -118,6 +118,29 @@ export function sitemapPage(
     network: site.ownerAgencyIds === null || site.networkOf !== undefined,
     ...q,
   });
+}
+
+/**
+ * S15-02: one page of the portal's sitemap walk — every PUBLIC coded document of the inventory's kind in public-code
+ * order after `after` (one ordered keyset walk on `listing_search_docs_public_code_idx`, `limit` rows), the owner
+ * scope (listed agencies, or every owner but the unlisted ones) applied to the page here: the owner filter in the
+ * query let the planner pick the per-owner index and a top-N sort over all the listed owners' rows on every page
+ * (S15-02 review: ~quadratic), and the walk is kept on the ordered index (`preferOrderedWalk`). Each row carries what
+ * a portal listing URL is made of (kind, type, place). Two statements (the planner setting, the page); call it in its
+ * own transaction. `next`: the cursor (the last scanned code), null after the last page.
+ */
+export async function portalSitemapPage(
+  tx: Tx,
+  site: PublicSearchSite,
+  q: { after?: string; limit: number; locale: string; fallback: string },
+): Promise<{ rows: repo.PublicDocRow[]; next: string | null }> {
+  const everyOwner: PublicSearchSite = { ...site, ownerAgencyIds: null, excludeOwnerAgencyIds: undefined };
+  await repo.preferOrderedWalk(tx);
+  const walked = await repo.portalSitemapWalk(tx, { filter: siteInventoryFilter(everyOwner), ...q });
+  const show = site.ownerAgencyIds ? new Set(site.ownerAgencyIds) : null;
+  const hide = new Set(site.excludeOwnerAgencyIds ?? []);
+  const rows = walked.rows.filter((r) => (show ? show.has(r.ownerAgencyId) : !hide.has(r.ownerAgencyId)));
+  return { rows, next: walked.more && walked.last ? walked.last : null };
 }
 
 // ── Developments (S7-F6) ────────────────────────────────────────────────────────────────────────────────────────

@@ -35,6 +35,7 @@ export const websitesEvents = {
   leadReceived: defineEvent(
     'websites.lead.received',
     1,
-    z.object({ leadId: z.uuid(), agencyId: z.uuid(), siteId: z.uuid() }),
+    // S15-02: `siteId` null — a portal (marketplace) lead, `agencyId` the listing's owner.
+    z.object({ leadId: z.uuid(), agencyId: z.uuid(), siteId: z.uuid().nullable() }),
   ),
 };

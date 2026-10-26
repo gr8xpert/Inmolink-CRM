@@ -130,6 +130,21 @@ export async function seedListingAgent(): Promise<{
 }
 
 /**
+ * A legacy inmolink.es URL and its new page (S15-02, S14-05 `legacy_url_redirects`), on the stack's public host
+ * (`localhost`, the port dropped like every redirect key).
+ */
+export async function seedLegacyRedirect(pathKey: string, targetPath: string): Promise<void> {
+  await asOwner((admin) =>
+    admin.query(
+      `insert into legacy_url_redirects (id, source, host, locale, path_key, target_path, entity, status)
+       values ($1, 'portal', 'localhost', '', $2, $3, 'listing', 301)
+       on conflict (source, host, locale, path_key) do update set target_path = excluded.target_path`,
+      [randomUUID(), pathKey, targetPath],
+    ),
+  );
+}
+
+/**
  * A verified agency with its admin (S6-04): admins set up feed imports. An admin owes a second factor, so a test
  * signs in with `passTwoFactor` (enrolment the first time). Uses the names of `LISTING_TAXONOMY`.
  */

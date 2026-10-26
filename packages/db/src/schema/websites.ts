@@ -168,7 +168,11 @@ export const websiteLeads = pgTable(
     agencyId: uuid('agency_id')
       .notNull()
       .references(() => agencies.id, { onDelete: 'cascade' }),
-    siteId: uuid('site_id').notNull(),
+    /**
+     * The site whose form sent it; null: the public portal (S15-02, inmolink.es) — a marketplace lead, whose
+     * `agency_id` is the listing's owner (PLAN §3 #12: marketplace → the listing owner), never a site's agency.
+     */
+    siteId: uuid('site_id'),
     kind: websiteLeadKindEnum('kind').notNull(),
     /**
      * HMAC of the client's `Idempotency-Key` (purpose-separated, base64url): a repeated submission with the same key
@@ -217,6 +221,13 @@ export const websiteLeads = pgTable(
     uniqueIndex('website_leads_idempotency_uq')
       .on(t.siteId, t.idempotencyHash)
       .where(sql`${t.idempotencyHash} is not null`),
+    // S15-02 portal intake (no site): insert … on conflict (idempotency_hash) where site_id is null and
+    // idempotency_hash is not null do nothing; replay (RLS: the owner's rows): where site_id is null and
+    // idempotency_hash = ?. Not per agency: `app_intake` may not read `agency_id` (an ON CONFLICT target needs it),
+    // and the key is the browser's random UUID.
+    uniqueIndex('website_leads_portal_idempotency_uq')
+      .on(t.idempotencyHash)
+      .where(sql`${t.siteId} is null and ${t.idempotencyHash} is not null`),
     // replay-window prune: where idempotency_hash is not null and created_at < ? (batches)
     index('website_leads_idempotency_created_idx').on(t.createdAt).where(sql`${t.idempotencyHash} is not null`),
     // acknowledgement limits: acks sent to one recipient (any site, or one site) since …

@@ -1,0 +1,2 @@
+ALTER TABLE "website_leads" ALTER COLUMN "site_id" DROP NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "website_leads_portal_idempotency_uq" ON "website_leads" USING btree ("idempotency_hash") WHERE "website_leads"."site_id" is null and "website_leads"."idempotency_hash" is not null;

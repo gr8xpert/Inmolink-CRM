@@ -33,6 +33,15 @@ describe('XmlWriter', () => {
     expect(() => new XmlWriter().close()).toThrow(/nothing to close/);
   });
 
+  it('[S15-02] one namespace prefix is a name (sitemap hreflang links); two, or an empty part, are not', () => {
+    const w = new XmlWriter({ declaration: false });
+    w.open('urlset', { 'xmlns:xhtml': 'http://www.w3.org/1999/xhtml' }).leaf('xhtml:link', '', { hreflang: 'es' });
+    expect(w.close().end()).toBe(
+      '<urlset xmlns:xhtml="http://www.w3.org/1999/xhtml"><xhtml:link hreflang="es"/></urlset>',
+    );
+    for (const bad of ['a:b:c', ':a', 'a:', 'a :b']) expect(() => new XmlWriter().open(bad), bad).toThrow(TypeError);
+  });
+
   it('[S7-07] skips null values, writes numbers and booleans, and streams through take()', () => {
     const w = new XmlWriter({ declaration: false });
     w.open('r').leaf('a', null).leaf('b', undefined).leaf('c', 3).leaf('d', true).leaf('e', '');

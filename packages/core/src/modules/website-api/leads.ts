@@ -57,7 +57,7 @@ export type LeadInput =
   | { kind: 'VIEWING_REQUEST'; body: WebsiteViewingRequestBody };
 
 /** The body as the idempotency check compares it: the visitor check is not part of the submission. */
-function requestHashOf(kind: LeadKind, body: WebsiteLeadBody | WebsiteViewingRequestBody): string {
+export function requestHashOf(kind: LeadKind, body: WebsiteLeadBody | WebsiteViewingRequestBody): string {
   const { turnstileToken: _token, serverVerified: _verified, ...submission } = body;
   const canonical = JSON.stringify({ kind, ...submission }, (_k, v: unknown) =>
     v && typeof v === 'object' && !Array.isArray(v)
@@ -98,12 +98,16 @@ export function canonicalRecipient(email: string): string {
 export const recipientHashOf = (email: string) =>
   hmacSha256(leadSecret(), 'website-api.lead-recipient', canonicalRecipient(email));
 
-function accepted(receipt: websites.LeadReceipt, replayed: boolean): WebsiteLeadAccepted {
+export function accepted(receipt: websites.LeadReceipt, replayed: boolean): WebsiteLeadAccepted {
   return { id: receipt.id, kind: receipt.kind, status: 'RECEIVED', replayed };
 }
 
 /** A first submission, or the same one again; another body under the same key is refused. */
-function replayOf(receipt: websites.LeadReceipt | null, kind: LeadKind, requestHash: string): WebsiteLeadAccepted {
+export function replayOf(
+  receipt: websites.LeadReceipt | null,
+  kind: LeadKind,
+  requestHash: string,
+): WebsiteLeadAccepted {
   if (!receipt || receipt.kind !== kind || receipt.requestHash !== requestHash) {
     throw new AppError('IDEMPOTENCY_KEY_REUSED');
   }

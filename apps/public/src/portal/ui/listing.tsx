@@ -1,12 +1,14 @@
 import type { WebsiteImage } from '@inmolink/contracts';
 import type { PortalListing } from '@inmolink/core/modules/website-api';
+import * as websiteApi from '@inmolink/core/modules/website-api';
 import { formatter } from '@inmolink/i18n';
 import { getTranslations } from 'next-intl/server';
 import type { PortalSettings } from '../data';
 import type { Crumb } from '../seo';
-import { developmentPath } from '../urls';
+import { developmentPath, listingPath } from '../urls';
 import { AgencyBox } from './agency-box';
 import { Breadcrumbs } from './breadcrumbs';
+import { EnquiryForm } from './enquiry-form';
 import { MapToggle } from './map-toggle';
 import { HERO_SIZES, Photo, THUMB_SIZES } from './picture';
 import { factsOf, priceOf, townOf } from './results';
@@ -19,7 +21,7 @@ const imagesOf = (l: PortalListing): WebsiteImage[] =>
 
 /**
  * A listing page's body (S15-01): title and price over a photo grid, then the description, features and key facts
- * beside the listing agency (its published contact details and profile — the enquiry form comes with S15-02).
+ * beside the listing agency (its published contact details and profile) and the enquiry form (S15-02).
  */
 export async function ListingView(props: {
   locale: string;
@@ -191,7 +193,20 @@ export async function ListingView(props: {
           subject={`${props.title} (${detail.ref})`}
           reference={detail.ref}
           t={t}
-        />
+        >
+          {agency ? (
+            <EnquiryForm
+              locale={props.locale}
+              code={props.listing.code}
+              back={props.listing.paths[props.locale] ?? listingPath(props.locale, props.title, props.listing.code)}
+              agency={agency.name}
+              reference={detail.ref}
+              turnstileSiteKey={props.settings.turnstileSiteKey}
+              turnstileAction={websiteApi.LEAD_TURNSTILE_ACTION}
+              t={t as (key: string, values?: Record<string, string>) => string}
+            />
+          ) : null}
+        </AgencyBox>
       </div>
     </div>
   );

@@ -24,6 +24,7 @@
     "subjectViewing": "New viewing request – {ref}",
     "intro": "A visitor to {site} has sent an enquiry.",
     "introViewing": "A visitor to {site} has asked for a viewing.",
+    "portalName": "the Inmolink portal",
     "name": "Name",
     "email": "E-mail",
     "phone": "Phone",

@@ -3,14 +3,14 @@ import { DEFAULT_UI_LOCALE, formatter } from '@inmolink/i18n';
 import type { Metadata } from 'next';
 import { notFound, permanentRedirect } from 'next/navigation';
 import { getTranslations, setRequestLocale } from 'next-intl/server';
-import { assertPortalLocale, developmentByCode, PORTAL_LOCALES, placeOf, portalSettings } from '@/portal/data';
+import { assertPortalLocale, developmentByCode, placeOf, portalSettings } from '@/portal/data';
 import { legacyRedirectFor } from '@/portal/legacy';
 import { breadcrumbJsonLd, type Crumb, developmentJsonLd, languageAlternates, serializeJsonLd } from '@/portal/seo';
 import { JsonLd } from '@/portal/ui/breadcrumbs';
 import { DevelopmentView } from '@/portal/ui/development';
 import { townOf } from '@/portal/ui/results';
 import { PortalShell } from '@/portal/ui/shell';
-import { agencyPath, codeOfSlug, developmentPath, homePath, profileUrl, searchPath } from '@/portal/urls';
+import { agencyPath, codeOfSlug, homePath, profileUrl, searchPath } from '@/portal/urls';
 
 /**
  * A new-build development page (S15-01): `/development/<name>-<code>` — an OPEN development's public page with its
@@ -44,7 +44,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { origin } = await portalSettings();
   const name = nameOf(detail);
   const town = townOf(detail.place);
-  const paths = Object.fromEntries(PORTAL_LOCALES.map((l) => [l, developmentPath(l, name, development.code)]));
+  const { paths } = development;
   const canonical = `${origin}${paths[locale]}`;
   const title = t('development.metaTitle', { name, town });
   const description =
@@ -80,7 +80,7 @@ export default async function DevelopmentPage({ params }: Props) {
   const t = await getTranslations({ locale, namespace: 'portal' });
   const { detail } = development;
   const name = nameOf(detail);
-  const path = developmentPath(locale, name, development.code);
+  const path = development.paths[locale] as string;
   // One URL per development and locale: any other slug (a listing's link, a renamed development) moves here.
   if (path !== `/${locale}/development/${slug}`) permanentRedirect(path);
   const settings = await portalSettings();
@@ -119,10 +119,7 @@ export default async function DevelopmentPage({ params }: Props) {
     dateModified: development.updatedAt.toISOString(),
   });
   return (
-    <PortalShell
-      locale={locale}
-      alternates={Object.fromEntries(PORTAL_LOCALES.map((l) => [l, developmentPath(l, name, development.code)]))}
-    >
+    <PortalShell locale={locale} alternates={development.paths}>
       <JsonLd json={serializeJsonLd(ld)} />
       <JsonLd json={serializeJsonLd(breadcrumbJsonLd(settings.origin, crumbs))} />
       <DevelopmentView locale={locale} development={development} title={name} crumbs={crumbs} />

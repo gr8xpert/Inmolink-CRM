@@ -107,7 +107,19 @@ const leadEmailEnv = {
  * `app_public`, image URLs under the media CDN (the same variables as the lead acknowledgements). S9-03: portal feeds'
  * nightly hour and pool caps.
  */
-const siteFeedEnv = { ...leadEmailEnv, ...portalFeedsEnv, ...portalPushEnv };
+const siteFeedEnv = {
+  ...leadEmailEnv,
+  ...portalFeedsEnv,
+  ...portalPushEnv,
+  /**
+   * S15-02: the portal's public origin (`https://inmolink.es`): its sitemaps' absolute URLs. Unset: no portal sitemaps
+   * are generated (`websiteApi.generatePortalSitemaps` skips).
+   */
+  PORTAL_URL: z
+    .url()
+    .optional()
+    .transform((v) => v?.replace(/\/+$/, '')),
+};
 
 /** S13-01: the `maintenance` pool syncs the plan catalog to Stripe and applies its webhook events (no webhook secret). */
 const billingPoolEnv = {

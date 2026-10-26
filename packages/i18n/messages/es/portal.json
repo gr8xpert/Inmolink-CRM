@@ -180,5 +180,26 @@
       "KEY_READY": "Llave en mano",
       "SOLD_OUT": "Vendida"
     }
+  },
+  "enquiry": {
+    "title": "Contacta con la agencia",
+    "name": "Tu nombre",
+    "email": "Correo electrónico",
+    "phone": "Teléfono (opcional)",
+    "message": "Mensaje",
+    "messageDefault": "Hola, estoy interesado en el inmueble con referencia {ref}. Por favor, contactad conmigo.",
+    "privacy": "Acepto que {agency} e Inmolink traten mis datos para responder a esta consulta, según la política de privacidad.",
+    "marketing": "Quiero recibir por correo inmuebles similares de {agency}.",
+    "submit": "Enviar consulta",
+    "needsJavaScript": "Este formulario necesita JavaScript (protección contra spam). También puedes contactar con la agencia por teléfono o correo.",
+    "unavailable": "Las consultas no están disponibles ahora: contacta con la agencia por teléfono o correo.",
+    "notices": {
+      "sent": "Gracias: tu consulta se ha enviado a {agency}. Se pondrán en contacto contigo pronto.",
+      "VALIDATION_FAILED": "Revisa el formulario: el nombre, un correo válido y un mensaje son obligatorios, y debes marcar la casilla de consentimiento.",
+      "TURNSTILE_FAILED": "No hemos podido confirmar que no eres un robot. Inténtalo de nuevo.",
+      "RATE_LIMITED": "Demasiadas consultas desde esta conexión. Inténtalo más tarde.",
+      "LISTING_NOT_FOUND": "Este inmueble ya no está disponible.",
+      "generic": "No se ha podido enviar tu consulta. Inténtalo de nuevo."
+    }
   }
 }

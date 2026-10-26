@@ -31,7 +31,13 @@ import {
   PublicCode,
 } from '@inmolink/contracts';
 import { type Tx, withPublicRead } from '@inmolink/db';
-import { type ContentLocale, DEFAULT_CONTENT_LOCALE, FALLBACK_CONTENT_LOCALE, isContentLocale } from '@inmolink/i18n';
+import {
+  type ContentLocale,
+  DEFAULT_CONTENT_LOCALE,
+  FALLBACK_CONTENT_LOCALE,
+  isContentLocale,
+  UI_LOCALES,
+} from '@inmolink/i18n';
 import { LocalLru } from '@inmolink/platform/cache';
 import { createLogger, type Logger } from '@inmolink/platform/logger';
 import * as agencies from '../agencies';
@@ -39,6 +45,7 @@ import * as search from '../search';
 import * as taxonomy from '../taxonomy';
 import * as websites from '../websites';
 import { FEATURE_CONCEPTS } from './ai-search-parse';
+import { developmentNameOf, developmentPath, listingPath, portalListingTitle } from './portal-urls';
 import { configured } from './settings';
 
 let log: Logger | undefined;
@@ -117,12 +124,13 @@ async function listedInventory(
 }
 
 /** The portal's search inventory: listed agencies' PUBLIC listings (no new-build units in R1). */
-const portalInventory = (requestId: string) => listedInventory(requestId, { restrict: { newBuilds: false } });
+export const portalInventory = (requestId: string) => listedInventory(requestId, { restrict: { newBuilds: false } });
 
 /** A content locale for `locale` (UI locales are content locales; anything else reads the default). */
-const contentLocale = (locale: string): ContentLocale => (isContentLocale(locale) ? locale : DEFAULT_CONTENT_LOCALE);
+export const contentLocale = (locale: string): ContentLocale =>
+  isContentLocale(locale) ? locale : DEFAULT_CONTENT_LOCALE;
 /** The locale a document falls back to when it has none in the page's. */
-const fallbackOf = (locale: ContentLocale): string =>
+export const fallbackOf = (locale: ContentLocale): string =>
   locale === DEFAULT_CONTENT_LOCALE ? FALLBACK_CONTENT_LOCALE : DEFAULT_CONTENT_LOCALE;
 
 // ── Places ──────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -149,12 +157,12 @@ export interface PortalZone {
 /** The caps live in contracts (S15-F8) so the staff editor refuses what the portal would cut; re-exported here. */
 export { PORTAL_MAX_SEARCH_TYPES, PORTAL_ZONE_MAX_MEMBERS };
 
-interface PlaceNode extends PortalPlace {
+export interface PlaceNode extends PortalPlace {
   parentId: string | null;
   childIds: string[];
 }
 
-interface PlaceIndex {
+export interface PlaceIndex {
   byId: Map<string, PlaceNode>;
   roots: PlaceNode[];
   zones: Map<string, { id: string; name: string; slug: string; locationIds: string[] }>;
@@ -166,7 +174,7 @@ type TreeNode = { id: string; level: string; name: string; slug: string; childre
 /** Built indexes per locale with the tree ETag they were built from (a taxonomy edit brings a new tree). */
 const placeIndexes = new Map<string, { etag: string; index: PlaceIndex }>();
 
-async function placeIndex(locale: ContentLocale): Promise<PlaceIndex> {
+export async function placeIndex(locale: ContentLocale): Promise<PlaceIndex> {
   const { locations } = await taxonomy.websiteTaxonomyObjects(locale);
   const hit = placeIndexes.get(locale);
   if (hit && hit.etag === locations.etag) return hit.index;
@@ -420,7 +428,7 @@ const presenterOf = (agency: PortalAgency | null): websites.SiteView['presenter'
 });
 
 /** The owner's own view: its own text and reference, its own presenter — nothing white-labelled. */
-const ownView = (ownerAgencyId: string, agency: PortalAgency | null): websites.SiteView => ({
+export const ownView = (ownerAgencyId: string, agency: PortalAgency | null): websites.SiteView => ({
   site: { agencyId: ownerAgencyId, referencePrefix: null },
   presenter: presenterOf(agency),
   mediaBaseUrl: configured().mediaBaseUrl,
@@ -611,13 +619,80 @@ async function portalCards(tx: Tx, ids: readonly string[], locale: ContentLocale
 
 // ── Listing page ────────────────────────────────────────────────────────────────────────────────────────────────
 
+/** What a listing's portal URL is made of: its type and place (ids and names). */
+export interface PortalNamed {
+  propertyType: { id: string; name: string };
+  place: Partial<Record<'country' | 'region' | 'city' | 'area', { id: string; name: string } | null>>;
+}
+
+/** Type names by id per taxonomy catalog (the catalog object is replaced when the taxonomy changes). */
+const typeNameMaps = new WeakMap<object, Map<string, string>>();
+
+/**
+ * S15-02: `doc`'s type and place named in `locale`'s taxonomy, by id. Read models exist only in the owner's content
+ * locales, so an English page of a Spanish-only agency reads the Spanish row: its names are replaced here, so every
+ * locale's page, title, canonical and the sitemap name a listing in that locale. A name the taxonomy does not have in
+ * the locale keeps the document's. Cached taxonomy only: no statement.
+ */
+export async function localizedListingNames<T extends PortalNamed>(locale: string, doc: T): Promise<T> {
+  const l = contentLocale(locale);
+  const { catalog } = await taxonomy.websiteTaxonomyObjects(l);
+  let types = typeNameMaps.get(catalog.body);
+  if (!types) {
+    types = new Map(catalog.body.propertyTypes.flatMap((g) => g.types.map((t) => [t.id, t.name] as const)));
+    typeNameMaps.set(catalog.body, types);
+  }
+  const index = await placeIndex(l);
+  const place = { ...doc.place };
+  for (const k of ['country', 'region', 'city', 'area'] as const) {
+    const p = place[k];
+    const name = p ? index.byId.get(p.id)?.name : undefined;
+    if (p && name) place[k] = { ...p, name };
+  }
+  const typeName = types.get(doc.propertyType.id);
+  return {
+    ...doc,
+    propertyType: typeName ? { ...doc.propertyType, name: typeName } : doc.propertyType,
+    place,
+  };
+}
+
+/**
+ * S15-02: a listing's portal URL in every UI locale — the one helper for its page's canonical and hreflang alternates
+ * and for the sitemaps, so they never disagree. "<Type> in <Town>" from each locale's taxonomy names.
+ */
+export async function portalListingPaths(
+  doc: PortalNamed,
+  code: string,
+  locales: readonly string[] = UI_LOCALES,
+): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  for (const l of locales) out[l] = listingPath(l, portalListingTitle(l, await localizedListingNames(l, doc)), code);
+  return out;
+}
+
+/**
+ * S15-02: a development's portal URL in every UI locale (page canonical, alternates, sitemaps): one name for all — the
+ * developer's name (its marketing title without one).
+ */
+export function portalDevelopmentPaths(
+  d: { name: string; title: string },
+  code: string,
+  locales: readonly string[] = UI_LOCALES,
+): Record<string, string> {
+  return Object.fromEntries(locales.map((l) => [l, developmentPath(l, developmentNameOf(d), code)]));
+}
+
 export interface PortalListing {
+  /** Type and place named in the page's locale (`localizedListingNames`). */
   detail: Extract<ReturnType<typeof websites.serializeDetail>, { kind: 'LISTING' }>;
   code: string;
   agency: PortalAgency | null;
   updatedAt: Date;
   /** The public code of the listing's development (its portal page), null without one. */
   developmentCode: string | null;
+  /** S15-02: its URL in every UI locale (`portalListingPaths`): the page's canonical and alternates. */
+  paths: Record<string, string>;
 }
 
 /** The listing a public code names (any case), as the portal shows it; null: no such public listing. */
@@ -631,7 +706,7 @@ export async function portalListing(input: {
   const locale = contentLocale(input.locale);
   const inventory = await portalInventory(input.requestId);
   if (!inventory) return null;
-  return withPublicRead(async (tx) => {
+  const found = await withPublicRead(async (tx) => {
     const row = await search.publicDetailByCode(tx, inventory, code, locale, fallbackOf(locale));
     if (!row || (row.doc as { kind?: string }).kind !== 'LISTING') return null;
     const agency = (await agenciesOf(tx, [row.ownerAgencyId])).get(row.ownerAgencyId) ?? null;
@@ -643,6 +718,29 @@ export async function portalListing(input: {
     if (detail.kind !== 'LISTING') return null;
     return { detail, code, agency, updatedAt: row.updatedAt, developmentCode: row.developmentCode };
   });
+  if (!found) return null;
+  // Named in the page's own locale, whichever locale's read model answered (S15-02).
+  const detail = await localizedListingNames(input.locale, found.detail);
+  return { ...found, detail, paths: await portalListingPaths(found.detail, code) };
+}
+
+/**
+ * S15-02: the listing a public code names among the portal's stock — what the enquiry form needs: its id, its owner
+ * (who holds the lead) and the owner's own reference. One statement; null: not on the portal.
+ */
+export async function portalListingTarget(
+  code: string,
+  locale: string,
+  requestId: string,
+): Promise<{ targetId: string; ownerAgencyId: string; ref: string } | null> {
+  if (!PublicCode.safeParse(code).success) return null;
+  const l = contentLocale(locale);
+  const inventory = await portalInventory(requestId);
+  if (!inventory) return null;
+  const row = await withPublicRead((tx) => search.publicDetailByCode(tx, inventory, code, l, fallbackOf(l)));
+  const doc = row?.doc as { kind?: string; ref?: string } | undefined;
+  if (!row || doc?.kind !== 'LISTING' || typeof doc.ref !== 'string') return null;
+  return { targetId: row.targetId, ownerAgencyId: row.ownerAgencyId, ref: doc.ref };
 }
 
 // ── Development pages ───────────────────────────────────────────────────────────────────────────────────────────
@@ -651,7 +749,7 @@ export async function portalListing(input: {
  * The portal's new-build inventory: every agency's PUBLIC units (units of OPEN developments) in the statuses sites show.
  * R1 lists units on their development's page only, not in the search.
  */
-const developmentInventory = (requestId: string) => listedInventory(requestId);
+export const developmentInventory = (requestId: string) => listedInventory(requestId);
 
 /** Units a development page lists (the developer's order); more are counted, not listed (S15-02+: paging). */
 export const PORTAL_DEVELOPMENT_UNITS = 100;
@@ -665,6 +763,8 @@ export interface PortalDevelopment {
   units: ReturnType<typeof websites.serializeUnitCards>;
   /** More units than listed. */
   moreUnits: boolean;
+  /** S15-02: its URL in every UI locale (`portalDevelopmentPaths`): the page's canonical and alternates. */
+  paths: Record<string, string>;
 }
 
 /**
@@ -695,9 +795,11 @@ export async function portalDevelopment(input: {
     const agency = (await agenciesOf(tx, [row.ownerAgencyId])).get(row.ownerAgencyId) ?? null;
     const view = ownView(row.ownerAgencyId, agency);
     const rows = page.rows.slice(0, PORTAL_DEVELOPMENT_UNITS);
+    const detail = websites.serializeDevelopmentDetail(view, { ...row, doc: row.doc as UnitDetailDoc });
     return {
-      detail: websites.serializeDevelopmentDetail(view, { ...row, doc: row.doc as UnitDetailDoc }),
+      detail,
       code,
+      paths: portalDevelopmentPaths(detail, code),
       agency,
       updatedAt: row.updatedAt,
       units: websites.serializeUnitCards(

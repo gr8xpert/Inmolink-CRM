@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import createMiddleware from 'next-intl/middleware';
 import { DENY_FRAMING, EMBED_GATE_HEADER, embedPath } from './embed/csp';
 import { routing } from './i18n/routing';
+import { localRedirectTarget } from './portal/legacy';
 import { canonicalSearch } from './portal/query';
 import type { EmbedGateResult } from './server/embed';
 
@@ -24,6 +25,25 @@ export type EmbedGate = (siteId: string, forwardedFor: string | null) => Promise
  */
 export type PortalGate = (forwardedFor: string | null) => Promise<{ allowed: boolean; retryAfterSeconds: number }>;
 
+/**
+ * S15-02: the legacy redirect for a requested path and query (`legacy_url_redirects`, S14-05) and its status, or null.
+ * `beforeProbe` is asked before a database probe (a cache miss): the client's page limit — false skips the probe.
+ */
+export type LegacyGate = (
+  pathWithQuery: string,
+  beforeProbe: () => Promise<boolean>,
+) => Promise<{ targetPath: string; status: 301 | 308 } | null>;
+
+/**
+ * The portal's own page shapes (`/en`, `/en/properties…`, `/en/property/…`, `/en/development/…`, `/en/zone/…`,
+ * `/en/agency/…`): their pages ask the legacy redirects themselves, and only on a 404. Every other path may be an old
+ * inmolink.es URL and is looked up here first, before locale routing — a true 301 (a page can only answer 308).
+ */
+const PORTAL_PAGE_PATH = /^\/[a-z]{2}(?:\/(?:properties|property|development|zone|agency)(?:\/|$)|\/?$)/;
+
+/** Old pages with an extension the proxy sees (the matcher's second entry). */
+const LEGACY_FILE_PATH = /\.(?:php|html?|aspx?)$/i;
+
 /** Portal paths whose query string is a search (`/en/properties…`, `/es/zone/…`). */
 const PORTAL_SEARCH_PATH = /^\/[a-z]{2}\/(?:properties|zone)(?:\/|$)/;
 
@@ -45,7 +65,62 @@ async function portalAllowed(portalGate: PortalGate, forwardedFor: string | null
   }
 }
 
-export function createProxy(gate: EmbedGate, portalGate: PortalGate = defaultPortalGate) {
+type LegacyAnswer =
+  | { kind: 'redirect'; targetPath: string; status: 301 | 308 }
+  | { kind: 'limited'; retryAfterSeconds: number }
+  | null;
+
+/**
+ * The legacy redirect for this request. A cache miss costs a database probe, so it counts against the client's page
+ * limit first (S15-02 review): made-up URLs cannot drive probes or churn the resolver's miss cache. The resolver's
+ * normalizer keeps only the query keys that identify a legacy page (`REDIRECT_QUERY_KEYS`): tracking parameters make
+ * no new keys.
+ */
+async function legacyTarget(
+  legacyGate: LegacyGate,
+  portalGate: PortalGate,
+  request: NextRequest,
+): Promise<LegacyAnswer> {
+  const { pathname, search } = request.nextUrl;
+  // The bare root without a query is the locale negotiation's (`/` → `/en`), not a legacy page.
+  if (PORTAL_PAGE_PATH.test(pathname) || (pathname === '/' && search === '')) return null;
+  let limited: { retryAfterSeconds: number } | null = null;
+  const beforeProbe = async () => {
+    const limit = await portalAllowed(portalGate, request.headers.get('x-forwarded-for'));
+    if (!limit.allowed) limited = { retryAfterSeconds: limit.retryAfterSeconds };
+    return limit.allowed;
+  };
+  try {
+    const found = await legacyGate(`${pathname}${search}`, beforeProbe);
+    if (limited) return { kind: 'limited', ...(limited as { retryAfterSeconds: number }) };
+    const targetPath = localRedirectTarget(found?.targetPath);
+    return found && targetPath ? { kind: 'redirect', targetPath, status: found.status === 308 ? 308 : 301 } : null;
+  } catch {
+    // Fails open: a lookup outage never takes a page down (the page renders, or 404s).
+    return null;
+  }
+}
+
+/** S15-02: the portal's configured origin (`PORTAL_URL`, else `PUBLIC_URL`): redirects are built on it. */
+export type PortalOrigin = () => Promise<string>;
+
+/**
+ * A permanent redirect to a path on this site, on the configured origin — never one built from the request's `Host`
+ * header, which the client controls (S15-02 review). (Next refuses a relative `Location` from the proxy.)
+ */
+function movedTo(origin: string, path: string, status: 301 | 308 = 301): NextResponse {
+  const moved = new NextResponse(null, { status, headers: { Location: new URL(path, origin).href } });
+  for (const [k, v] of Object.entries(DENY_FRAMING)) moved.headers.set(k, v);
+  moved.headers.set('Cache-Control', 'public, max-age=3600');
+  return moved;
+}
+
+export function createProxy(
+  gate: EmbedGate,
+  portalGate: PortalGate = defaultPortalGate,
+  legacyGate: LegacyGate = defaultLegacyGate,
+  portalOrigin: PortalOrigin = defaultPortalOrigin,
+) {
   return async function proxy(request: NextRequest): Promise<NextResponse> {
     const embed = embedPath(request.nextUrl.pathname);
     if (embed === 'invalid') return refuse(404);
@@ -64,19 +139,26 @@ export function createProxy(gate: EmbedGate, portalGate: PortalGate = defaultPor
       // One spelling per search (S15-01 review): any other order, junk or default parameter moves to the canonical URL,
       // so made-up parameters never make new CDN cache keys or page renders.
       const canonical = canonicalSearch(request.nextUrl.search);
-      if (canonical !== null) {
-        const to = request.nextUrl.clone();
-        to.search = canonical;
-        const moved = NextResponse.redirect(to, 301);
-        for (const [k, v] of Object.entries(DENY_FRAMING)) moved.headers.set(k, v);
-        moved.headers.set('Cache-Control', 'public, max-age=3600');
-        return moved;
-      }
+      if (canonical !== null) return movedTo(await portalOrigin(), `${request.nextUrl.pathname}${canonical}`);
     }
+    const legacy = await legacyTarget(legacyGate, portalGate, request);
+    if (legacy?.kind === 'limited') return refuse(429, legacy.retryAfterSeconds);
+    if (legacy?.kind === 'redirect') return movedTo(await portalOrigin(), legacy.targetPath, legacy.status);
+    // An old page with an extension that names nothing now: a plain 404 (portal slugs never contain a dot).
+    if (LEGACY_FILE_PATH.test(request.nextUrl.pathname)) return refuse(404);
     const res = intl(request);
     for (const [k, v] of Object.entries(DENY_FRAMING)) res.headers.set(k, v);
     return res;
   };
+}
+
+async function defaultLegacyGate(pathWithQuery: string, beforeProbe: () => Promise<boolean>) {
+  return (await import('./server/legacy-redirects')).legacyRedirect(pathWithQuery, beforeProbe);
+}
+
+async function defaultPortalOrigin() {
+  const env = await import('./server/env');
+  return env.portalOriginOf(await env.publicConfig());
 }
 
 async function defaultPortalGate(forwardedFor: string | null) {
@@ -93,6 +175,8 @@ export const config = {
     // own headers), Next internals, files with an extension (so slugs never contain a dot) and the embeds (matched
     // below, dots included).
     '/((?!(?:api|healthz|embed|s)(?:/|$)|_next|_vercel|.*\\..*).*)',
+    // S15-02: old inmolink.es pages with an extension (`/index.php?page_id=…`, `/contacto.html`): legacy redirects.
+    '/((?!(?:api|healthz|embed|s|sitemaps|_next|_vercel)(?:/|$)).*\\.(?:php|html?|aspx?))',
     // Every embed path: none may render without the gate.
     '/embed/:path*',
     '/embed',

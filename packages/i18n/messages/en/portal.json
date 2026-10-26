@@ -180,5 +180,26 @@
       "KEY_READY": "Key ready",
       "SOLD_OUT": "Sold out"
     }
+  },
+  "enquiry": {
+    "title": "Ask the agency",
+    "name": "Your name",
+    "email": "Email",
+    "phone": "Phone (optional)",
+    "message": "Message",
+    "messageDefault": "Hello, I am interested in the property with reference {ref}. Please contact me.",
+    "privacy": "I agree that {agency} and Inmolink process my details to answer this enquiry, as set out in the privacy policy.",
+    "marketing": "I would like to receive similar properties from {agency} by email.",
+    "submit": "Send enquiry",
+    "needsJavaScript": "This form needs JavaScript (spam protection). You can also contact the agency by phone or email.",
+    "unavailable": "Enquiries are not available right now: please contact the agency by phone or email.",
+    "notices": {
+      "sent": "Thank you: your enquiry has been sent to {agency}. They will contact you soon.",
+      "VALIDATION_FAILED": "Please check the form: your name, a valid email and a message are required, and the consent box must be ticked.",
+      "TURNSTILE_FAILED": "We could not confirm you are not a robot. Please try again.",
+      "RATE_LIMITED": "Too many enquiries from this connection. Please try again later.",
+      "LISTING_NOT_FOUND": "This property is no longer available.",
+      "generic": "Your enquiry could not be sent. Please try again."
+    }
   }
 }

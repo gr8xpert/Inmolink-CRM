@@ -89,7 +89,14 @@ export default defineConfig({
       command: `pnpm exec next start --port ${PORTS.public}`,
       cwd: join(ROOT, 'apps', 'public'),
       url: `${PUBLIC_URL}/healthz`,
-      env: { ...common, PUBLIC_URL },
+      // S15-02: the portal enquiry form — Turnstile's test keys, checked by the feed host's siteverify stub.
+      env: {
+        ...common,
+        PUBLIC_URL,
+        TURNSTILE_SITE_KEY: '1x00000000000000000000AA',
+        TURNSTILE_SECRET_KEY: '1x0000000000000000000000000000000AA',
+        TURNSTILE_VERIFY_URL: `http://127.0.0.1:${PORTS.feed}/siteverify`,
+      },
       stdout: 'pipe',
       timeout: 120_000,
       reuseExistingServer: false,

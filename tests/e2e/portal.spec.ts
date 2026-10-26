@@ -1,7 +1,13 @@
 import { randomInt } from 'node:crypto';
 import type { APIRequestContext, Browser } from '@playwright/test';
 import { expect, test } from './fixtures';
-import { LISTING_TAXONOMY, SEED_PASSWORD as password, seedListingAgent, TAXONOMY_IDS } from './seed';
+import {
+  LISTING_TAXONOMY,
+  SEED_PASSWORD as password,
+  seedLegacyRedirect,
+  seedListingAgent,
+  TAXONOMY_IDS,
+} from './seed';
 import { PUBLIC_URL, testStackEnv } from './stack';
 
 /**
@@ -134,4 +140,87 @@ test('[S15-01] portal: a visitor finds a new listing on its location page with a
   // The same listing in Spanish (its own localized URL).
   const es = await request.get(page.url().replace('/en/', '/es/'));
   expect(es.status()).toBeLessThan(500);
+});
+
+/** Cloudflare Turnstile, solved at once (the e2e stack checks tokens with its own siteverify stub). */
+const TURNSTILE_STUB = `window.turnstile = { reset() {} };
+for (const el of document.querySelectorAll('.cf-turnstile')) {
+  const input = document.createElement('input');
+  input.type = 'hidden';
+  input.name = 'cf-turnstile-response';
+  input.value = 'e2e-pass-' + Math.random().toString(36).slice(2);
+  el.appendChild(input);
+}`;
+
+test('[S15-02] portal: an enquiry reaches the listing agency as a MARKETPLACE lead; a legacy URL answers 301', async ({
+  browser,
+  request,
+  page,
+}) => {
+  test.setTimeout(6 * 60_000);
+  const seller = await agent(browser);
+  const euros = 300_000 + randomInt(1, 9_999_999);
+  await publish(request, seller.token, euros * 100);
+  const title = `${LISTING_TAXONOMY.propertyType} in ${LISTING_TAXONOMY.location}`;
+  await expect
+    .poll(
+      async () => {
+        await page.goto(`${PUBLIC_URL}/en/properties/e2e-listland?price_min=${euros}&price_max=${euros}`);
+        return page.getByRole('link', { name: title }).count();
+      },
+      { timeout: 150_000, intervals: [1_000, 2_000, 5_000] },
+    )
+    .toBe(1);
+  await page.getByRole('link', { name: title }).click();
+  await expect(page).toHaveURL(/\/en\/property\/e2e-villa-in-e2e-listland-[0-9a-z]{8}$/);
+  const listingPath = new URL(page.url()).pathname;
+
+  // A URL of the old inmolink.es (another shape, another case, a tracking parameter) moves for good to the new page.
+  const tag = randomInt(1, 1_000_000_000).toString(36);
+  // A name with letters only (the lead contract refuses digits in names).
+  const who = `Jane ${tag.replace(/[0-9]/g, (d) => 'abcdefghij'[Number(d)] as string)}`;
+  await seedLegacyRedirect(`/property-details/e2e-${tag}/villa-in-listland`, listingPath);
+  const moved = await request.get(`${PUBLIC_URL}/property-details/E2E-${tag}/Villa-in-Listland?utm_source=old`, {
+    maxRedirects: 0,
+  });
+  expect(moved.status()).toBe(301);
+  // Same origin: Next writes the Location as a path.
+  expect(new URL(moved.headers().location as string, PUBLIC_URL).href).toBe(`${PUBLIC_URL}${listingPath}`);
+  // An old URL nobody mapped is not redirected anywhere off the portal (locale routing, then the 404 page).
+  const unknown = await request.get(`${PUBLIC_URL}/property-details/none-${tag}/x`, { maxRedirects: 0 });
+  expect(unknown.status()).not.toBe(301);
+
+  // The enquiry form: Turnstile loads on first use (stubbed), the answer shows in place.
+  await page.route('https://challenges.cloudflare.com/**', (route) =>
+    route.fulfill({ status: 200, contentType: 'text/javascript', body: TURNSTILE_STUB }),
+  );
+  const form = page.getByTestId('portal-enquiry');
+  await form.getByLabel('Your name').fill(who);
+  await expect(form.locator('input[name="cf-turnstile-response"]')).toHaveCount(1);
+  await form.getByLabel('Email', { exact: true }).fill(`jane-${tag}@example.com`);
+  await form.getByLabel(/I agree that/).check();
+  await form.getByRole('button', { name: 'Send enquiry' }).click();
+  await expect(form.getByRole('status')).toContainText(`sent to ${seller.company}`);
+
+  // The listing agency sees it in its inbox as a marketplace lead (promoted by the worker from the outbox).
+  const context = await browser.newContext({ baseURL: WEB_URL, locale: 'en-GB' });
+  const dashboard = await context.newPage();
+  await dashboard.goto('/login');
+  await dashboard.getByLabel('Email').fill(seller.email);
+  await dashboard.getByLabel('Password').fill(password);
+  await dashboard.getByRole('button', { name: 'Log in' }).click();
+  await expect(dashboard).toHaveURL(/\/en$/);
+  await expect
+    .poll(
+      async () => {
+        await dashboard.goto('/en/inbox?source=MARKETPLACE');
+        return dashboard.getByText(who).count();
+      },
+      { timeout: 90_000, intervals: [1_000, 2_000, 5_000] },
+    )
+    .toBeGreaterThan(0);
+  await expect(dashboard.getByTestId('lead-list').getByRole('listitem').filter({ hasText: who })).toContainText(
+    'Marketplace',
+  );
+  await context.close();
 });

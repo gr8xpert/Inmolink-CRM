@@ -116,6 +116,8 @@ export {
   type LegacyUrlEntry,
   type NormalizedLegacyUrl,
   normalizeLegacyUrl,
+  pushRedirectHits,
+  REDIRECT_HITS_PUSH_MS,
   REDIRECT_QUERY_KEYS,
   type RedirectRow,
   type RedirectSource,
