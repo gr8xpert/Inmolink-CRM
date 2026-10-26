@@ -13,6 +13,7 @@ import {
   listingSearchCommissions,
   listingSearchDevelopments,
   listingSearchDocs,
+  readModelKindEnum,
   readModelQueue,
   searchIndexQueue,
 } from '@inmolink/db/schema/search';
@@ -1028,8 +1029,11 @@ export async function deleteSearchDocs(tx: Tx, ids: readonly string[]): Promise<
   ];
 }
 
-/** `ci`: text compared case-insensitively (`lower(col) = lower(value)`, the `lower(ref)` index). */
-type ColumnType = 'text' | 'ci' | 'uuid' | 'bigint' | 'int' | 'float8' | 'bool' | 'uuid[]';
+/**
+ * `ci`: text compared case-insensitively (`lower(col) = lower(value)`, the `lower(ref)` index). `kind`: the
+ * `read_model_kind` enum column compared as itself (`kindCondition`).
+ */
+type ColumnType = 'text' | 'ci' | 'uuid' | 'bigint' | 'int' | 'float8' | 'bool' | 'uuid[]' | 'kind';
 type FieldSpec =
   | { column: string; type: ColumnType }
   | { constant: string }
@@ -1043,7 +1047,10 @@ type FieldSpec =
  * such a row matches no network filter until a rebuild rewrites it.
  */
 const FALLBACK_FIELDS: Readonly<Record<string, FieldSpec>> = {
-  kind: { column: 'kind::text', type: 'text' },
+  // S14-F10: the enum column itself, not `kind::text` — an expression with no statistics, estimated at 0.5 % of its
+  // rows (half really match), so a network sitemap page took a bitmap over every coded document then a sort (844 ms
+  // on the 770k-row test table: statement timeouts under load) instead of the code index walked to `limit + 1` (9 ms).
+  kind: { column: 'kind', type: 'kind' },
   // A target by its id (S8-02: the v1 shim's legacy property ids, resolved first): fallback statements only, never sent
   // to the engine (the index's id is its primary key, not a filterable field).
   targetId: { column: 'target_id', type: 'uuid' },
@@ -1106,6 +1113,22 @@ function fieldOf(name: string): FieldSpec {
   return f;
 }
 
+const KINDS: ReadonlySet<string> = new Set(readModelKindEnum.enumValues);
+
+/**
+ * S14-F10: `kind` in / not in `values`, as enum comparisons the planner estimates from the column statistics. A value
+ * that is no kind matches no row (as `kind::text` did) instead of failing the enum cast.
+ */
+function kindCondition(values: readonly FieldValue[], negated: boolean): SQL {
+  const known = [...new Set(values.filter((v): v is string => typeof v === 'string' && KINDS.has(v)))];
+  if (known.length === 0) return negated ? sql`true` : sql`false`;
+  const set = sql`array[${sql.join(
+    known.map((v) => sql`${v}`),
+    sql`, `,
+  )}]::read_model_kind[]`;
+  return negated ? sql`kind <> all(${set})` : sql`kind = any(${set})`;
+}
+
 function finite(v: unknown): number {
   if (typeof v !== 'number' || !Number.isFinite(v)) throw new SearchError('filter value must be a finite number');
   return v;
@@ -1145,6 +1168,7 @@ function negation(filter: Filter): SQL | null {
   if (f.type === 'bool' && filter.op === 'eq' && typeof filter.value === 'boolean') {
     return filter.value ? sql`${col} is not true` : sql`${col} is not false`;
   }
+  if (f.type === 'kind') return kindCondition(filter.op === 'eq' ? [filter.value] : filter.values, true);
   if (!NOT_NULL_COLUMNS.has(bareColumn(f.column)) || f.type === 'ci') return null;
   if (filter.op === 'eq') return sql`${col} <> ${paramOf(f.type, filter.value)}`;
   if (filter.values.length === 0) throw new SearchError('empty in');
@@ -1184,6 +1208,7 @@ export function fallbackCondition(filter: Filter, opts: { rangesAsFilters?: bool
       }
       if (f.type === 'uuid[]') return sql`${sql.raw(f.column)} @> ${typedArray([filter.value], f.type)}`;
       if (f.type === 'ci') return sql`lower(${sql.raw(f.column)}) = lower(${String(filter.value)})`;
+      if (f.type === 'kind') return kindCondition([filter.value], false);
       return sql`${sql.raw(f.column)} = ${paramOf(f.type, filter.value)}`;
     }
     case 'in': {
@@ -1194,6 +1219,7 @@ export function fallbackCondition(filter: Filter, opts: { rangesAsFilters?: bool
         throw new SearchError(`field supports only equality: ${filter.field}`);
       }
       if (f.type === 'uuid[]') return sql`${sql.raw(f.column)} && ${typedArray(filter.values, f.type)}`;
+      if (f.type === 'kind') return kindCondition(filter.values, false);
       if (f.type === 'ci') {
         return sql`lower(${sql.raw(f.column)}) in (${sql.join(
           filter.values.map((v) => sql`lower(${String(v)})`),

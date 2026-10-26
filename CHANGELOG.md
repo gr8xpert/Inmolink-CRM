@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- fix(search): fallback filters compare kind as the enum column — network sitemap pages walk the code index again, 844 ms → 9 ms [S14-F10]
 - refactor(ai-features): one pollBatch() helper for the Listing Studio and white-label batch-collect jobs [S14-F4]
 - refactor(contracts,db): staff role sets in contracts; registry builds staff RLS predicates with staffRoleSql and the policies check the same sets; db depends on @inmolink/contracts [S14-F2]
 - feat(migration): legacy new-build import — staged developments and units to v2 with legacy id maps and a count report; reusable load toolkit [S4-04]

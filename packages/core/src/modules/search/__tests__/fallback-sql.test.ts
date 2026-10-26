@@ -137,6 +137,29 @@ describe('fallback filter → SQL', () => {
     ).toBe('network_hidden is not true'); // S7-F9: an estimable form, null not hidden
   });
 
+  it('[S14-F10] kind compares the enum column (estimable), never `kind::text`; a value that is no kind matches none', () => {
+    const eq = render(fallbackCondition({ op: 'eq', field: 'kind', value: 'LISTING' }));
+    expect(eq.sql).toBe('kind = any(array[$1]::read_model_kind[])');
+    expect(eq.params).toEqual(['LISTING']);
+    expect(render(fallbackCondition({ op: 'in', field: 'kind', values: ['UNIT', 'LISTING', 'UNIT'] })).params).toEqual([
+      'UNIT',
+      'LISTING',
+    ]);
+    expect(render(fallbackCondition({ op: 'eq', field: 'kind', value: 'NOPE' })).sql).toBe('false');
+    expect(render(fallbackCondition({ op: 'not', filter: { op: 'eq', field: 'kind', value: 'UNIT' } })).sql).toBe(
+      'kind <> all(array[$1]::read_model_kind[])',
+    );
+    expect(render(fallbackCondition({ op: 'not', filter: { op: 'in', field: 'kind', values: ['X'] } })).sql).toBe(
+      'true',
+    );
+    const network = render(
+      fallbackCondition(
+        publicSearchFilter({ ownerAgencyIds: [ID], networkOf: ID }, PublicListingSearch.parse({ locale: 'en' })),
+      ),
+    ).sql;
+    expect(network).not.toContain('kind::text');
+  });
+
   it('[S7-F4] a minimum commission narrows the network branch only; the fallback compares the hidden column and skips unknown ones', () => {
     const own = '01900000-0000-7000-8000-0000000000aa';
     const q = PublicListingSearch.parse({ locale: 'en' });
