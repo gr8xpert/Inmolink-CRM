@@ -252,3 +252,40 @@ export async function addRedirectHits(
        where r.source = h.source and r.locale = h.locale and r.path_key = h."pathKey"`);
   }
 }
+
+// ---- S14-04: delta sync ----
+
+/** Legacy agencies and the v2 agency each became (the `agency` maps), legacy id order after `after`. One statement. */
+export async function legacyAgencyMaps(
+  tx: Tx,
+  after: string | null,
+  limit: number,
+): Promise<{ legacyAgencyId: string; agencyId: string }[]> {
+  return tx
+    .select({ legacyAgencyId: legacyIdMaps.legacyId, agencyId: legacyIdMaps.newId })
+    .from(legacyIdMaps)
+    .where(
+      and(eq(legacyIdMaps.entity, 'agency'), after === null ? undefined : sql`${legacyIdMaps.legacyId} > ${after}`),
+    )
+    .orderBy(legacyIdMaps.legacyId)
+    .limit(limit);
+}
+
+/** The checkpoint rows of one key (`delta:state`) of these legacy agencies. One statement (`migration_batches_batch_uq`). */
+export async function checkpointsOf(
+  tx: Tx,
+  legacyAgencyIds: readonly string[],
+  entity: string,
+): Promise<{ legacyAgencyId: string; seq: number; counts: Record<string, Record<string, number>> }[]> {
+  if (legacyAgencyIds.length === 0) return [];
+  return (await tx
+    .select({
+      legacyAgencyId: migrationBatches.legacyAgencyId,
+      seq: migrationBatches.seq,
+      counts: migrationBatches.counts,
+    })
+    .from(migrationBatches)
+    .where(
+      and(inArray(migrationBatches.legacyAgencyId, [...legacyAgencyIds]), eq(migrationBatches.entity, entity)),
+    )) as { legacyAgencyId: string; seq: number; counts: Record<string, Record<string, number>> }[];
+}

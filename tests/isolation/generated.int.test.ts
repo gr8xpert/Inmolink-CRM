@@ -1092,6 +1092,20 @@ describe.each(globalNames)('global table %s', (table) => {
       expect(none.rowCount).toBe(0);
       await expectSqlState(() => asNotStaff((tx) => tx.execute(insertSql(table, build()))), DENIED);
     });
+  } else if (def?.staffRead) {
+    it(`[S14-03] ${table}: staffRead — active staff read it and cannot change it; a non-staff user sees nothing`, async () => {
+      expect(await asStaff(seen)).toBe(1);
+      expect(await asNotStaff(seen)).toBe(0);
+      await expectSqlState(() => asStaff((tx) => tx.execute(insertSql(table, build()))), DENIED);
+      await expectSqlState(
+        () =>
+          asStaff((tx) =>
+            tx.execute(sql`update ${sql.identifier(table)} set ${sql.identifier(column)} = ${sql.identifier(column)}`),
+          ),
+        DENIED,
+      );
+      await expectSqlState(() => asStaff((tx) => tx.execute(sql`delete from ${sql.identifier(table)}`)), DENIED);
+    });
   } else if (def?.access !== 'staff') {
     it(`[S1-03] ${table}: app_staff cannot read or write it`, async () => {
       await expectSqlState(() => asStaff(seen), DENIED);

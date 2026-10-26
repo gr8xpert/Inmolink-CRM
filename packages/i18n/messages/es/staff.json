@@ -12,7 +12,8 @@
     "operations": "Operaciones",
     "support": "Soporte",
     "flags": "Feature flags",
-    "system": "Colas e IA"
+    "system": "Colas e IA",
+    "migration": "Migración"
   },
   "taxonomy": {
     "title": "Taxonomía",
@@ -422,5 +423,75 @@
       },
       "revokeReasonShown": "Motivo de la revocación: {reason}"
     }
+  },
+  "migration": {
+    "title": "Validación de la migración",
+    "filter": "Filtrar por resultado",
+    "all": "Todas",
+    "intro": "El último informe de validación de cada agencia antigua. Una agencia aprueba cuando menos del {target} de sus filas e imágenes antiguas, de sus filas de muestra y de sus comprobaciones de URL difieren sin motivo. Los informes salen de pnpm legacy:validate tras una carga.",
+    "empty": "Aún no hay informes de validación. Ejecuta pnpm legacy:validate tras cargar una agencia.",
+    "legacyAgency": "Agencia antigua",
+    "agency": "Agencia",
+    "result": "Resultado",
+    "status": {
+      "PASS": "Aprobado",
+      "FAIL": "Suspendido"
+    },
+    "unexplainedRate": "Diferencias sin explicar",
+    "ofRows": "{unexplained} de {legacy}",
+    "sampleDiffs": "Filas de muestra que difieren",
+    "urlFailures": "Comprobaciones de URL fallidas",
+    "validatedAt": "Validado",
+    "back": "Todos los informes de validación",
+    "reportTitle": "Agencia antigua {id}",
+    "target": "Objetivo",
+    "sampleRate": "Filas de muestra que difieren",
+    "sampleOf": "{differing} de {rows}",
+    "urlRate": "Comprobaciones de URL fallidas",
+    "urlOf": "{failed} de {checked}",
+    "failedBatches": "Lotes de carga fallidos (la carga no terminó)",
+    "counts": "Recuentos por entidad",
+    "entity": "Entidad",
+    "entities": {
+      "user": "Usuarios",
+      "listing": "Inmuebles",
+      "development": "Promociones",
+      "unit": "Unidades",
+      "contact": "Contactos",
+      "lead": "Leads"
+    },
+    "legacy": "Antiguo",
+    "staged": "Preparado",
+    "mapped": "Migrado",
+    "explained": "Explicado",
+    "unexplained": "Sin explicar",
+    "issues": "Incidencias de carga por motivo",
+    "images": "Imágenes",
+    "imagesExpected": "En cola por la carga",
+    "imagesAttached": "En su inmueble",
+    "imagesPending": "Aún descargándose",
+    "sample": "Diferencias de campos en la muestra",
+    "sampleIntro": "Hasta {size} inmuebles, contactos y leads por agencia (las mismas filas en cada ejecución), comparados campo a campo. Solo se muestran nombres de campos, nunca valores.",
+    "fieldOf": "{differing} de {compared} difieren",
+    "sampleClean": "Todas las filas de muestra coinciden.",
+    "legacyId": "Id antiguo",
+    "outcome": "Resultado",
+    "outcomes": {
+      "MATCH": "Coincide",
+      "DIFF": "Difiere",
+      "MISSING": "Falta en v2"
+    },
+    "fields": "Campos que difieren",
+    "explainedFields": "Diferencias explicadas",
+    "urls": "Comprobaciones de URL",
+    "urlsIntro": "Para cada inmueble de muestra: su id antiguo lleva al inmueble en que se convirtió (la búsqueda que usan las webs antiguas y las redirecciones) y sus imágenes antiguas están en el inmueble o aún descargándose.",
+    "noUrls": "No se ha tomado ningún inmueble de muestra.",
+    "lookup": "Búsqueda por id antiguo",
+    "lookups": {
+      "OK": "Resuelve",
+      "MISMATCH": "Resuelve a otro inmueble",
+      "MISSING": "No resuelve"
+    },
+    "imageCheck": "{attached} adjuntas, {pending} pendientes de {checked}"
   }
 }

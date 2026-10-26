@@ -394,3 +394,32 @@ export async function importFeedImages(
 export function overdueFeedImageAgencies(limit: number): Promise<string[]> {
   return withSystem('media.sweepFeedImages', (tx) => fr.overdueAgencies(tx, FEED_IMAGES.OVERDUE_MS, limit));
 }
+
+/** S14-03: a migrated listing's legacy image URLs as the import queued them: distinct, in order, capped per listing. */
+export function expectedFeedImageUrls(urls: readonly string[]): string[] {
+  return [...new Set(urls)].slice(0, MEDIA_PER_LISTING_MAX);
+}
+
+/**
+ * S14-03 (validation of the legacy migration): per listing, its expected image URLs (`expectedFeedImageUrls`) that are
+ * on the listing (`attached`: the hash the URL served is one of its media) and that still wait in the download queue
+ * (`pending`). The rest failed to download. One statement per call; the caller batches (a few hundred listings).
+ */
+export async function feedImageStates(
+  tx: Tx,
+  agencyId: string,
+  rows: readonly { listingId: string; urls: readonly string[] }[],
+): Promise<Map<string, { expected: number; attached: number; pending: number }>> {
+  const out = new Map<string, { expected: number; attached: number; pending: number }>();
+  const entries: { listingId: string; url: string; urlKey: string }[] = [];
+  for (const r of rows) {
+    const urls = expectedFeedImageUrls(r.urls);
+    out.set(r.listingId, { expected: urls.length, attached: 0, pending: 0 });
+    for (const url of urls) entries.push({ listingId: r.listingId, url, urlKey: urlKeyOf(url) });
+  }
+  for (const s of await fr.imageUrlStates(tx, agencyId, entries)) {
+    const o = out.get(s.listingId);
+    if (o) Object.assign(o, { attached: s.attached, pending: s.pending });
+  }
+  return out;
+}

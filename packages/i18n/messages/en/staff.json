@@ -12,7 +12,8 @@
     "operations": "Operations",
     "support": "Support",
     "flags": "Feature flags",
-    "system": "Queues & AI"
+    "system": "Queues & AI",
+    "migration": "Migration"
   },
   "taxonomy": {
     "title": "Taxonomy",
@@ -422,5 +423,75 @@
       },
       "revokeReasonShown": "Revoke reason: {reason}"
     }
+  },
+  "migration": {
+    "title": "Migration validation",
+    "filter": "Filter by result",
+    "all": "All",
+    "intro": "Each legacy agency's latest validation report. An agency passes when less than {target} of its legacy rows and images, of its sampled rows and of its URL checks differ without a reason. Reports come from pnpm legacy:validate after a load.",
+    "empty": "No validation report yet. Run pnpm legacy:validate after loading an agency.",
+    "legacyAgency": "Legacy agency",
+    "agency": "Agency",
+    "result": "Result",
+    "status": {
+      "PASS": "Pass",
+      "FAIL": "Fail"
+    },
+    "unexplainedRate": "Unexplained differences",
+    "ofRows": "{unexplained} of {legacy}",
+    "sampleDiffs": "Sampled rows that differ",
+    "urlFailures": "Failed URL checks",
+    "validatedAt": "Validated",
+    "back": "All validation reports",
+    "reportTitle": "Legacy agency {id}",
+    "target": "Target",
+    "sampleRate": "Sampled rows that differ",
+    "sampleOf": "{differing} of {rows}",
+    "urlRate": "Failed URL checks",
+    "urlOf": "{failed} of {checked}",
+    "failedBatches": "Load batches that failed (the load did not finish)",
+    "counts": "Counts per entity",
+    "entity": "Entity",
+    "entities": {
+      "user": "Users",
+      "listing": "Listings",
+      "development": "Developments",
+      "unit": "Units",
+      "contact": "Contacts",
+      "lead": "Leads"
+    },
+    "legacy": "Legacy",
+    "staged": "Staged",
+    "mapped": "Migrated",
+    "explained": "Explained",
+    "unexplained": "Unexplained",
+    "issues": "Load issues by reason",
+    "images": "Images",
+    "imagesExpected": "Queued by the load",
+    "imagesAttached": "On their listing",
+    "imagesPending": "Still downloading",
+    "sample": "Sampled field differences",
+    "sampleIntro": "Up to {size} listings, contacts and leads per agency (the same rows on every run), compared field by field. Only field names are shown, never values.",
+    "fieldOf": "{differing} of {compared} differ",
+    "sampleClean": "Every sampled row matches.",
+    "legacyId": "Legacy id",
+    "outcome": "Outcome",
+    "outcomes": {
+      "MATCH": "Matches",
+      "DIFF": "Differs",
+      "MISSING": "Missing in v2"
+    },
+    "fields": "Fields that differ",
+    "explainedFields": "Explained differences",
+    "urls": "URL checks",
+    "urlsIntro": "For each sampled listing: its legacy id resolves to the listing it became (the lookup legacy websites and redirects use), and its legacy images are on the listing or still downloading.",
+    "noUrls": "No listing was sampled.",
+    "lookup": "Legacy id lookup",
+    "lookups": {
+      "OK": "Resolves",
+      "MISMATCH": "Resolves to another listing",
+      "MISSING": "Does not resolve"
+    },
+    "imageCheck": "{attached} attached, {pending} pending of {checked}"
   }
 }

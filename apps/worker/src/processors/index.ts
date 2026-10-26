@@ -176,6 +176,9 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     developmentsJobs.purgeDeletedDevelopments,
     // S14-05: the legacy-redirect hit counters buffered in memory.
     migrationJobs.flushRedirectHits,
+    // S14-04: the hourly legacy → v2 delta of the parallel run (no-op until a legacy reader is registered, H1).
+    migrationJobs.scheduleLegacyDeltas,
+    migrationJobs.syncLegacyDelta,
     importsJobs.pruneRuns,
     // S12-F6: the nightly full rebuild of the CRM stage counts (the day's deltas checked against `leads`).
     crmJobs.sweepStageCounts,

@@ -220,3 +220,59 @@ export async function importLegacyListingBatch(
   }
   return out;
 }
+
+export type { LegacyListingSnapshot } from './legacy-repo';
+
+/**
+ * S14-03: migrated listings as a validation compares them (status, transaction, price, sizes, taxonomy, feature ids).
+ * The caller is the validation script (`withSystem()`); one statement for up to a few hundred ids.
+ */
+export function legacyListingSnapshots(
+  tx: Tx,
+  agencyId: string,
+  ids: readonly string[],
+): Promise<legacyRepo.LegacyListingSnapshot[]> {
+  return legacyRepo.legacySnapshots(tx, agencyId, ids);
+}
+
+/**
+ * S14-04 (delta sync): a page of the agency's migrated listings (`properties.legacy_id`), in legacy id order after
+ * `after` — what the delta compares with the legacy ids still present. One statement.
+ */
+export function migratedListingsPage(
+  tx: Tx,
+  agencyId: string,
+  after: string | null,
+  limit: number,
+): Promise<{ id: string; legacyId: string }[]> {
+  return legacyRepo.migratedPage(tx, agencyId, after, Math.max(1, Math.min(limit, 5_000)));
+}
+
+/**
+ * S14-04: withdraws these migrated listings, deleted in legacy during the parallel run — never a hard delete. As a
+ * feed's missing listings (`import-repo.withdraw`): live and not sold, rented or withdrawn already, status not locked
+ * by an agent; marked withdrawn by the import, so a legacy row that comes back re-lists the listing on the next
+ * delta. Status history and `properties.listing.imported` (read models, search) in the same transaction.
+ */
+export async function withdrawLegacyListings(tx: Tx, agencyId: string, ids: readonly string[]): Promise<number> {
+  const withdrawn = await repo.withdraw(tx, agencyId, ids);
+  if (withdrawn.length === 0) return 0;
+  await repo.insertHistories(
+    tx,
+    withdrawn.map((w) => ({
+      id: newId(),
+      propertyId: w.id,
+      agencyId,
+      fromStatus: w.fromStatus as repo.StatusHistoryInsert['fromStatus'],
+      toStatus: 'WITHDRAWN',
+      changedByUserId: null,
+    })),
+    [],
+  );
+  await emitImported(
+    tx,
+    { agencyId, runId: newId() },
+    withdrawn.map((w) => w.id),
+  );
+  return withdrawn.length;
+}

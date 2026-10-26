@@ -63,7 +63,11 @@ export {
   LEGACY_SOURCE,
   type LegacyListingInput,
   type LegacyListingRun,
+  type LegacyListingSnapshot,
   type LegacyListingsResult,
+  legacyListingSnapshots,
+  migratedListingsPage,
+  withdrawLegacyListings,
 } from './legacy';
 export {
   countNetworkSharedListings,

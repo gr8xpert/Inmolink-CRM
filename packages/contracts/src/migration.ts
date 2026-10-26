@@ -1,5 +1,6 @@
 /** migration DTOs (PATTERNS §9): Zod schemas and inferred types for params, bodies and responses. */
 import { z } from 'zod';
+import { PageQuery, pageOf } from './common';
 
 const LegacyId = z.string().trim().min(1).max(100);
 const Spelling = z.string().trim().min(1).max(200);
@@ -329,3 +330,142 @@ export const LegacyLeadRow = z.object({
   created_at: When,
 });
 export type LegacyLeadRow = z.infer<typeof LegacyLeadRow>;
+
+// ── S14-03: validation reports (PLAN §14 Path A step 6) ──────────────────────────────────────────────────────────────
+
+/**
+ * The target (PLAN §14 step 6): an agency passes when less than 0.5 % of its legacy rows and images differ without a
+ * reason, and as little of its field sample and URL checks.
+ */
+export const MIGRATION_VALIDATION_MAX_UNEXPLAINED_RATE = 0.005;
+/** Rows sampled per entity for field diffs (listings, contacts, leads); the script's `--sample` may change it. */
+export const MIGRATION_VALIDATION_SAMPLE_DEFAULT = 50;
+export const MIGRATION_VALIDATION_SAMPLE_MAX = 500;
+
+export const MigrationValidationStatus = z.enum(['PASS', 'FAIL']);
+export type MigrationValidationStatus = z.infer<typeof MigrationValidationStatus>;
+
+/** One entity's counts: what the legacy database held, what was staged, what v2 has (mapped) and what is explained. */
+export const MigrationValidationCounts = z.object({
+  entity: z.string(),
+  /** The extract's inventory count; null when none was given (the staging is then the reference). */
+  legacyRows: z.number().int().nullable(),
+  staged: z.number().int(),
+  /** Staged rows with a `legacy_id_maps` row of this agency. */
+  mapped: z.number().int(),
+  /** Rows the load listed with a reason (`migration_batches` checkpoints): explained differences. */
+  explained: z.number().int(),
+  /** |legacy − staged| + |staged − mapped − explained|. */
+  unexplained: z.number().int(),
+  /** The load's issues by reason (failures and warnings; checkpoints keep at most 500 per batch). */
+  issuesByReason: z.record(z.string(), z.number().int()),
+});
+export type MigrationValidationCounts = z.infer<typeof MigrationValidationCounts>;
+
+/** Image counts: legacy, staged, expected after the load (per-listing cap, duplicates) and found in v2. */
+export const MigrationValidationImages = z.object({
+  /** The inventory's `property_images` count; null when not inventoried. */
+  legacy: z.number().int().nullable(),
+  /** Image URLs of the staged listings. */
+  staged: z.number().int(),
+  /** Image URLs of the loaded listings, distinct and capped per listing (what the media pipeline was asked for). */
+  expected: z.number().int(),
+  /** Expected URLs whose image is on the listing. */
+  attached: z.number().int(),
+  /** Expected URLs still queued for download. */
+  pending: z.number().int(),
+  /** Expected URLs neither attached nor queued (download failed), plus |legacy − staged|. */
+  unexplained: z.number().int(),
+});
+export type MigrationValidationImages = z.infer<typeof MigrationValidationImages>;
+
+/** A sampled row: field NAMES that differ between the staged legacy row and v2 (never the values: no personal data). */
+export const MigrationValidationSample = z.object({
+  entity: z.string(),
+  legacyId: z.string(),
+  newId: z.uuid().nullable(),
+  /** `MISSING`: the mapped v2 row is gone (deleted). */
+  outcome: z.enum(['MATCH', 'DIFF', 'MISSING']),
+  /** Differences without a reason. */
+  fields: z.array(z.string()),
+  /** Differences the load reported (a reference taken, an invalid e-mail left out, a merged contact). */
+  explainedFields: z.array(z.string()),
+});
+export type MigrationValidationSample = z.infer<typeof MigrationValidationSample>;
+
+/** Per entity and field: how many sampled rows compared it and how many differ without a reason. */
+export const MigrationValidationFieldStat = z.object({
+  entity: z.string(),
+  field: z.string(),
+  compared: z.number().int(),
+  differing: z.number().int(),
+});
+
+/**
+ * URL checks of a sampled listing: its legacy id resolves through the public legacy lookup (what the v1 shim and the
+ * legacy redirects use) to the listing it became, and its legacy image URLs are on the listing or queued.
+ */
+export const MigrationValidationUrlCheck = z.object({
+  legacyId: z.string(),
+  newId: z.uuid(),
+  lookup: z.enum(['OK', 'MISMATCH', 'MISSING']),
+  images: z.object({ checked: z.number().int(), attached: z.number().int(), pending: z.number().int() }),
+  pass: z.boolean(),
+});
+export type MigrationValidationUrlCheck = z.infer<typeof MigrationValidationUrlCheck>;
+
+/** The whole report of one legacy agency (stored as its snapshot). Ids, counts and field names only. */
+export const MigrationValidationReport = z.object({
+  legacyAgencyId: z.string(),
+  agencyId: z.uuid(),
+  status: MigrationValidationStatus,
+  counts: z.array(MigrationValidationCounts),
+  images: MigrationValidationImages,
+  /** Unexplained differences over legacy rows and images (the < 0.5 % target). */
+  totals: z.object({ legacy: z.number().int(), unexplained: z.number().int(), rate: z.number() }),
+  sample: z.object({
+    size: z.number().int(),
+    rows: z.number().int(),
+    differing: z.number().int(),
+    rate: z.number(),
+    fields: z.array(MigrationValidationFieldStat),
+    samples: z.array(MigrationValidationSample),
+  }),
+  urls: z.object({
+    checked: z.number().int(),
+    failed: z.number().int(),
+    rate: z.number(),
+    checks: z.array(MigrationValidationUrlCheck),
+  }),
+  /** Load batches recorded FAILED (code, constraint, first legacy id): the load did not finish. */
+  failedBatches: z.array(z.object({ entity: z.string(), seq: z.number().int(), error: z.string().nullable() })),
+});
+export type MigrationValidationReport = z.infer<typeof MigrationValidationReport>;
+
+/** `GET /v1/staff/migration/validations`: each legacy agency's latest report, newest first. */
+export const MigrationValidationListQuery = PageQuery.extend({ status: MigrationValidationStatus.optional() });
+export type MigrationValidationListQuery = z.infer<typeof MigrationValidationListQuery>;
+
+export const MigrationValidationParams = z.object({ id: z.uuid() }).strict();
+export type MigrationValidationParams = z.infer<typeof MigrationValidationParams>;
+
+export const MigrationValidationSummaryDto = z.object({
+  id: z.uuid(),
+  legacyAgencyId: z.string(),
+  agencyId: z.uuid(),
+  status: MigrationValidationStatus,
+  legacyRows: z.number().int(),
+  unexplained: z.number().int(),
+  rate: z.number(),
+  sampleDiffs: z.number().int(),
+  urlFailures: z.number().int(),
+  createdAt: z.iso.datetime(),
+});
+export type MigrationValidationSummaryDto = z.infer<typeof MigrationValidationSummaryDto>;
+
+export const MigrationValidationPage = pageOf(MigrationValidationSummaryDto);
+export type MigrationValidationPage = z.infer<typeof MigrationValidationPage>;
+
+/** `GET /v1/staff/migration/validations/:id`: the drill-down. */
+export const MigrationValidationDto = MigrationValidationSummaryDto.extend({ report: MigrationValidationReport });
+export type MigrationValidationDto = z.infer<typeof MigrationValidationDto>;

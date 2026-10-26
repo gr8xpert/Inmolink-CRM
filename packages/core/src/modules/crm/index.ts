@@ -57,9 +57,14 @@ export {
   importLegacyContacts,
   importLegacyLeads,
   type LegacyContactInput,
+  type LegacyContactSnapshot,
   type LegacyContactsResult,
   type LegacyLeadInput,
+  type LegacyLeadSnapshot,
   type LegacyLeadsResult,
+  legacyContactSnapshots,
+  legacyIdentifiers,
+  legacyLeadSnapshots,
 } from './legacy';
 export {
   createPipelineStage,

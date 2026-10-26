@@ -69,7 +69,7 @@ const idOf = (row: unknown, key: string): string[] => {
   return typeof v === 'string' || typeof v === 'number' ? [String(v).trim()] : [];
 };
 const idsOf = (rows: readonly unknown[], key: string) => rows.flatMap((r) => idOf(r, key));
-const listOf = (v: string | readonly string[] | undefined) =>
+export const listOf = (v: string | readonly string[] | undefined) =>
   v === undefined ? [] : (typeof v === 'string' ? v.split(/[;,|]/) : [...v]).map((x) => x.trim()).filter(Boolean);
 const cents = (euros: number) => Math.round(euros * 100);
 
@@ -122,7 +122,7 @@ async function loadUsers(
 
 // ── Listings ───────────────────────────────────────────────────────────────────────────────────────────────────────
 
-const LISTING_STATUS: Record<string, properties.LegacyListingInput['status'] | 'DRAFT' | 'WITHDRAWN'> = {
+export const LISTING_STATUS: Record<string, properties.LegacyListingInput['status'] | 'DRAFT' | 'WITHDRAWN'> = {
   active: 'ACTIVE',
   available: 'ACTIVE',
   published: 'ACTIVE',
@@ -139,7 +139,7 @@ const LISTING_STATUS: Record<string, properties.LegacyListingInput['status'] | '
   withdrawn: 'WITHDRAWN',
   archived: 'WITHDRAWN',
 };
-const TRANSACTION: Record<string, properties.LegacyListingInput['transactionType']> = {
+export const TRANSACTION: Record<string, properties.LegacyListingInput['transactionType']> = {
   sale: 'SALE',
   sell: 'SALE',
   venta: 'SALE',
@@ -346,7 +346,7 @@ async function loadContacts(tx: Tx, agencyId: string, rows: readonly unknown[], 
   );
 }
 
-const LEAD_STATUS: Record<string, LeadStatus> = {
+export const LEAD_STATUS: Record<string, LeadStatus> = {
   new: 'NEW',
   open: 'IN_PROGRESS',
   pending: 'IN_PROGRESS',
@@ -359,7 +359,7 @@ const LEAD_STATUS: Record<string, LeadStatus> = {
   closed_lost: 'LOST',
   spam: 'SPAM',
 };
-const LEAD_SOURCE: Record<string, LeadSource> = {
+export const LEAD_SOURCE: Record<string, LeadSource> = {
   web: 'WEBSITE',
   website: 'WEBSITE',
   form: 'WEBSITE',
@@ -468,6 +468,11 @@ export interface MigrateLegacyAgencyInput {
   batchRows?: Partial<Record<'users' | 'listings' | 'contacts' | 'leads', number>>;
   /** Starts the agency's image downloads after the listings committed (default: the media queue). */
   requestMedia?: (agencyId: string) => Promise<void>;
+  /**
+   * S14-04: prefix of the checkpoint keys (`delta:` for the hourly delta), so a delta run never replaces the full
+   * load's checkpoints. Default: none.
+   */
+  checkpointPrefix?: string;
 }
 
 export interface MigrateLegacyAgencyResult {
@@ -480,7 +485,7 @@ export interface MigrateLegacyAgencyResult {
 }
 
 /** Report entity → its staging file. */
-const STAGED_OF: Record<string, LegacyStagingEntity> = {
+export const STAGED_OF: Record<string, LegacyStagingEntity> = {
   user: 'users',
   listing: 'listings',
   development: 'developments',
@@ -533,7 +538,11 @@ export async function migrateLegacyAgency(input: MigrateLegacyAgencyInput): Prom
 
   const run = async (step: BatchStep): Promise<StepOutcome> => {
     for (const e of step.reportEntities) reached.add(e);
-    const outcome = await runBatches(opts, step, report);
+    const outcome = await runBatches(
+      opts,
+      { ...step, entity: `${input.checkpointPrefix ?? ''}${step.entity}` },
+      report,
+    );
     result.steps[step.entity] = outcome;
     if (outcome.failed) result.stoppedAt = { entity: step.entity, ...outcome.failed };
     return outcome;

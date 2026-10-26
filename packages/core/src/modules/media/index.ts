@@ -13,9 +13,11 @@ export { mediaErrors } from './errors';
 export { mediaEvents } from './events';
 export {
   configureFeedImages,
+  expectedFeedImageUrls,
   FEED_IMAGES,
   FEED_STAGING_PREFIX,
   type FeedImagesResult,
+  feedImageStates,
   importFeedImages,
   queueFeedImages,
 } from './feed-images';

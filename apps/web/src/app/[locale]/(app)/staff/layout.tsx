@@ -33,6 +33,9 @@ export default async function StaffLayout({ children }: { children: ReactNode })
           <Link href="/staff/operations" className="font-medium underline-offset-4 hover:underline">
             {t('console.operations')}
           </Link>
+          <Link href="/staff/migration" className="font-medium underline-offset-4 hover:underline">
+            {t('console.migration')}
+          </Link>
           <Link href="/staff/support" className="font-medium underline-offset-4 hover:underline">
             {t('console.support')}
           </Link>

@@ -26,6 +26,11 @@ export interface EntitySpec {
   viaParent?: { entity: string; fkColumn: string };
   /** The entity whose rows are the agencies (batching key). */
   isAgency?: boolean;
+  /**
+   * S14-04: the row's last-change timestamp for the delta sync (default `updated_at`). A table without it is read whole
+   * on every delta (the full-compare fallback).
+   */
+  updatedColumn?: string;
 }
 
 /** Best-known legacy shape (PLAN §14, M22). Override per dump with `--map <file.json>` once H1 delivers the schema. */
@@ -124,10 +129,10 @@ export function stableJson(value: unknown): string {
   });
 }
 
-const qualified = (e: EntitySpec) =>
+export const qualified = (e: EntitySpec) =>
   `${e.schema ? `${assertIdent(e.schema, 'schema')}.` : ''}${assertIdent(e.table, 'table')}`;
 
-function validateSpecs(entities: EntitySpec[]): void {
+export function validateSpecs(entities: EntitySpec[]): void {
   const names = new Set<string>();
   for (const e of entities) {
     if (names.has(e.name)) throw new Error(`duplicate entity ${e.name}`);
@@ -137,6 +142,7 @@ function validateSpecs(entities: EntitySpec[]): void {
     assertIdent(e.idColumn, 'column');
     if (e.agencyColumn) assertIdent(e.agencyColumn, 'column');
     if (e.viaParent) assertIdent(e.viaParent.fkColumn, 'column');
+    if (e.updatedColumn) assertIdent(e.updatedColumn, 'column');
     if (!e.isAgency && !e.agencyColumn && !e.viaParent) throw new Error(`entity ${e.name} has no agency scope`);
   }
   if (entities.filter((e) => e.isAgency).length !== 1) throw new Error('exactly one entity must have isAgency');
@@ -147,7 +153,7 @@ function validateSpecs(entities: EntitySpec[]): void {
 }
 
 /** FROM/WHERE for one entity within one agency (`$1` = legacy agency id). The agency-owning table is aliased `t`. */
-function scope(e: EntitySpec, byName: Map<string, EntitySpec>): { from: string; where: string } {
+export function scope(e: EntitySpec, byName: Map<string, EntitySpec>): { from: string; where: string } {
   const t = qualified(e);
   if (e.isAgency) return { from: `${t} t`, where: `t.${assertIdent(e.idColumn, 'column')}::text = $1` };
   if (e.agencyColumn) return { from: `${t} t`, where: `t.${assertIdent(e.agencyColumn, 'column')}::text = $1` };

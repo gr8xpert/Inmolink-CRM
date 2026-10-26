@@ -5,6 +5,8 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- feat(migration): hourly legacy → v2 delta sync with watermarks, legacy deletions withdrawn, cutover stop and legacy:delta script [S14-04]
+- feat(migration): per-agency legacy validation reports (counts, images, sampled field diffs, URL checks) with a staff console list and drill-down [S14-03]
 - feat(migration): legacy_url_redirects with resolver, builder and buffered hit counters (migration 0170, shared with S14-03) [S14-05]
 - feat(migration): legacy transform and load (users, listings + media, developments, contacts, leads) in streamed, resumable, checkpointed batches; per-agency legacy id maps; migration 0169 [S14-02]
 - fix(agencies,db): public AI-toggle lookup answers website search only, for agencies with a live site; Studio batches member append/read only [S14-F7]

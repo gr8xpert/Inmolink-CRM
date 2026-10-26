@@ -4,6 +4,10 @@ import {
   FeatureFlagList,
   FeatureFlagParams,
   GrantPlanBody,
+  MigrationValidationDto,
+  MigrationValidationListQuery,
+  MigrationValidationPage,
+  MigrationValidationParams,
   PlanGrantDto,
   PlanGrantParams,
   PriceLockBody,
@@ -20,6 +24,7 @@ import {
   TenantParams,
 } from '@inmolink/contracts';
 import * as admin from '@inmolink/core/modules/admin';
+import * as migration from '@inmolink/core/modules/migration';
 import type { RateLimitRule } from '@inmolink/platform/rate-limit';
 import type { FastifyZod } from '@inmolink/platform/server';
 
@@ -36,7 +41,8 @@ const tags = ['staff', 'admin'];
 
 /**
  * Staff console operations (S13-03, PLAN §7 M20): bulk operations as audited, cancellable jobs with progress; an
- * agency's plan grants and price locks; feature flags; queue health; AI spend per tenant. `withStaffCtx` answers 403 to
+ * agency's plan grants and price locks; feature flags; queue health; AI spend per tenant; the legacy migration's
+ * validation reports (S14-03). `withStaffCtx` answers 403 to
  * anyone who is not active staff; the admin and billing policies decide which staff role may do what. Never cached.
  */
 export async function adminRoutes(app: FastifyZod): Promise<void> {
@@ -243,5 +249,45 @@ export async function adminRoutes(app: FastifyZod): Promise<void> {
       config: { rateLimit: READ_LIMITS },
     },
     (req) => app.withStaffCtx(req, 'admin.getAiSpend', (ctx) => admin.getAiSpend(ctx, req.query)),
+  );
+
+  // ---- legacy migration validation reports (S14-03) ----
+
+  app.get(
+    '/v1/staff/migration/validations',
+    {
+      schema: {
+        tags: ['staff', 'migration'],
+        operationId: 'migration.listValidationReports',
+        summary: "Each legacy agency's latest migration validation report (PASS / FAIL), newest first",
+        querystring: MigrationValidationListQuery,
+        response: { 200: MigrationValidationPage },
+      },
+      onRequest: staff,
+      config: { rateLimit: READ_LIMITS },
+    },
+    (req) =>
+      app.withStaffCtx(req, 'migration.listValidationReports', (ctx) =>
+        migration.listValidationReports(ctx, req.query),
+      ),
+  );
+
+  app.get(
+    '/v1/staff/migration/validations/:id',
+    {
+      schema: {
+        tags: ['staff', 'migration'],
+        operationId: 'migration.getValidationReport',
+        summary: 'A migration validation report: counts per entity, images, sampled field diffs and URL checks',
+        params: MigrationValidationParams,
+        response: { 200: MigrationValidationDto },
+      },
+      onRequest: staff,
+      config: { rateLimit: READ_LIMITS },
+    },
+    (req) =>
+      app.withStaffCtx(req, 'migration.getValidationReport', (ctx) =>
+        migration.getValidationReport(ctx, req.params.id),
+      ),
   );
 }

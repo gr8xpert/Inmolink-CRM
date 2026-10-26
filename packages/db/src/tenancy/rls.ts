@@ -280,6 +280,9 @@ function assertValid(name: string, def: TenantTable | GlobalTable): void {
       throw new Error(`${name}: publicReadSql is only valid with publicRead and noUserRead`);
     }
     if (def.staffWrite && def.access) throw new Error(`${name}: an ${def.access} table cannot be staffWrite`);
+    if (def.staffRead && (def.access || def.staffWrite)) {
+      throw new Error(`${name}: staffRead is not valid with access or staffWrite`);
+    }
     if (def.userScoped && def.access !== 'auth') throw new Error(`${name}: userScoped is only valid for auth tables`);
     if (def.mediaWrite && def.access) throw new Error(`${name}: an ${def.access} table cannot be mediaWrite`);
     if (def.noUserRead && def.access) throw new Error(`${name}: noUserRead is not valid for ${def.access} tables`);
@@ -314,7 +317,13 @@ export function expectedPrivileges(def: TenantTable | GlobalTable): Record<AppRo
       app_system: DML,
       app_public: def.publicRead ? ['SELECT'] : [],
       app_auth: [],
-      app_staff: def.staffWrite ? (staffWriteRule(def)?.noDelete ? ['SELECT', 'INSERT', 'UPDATE'] : DML) : [],
+      app_staff: def.staffWrite
+        ? staffWriteRule(def)?.noDelete
+          ? ['SELECT', 'INSERT', 'UPDATE']
+          : DML
+        : def.staffRead
+          ? ['SELECT']
+          : [],
       app_media: def.mediaWrite ? DML : [],
       app_intake: [],
     };
@@ -387,6 +396,8 @@ export function expectedPolicies(def: TenantTable | GlobalTable): PolicySpec[] {
     const definer: PolicySpec[] = def.definerRead
       ? [{ name: 'definer_read', cmd: 'SELECT', roles: ['app_owner'] }]
       : [];
+    if (def.staffRead)
+      return [...definer, ...read, ...media, { name: 'staff_select', cmd: 'SELECT', roles: ['app_staff'] }];
     if (!def.staffWrite) return [...definer, ...read, ...media];
     return [
       ...definer,
@@ -1042,7 +1053,13 @@ function globalTableSql(name: string, def: GlobalTable): string[] {
               `grant select, insert, update, delete on table ${t} to app_staff;`,
             ]),
       ]
-    : [];
+    : def.staffRead
+      ? [
+          // S14-03: read-only for every active staff member (operator reports written by scripts).
+          `create policy staff_select on ${t} for select to app_staff using (${STAFF_GATE});`,
+          `grant select on table ${t} to app_staff;`,
+        ]
+      : [];
   // noUserRead (S3-F1): no app_user policy or grant; app_system bypasses RLS, staff have their own policies. With
   // publicRead (S6-F1) app_public alone reads it.
   // mediaWrite (S3-F4): the media worker's own table, every row, nothing else.

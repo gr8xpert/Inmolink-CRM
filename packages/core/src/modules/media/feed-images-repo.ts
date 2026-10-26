@@ -165,3 +165,28 @@ export async function overdueAgencies(tx: Tx, olderThanMs: number, limit: number
      limit ${limit}`);
   return (res.rows as { agencyId: string }[]).map((r) => r.agencyId);
 }
+
+/**
+ * S14-03: per listing, how many of these image URLs are on the listing (their fetched hash is one of its media) and
+ * how many are still queued. One statement for the batch (`url_key` = SHA-256 of the URL, as the worker records it).
+ */
+export async function imageUrlStates(
+  tx: Tx,
+  agencyId: string,
+  entries: readonly { listingId: string; url: string; urlKey: string }[],
+): Promise<{ listingId: string; attached: number; pending: number }[]> {
+  if (entries.length === 0) return [];
+  const res = await tx.execute(sql`
+    select v.listing_id as "listingId",
+           count(*) filter (where exists (
+             select 1 from ${feedImageSources} s join ${propertyMedia} m on m.sha256 = s.sha256
+              where s.agency_id = ${agencyId} and s.url_key = v.url_key
+                and m.agency_id = ${agencyId} and m.property_id = v.listing_id))::int as attached,
+           count(*) filter (where exists (
+             select 1 from ${feedImageQueue} q
+              where q.property_id = v.listing_id and q.agency_id = ${agencyId} and v.url = any(q.urls)))::int as pending
+      from unnest(${sql.param(entries.map((e) => e.listingId))}::uuid[], ${sql.param(entries.map((e) => e.url))}::text[],
+                  ${sql.param(entries.map((e) => e.urlKey))}::text[]) as v(listing_id, url, url_key)
+     group by v.listing_id`);
+  return res.rows as { listingId: string; attached: number; pending: number }[];
+}

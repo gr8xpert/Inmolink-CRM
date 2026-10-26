@@ -218,3 +218,37 @@ export async function importLegacyLeads(
   await legacyRepo.insertLegacyLeads(tx, rows);
   return out;
 }
+
+export type { LegacyContactSnapshot, LegacyLeadSnapshot } from './legacy-repo';
+
+/**
+ * S14-03: a legacy contact's e-mails and phones as the load stores them (normalized, invalid ones left out), so a
+ * validation compares like with like.
+ */
+export function legacyIdentifiers(
+  emails: readonly string[],
+  phones: readonly string[],
+): { emails: string[]; phones: string[] } {
+  return {
+    emails: distinct(emails.flatMap((e) => normalizeEmail(e) ?? [])),
+    phones: distinct(phones.flatMap((p) => normalizePhone(p, PHONE_COUNTRY) ?? [])),
+  };
+}
+
+/** S14-03: migrated contacts with their identifiers, as a validation compares them. One statement. */
+export function legacyContactSnapshots(
+  tx: Tx,
+  agencyId: string,
+  ids: readonly string[],
+): Promise<legacyRepo.LegacyContactSnapshot[]> {
+  return legacyRepo.contactSnapshots(tx, agencyId, ids);
+}
+
+/** S14-03: migrated leads (status, source, contact, target), as a validation compares them. One statement. */
+export function legacyLeadSnapshots(
+  tx: Tx,
+  agencyId: string,
+  ids: readonly string[],
+): Promise<legacyRepo.LegacyLeadSnapshot[]> {
+  return legacyRepo.leadSnapshots(tx, agencyId, ids);
+}

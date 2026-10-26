@@ -764,6 +764,22 @@ describe('RLS generator', () => {
     expect(expectedPolicies(def).map((p) => p.name)).not.toContain('staff_delete');
   });
 
+  it('[S14-03] staffRead: active staff select every row, no staff write; refused with staffWrite or access', () => {
+    const def = { reason: 'reports', noUserRead: true, staffRead: true } as const;
+    const sql = generateRlsSql({ tenant: {}, global: { reports: def } });
+    expect(sql).toContain(
+      'create policy staff_select on public."reports" for select to app_staff using ((select public.app_is_staff()));',
+    );
+    expect(sql).toContain('grant select on table public."reports" to app_staff;');
+    expect(sql).not.toMatch(/staff_(insert|update|delete) on public\."reports"/);
+    expect(expectedPrivileges(def).app_staff).toEqual(['SELECT']);
+    expect(expectedPrivileges(def).app_user).toEqual([]);
+    expect(expectedPolicies(def).map((p) => p.name)).toEqual(['staff_select']);
+    expect(() =>
+      generateRlsSql({ tenant: {}, global: { x: { reason: 'x', staffRead: true, staffWrite: true } } }),
+    ).toThrow(/staffRead/);
+  });
+
   it('[S6-F1] noUserRead with publicRead: app_public alone reads the global table', () => {
     const def = { reason: 'fallback rows', publicRead: true, noUserRead: true } as const;
     const sql = generateRlsSql({ tenant: {}, global: { docs: def } });

@@ -1,6 +1,21 @@
 /** migration — public API (PATTERNS §1). The only import path for other modules and apps. */
 
 export { type BatchRunOptions, type BatchStep, CHECKPOINT_MAX_ISSUES, runBatches, type StepOutcome } from './batches';
+export {
+  DELTA,
+  deltaAgencies,
+  type LegacyDeltaSource,
+  type LegacyDeltaSourceFactory,
+  type LegacyDeltaState,
+  legacyDeltaSourceFactory,
+  legacyDeltaState,
+  markLegacyAgencyCutOver,
+  type OpenedLegacyDeltaSource,
+  registerLegacyDeltaSource,
+  type SyncLegacyDeltaInput,
+  type SyncLegacyDeltaResult,
+  syncLegacyDelta,
+} from './delta';
 export { migrationErrors } from './errors';
 export { migrationEvents } from './events';
 export { migrationJobs } from './jobs';
@@ -76,6 +91,7 @@ export {
 } from './redirects';
 export { type ImportOptions, importLegacyTaxonomy } from './service';
 export {
+  agencyOfLegacy,
   compareContact,
   compareLead,
   compareListing,
