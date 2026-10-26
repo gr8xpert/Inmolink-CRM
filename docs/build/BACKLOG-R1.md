@@ -1934,6 +1934,56 @@ Ref §14 Path A/B §9.3 · Mod migration, ops · Dep S14-03 S8-02 · [H11]
 **Build:** per-agency cutover checklist automation (freeze, final delta, validation, enable dashboard access, notify), Path B tools (renewal date tracking, parallel inventory mode on websites), DNS switch and rollback runbooks.
 **Done when:** *(staging rehearsal)* cutover and rollback of a test agency each complete in < 30 minutes
 
+### S14-F1 · One "plan in force" and one grace-start helper (S13 review)
+Ref §11 · Mod billing · Dep S13-02
+**Build:** the SQL `planInForce` is the only definition of the plan in force — `effectivePlan` keeps just the "unknown plan → Free" mapping and the add-on units path (`service.ts`) uses the SQL; one exported `graceStart(now)` (config) replaces the inline copies in jobs; `endPlanGrants` reads the plans of all claimed agencies in one batched `plansInForce(tx, ids[])` (`distinct on (agency_id)`), not one query per agency.
+**Done when:** a PAST_DUE subscription with a null `past_due_since` gets the same plan from every path (test); `endPlanGrants` runs a fixed number of statements per batch (test)
+
+### S14-F2 · Staff role sets in one place (S13 review)
+Ref §3 #2 · Mod contracts, db, admin, billing, support · Dep S13-03 S13-05
+**Build:** the staff role sets (super admin; operators; support agents) live in contracts; the registry builds its SQL predicates from them with a `staffRoleSql(roles)` helper and every staff policy uses the same sets, so RLS and policy cannot drift.
+**Done when:** a test asserts each staff RLS predicate and its policy accept exactly the same roles
+
+### S14-F3 · Shared-DB-safe tests (S13 review)
+Ref §15 · Mod crm, onboarding · Dep S13-F26
+**Build:** `crm.sweepContactImports` takes an agency scope used by tests (its +25 h run expires other files' uploads); the onboarding backfill walk test asserts on its own agencies only with a fixed page bound; grep the integration tests for other whole-database sweeps / counts and scope them.
+**Done when:** the crm and onboarding suites pass with any number of parallel files (run with the full core suite twice)
+
+### S14-F4 · One AI batch poll helper (S13 review)
+Ref §8 · Mod ai-features · Dep S13-F14 S13-F25
+**Build:** the Listing Studio and white-label batch-collect jobs share one `pollBatch()` (poll, give up after the limit, re-enqueue with delay).
+**Done when:** both collect paths keep their tests green on the shared helper
+
+### S14-F5 · Selections in the sidebar (S13-F13)
+Ref §7 M13 · Mod identity, web · Dep S13-F13
+**Build:** a `selections` dashboard section (identity contracts + policy, Client Mode hidden) and its sidebar entry; a "Create selection" action on the listings bulk bar (`?listingIds=`).
+**Done when:** members reach `/selections` from the sidebar and from a listing selection (e2e)
+
+### S14-F6 · Redundant no-store headers removed (S13 review)
+Ref §5 · Mod api · Dep S13 review (5360769e)
+**Build:** the `noStorePlugin` now sets `Cache-Control: no-store` on every private `/v1/*` route; remove the ~137 per-route `reply.header('cache-control', 'no-store')` calls it makes redundant (keep routes that set another cache policy).
+**Done when:** the api suite and the no-store tests pass with the per-route calls gone
+
+### S14-F7 · Scope the public AI-toggle read; Studio batch grants (S13 review, low)
+Ref §5 · Mod agencies, ai-features, db · Dep S13-F17 S13-F14
+**Build:** `agency_ai_features(uuid)` (app_public, SECURITY DEFINER) answers only for an agency that has a live website site (or only the website-search toggle), not any agency id; `listing_studio_batches` drops member UPDATE / DELETE if Studio can write through a narrower path.
+**Done when:** an agency without a site gets nothing from the function (test); isolation covers the batch table's grants
+
+### S14-F8 · Perf re-measures on a quiet box / staging (S13 review)
+Ref §15 · Mod ops · Dep S13-F10 · [H4]
+**Build:** re-run `pnpm perf:smoke selection` (p95 ≤ 150 ms; it measured 155–188 ms only on a box at 100 % CPU), the k6 `website-api` baseline (the k6 container did not start locally), the S12-08 AI search and S12-05 portfolio figures, and S12-F5 on the staging-sized search box.
+**Done when:** each figure is recorded in STATUS within its budget, or a fix task is filed
+
+### S14-F9 · Scale-seed EXPLAINs for the S13 backfills (S13 review)
+Ref §5 · Mod onboarding, crm, properties · Dep S13-F26 S13-F15 S13-F8
+**Build:** run `pnpm ops:onboarding-backfill` against the dev scale seed and EXPLAIN (ANALYZE, BUFFERS) its grouped reads (`earliest*ByAgency`), the S13-F15 rollup sweep (`unbuiltRollupAgencies`) and the S13-F8 contact notes / imports keyset lists; fix any Seq Scan on a > 10k-row table.
+**Done when:** the plans are recorded in STATUS, each index-backed and within budget
+
+### S14-F10 · Developments sitemap test under parallel load (S13-F21)
+Ref §15 · Mod website-api · Dep S13-F21
+**Build:** `[S8-F24]` (website-api developments sitemap) fails every time the whole module runs in parallel and passes alone (a failed sitemap query) — find the cause (pool exhaustion, a shared fixture, or the S13-F21 site-plan change) and fix it.
+**Done when:** the website-api suite passes three full parallel runs in a row
+
 ---
 
 ## S15 — Public portal MVP
