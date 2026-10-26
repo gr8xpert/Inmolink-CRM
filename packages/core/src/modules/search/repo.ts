@@ -1719,19 +1719,12 @@ const docRows = (rows: unknown[]): PublicDocRow[] =>
     updatedAt: new Date(r.updatedAt),
   }));
 
-/** Longest description start a portal card reads (S15-01): the card shows an excerpt of it. */
-export const PORTAL_CARD_TEXT_CHARS = 400;
-
 /**
- * A document part as `publicDocs` reads it: the card or the detail column, or (S15-01, the portal's result cards) the
- * card with the start of the description and the terrace from the detail (`portalText`, `portalTerraceM2`), never the
- * detail's media list.
+ * A document part as `publicDocs` reads it: the card or the detail column. `portal` (the portal's result cards,
+ * S15-F6) is the card alone: it carries the description's start and the terrace since the read model is built
+ * (`portalText`, `portalTerraceM2`; absent in rows built before, until rebuilt), so the detail is never read.
  */
-const docPart = (part: 'card' | 'detail' | 'portal'): SQL =>
-  part === 'portal'
-    ? sql`m.card || jsonb_build_object('portalText', left(m.detail ->> 'description', ${PORTAL_CARD_TEXT_CHARS}),
-            'portalTerraceM2', m.detail -> 'terraceM2')`
-    : sql`m.${sql.raw(part)}`;
+const docPart = (part: 'card' | 'detail' | 'portal'): SQL => sql`m.${sql.raw(part === 'detail' ? 'detail' : 'card')}`;
 
 /**
  * Public documents of these targets (website search hydration, S7-03): `card` or `detail` in the best locale, with

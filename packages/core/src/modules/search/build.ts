@@ -16,6 +16,7 @@ import type {
   UnitDetailDoc,
 } from '@inmolink/contracts';
 import { FALLBACK_CONTENT_LOCALE } from '@inmolink/i18n';
+import { plainText } from '../../white-label';
 import type * as developments from '../developments';
 import type * as media from '../media';
 import type * as properties from '../properties';
@@ -108,6 +109,16 @@ export interface DocOwner {
   preferred: readonly string[];
 }
 
+/** Longest description start a portal card keeps (S15-F6); the portal cuts its own excerpt from it. */
+const PORTAL_CARD_TEXT_CHARS = 300;
+
+/** The start of a description for a portal card: plain text, one line, at most `PORTAL_CARD_TEXT_CHARS`. */
+function portalTextOf(description: string | null): string | null {
+  if (!description) return null;
+  const text = plainText(description).replace(/\s+/g, ' ').trim();
+  return text ? Array.from(text).slice(0, PORTAL_CARD_TEXT_CHARS).join('') : null;
+}
+
 export function buildListingDocs(
   l: properties.ReadModelListing,
   mediaSet: media.ReadModelMediaSet | undefined,
@@ -145,9 +156,13 @@ export function buildListingDocs(
       title: picked?.text.title ?? l.ref,
       slug: picked?.text.slug ?? l.id,
       textLocale: picked?.textLocale ?? null,
+      portalText: portalTextOf(picked?.text.description ?? null),
+      portalTerraceM2: l.terraceM2,
     };
+    // The detail has its own description and terrace: the portal extras stay in the card only.
+    const { portalText: _portalText, portalTerraceM2: _portalTerrace, ...cardBase } = card;
     const detail: ListingDetailDoc = {
-      ...card,
+      ...cardBase,
       description: picked?.text.description ?? null,
       metaTitle: picked?.text.metaTitle ?? null,
       metaDescription: picked?.text.metaDescription ?? null,

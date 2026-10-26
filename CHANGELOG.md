@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- feat(search): portal cards read the card document only; excerpt and terrace built into the card [S15-F6]
 - chore(perf): perf:lighthouse gates portal pages' performance at 80 (`--portal-min-performance`), accessibility / SEO stay ≥ 90 — ADR 0019 (A) [S15-01]
 - feat(website-api,public): portal enquiries as MARKETPLACE leads to the listing owner (Turnstile, per-address / listing / agency limits), localized portal URLs, per-locale sitemaps with hreflang written by a job to storage, legacy-URL 301s, robots.txt [S15-02] (no new dependencies)
 - feat(platform,migration,worker): platform/legacy-db read-only adapter (SELECT-only login enforced); delta + extract readers moved onto it; worker registers LEGACY_DATABASE_URL [S15-F4] (new dependency: pg, @types/pg in @inmolink/platform — already used in the repo)

@@ -407,11 +407,17 @@ async function hydrate(ctx: Ctx, ids: string[], scope: Scope, locale: string): P
     items.push({
       id,
       kind: card.kind,
-      card: card.card as NetworkSearchItem['card'],
+      card: withoutPortalExtras(card.card) as NetworkSearchItem['card'],
       ownerAgency: { id: t.agencyId, name },
       preferred: preferred.has(t.agencyId),
       commission: t.commission,
     });
   }
   return items;
+}
+
+/** The portal's card extras hold owner text the network sanitizer has not cleaned: they never leave in network results. */
+function withoutPortalExtras(card: unknown): unknown {
+  const { portalText: _portalText, portalTerraceM2: _portalTerrace, ...rest } = card as Record<string, unknown>;
+  return rest;
 }

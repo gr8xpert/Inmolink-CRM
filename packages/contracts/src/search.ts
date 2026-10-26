@@ -100,7 +100,17 @@ const listingCard = {
   ...textFields,
 };
 
-export const ListingCardDoc = z.strictObject(listingCard);
+/**
+ * The portal's result-card extras (S15-F6): the start of the description in plain text and the terrace, put in the
+ * card at build time so the portal search reads `card` only, never the detail column. Absent in cards built before
+ * it (the portal then shows no excerpt). Only the portal reads them; network search strips them.
+ */
+const portalCard = {
+  portalText: z.string().nullable().optional(),
+  portalTerraceM2: z.number().nullable().optional(),
+};
+
+export const ListingCardDoc = z.strictObject({ ...listingCard, ...portalCard });
 export type ListingCardDoc = z.infer<typeof ListingCardDoc>;
 
 export const ListingDetailDoc = z.strictObject({

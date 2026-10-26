@@ -287,6 +287,24 @@ describe('public portal reads (S15-01)', () => {
     expect(JSON.stringify(page.items)).not.toMatch(/commission|internalNote|ownerContact/i);
   });
 
+  it('[S15-F6] portal cards read the card document only: no statement touches detail; the card carries excerpt and terrace', async () => {
+    await searchCity();
+    const sqls: string[] = [];
+    await countQueries(() => searchCity(), { onQuery: (query) => sqls.push(query) });
+    const reads = sqls.filter((s) => /listing_read_models/.test(s));
+    expect(reads.length).toBeGreaterThan(0);
+    for (const s of reads) expect(s).not.toMatch(/\bdetail\b/i);
+
+    const docs = await withPublicRead((tx) => search.publicDocs(tx, [L.bVilla], 'portal', 'en', 'en'));
+    const doc = docs[0]?.doc as { portalText?: string | null; portalTerraceM2?: number | null };
+    expect(doc.portalText).toMatch(/^A bright home near the sea/);
+    expect(doc.portalText?.length).toBeLessThanOrEqual(300);
+    expect(doc).toHaveProperty('portalTerraceM2');
+    // The detail document has no copy of the extras.
+    const full = await withPublicRead((tx) => search.publicDocs(tx, [L.bVilla], 'detail', 'en', 'en'));
+    expect(full[0]?.doc).not.toHaveProperty('portalText');
+  });
+
   it('[S15-01] filters: price, bedroom range, type group by slug; an unknown type matches nothing', async () => {
     const byPrice = await searchCity(q({ price_min: '200000', price_max: '500000' }));
     expect(byPrice.items.map((i) => i.card.id)).toEqual([L.aVilla]);
