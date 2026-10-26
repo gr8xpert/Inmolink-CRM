@@ -1,5 +1,5 @@
 // Production guard of the legacy migration operator scripts (S14 review): `legacy:load`, `legacy:cutover`,
-// `legacy:delta`, `legacy:validate` and `legacy:developments` write a whole agency's data, so they must never run
+// `legacy:delta` and `legacy:validate` write a whole agency's data, so they must never run
 // against a database the operator did not name.
 //
 // - `--test` (the local test stack) is refused when real credentials are in the environment (any `DATABASE_URL_*`) or

@@ -33,6 +33,7 @@ import * as onboarding from '../onboarding';
 import * as properties from '../properties';
 import { type BatchStep, runBatches, type StepOutcome } from './batches';
 import { LEGACY_DEVELOPMENT_ENTITIES, loadDevelopmentsInto } from './legacy-developments';
+import { cents, idsOf } from './legacy-rows';
 import {
   AGENCY_MAP_METHOD,
   addIssue,
@@ -66,14 +67,8 @@ export const LEGACY_BATCH_ROWS = { users: 200, listings: 250, contacts: 500, lea
 
 const truthy = (v: unknown) =>
   v === true || v === 1 || (typeof v === 'string' && ['1', 'true', 'yes', 'y', 'si', 'sí', 'x'].includes(enumKey(v)));
-const idOf = (row: unknown, key: string): string[] => {
-  const v = (row as Record<string, unknown> | null)?.[key];
-  return typeof v === 'string' || typeof v === 'number' ? [String(v).trim()] : [];
-};
-const idsOf = (rows: readonly unknown[], key: string) => rows.flatMap((r) => idOf(r, key));
 export const listOf = (v: string | readonly string[] | undefined) =>
   v === undefined ? [] : (typeof v === 'string' ? v.split(/[;,|]/) : [...v]).map((x) => x.trim()).filter(Boolean);
-const cents = (euros: number) => Math.round(euros * 100);
 
 // ── Users ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 

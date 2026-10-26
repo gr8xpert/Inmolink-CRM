@@ -19,9 +19,10 @@ import { closeCache } from '@inmolink/platform/cache';
 import { loadConfigOrExit } from '@inmolink/platform/config';
 import { createLogger } from '@inmolink/platform/logger';
 import { closeQueues } from '@inmolink/platform/queue';
+import { stagedAgencyArgs } from './args';
 import { assertOutsideRepo } from './extract-lib';
 import { prepareLegacyScriptEnv } from './guard';
-import { legacyRowsOf, parseAgencyArg, readInventory, stagedAgencies, stagedSource } from './staging';
+import { legacyRowsOf, readInventory, stagedSource } from './staging';
 
 const { values } = parseArgs({
   options: {
@@ -57,9 +58,7 @@ try {
   const staging = values.staging;
   const reportFile = values.report ? assertOutsideRepo(values.report) : undefined;
   const inventory = readInventory(staging);
-  const given = new Map((values.agency ?? []).map(parseAgencyArg).map((a) => [a.legacyAgencyId, a.agencyId]));
-  const agencies = given.size > 0 ? [...given.keys()] : stagedAgencies(staging, inventory);
-  if (agencies.length === 0) throw new TypeError(`no staged agency under ${staging}`);
+  const { given, agencies } = stagedAgencyArgs(values.agency, staging, inventory);
   await configureDb(loadConfigOrExit(dbEnv));
   const dryRun = values['dry-run'];
 

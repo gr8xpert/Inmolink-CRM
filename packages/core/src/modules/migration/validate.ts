@@ -44,6 +44,7 @@ import {
   type StagedSource,
   TRANSACTION,
 } from './legacy-agency';
+import { rowIdOf } from './legacy-rows';
 import { agencyTargets, contentLocale, enumKey, type TenantEntity, targetsOf } from './load';
 import * as repo from './repo';
 import * as vrepo from './validation-repo';
@@ -77,10 +78,6 @@ interface Candidate {
 }
 
 const reason = 'legacy-migration.validate';
-const idOf = (row: unknown): string | null => {
-  const v = (row as Record<string, unknown> | null)?.id;
-  return typeof v === 'string' || typeof v === 'number' ? String(v).trim() || null : null;
-};
 const imagesOf = (row: unknown): string[] => {
   const v = (row as Record<string, unknown> | null)?.images;
   return Array.isArray(v) ? v.filter((u): u is string => typeof u === 'string').map((u) => u.trim()) : [];
@@ -284,7 +281,7 @@ export async function validateLegacyAgency(input: ValidateLegacyAgencyInput): Pr
       for await (const batch of source.batches(VALIDATION_BATCH_ROWS)) {
         staged += batch.length;
         const rows = batch.flatMap((row) => {
-          const id = idOf(row);
+          const id = rowIdOf(row);
           if (!id || seen.has(id)) return [];
           seen.add(id);
           return [{ id, row }];
@@ -567,9 +564,4 @@ export async function recordValidationReport(tx: Tx, report: MigrationValidation
     createdAt: clock.now(),
   });
   return id;
-}
-
-/** The v2 agency a legacy agency became (its recorded map), or null when it was never loaded. One statement. */
-export async function agencyOfLegacy(tx: Tx, legacyAgencyId: string): Promise<string | null> {
-  return (await repo.getMaps(tx, 'agency', [legacyAgencyId])).get(legacyAgencyId)?.newId ?? null;
 }

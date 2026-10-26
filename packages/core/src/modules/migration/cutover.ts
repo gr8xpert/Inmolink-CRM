@@ -49,8 +49,8 @@ import {
   type OpenedLegacyDeltaSource,
   syncLegacyDelta,
 } from './delta';
+import { agencyOfLegacy } from './legacy-rows';
 import { failureOf } from './load';
-import { agencyOfLegacy } from './validate';
 
 export const CUTOVER = {
   /** A run's lease on the agency's checklist, renewed after every step (a crashed run frees it after this). */

@@ -18,7 +18,6 @@
 // `--confirm` records a manual step the operator did outside v2: FREEZE (legacy set read-only by hand — or, on
 // rollback, writable again), SWITCH_FEED (the managed website switched to v2 — or back to both inventories), PARITY
 // (accept the area without the count). The legacy database is only opened read-only (the final delta).
-import { readFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import * as migration from '@inmolink/core/modules/migration';
 import { closeDb, configureDb, dbEnv } from '@inmolink/db';
@@ -26,8 +25,8 @@ import { closeCache } from '@inmolink/platform/cache';
 import { loadConfigOrExit } from '@inmolink/platform/config';
 import { createLogger } from '@inmolink/platform/logger';
 import { closeQueues } from '@inmolink/platform/queue';
+import { readEntityMap } from './args';
 import { openLegacyDeltaReader } from './delta-lib';
-import type { EntitySpec } from './extract-lib';
 import { prepareLegacyScriptEnv } from './guard';
 
 const { values, positionals } = parseArgs({
@@ -114,7 +113,7 @@ try {
     case 'run': {
       const agencyId = agency();
       const url = values.url ?? process.env.LEGACY_DATABASE_URL;
-      const entities: EntitySpec[] | undefined = values.map ? JSON.parse(readFileSync(values.map, 'utf8')) : undefined;
+      const entities = readEntityMap(values.map);
       const r = await migration.runCutover({
         agencyId,
         confirm: confirmations(),

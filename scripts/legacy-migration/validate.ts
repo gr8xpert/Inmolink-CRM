@@ -15,9 +15,10 @@ import * as migration from '@inmolink/core/modules/migration';
 import { closeDb, configureDb, dbEnv, withSystem } from '@inmolink/db';
 import { loadConfigOrExit } from '@inmolink/platform/config';
 import { createLogger } from '@inmolink/platform/logger';
+import { stagedAgencyArgs } from './args';
 import { assertOutsideRepo } from './extract-lib';
 import { prepareLegacyScriptEnv } from './guard';
-import { legacyRowsOf, parseAgencyArg, readInventory, stagedAgencies, stagedSource } from './staging';
+import { legacyRowsOf, readInventory, stagedSource } from './staging';
 
 const { values } = parseArgs({
   options: {
@@ -56,11 +57,7 @@ try {
     throw new TypeError('--sample must be a positive whole number');
   }
   const inventory = readInventory(staging);
-  const agencies =
-    values.agency && values.agency.length > 0
-      ? values.agency.map((a) => parseAgencyArg(a).legacyAgencyId)
-      : stagedAgencies(staging, inventory);
-  if (agencies.length === 0) throw new TypeError(`no staged agency under ${staging}`);
+  const { agencies } = stagedAgencyArgs(values.agency, staging, inventory);
   await configureDb(loadConfigOrExit(dbEnv));
 
   const reports: unknown[] = [];

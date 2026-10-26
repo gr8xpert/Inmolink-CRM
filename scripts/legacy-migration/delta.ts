@@ -7,7 +7,6 @@
 // through the S14-02 load paths; migrated listings whose legacy row is gone are withdrawn (never deleted; guarded).
 // `--cutover` marks the given agencies cut over (their delta stops: agents now work in v2); `--reopen` undoes it
 // within the cutover window (rollback). The legacy database is only ever opened read-only.
-import { readFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import * as migration from '@inmolink/core/modules/migration';
 import { closeDb, configureDb, dbEnv, withSystem } from '@inmolink/db';
@@ -15,8 +14,8 @@ import { closeCache } from '@inmolink/platform/cache';
 import { loadConfigOrExit } from '@inmolink/platform/config';
 import { createLogger } from '@inmolink/platform/logger';
 import { closeQueues } from '@inmolink/platform/queue';
+import { readEntityMap } from './args';
 import { openLegacyDeltaReader } from './delta-lib';
-import type { EntitySpec } from './extract-lib';
 import { prepareLegacyScriptEnv } from './guard';
 
 const { values } = parseArgs({
@@ -60,7 +59,7 @@ try {
   } else {
     const url = values.url ?? process.env.LEGACY_DATABASE_URL;
     if (!url) throw new TypeError('--url or LEGACY_DATABASE_URL is required (read-only legacy access)');
-    const entities: EntitySpec[] | undefined = values.map ? JSON.parse(readFileSync(values.map, 'utf8')) : undefined;
+    const entities = readEntityMap(values.map);
     const agencies: { legacyAgencyId: string; agencyId: string }[] = [];
     if (values.agency?.length) {
       for (const legacyAgencyId of values.agency)

@@ -68,6 +68,7 @@ export {
   reloadLegacyTaxonomy,
   resetLegacyIdCache,
 } from './legacy-ids';
+export { agencyOfLegacy } from './legacy-rows';
 export {
   addIssue,
   addWarning,
@@ -112,7 +113,6 @@ export {
 } from './redirects';
 export { type ImportOptions, importLegacyTaxonomy } from './service';
 export {
-  agencyOfLegacy,
   compareContact,
   compareLead,
   compareListing,

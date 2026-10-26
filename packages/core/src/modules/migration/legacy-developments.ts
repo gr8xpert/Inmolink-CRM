@@ -16,6 +16,7 @@ import {
 } from '@inmolink/contracts';
 import type { Tx } from '@inmolink/db';
 import * as developments from '../developments';
+import { cents, idsOf } from './legacy-rows';
 import {
   addIssue,
   agencyTargets,
@@ -94,7 +95,6 @@ export interface LegacyTaxonomyTargets {
 }
 
 const isoDate = (d: Date) => d.toISOString().slice(0, 10);
-const cents = (euros: number) => Math.round(euros * 100);
 
 /** A reference unique among `taken` (the legacy one, else `L-<legacy id>`), at most 40 characters. */
 function uniqueRef(wanted: string | undefined, legacyId: string, taken: Set<string>): string {
@@ -260,12 +260,6 @@ export async function loadLegacyDevelopments(
   );
   return finishReport(report);
 }
-
-const idsOf = (rows: readonly unknown[], key: string) =>
-  rows.flatMap((r) => {
-    const v = (r as Record<string, unknown> | null)?.[key];
-    return typeof v === 'string' || typeof v === 'number' ? [String(v).trim()] : [];
-  });
 
 /**
  * Transforms and loads staged developments and units into `report`, in the caller's transaction (S14-02 runs it as one

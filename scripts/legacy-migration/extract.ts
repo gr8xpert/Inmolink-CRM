@@ -3,9 +3,9 @@
 //
 // Read-only extract of the restored legacy dump into NDJSON staging files per agency + inventory.json (S14-01).
 // Never writes to the legacy database; the connection is read-only at session and transaction level.
-import { readFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
-import { DEFAULT_ENTITIES, type EntitySpec, runExtract } from './extract-lib';
+import { readEntityMap } from './args';
+import { DEFAULT_ENTITIES, runExtract } from './extract-lib';
 
 const { values } = parseArgs({
   options: {
@@ -21,7 +21,7 @@ try {
   const url = values.url ?? process.env.LEGACY_DATABASE_URL;
   if (!url) throw new TypeError('--url or LEGACY_DATABASE_URL is required (a restored COPY of the legacy dump)');
   if (!values.out) throw new TypeError('--out <dir> is required (outside the repository)');
-  const entities: EntitySpec[] = values.map ? JSON.parse(readFileSync(values.map, 'utf8')) : DEFAULT_ENTITIES;
+  const entities = readEntityMap(values.map) ?? DEFAULT_ENTITIES;
   const inv = await runExtract({
     url,
     outDir: values.out,

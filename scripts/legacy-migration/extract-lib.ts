@@ -47,7 +47,7 @@ export const DEFAULT_ENTITIES: EntitySpec[] = [
     viaParent: { entity: 'properties', fkColumn: 'property_id' },
   },
   { name: 'developments', table: 'developments', idColumn: 'id', agencyColumn: 'agency_id' },
-  // S4-04: the units of a new-build project (`legacy:developments` loads both files).
+  // S4-04: the units of a new-build project (`legacy:load` loads both files).
   {
     name: 'development_units',
     table: 'development_units',

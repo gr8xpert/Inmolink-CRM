@@ -12,8 +12,7 @@ Target: one agency's cutover and its rollback each complete in **< 30 minutes** 
 Every command takes `--test` / runs against the dev stack locally; on staging and production the env carries the
 `DATABASE_URL_*` secrets and `LEGACY_DATABASE_URL` (read-only legacy access, H1).
 
-**Target guard (S14 review)** — `legacy:load`, `legacy:cutover`, `legacy:delta`, `legacy:validate` and
-`legacy:developments` print the database host they will write to and refuse to run unless it is named:
+**Target guard (S14 review)** — `legacy:load`, `legacy:cutover`, `legacy:delta` and `legacy:validate` print the database host they will write to and refuse to run unless it is named:
 `--target <database host>` (e.g. `--target localhost` on the dev stack, the staging / production database host there)
 must match the host of every `DATABASE_URL_*`. `--test` is refused when any `DATABASE_URL_*` is set or `NODE_ENV` is
 production.

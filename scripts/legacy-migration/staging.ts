@@ -20,30 +20,6 @@ export function agencyDir(dir: string, legacyAgencyId: string): string {
 }
 
 /**
- * Every staged row of one entity of one agency, in file order. A missing file is no rows; a line that is not JSON is
- * kept as `null`, so the loader lists it as an invalid row (`#<line>`) rather than dropping it.
- */
-export async function readStaged(dir: string, legacyAgencyId: string, entity: string): Promise<unknown[]> {
-  if (!/^[a-z0-9_]+$/i.test(entity)) throw new TypeError(`invalid entity name ${entity}`);
-  const file = join(agencyDir(dir, legacyAgencyId), `${entity}.ndjson`);
-  if (!existsSync(file)) return [];
-  const rows: unknown[] = [];
-  const lines = createInterface({
-    input: createReadStream(file, { encoding: 'utf8' }),
-    crlfDelay: Number.POSITIVE_INFINITY,
-  });
-  for await (const line of lines) {
-    if (line.trim() === '') continue;
-    try {
-      rows.push(JSON.parse(line));
-    } catch {
-      rows.push(null);
-    }
-  }
-  return rows;
-}
-
-/**
  * One staged entity file as batches of at most `size` rows, streamed line by line (one batch in memory at a time), in
  * file order on every call; undefined when the file is missing. A line that is not JSON becomes
  * `{ __unparsableLine: <line number> }`: the loader lists it as an invalid row rather than dropping it.

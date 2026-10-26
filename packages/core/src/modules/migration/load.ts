@@ -9,6 +9,7 @@ import type { Tx } from '@inmolink/db';
 import { newId } from '@inmolink/platform/ids';
 import type { z } from 'zod';
 import * as agencies from '../agencies';
+import { agencyOfLegacy } from './legacy-rows';
 import * as repo from './repo';
 
 export type LegacyEntity = repo.LegacyEntity;
@@ -229,11 +230,11 @@ export class LegacyMigrationError extends Error {
  * legacy agency (an operator script's message).
  */
 export async function resolveLegacyAgency(tx: Tx, legacyAgencyId: string, given?: string): Promise<string> {
-  const known = (await repo.getMaps(tx, 'agency', [legacyAgencyId])).get(legacyAgencyId);
-  if (known && given && known.newId !== given) {
+  const known = await agencyOfLegacy(tx, legacyAgencyId);
+  if (known && given && known !== given) {
     throw new LegacyMigrationError(`legacy agency ${legacyAgencyId} is already mapped to another agency`);
   }
-  if (known) return known.newId;
+  if (known) return known;
   if (!given)
     throw new LegacyMigrationError(`legacy agency ${legacyAgencyId} has no v2 agency: pass --agency <legacy>=<uuid>`);
   if ((await agencies.getAgencyName(tx, given)) === null)
