@@ -2094,6 +2094,21 @@ Ref §17 · Mod ops · Dep S16-02
 
 ---
 
+### S16-F1 · Portal owner scope shared and cheap (S15 review)
+Ref §7 M14 · Mod website-api, search · Dep S15-01
+**Build:** `searchDocOwners` (the listed / unlisted owner set behind every portal search) takes ~84 ms on the test DB (skip scan over 776k docs) — over the 20 ms hot-SQL budget; an idle process pays it on a request and every public instance re-runs it every 45 s. Keep the owner set in a small table maintained by the search worker (or one shared set on redis-cache refreshed by one worker) and read that.
+**Done when:** the owner-scope read is ≤ 5 ms on the scale seed and runs at most once per minute across all instances; portal tests green
+
+### S16-F2 · Portal sitemap job: orphaned runs and memory (S15 review)
+Ref §7 M14 · Mod website-api · Dep S15-02
+**Build:** a worker killed mid-run leaves `portal-sitemaps/<runId>/` files forever — delete run prefixes the manifest does not name (or a bucket lifecycle rule); all locales × parts keep a multipart upload open at once — measure peak RSS on `db:seed:scale` against the 512 MB worker budget and bound the open uploads.
+**Done when:** a killed run's files are gone after the next run; peak RSS of a full run on the scale seed < 512 MB (number in STATUS)
+
+### S16-F3 · Portal delisting: every path emits the event; sitemaps follow (S15 review)
+Ref §7 M14 · Mod agencies, website-api · Dep S15-F7
+**Build:** portal invalidation relies on `agencies.statusChanged` / directory events — add a contract test that every code path changing an agency's status or directory standing emits it (future suspension / opt-out paths included); regenerate the portal sitemaps (or drop the agency's URLs) on that event instead of waiting up to 6 h; legacy redirect hit counts drained with a two-step rename so a failed flush loses nothing.
+**Done when:** the contract test lists every writer of status / `listed`; a delisted agency's URLs leave the sitemaps within minutes; a failed hit flush is retried from Redis
+
 ## S17 — Pilot
 
 ### S17-01 · Pilot cutover
