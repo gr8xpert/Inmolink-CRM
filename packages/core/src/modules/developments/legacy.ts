@@ -8,8 +8,8 @@
  *
  * The caller is the operator script in a `withSystem()` transaction (like the taxonomy import): there is no member
  * and no `ctx`, so no policy check — the script is the authority, and the history rows name no user. A batch is a
- * fixed number of statements whatever its size; when it fails on some development's data, each development is retried
- * in its own savepoint so one bad row is reported alone.
+ * fixed number of statements whatever its size; when it fails on some development's data, rows the database would
+ * refuse are screened out first (`refusal`) and a failing batch is bisected, so a bad row is reported alone.
  */
 import { MAX_UNITS_PER_DEVELOPMENT } from '@inmolink/contracts';
 import type { Tx } from '@inmolink/db';
@@ -82,25 +82,81 @@ export async function importLegacyDevelopments(
   const todo = [...byLegacy.values()];
   const total = emptyResult();
   if (todo.length === 0) return total;
-  try {
-    addInto(total, await tx.transaction((sp) => writeBatch(sp, agencyId, todo)));
-    return total;
-  } catch (err) {
-    if (dataErrorCode(err) === null) throw err;
-  }
+  const valid: LegacyDevelopmentInput[] = [];
   for (const input of todo) {
-    try {
-      addInto(total, await tx.transaction((sp) => writeBatch(sp, agencyId, [input])));
-    } catch (err) {
-      const code = dataErrorCode(err);
-      if (code === null) throw err;
-      total.skipped.push({ entity: 'development', legacyId: input.legacyId, reason: 'refused', detail: code });
-      for (const u of input.units) {
-        total.skipped.push({ entity: 'unit', legacyId: u.legacyId, reason: 'refused', detail: 'DEVELOPMENT_REFUSED' });
-      }
+    const detail = refusal(input);
+    if (detail === null) valid.push(input);
+    else refuse(total, input, detail);
+  }
+  await writeBisecting(tx, agencyId, valid, total);
+  return total;
+}
+
+function refuse(total: LegacyDevelopmentsResult, input: LegacyDevelopmentInput, detail: string): void {
+  total.skipped.push({ entity: 'development', legacyId: input.legacyId, reason: 'refused', detail });
+  for (const u of input.units) {
+    total.skipped.push({ entity: 'unit', legacyId: u.legacyId, reason: 'refused', detail: 'DEVELOPMENT_REFUSED' });
+  }
+}
+
+const between = (n: number | null, min: number, max: number) =>
+  n === null || (Number.isFinite(n) && n >= min && n <= max);
+
+/**
+ * The database's checks, evaluated in code (developments/units/translations CHECK constraints and column ranges), so
+ * a row the database would refuse is reported without a failed statement. Returns the refusal code or null.
+ */
+function refusal(d: LegacyDevelopmentInput): string | null {
+  if (!/^[A-Z]{3}$/.test(d.currency)) return 'INVALID_CURRENCY';
+  if (d.name.length === 0 || d.ref.length === 0) return 'INVALID_NAME';
+  if (!between(d.commissionBp, 1, 10_000)) return 'INVALID_COMMISSION';
+  if ((d.lat === null) !== (d.lng === null) || !between(d.lat, -90, 90) || !between(d.lng, -180, 180)) {
+    return 'INVALID_COORDINATES';
+  }
+  if (d.completionDate !== null && !/^\d{4}-\d{2}-\d{2}$/.test(d.completionDate)) return 'INVALID_COMPLETION_DATE';
+  for (const t of d.texts) {
+    if (!/^[a-z]{2}(-[A-Z]{2})?$/.test(t.locale)) return 'INVALID_LOCALE';
+    if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(t.slug)) return 'INVALID_SLUG';
+  }
+  for (const u of d.units) {
+    if (u.ref.length === 0) return 'INVALID_UNIT';
+    if (!between(u.bedrooms, 0, 1000) || !between(u.bathrooms, 0, 1000) || !between(u.floor, -10, 300)) {
+      return 'INVALID_UNIT_SPECS';
+    }
+    // numeric(10,2): at most 8 integer digits
+    for (const m2 of [u.internalM2, u.terraceM2, u.plotM2])
+      if (!between(m2, 0, 99_999_999)) return 'INVALID_UNIT_SPECS';
+    if (!between(u.priceCents, 0, Number.MAX_SAFE_INTEGER)) return 'INVALID_UNIT_PRICE';
+  }
+  return null;
+}
+
+/**
+ * Writes a batch in one savepoint; when the database still refuses some row's data, halves the batch and retries each
+ * half, so k bad rows cost O(k log n) statements instead of one retry per row.
+ */
+async function writeBisecting(
+  tx: Tx,
+  agencyId: string,
+  batch: readonly LegacyDevelopmentInput[],
+  total: LegacyDevelopmentsResult,
+): Promise<void> {
+  if (batch.length === 0) return;
+  try {
+    addInto(total, await tx.transaction((sp) => writeBatch(sp, agencyId, batch)));
+    return;
+  } catch (err) {
+    const code = dataErrorCode(err);
+    if (code === null) throw err;
+    const only = batch.length === 1 ? batch[0] : undefined;
+    if (only) {
+      refuse(total, only, code);
+      return;
     }
   }
-  return total;
+  const mid = Math.ceil(batch.length / 2);
+  await writeBisecting(tx, agencyId, batch.slice(0, mid), total);
+  await writeBisecting(tx, agencyId, batch.slice(mid), total);
 }
 
 const same = (a: string | number | null, b: number | null) => (a === null ? b === null : b !== null && Number(a) === b);

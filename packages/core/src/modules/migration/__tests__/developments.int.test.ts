@@ -286,6 +286,24 @@ describe('legacy new-build import (S4-04)', () => {
     expect(small).toBeLessThanOrEqual(20);
   });
 
+  it('[S15-F2] a batch with one bad row loads the rest in a bounded number of statements', async () => {
+    const batch = (from: number, n: number, bad: Record<number, object> = {}) => ({
+      developments: Array.from({ length: n }, (_, i) => dev(from + i, bad[i])),
+      units: Array.from({ length: n }, (_, i) => unit((from + i) * 10, from + i)),
+    });
+    const good = await countQueries(() => load(owner, batch(3000, 40)));
+    // the database refuses a NUL byte in text: the screen cannot see it, so the batch is bisected
+    const report = await load(owner, batch(3100, 40, { 17: { name: 'bad\u0000name' } }));
+    expect(report.counts.development).toMatchObject({ created: 39, failed: 1 });
+    const bisected = await countQueries(() => load(owner, batch(3200, 40, { 5: { name: 'bad\u0000name' } })));
+    // one failing path through log2(40) levels, not one retry per row (40 batches)
+    expect(bisected).toBeLessThanOrEqual(good * 9);
+    expect(bisected).toBeLessThan(good * 40);
+    // a row the screen can see is refused with no failed statement at all
+    const screened = await countQueries(() => load(owner, batch(3300, 40, { 5: { currency: 'EURO' } })));
+    expect(screened).toBeLessThanOrEqual(good + 4);
+  });
+
   it('[S4-04] the legacy agency is named once, then found in the maps; never moved silently', async () => {
     const legacyAgencyId = lid('agency-3');
     await expect(system((tx) => migration.resolveLegacyAgency(tx, legacyAgencyId))).rejects.toThrow(/no v2 agency/);

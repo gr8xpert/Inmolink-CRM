@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- perf(developments): legacy load screens rows against DB constraints and bisects a failing batch (bounded statements on a bad row) [S15-F2]
 - refactor(migration): shared legacy row helpers and script arg helpers; remove legacy:developments (use legacy:load) [S15-F1]
 - fix(migration): S14 review — safe and per-host redirect targets (migration 0172), public redirect columns hidden, password resets only from cutover once per created user, operator script target guard, e-mail domain warning, delta and stale checkpoints out of validation [S14 review]
 - feat(identity,web): Selections in the sidebar and a "Create selection" action on the listings bulk bar [S14-F5]
