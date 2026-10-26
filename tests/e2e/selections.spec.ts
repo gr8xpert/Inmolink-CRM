@@ -342,3 +342,25 @@ test('[S13-F13] Lighthouse ≥ 90 (performance, accessibility, SEO) on /s/<token
     await chrome.close();
   }
 });
+
+test('[S14-F5] members reach /selections from the sidebar and from a listing selection on the listings page', async ({
+  browser,
+  request,
+}) => {
+  test.setTimeout(4 * 60_000);
+  const tag = randomBytes(3).toString('hex');
+  const { a, listing } = await agentWithFolder(browser, request, tag);
+  const { page } = a;
+
+  await page.goto('/en');
+  await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Selections' }).click();
+  await expect(page).toHaveURL(/\/en\/selections$/);
+
+  // The bulk bar offers it only with picked rows.
+  await page.goto('/en/listings');
+  await expect(page.getByTestId('bulk-selection')).toBeDisabled();
+  await page.getByRole('checkbox', { name: new RegExp(`^Select ${listing.ref}`) }).check();
+  await page.getByRole('link', { name: 'Create selection' }).click();
+  await expect(page).toHaveURL(new RegExp(`/en/selections/new\\?listingIds=${listing.id}`));
+  await expect(page.getByLabel('Listing ids')).toHaveValue(listing.id);
+});

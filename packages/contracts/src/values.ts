@@ -207,6 +207,9 @@ export const LISTING_DOCUMENT_MAX_BYTES = 20 * 1024 * 1024;
 /** Listings per Listing Studio bulk request (one batch job; its payload stays under the 10 KB job cap). S13-F14. */
 export const LISTING_STUDIO_BULK_MAX = 100;
 
+/** Listings per selection (S12-04). The listings bulk bar hands its picks over in the URL, so it caps at this too. */
+export const SELECTION_ITEMS_MAX = 50;
+
 /** PLAN §3 #2: the staff roles (`staff_users.role`). `StaffRole` (zod) is built from this list. */
 export const STAFF_ROLES = ['SUPER_ADMIN', 'STAFF_SUPPORT', 'STAFF_DATA_OPS'] as const;
 type StaffRoleName = (typeof STAFF_ROLES)[number];

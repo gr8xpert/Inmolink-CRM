@@ -48,6 +48,15 @@ describe('dashboard navigation', () => {
     expect(buildNav(admin).find((i) => i.key === 'listings')?.href).toBe('/listings');
   });
 
+  it('[S14-F5] the selections section links to /selections, after the inbox; Client Mode is never offered it by the API', () => {
+    const items = buildNav(member({ sections: ['selections', 'inbox', 'listings'] }));
+    expect(items.map((i) => [i.key, i.href]).slice(1, 4)).toEqual([
+      ['listings', '/listings'],
+      ['inbox', '/inbox'],
+      ['selections', '/selections'],
+    ]);
+  });
+
   it('[S12-F1] the board and chat sections link to their pages, after network search', () => {
     const items = buildNav(member({ sections: ['chat', 'networkBoard', 'network', 'listings'] }));
     expect(items.map((i) => [i.key, i.href])).toEqual([

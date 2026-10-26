@@ -134,6 +134,7 @@ describe('api against the test stack', () => {
           'acquisition',
           'contacts',
           'inbox',
+          'selections',
           'network',
           'networkBoard',
           'chat',

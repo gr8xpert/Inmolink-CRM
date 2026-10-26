@@ -1,8 +1,14 @@
 'use client';
 
 import type { ListingBulkDto, ListingColumn, ListingFilter } from '@inmolink/contracts';
-import { LISTING_STATUSES, LISTING_STUDIO_BULK_MAX, SHARE_SCOPES, VISIBILITIES } from '@inmolink/contracts/values';
-import { Button, Input, Label } from '@inmolink/ui';
+import {
+  LISTING_STATUSES,
+  LISTING_STUDIO_BULK_MAX,
+  SELECTION_ITEMS_MAX,
+  SHARE_SCOPES,
+  VISIBILITIES,
+} from '@inmolink/contracts/values';
+import { Button, buttonVariants, Input, Label } from '@inmolink/ui';
 import { useEffect, useRef, useState, useTransition } from 'react';
 import { Link, useRouter } from '@/i18n/navigation';
 import { bulkProgressAction, requestStudioBulkAction, startBulkAction } from './actions';
@@ -103,6 +109,8 @@ export function ListingsTable(props: ListingsTableProps) {
 
   // S13-F14: AI drafts for the selected rows (the batch API takes up to LISTING_STUDIO_BULK_MAX listings at once)
   const studioReady = !allMatching && selected.size > 0 && selected.size <= LISTING_STUDIO_BULK_MAX;
+  // S14-F5: a selection takes the picked rows (their ids travel in the URL, so the count is capped like the API's)
+  const selectionReady = !allMatching && selected.size > 0 && selected.size <= SELECTION_ITEMS_MAX;
   const writeWithAi = () => {
     if (!studioReady) return;
     setError(null);
@@ -208,6 +216,25 @@ export function ListingsTable(props: ListingsTableProps) {
         >
           {t('bulk.studio.run')}
         </Button>
+        {selectionReady ? (
+          <Link
+            href={{ pathname: '/selections/new', query: { listingIds: [...selected].join(',') } }}
+            className={buttonVariants({ variant: 'outline' })}
+            data-testid="bulk-selection"
+          >
+            {t('bulk.selection.run')}
+          </Link>
+        ) : (
+          <Button
+            type="button"
+            variant="outline"
+            disabled
+            title={t('bulk.selection.hint', { max: String(SELECTION_ITEMS_MAX) })}
+            data-testid="bulk-selection"
+          >
+            {t('bulk.selection.run')}
+          </Button>
+        )}
         {!allMatching ? (
           <Button type="button" size="sm" variant="ghost" onClick={() => setAllMatching(true)}>
             {t('bulk.selectAllMatching')}

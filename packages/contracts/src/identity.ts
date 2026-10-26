@@ -153,6 +153,8 @@ export const DashboardSection = z.enum([
   'contacts',
   /** The lead inbox (S11-F14). */
   'inbox',
+  /** Selections: listings picked for a client, shared as a link (S14-F5); members who work clients, never Client Mode. */
+  'selections',
   /** Data export, admins only (S11-F14). */
   'dataExport',
   /** The network board: posts, replies and subscriptions (S12-F1). */

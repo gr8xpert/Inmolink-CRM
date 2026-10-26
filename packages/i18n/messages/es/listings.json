@@ -362,6 +362,10 @@
       "ADD_TAG": "Etiqueta"
     },
     "stillRunning": "Sigue en curso ({processed} de {total}). Recarga la página más tarde para ver el resultado.",
+    "selection": {
+      "run": "Crear selección",
+      "hint": "Elige de 1 a {max} inmuebles (no \"todos los que coinciden\") para compartirlos con un cliente como selección."
+    },
     "studio": {
       "run": "Redactar con IA",
       "hint": "Borradores con IA del título, la descripción y el texto SEO en cada idioma activo, para hasta {max} inmuebles seleccionados. Los textos bloqueados y los escritos por una persona se mantienen; los borradores quedan marcados hasta revisarlos.",

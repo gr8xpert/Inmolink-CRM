@@ -1,13 +1,14 @@
 /** presentations DTOs (PATTERNS §9): Zod schemas and inferred types for params, bodies and responses. */
 import { z } from 'zod';
 import { PageQuery, pageOf } from './common';
+import { SELECTION_ITEMS_MAX } from './values';
 
 /**
  * Selections (S12-04, PLAN §7 M13): listings and units an agent picks for a client — from search results or a
  * bookmark folder — shared as a branded live page (`/s/<token>` on the public pages host) by WhatsApp or e-mail.
  */
 export const SELECTION_LIMITS = {
-  items: 50,
+  items: SELECTION_ITEMS_MAX,
   titleChars: 200,
   messageChars: 2_000,
   noteChars: 1_000,

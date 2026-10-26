@@ -362,6 +362,10 @@
       "ADD_TAG": "Tag"
     },
     "stillRunning": "Still working ({processed} of {total}). Reload the page later to see the result.",
+    "selection": {
+      "run": "Create selection",
+      "hint": "Pick 1 to {max} listings (not \"all matching\") to share them with a client as a selection."
+    },
     "studio": {
       "run": "Write with AI",
       "hint": "AI drafts of the title, description and SEO text in every enabled language, for up to {max} selected listings. Locked texts and texts a person wrote stay; drafts stay marked until reviewed.",

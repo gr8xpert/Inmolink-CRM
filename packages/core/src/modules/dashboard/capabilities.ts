@@ -13,6 +13,7 @@ import * as identity from '../identity';
 import * as imports from '../imports';
 import * as mls from '../mls';
 import * as network from '../network';
+import * as presentations from '../presentations';
 import * as properties from '../properties';
 import * as search from '../search';
 import * as websites from '../websites';
@@ -35,6 +36,8 @@ const SECTION_RULES: ReadonlyArray<readonly [DashboardSection, (ctx: Ctx) => boo
   ['contacts', (ctx) => crm.can(ctx, 'crm.contacts.read')],
   ['inbox', (ctx) => crm.can(ctx, 'crm.leads.read')],
   // Network search (S5-05): agent side only (owner agencies, commission) — never Client Mode.
+  // Selections (S14-F5): name a client and what they did, so the same members as the CRM; never Client Mode.
+  ['selections', (ctx) => presentations.can(ctx, 'presentations.read')],
   ['network', (ctx) => search.can(ctx, 'search.network')],
   // The network board (S12-F1): agent side only, never Client Mode.
   ['networkBoard', (ctx) => network.can(ctx, 'network.posts.read')],
