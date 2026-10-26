@@ -43,6 +43,49 @@ export async function readStaged(dir: string, legacyAgencyId: string, entity: st
   return rows;
 }
 
+/**
+ * One staged entity file as batches of at most `size` rows, streamed line by line (one batch in memory at a time), in
+ * file order on every call; undefined when the file is missing. A line that is not JSON becomes
+ * `{ __unparsableLine: <line number> }`: the loader lists it as an invalid row rather than dropping it.
+ */
+export function stagedSource(
+  dir: string,
+  legacyAgencyId: string,
+  entity: string,
+): { batches(size: number): AsyncIterable<readonly unknown[]> } | undefined {
+  if (!/^[a-z0-9_]+$/i.test(entity)) throw new TypeError(`invalid entity name ${entity}`);
+  const file = join(agencyDir(dir, legacyAgencyId), `${entity}.ndjson`);
+  if (!existsSync(file)) return undefined;
+  return {
+    async *batches(size: number) {
+      const n = Math.max(1, Math.trunc(size));
+      const input = createReadStream(file, { encoding: 'utf8' });
+      const lines = createInterface({ input, crlfDelay: Number.POSITIVE_INFINITY });
+      let batch: unknown[] = [];
+      let lineNo = 0;
+      try {
+        for await (const line of lines) {
+          lineNo += 1;
+          if (line.trim() === '') continue;
+          try {
+            batch.push(JSON.parse(line));
+          } catch {
+            batch.push({ __unparsableLine: lineNo });
+          }
+          if (batch.length >= n) {
+            yield batch;
+            batch = [];
+          }
+        }
+        if (batch.length > 0) yield batch;
+      } finally {
+        lines.close();
+        input.destroy();
+      }
+    },
+  };
+}
+
 /** The legacy agencies of a staging directory: the inventory's, else the `agency-*` directories. */
 export function stagedAgencies(dir: string, inventory: Inventory | null): string[] {
   if (inventory) return inventory.agencies.map((a) => a.agencyId);

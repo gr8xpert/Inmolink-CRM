@@ -99,7 +99,8 @@ export interface ImportBatchResult {
 
 const decimal = (v: number | null) => (v === null ? null : String(v));
 
-function stagingRow(
+/** The staging row of an item (also the legacy load's, S14-02). */
+export function stagingRow(
   item: ImportListing,
   levels: Map<number, string> | undefined,
   freshRef: string,
@@ -160,7 +161,7 @@ function freshRefs(count: number): string[] {
   return [...refs];
 }
 
-async function emitImported(tx: Tx, run: Pick<ImportRun, 'agencyId' | 'runId'>, ids: readonly string[]) {
+export async function emitImported(tx: Tx, run: Pick<ImportRun, 'agencyId' | 'runId'>, ids: readonly string[]) {
   const messages = [];
   for (let i = 0; i < ids.length; i += IMPORTED_PER_EVENT) {
     messages.push(

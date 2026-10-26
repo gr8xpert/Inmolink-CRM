@@ -59,6 +59,13 @@ export {
 } from './imports';
 export { propertiesJobs } from './jobs';
 export {
+  importLegacyListingBatch,
+  LEGACY_SOURCE,
+  type LegacyListingInput,
+  type LegacyListingRun,
+  type LegacyListingsResult,
+} from './legacy';
+export {
   countNetworkSharedListings,
   countNetworkSharedListingsOf,
   leadTargetListing,

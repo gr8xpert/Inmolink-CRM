@@ -56,6 +56,14 @@ export {
   userNames,
 } from './impersonation';
 export { identityJobs } from './jobs';
+export {
+  activeMemberCount,
+  importLegacyMembers,
+  type LegacyMemberInput,
+  type LegacyMembersResult,
+  legacyPasswordPlaceholder,
+  requestLegacyPasswordResets,
+} from './legacy';
 export { getMe, type SessionClaims } from './me';
 export { earliestTeamInviteByAgency } from './onboarding-reads';
 export { CLIENT_MODE_ALLOWED, can, canStaff, type StaffIdentityAction } from './policy';

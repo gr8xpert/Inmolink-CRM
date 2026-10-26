@@ -54,6 +54,14 @@ export {
   updateLeadRouting,
 } from './leads';
 export {
+  importLegacyContacts,
+  importLegacyLeads,
+  type LegacyContactInput,
+  type LegacyContactsResult,
+  type LegacyLeadInput,
+  type LegacyLeadsResult,
+} from './legacy';
+export {
   createPipelineStage,
   getPipelineBoard,
   getPipelineReport,

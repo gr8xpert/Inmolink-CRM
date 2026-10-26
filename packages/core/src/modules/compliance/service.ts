@@ -39,6 +39,8 @@ export const AUDIT_TYPES = [
   'identity.twoFactor.devicesForgotten',
   'identity.member.invited',
   'identity.member.joined',
+  /** S14-02: members a legacy load created (one entry per batch; they sign in through a password reset). */
+  'identity.member.migrated',
   'identity.member.roleChanged',
   'identity.member.deactivated',
   'identity.staff.granted',

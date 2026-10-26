@@ -1334,6 +1334,12 @@ grant select, insert, update, delete on table public."media_objects" to app_syst
 create policy media_rows on public."media_objects" to app_media using (true) with check (true);
 grant select, insert, update, delete on table public."media_objects" to app_media;
 
+-- migration_batches: GLOBAL
+alter table public."migration_batches" enable row level security;
+alter table public."migration_batches" force row level security;
+revoke all on table public."migration_batches" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
+grant select, insert, update, delete on table public."migration_batches" to app_system;
+
 -- network_post_authors: STRICT
 alter table public."network_post_authors" enable row level security;
 alter table public."network_post_authors" force row level security;

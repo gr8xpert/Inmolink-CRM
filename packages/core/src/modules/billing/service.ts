@@ -154,7 +154,7 @@ export async function assertSeat(ctx: Ctx, seats: { used: number }): Promise<voi
 }
 
 /** Members the agency may have: its plan's seats (null: no limit) plus the seats of its live subscription's add-ons. */
-async function seatLimit(tx: Tx, agencyId: string): Promise<{ plan: string; seats: number | null }> {
+export async function seatLimit(tx: Tx, agencyId: string): Promise<{ plan: string; seats: number | null }> {
   const now = clock.now();
   const plan = await repo.planInForce(tx, agencyId, now, graceStart(now));
   if (plan.seats === null) return { plan: plan.code, seats: null };

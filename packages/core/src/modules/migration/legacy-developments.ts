@@ -18,15 +18,17 @@ import type { Tx } from '@inmolink/db';
 import * as developments from '../developments';
 import {
   addIssue,
+  agencyTargets,
   chunks,
   contentLocale,
   countOutcome,
   countsOf,
+  dropCollisions,
   enumKey,
   finishReport,
   inSavepoint,
   newLoadReport,
-  recordMaps,
+  recordAgencyMaps,
   slugify,
   targetsOf,
   validateRows,
@@ -87,6 +89,8 @@ export interface LegacyTaxonomyTargets {
   propertyTypes: ReadonlyMap<string, string>;
   /** Legacy unit id → v2 unit id, for units an earlier run loaded. */
   units: ReadonlyMap<string, string>;
+  /** Legacy ids mapped to another agency's rows (S14-02): those rows are refused as collisions. */
+  foreign?: { developments: ReadonlySet<string>; units: ReadonlySet<string> };
 }
 
 const isoDate = (d: Date) => d.toISOString().slice(0, 10);
@@ -109,8 +113,18 @@ export function transformLegacyDevelopments(
   staged: { developments: readonly unknown[]; units: readonly unknown[] },
   targets: LegacyTaxonomyTargets,
 ): developments.LegacyDevelopmentInput[] {
-  const devRows = validateRows(report, 'development', LegacyDevelopmentRow, staged.developments);
-  const unitRows = validateRows(report, 'unit', LegacyUnitRow, staged.units);
+  const devRows = dropCollisions(
+    report,
+    'development',
+    validateRows(report, 'development', LegacyDevelopmentRow, staged.developments),
+    targets.foreign?.developments ?? new Set(),
+  );
+  const unitRows = dropCollisions(
+    report,
+    'unit',
+    validateRows(report, 'unit', LegacyUnitRow, staged.units),
+    targets.foreign?.units ?? new Set(),
+  );
 
   const unitsOf = new Map<string, LegacyUnitRow[]>();
   for (const u of unitRows) unitsOf.set(u.development_id, [...(unitsOf.get(u.development_id) ?? []), u]);
@@ -241,38 +255,57 @@ export async function loadLegacyDevelopments(
   countsOf(report, 'development', input.legacyRows?.development ?? null);
   countsOf(report, 'unit', input.legacyRows?.unit ?? null);
 
-  const idsOf = (rows: readonly unknown[], key: string) =>
-    rows.flatMap((r) => {
-      const v = (r as Record<string, unknown> | null)?.[key];
-      return typeof v === 'string' || typeof v === 'number' ? [String(v).trim()] : [];
-    });
-  // One transaction, one connection: the lookups run one after the other.
-  const locations = await targetsOf(tx, 'location', idsOf(input.developments, 'location_id'));
-  const propertyTypes = await targetsOf(tx, 'propertyType', idsOf(input.units, 'property_type_id'));
-  const units = await targetsOf(tx, 'unit', idsOf(input.units, 'id'));
-  const inputs = transformLegacyDevelopments(
-    report,
-    { developments: input.developments, units: input.units },
-    { locations, propertyTypes, units },
+  await inSavepoint(tx, dryRun, (sp) =>
+    loadDevelopmentsInto(sp, input.agencyId, { developments: input.developments, units: input.units }, report),
   );
-
-  await inSavepoint(tx, dryRun, async (sp) => {
-    for (const batch of chunks(inputs, LEGACY_DEVELOPMENT_BATCH)) {
-      const result = await developments.importLegacyDevelopments(sp, input.agencyId, batch);
-      for (const s of result.skipped) addIssue(report, s.entity, s.legacyId, s.reason, s.detail);
-      for (const { outcome } of result.developments.values()) countOutcome(report, 'development', outcome);
-      for (const { outcome } of result.units.values()) countOutcome(report, 'unit', outcome);
-      await recordMaps(
-        sp,
-        'development',
-        [...result.developments].map(([legacyId, d]) => [legacyId, d.id]),
-      );
-      await recordMaps(
-        sp,
-        'unit',
-        [...result.units].map(([legacyId, u]) => [legacyId, u.id]),
-      );
-    }
-  });
   return finishReport(report);
+}
+
+const idsOf = (rows: readonly unknown[], key: string) =>
+  rows.flatMap((r) => {
+    const v = (r as Record<string, unknown> | null)?.[key];
+    return typeof v === 'string' || typeof v === 'number' ? [String(v).trim()] : [];
+  });
+
+/**
+ * Transforms and loads staged developments and units into `report`, in the caller's transaction (S14-02 runs it as one
+ * checkpointed batch per agency).
+ */
+export async function loadDevelopmentsInto(
+  tx: Tx,
+  agencyId: string,
+  staged: { developments: readonly unknown[]; units: readonly unknown[] },
+  report: LegacyLoadReport,
+): Promise<void> {
+  // One transaction, one connection: the lookups run one after the other.
+  const locations = await targetsOf(tx, 'location', idsOf(staged.developments, 'location_id'));
+  const propertyTypes = await targetsOf(tx, 'propertyType', idsOf(staged.units, 'property_type_id'));
+  const units = await agencyTargets(tx, 'unit', idsOf(staged.units, 'id'), agencyId);
+  // A development's own map: its row is matched by `developments.legacy_id` within the agency, but a map naming another
+  // agency's development is a collision.
+  const devs = await agencyTargets(tx, 'development', idsOf(staged.developments, 'id'), agencyId);
+  const inputs = transformLegacyDevelopments(report, staged, {
+    locations,
+    propertyTypes,
+    units: units.own,
+    foreign: { developments: devs.foreign, units: units.foreign },
+  });
+  for (const batch of chunks(inputs, LEGACY_DEVELOPMENT_BATCH)) {
+    const result = await developments.importLegacyDevelopments(tx, agencyId, batch);
+    for (const s of result.skipped) addIssue(report, s.entity, s.legacyId, s.reason, s.detail);
+    for (const { outcome } of result.developments.values()) countOutcome(report, 'development', outcome);
+    for (const { outcome } of result.units.values()) countOutcome(report, 'unit', outcome);
+    await recordAgencyMaps(
+      tx,
+      'development',
+      agencyId,
+      [...result.developments].map(([legacyId, d]) => [legacyId, d.id]),
+    );
+    await recordAgencyMaps(
+      tx,
+      'unit',
+      agencyId,
+      [...result.units].map(([legacyId, u]) => [legacyId, u.id]),
+    );
+  }
 }

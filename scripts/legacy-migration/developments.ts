@@ -47,7 +47,7 @@ try {
   const inventory = readInventory(staging);
   const given = new Map((values.agency ?? []).map(parseAgencyArg).map((a) => [a.legacyAgencyId, a.agencyId]));
   const agencies = given.size > 0 ? [...given.keys()] : stagedAgencies(staging, inventory);
-  if (agencies.length === 0) throw new Error(`no staged agency under ${staging}`);
+  if (agencies.length === 0) throw new TypeError(`no staged agency under ${staging}`);
   await configureDb(loadConfigOrExit(dbEnv));
   const dryRun = values['dry-run'];
 
@@ -81,8 +81,10 @@ try {
       reports.push(report);
       log.info({ legacyAgencyId, counts: report.counts, issues: report.issues.length, dryRun }, 'agency loaded');
     } catch (err) {
-      failed.push({ legacyAgencyId, error: err instanceof Error ? err.message : String(err) });
-      log.error({ legacyAgencyId, err }, 'agency not loaded');
+      // Code, constraint and ids only: a database message may quote the row's personal data.
+      const error = migration.failureOf(err, null);
+      failed.push({ legacyAgencyId, error });
+      log.error({ legacyAgencyId, error }, 'agency not loaded');
     }
   }
 
@@ -95,7 +97,11 @@ try {
     if (values.strict || failed.length > 0) process.exitCode = 1;
   }
 } catch (err) {
-  log.error({ err }, 'legacy developments import failed');
+  log.error(
+    // usage errors are ours to print; anything else is a code only (a database message may quote personal data)
+    { error: err instanceof TypeError ? err.message : migration.failureOf(err, null) },
+    'legacy developments import failed',
+  );
   process.exitCode = 1;
 } finally {
   await closeDb();

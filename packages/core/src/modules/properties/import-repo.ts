@@ -95,7 +95,8 @@ export interface ImportScope {
   batchId: string;
   agencyId: string;
   runId: string;
-  connectionId: string;
+  /** Null for the legacy load (S14-02): its listings come from no feed connection. */
+  connectionId: string | null;
   /** `properties.source` of new listings (the connector's format, `KYERO`). */
   source: string;
   /**

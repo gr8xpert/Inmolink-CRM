@@ -1765,6 +1765,13 @@ export const globalTables: Record<string, GlobalTable> = {
     definerRead: true,
     base: { entity: 'location', method: 'exact' },
   },
+  // S14-02: checkpoints of the legacy load (operator data: legacy ids, counts, issues), written by the load script via
+  // withSystem() only; no app role reads it.
+  migration_batches: {
+    reason: 'checkpoints of the legacy load per legacy agency, entity and batch (ADR 0006), operator data',
+    noUserRead: true,
+    base: { status: 'DONE' },
+  },
 };
 
 export const registry: TenantRegistry = { tenant: tenantTables, global: globalTables };

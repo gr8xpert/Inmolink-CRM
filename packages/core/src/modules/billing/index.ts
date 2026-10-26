@@ -22,6 +22,7 @@ export {
   requirePlan,
   requireQuota,
   revokePlanGrant,
+  seatLimit,
   setPriceLock,
   startCheckout,
 } from './service';

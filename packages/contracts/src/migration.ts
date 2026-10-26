@@ -175,6 +175,14 @@ export const LEGACY_LOAD_ISSUES = [
   'ref_taken',
   /** The database or a limit refused the row (`detail` holds the code). */
   'refused',
+  /** Its legacy feature has no map yet: the row is loaded without it (`detail` names the legacy feature). */
+  'unmapped_feature',
+  /** The e-mail belongs to a member of another agency (a user is a member of one agency): handle before cutover. */
+  'email_taken',
+  /** The legacy id is mapped already, to another agency's row: never re-pointed (legacy ids are unique per table). */
+  'legacy_id_collision',
+  /** The agency has more members than its plan's seats (a warning for staff before cutover; `legacyId` = agency). */
+  'over_seat',
 ] as const;
 export type LegacyLoadIssueReason = (typeof LEGACY_LOAD_ISSUES)[number];
 
@@ -213,3 +221,111 @@ export const LegacyLoadReport = z.object({
 });
 export type LegacyLoadReport = z.infer<typeof LegacyLoadReport>;
 export type LegacyLoadCounts = z.infer<typeof LoadCounts>;
+
+// ── S14-02: the other legacy entities (staged column names are the best-known legacy shape until H1) ───────────────
+
+const Email = z.string().trim().toLowerCase().pipe(z.email().max(254));
+const When = opt(z.coerce.date());
+const Text = (max: number) => opt(z.coerce.string().trim().max(max));
+const Texts = opt(
+  z
+    .array(
+      z.object({
+        locale: z.string().trim().min(2).max(10),
+        title: Text(300),
+        description: opt(z.coerce.string().max(50_000)),
+      }),
+    )
+    .max(20),
+);
+
+/** A legacy user (`users.ndjson`): becomes a member of the agency, signing in through a password reset (ADR 0006). */
+export const LegacyUserRow = z.object({
+  id: LegacyKey,
+  email: Email,
+  name: Text(120),
+  /** Legacy role (`admin`, `agent`, …); unknown → `AGENT`. */
+  role: Text(40),
+  locale: Text(10),
+  /** A disabled legacy user is not migrated (listed as `invalid`). */
+  active: opt(z.union([z.boolean(), z.number(), z.string()])),
+});
+export type LegacyUserRow = z.infer<typeof LegacyUserRow>;
+
+/** A legacy listing (`properties.ndjson`) with its texts, features and image URLs. Prices are whole euros. */
+export const LegacyListingRow = z.object({
+  id: LegacyKey,
+  ref: opt(z.coerce.string().trim().min(1).max(40)),
+  /** The legacy agent (`users.id`); unmapped → the agency's first admin. */
+  agent_id: opt(LegacyKey),
+  status: Text(40),
+  /** `sale`, `rent`, `holiday` … */
+  listing_type: Text(40),
+  price: opt(num.min(0).max(10_000_000_000)),
+  currency: opt(
+    z
+      .string()
+      .trim()
+      .regex(/^[A-Za-z]{3}$/),
+  ),
+  price_period: Text(20),
+  price_on_request: opt(z.union([z.boolean(), z.number(), z.string()])),
+  built_m2: opt(num.min(0).max(1_000_000)),
+  plot_m2: opt(num.min(0).max(100_000_000)),
+  terrace_m2: opt(num.min(0).max(1_000_000)),
+  bedrooms: opt(z.coerce.number().int().min(0).max(1000)),
+  bathrooms: opt(z.coerce.number().int().min(0).max(1000)),
+  year_built: opt(z.coerce.number().int().min(1000).max(2200)),
+  energy_rating: Text(20),
+  lat: opt(num.min(-90).max(90)),
+  lng: opt(num.min(-180).max(180)),
+  location_id: opt(LegacyKey),
+  property_type_id: opt(LegacyKey),
+  feature_ids: opt(z.array(LegacyKey).max(500)),
+  translations: Texts,
+  /** Image URLs in order (re-ingested through the media pipeline). */
+  images: opt(
+    z
+      .array(
+        z
+          .string()
+          .trim()
+          .pipe(z.url({ protocol: /^https?$/ }).max(2000)),
+      )
+      .max(200),
+  ),
+});
+export type LegacyListingRow = z.infer<typeof LegacyListingRow>;
+
+/** A legacy contact (`contacts.ndjson`). */
+export const LegacyContactRow = z.object({
+  id: LegacyKey,
+  first_name: Text(100),
+  last_name: Text(100),
+  /** One or more, `;`/`,` separated, or an array. */
+  email: opt(z.union([z.string(), z.array(z.string())])),
+  phone: opt(z.union([z.string(), z.array(z.string())])),
+  language: Text(10),
+  /** `buyer`, `seller`, … (one or a list). */
+  type: opt(z.union([z.string(), z.array(z.string())])),
+  agent_id: opt(LegacyKey),
+  consent_marketing: opt(z.union([z.boolean(), z.number(), z.string()])),
+  notes: Text(10_000),
+  created_at: When,
+});
+export type LegacyContactRow = z.infer<typeof LegacyContactRow>;
+
+/** A legacy lead (`leads.ndjson`): an enquiry of a contact, maybe about a listing. */
+export const LegacyLeadRow = z.object({
+  id: LegacyKey,
+  contact_id: LegacyKey,
+  property_id: opt(LegacyKey),
+  agent_id: opt(LegacyKey),
+  /** `new`, `contacted`, `won`, `lost`, `spam` … */
+  status: Text(40),
+  source: Text(40),
+  message: opt(z.coerce.string().max(4000)),
+  locale: Text(10),
+  created_at: When,
+});
+export type LegacyLeadRow = z.infer<typeof LegacyLeadRow>;

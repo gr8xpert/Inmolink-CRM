@@ -8,6 +8,7 @@ import {
   readInventory,
   readStaged,
   stagedAgencies,
+  stagedSource,
 } from '../../scripts/legacy-migration/staging';
 
 /** Staging readers of the legacy loads (S4-04): what `legacy:developments` reads from the S14-01 extract. */
@@ -26,6 +27,23 @@ describe('legacy staging readers', () => {
     expect(await readStaged(dir, '7', 'development_units')).toEqual([]); // not staged: no rows
     await expect(readStaged(dir, '../x', 'developments')).rejects.toThrow(/unsafe legacy agency id/);
     await expect(readStaged(dir, '7', '../secrets')).rejects.toThrow(/invalid entity name/);
+  });
+
+  it('[S14-02] streams a staged file in batches, line by line; a line that is not JSON is marked with its number', async () => {
+    const own = mkdtempSync(join(tmpdir(), 'inmolink-stream-'));
+    mkdirSync(join(own, 'agency-8'));
+    const lines = Array.from({ length: 7 }, (_, i) => (i === 4 ? '{oops' : JSON.stringify({ id: i + 1 })));
+    writeFileSync(join(own, 'agency-8', 'contacts.ndjson'), `${lines.join('\n')}\n`);
+    const source = stagedSource(own, '8', 'contacts');
+    const batches: unknown[][] = [];
+    for await (const b of source?.batches(3) ?? []) batches.push([...b]);
+    expect(batches).toEqual([
+      [{ id: 1 }, { id: 2 }, { id: 3 }],
+      [{ id: 4 }, { __unparsableLine: 5 }, { id: 6 }],
+      [{ id: 7 }],
+    ]);
+    expect(stagedSource(own, '8', 'leads')).toBeUndefined(); // not staged
+    rmSync(own, { recursive: true, force: true });
   });
 
   it('[S4-04] agencies and legacy counts come from the inventory, else the agency directories', () => {
