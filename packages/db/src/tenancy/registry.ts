@@ -10,7 +10,7 @@ import { STAFF_OPERATION_ROLES, SUPER_ADMIN_ROLES, SUPPORT_AGENT_ROLES } from '@
 import { NIL_UUID, PLATFORM_AGENCY_ID } from '@inmolink/platform/tenancy';
 
 /**
- * S14-F2: the session is an active staff member holding one of `roles` � the RLS half of a staff rule whose policy half
+ * S14-F2: the session is an active staff member holding one of `roles` — the RLS half of a staff rule whose policy half
  * checks the same contracts role set (a test holds the two equal).
  */
 export function staffRoleSql(roles: readonly string[]): string {
@@ -500,6 +500,8 @@ export const tenantTables: Record<string, TenantTable> = {
   website_sites: {
     kind: 'PUBLIC_READ',
     publicReadSql: 'true',
+    // S14-F7: `agency_ai_features(uuid)` (owner app_owner) answers only for an agency with a live site.
+    definerRead: true,
     publicHiddenColumns: ['created_by'],
     guardedInsert: true,
     triggers: ['website_sites_guard'],
@@ -846,9 +848,12 @@ export const tenantTables: Record<string, TenantTable> = {
   },
   // `total` must equal the number of listing ids (CHECK); one action waiting per member (partial unique index)
   listing_bulk_actions: { kind: 'STRICT', base: { type: 'STATUS', listing_ids: '{}', total: 0 } },
-  // S12-02: bulk Listing Studio batches (the submitted model inputs, kept for the collect job): the agency's own only
+  // S12-02: bulk Listing Studio batches (the submitted model inputs, kept for the collect job): the agency's own only.
+  // S14-F7: the member's request reserves the row (INSERT) and reads it; the jobs advance it on `withSystem` and the
+  // prune job removes it — members get no UPDATE or DELETE grant (`userAppendRead`).
   listing_studio_batches: {
     kind: 'STRICT',
+    userAppendRead: true,
     base: {
       listing_ids: `{${NIL_UUID}}`,
       locales: '{en}',
