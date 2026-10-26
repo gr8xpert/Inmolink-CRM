@@ -8,7 +8,6 @@ export {
   can,
   canStaff,
   type StaffSupportAction,
-  SUPPORT_AGENT_ROLES,
   type SupportAction,
 } from './policy';
 export {

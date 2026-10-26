@@ -58,7 +58,7 @@ export {
 export { identityJobs } from './jobs';
 export { getMe, type SessionClaims } from './me';
 export { earliestTeamInviteByAgency } from './onboarding-reads';
-export { CLIENT_MODE_ALLOWED, can } from './policy';
+export { CLIENT_MODE_ALLOWED, can, canStaff, type StaffIdentityAction } from './policy';
 export {
   acceptInvite,
   changeMemberRole,

@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- refactor(contracts,db): staff role sets in contracts; registry builds staff RLS predicates with staffRoleSql and the policies check the same sets; db depends on @inmolink/contracts [S14-F2]
 - feat(migration): legacy new-build import — staged developments and units to v2 with legacy id maps and a count report; reusable load toolkit [S4-04]
 - test(crm,onboarding): shared-DB-safe tests — sweepContactImports agency scope, bounded backfill walk, studio event ordering [S14-F3]
 - feat(billing): one plan in force (SQL plansInForce, batched in the grant/grace jobs), one graceStart helper; null past_due_since grace end announced [S14-F1]

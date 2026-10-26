@@ -553,6 +553,9 @@ importers:
 
   packages/db:
     dependencies:
+      '@inmolink/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@inmolink/platform':
         specifier: workspace:*
         version: link:../platform

@@ -1,3 +1,4 @@
+import { SUPPORT_AGENT_ROLES } from '@inmolink/contracts';
 import { AppError } from '@inmolink/platform/errors';
 import type { Ctx, StaffCtx, StaffRole } from '../../context';
 
@@ -33,7 +34,7 @@ export function assertCan(...args: Parameters<typeof can>): void {
  */
 export type StaffSupportAction = 'staff.support.read' | 'staff.support.write';
 
-export const SUPPORT_AGENT_ROLES: ReadonlySet<StaffRole> = new Set<StaffRole>(['SUPER_ADMIN', 'STAFF_SUPPORT']);
+const SUPPORT_AGENTS: ReadonlySet<StaffRole> = new Set(SUPPORT_AGENT_ROLES);
 
 export function canStaff(ctx: StaffCtx, action: StaffSupportAction): boolean {
   if (ctx.actor.kind !== 'staff') return false;
@@ -41,7 +42,7 @@ export function canStaff(ctx: StaffCtx, action: StaffSupportAction): boolean {
     case 'staff.support.read':
       return true;
     case 'staff.support.write':
-      return SUPPORT_AGENT_ROLES.has(ctx.actor.role);
+      return SUPPORT_AGENTS.has(ctx.actor.role);
   }
 }
 

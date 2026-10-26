@@ -36,6 +36,7 @@
     "test:int": "vitest run --passWithNoTests int.test"
   },
   "dependencies": {
+    "@inmolink/contracts": "workspace:*",
     "@inmolink/platform": "workspace:*",
     "@opentelemetry/api": "1.9.1",
     "drizzle-orm": "0.45.4",

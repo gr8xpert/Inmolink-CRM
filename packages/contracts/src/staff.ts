@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { AgencyKind, AgencyStatus } from './agencies';
 import { PageQuery, pageOf } from './common';
 import { AuditActorKind } from './compliance';
+import { STAFF_ROLES } from './values';
 import { VerificationRequestStatus } from './verification';
 
 /**
@@ -9,7 +10,7 @@ import { VerificationRequestStatus } from './verification';
  * route is under `/v1/staff/…` and answers 403 to anyone who is not active staff (ADR 0015).
  */
 
-export const StaffRole = z.enum(['SUPER_ADMIN', 'STAFF_SUPPORT', 'STAFF_DATA_OPS']);
+export const StaffRole = z.enum(STAFF_ROLES);
 export type StaffRole = z.infer<typeof StaffRole>;
 
 /** Longest impersonation session; the table's CHECK and the 0026 guard enforce it too. */

@@ -6,23 +6,31 @@
  * `tenantTables`, everything else under `globalTables`. The guard fails on anything unregistered,
  * and an unregistered table gets no grants, so access fails closed.
  */
+import { STAFF_OPERATION_ROLES, SUPER_ADMIN_ROLES, SUPPORT_AGENT_ROLES } from '@inmolink/contracts/values';
 import { NIL_UUID, PLATFORM_AGENCY_ID } from '@inmolink/platform/tenancy';
 
-/** A staff member's own row, or any row for an active super admin (their own `staff_users` row, policy staff_self). */
-const SUPER_ADMIN_OR_OWN_SESSION =
-  "staff_user_id = app_user_id() or exists (select 1 from public.staff_users s where s.user_id = app_user_id() and s.role = 'SUPER_ADMIN' and s.deactivated_at is null)";
+/**
+ * S14-F2: the session is an active staff member holding one of `roles` — the RLS half of a staff rule whose policy half
+ * checks the same contracts role set (a test holds the two equal).
+ */
+export function staffRoleSql(roles: readonly string[]): string {
+  if (roles.length === 0) throw new Error('staffRoleSql: no roles');
+  for (const r of roles) if (!/^[A-Z_]+$/.test(r)) throw new Error(`staffRoleSql: bad role ${r}`);
+  const match = roles.length === 1 ? `s.role = '${roles[0]}'` : `s.role in (${roles.map((r) => `'${r}'`).join(', ')})`;
+  return `exists (select 1 from public.staff_users s where s.user_id = app_user_id() and ${match} and s.deactivated_at is null)`;
+}
 
 /** S13-02: the session is an active super admin (plan grants and price locks give revenue away). */
-const SUPER_ADMIN =
-  "exists (select 1 from public.staff_users s where s.user_id = app_user_id() and s.role = 'SUPER_ADMIN' and s.deactivated_at is null)";
+const SUPER_ADMIN = staffRoleSql(SUPER_ADMIN_ROLES);
+
+/** A staff member's own row, or any row for an active super admin (their own `staff_users` row, policy staff_self). */
+const SUPER_ADMIN_OR_OWN_SESSION = `staff_user_id = app_user_id() or ${SUPER_ADMIN}`;
 
 /** S13-03: the session is an active super admin or data ops member (staff bulk operations). */
-const STAFF_OPERATOR =
-  "exists (select 1 from public.staff_users s where s.user_id = app_user_id() and s.role in ('SUPER_ADMIN', 'STAFF_DATA_OPS') and s.deactivated_at is null)";
+const STAFF_OPERATOR = staffRoleSql(STAFF_OPERATION_ROLES);
 
 /** S13-05: the session is an active super admin or support member (support ticket replies and triage). */
-const SUPPORT_AGENT =
-  "exists (select 1 from public.staff_users s where s.user_id = app_user_id() and s.role in ('SUPER_ADMIN', 'STAFF_SUPPORT') and s.deactivated_at is null)";
+const SUPPORT_AGENT = staffRoleSql(SUPPORT_AGENT_ROLES);
 
 export type PolicyKind = 'STRICT' | 'NETWORK_READ' | 'PUBLIC_READ';
 

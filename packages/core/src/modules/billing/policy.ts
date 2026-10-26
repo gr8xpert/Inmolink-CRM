@@ -1,5 +1,6 @@
+import { SUPER_ADMIN_ROLES } from '@inmolink/contracts';
 import { AppError } from '@inmolink/platform/errors';
-import type { Ctx, StaffCtx } from '../../context';
+import type { Ctx, StaffCtx, StaffRole } from '../../context';
 import { deniedByImpersonation, type ImpersonationRules } from '../../impersonation';
 
 /** Who may do what in billing (PATTERNS §6). Deny by default; services call `assertCan`. */
@@ -41,9 +42,11 @@ export function assertCan(...args: Parameters<typeof can>): void {
 
 /**
  * S13-02: staff billing actions. Plan grants and price locks give away revenue: super admins only (support asks them;
- * the staff console lists grants for every staff role).
+ * the staff console lists grants for every staff role). RLS repeats the rule from the same set (registry `SUPER_ADMIN`).
  */
 export type StaffBillingAction = 'staff.billing.read' | 'staff.billing.grant';
+
+const GRANTERS: ReadonlySet<StaffRole> = new Set(SUPER_ADMIN_ROLES);
 
 export function canStaff(ctx: StaffCtx, action: StaffBillingAction): boolean {
   if (ctx.actor.kind !== 'staff') return false;
@@ -51,7 +54,7 @@ export function canStaff(ctx: StaffCtx, action: StaffBillingAction): boolean {
     case 'staff.billing.read':
       return true;
     case 'staff.billing.grant':
-      return ctx.actor.role === 'SUPER_ADMIN';
+      return GRANTERS.has(ctx.actor.role);
   }
 }
 

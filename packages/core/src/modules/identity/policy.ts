@@ -1,6 +1,6 @@
-import type { InvitableRole } from '@inmolink/contracts';
+import { type InvitableRole, SUPER_ADMIN_ROLES } from '@inmolink/contracts';
 import { AppError } from '@inmolink/platform/errors';
-import type { Ctx, StaffCtx } from '../../context';
+import type { Ctx, StaffCtx, StaffRole } from '../../context';
 import { deniedByImpersonation, type ImpersonationRules } from '../../impersonation';
 
 /**
@@ -147,12 +147,15 @@ export type StaffIdentityAction = 'staff.members.read' | 'staff.impersonate' | '
 
 export const IMPERSONATING_ROLES: readonly string[] = ['SUPER_ADMIN', 'STAFF_SUPPORT'];
 
+/** S14-F2: who manages anyone's impersonation; RLS on `staff_impersonations` repeats it (registry `SUPER_ADMIN`). */
+const IMPERSONATION_MANAGERS: ReadonlySet<StaffRole> = new Set(SUPER_ADMIN_ROLES);
+
 export function canStaff(ctx: StaffCtx, action: StaffIdentityAction): boolean {
   if (ctx.actor.kind !== 'staff') return false;
   switch (action) {
     case 'staff.impersonation.manage':
       // See and end any staff member's live session (S1-F9): super admins only.
-      return ctx.actor.role === 'SUPER_ADMIN';
+      return IMPERSONATION_MANAGERS.has(ctx.actor.role);
     case 'staff.members.read':
     case 'staff.impersonate':
       return IMPERSONATING_ROLES.includes(ctx.actor.role);

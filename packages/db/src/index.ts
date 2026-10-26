@@ -25,6 +25,7 @@ export {
   SAMPLE_USER,
   type SampleRow,
   type StaffAccess,
+  staffRoleSql,
   type TenantRegistry,
   type TenantTable,
 } from './tenancy/registry';

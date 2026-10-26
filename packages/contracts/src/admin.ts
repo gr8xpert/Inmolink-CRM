@@ -6,7 +6,7 @@
 import { z } from 'zod';
 import { PlanGrantDto } from './billing';
 import { PageQuery, pageOf } from './common';
-import { StaffReason, type StaffRole } from './staff';
+import { StaffReason } from './staff';
 
 // ---- bulk operations ----
 
@@ -22,9 +22,6 @@ export type StaffOperationKind = z.infer<typeof StaffOperationKind>;
 
 export const StaffOperationState = z.enum(['QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED', 'CANCELLED']);
 export type StaffOperationState = z.infer<typeof StaffOperationState>;
-
-/** Who may start and cancel bulk operations; every staff role sees them. */
-export const STAFF_OPERATION_ROLES = ['SUPER_ADMIN', 'STAFF_DATA_OPS'] as const satisfies readonly StaffRole[];
 
 /** Longest outbox replay window (a wider one is several operations). */
 export const OUTBOX_REPLAY_MAX_DAYS = 7;

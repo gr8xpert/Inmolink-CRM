@@ -206,3 +206,18 @@ export const LISTING_DOCUMENT_MAX_BYTES = 20 * 1024 * 1024;
 
 /** Listings per Listing Studio bulk request (one batch job; its payload stays under the 10 KB job cap). S13-F14. */
 export const LISTING_STUDIO_BULK_MAX = 100;
+
+/** PLAN §3 #2: the staff roles (`staff_users.role`). `StaffRole` (zod) is built from this list. */
+export const STAFF_ROLES = ['SUPER_ADMIN', 'STAFF_SUPPORT', 'STAFF_DATA_OPS'] as const;
+type StaffRoleName = (typeof STAFF_ROLES)[number];
+
+/**
+ * S14-F2: the staff role sets — the single source for both sides of each staff rule: the tenant registry builds its
+ * RLS predicates from them (`staffRoleSql`) and the staff policies check them, so RLS and policy cannot drift.
+ */
+/** Plan grants, price locks, the plan catalog, feature flags, ending anyone's impersonation: super admins only. */
+export const SUPER_ADMIN_ROLES = ['SUPER_ADMIN'] as const satisfies readonly StaffRoleName[];
+/** Who may start and cancel bulk operations (S13-03); every staff role sees them. */
+export const STAFF_OPERATION_ROLES = ['SUPER_ADMIN', 'STAFF_DATA_OPS'] as const satisfies readonly StaffRoleName[];
+/** Who replies to, triages and keeps internal notes on support tickets (S13-05); every staff role reads them. */
+export const SUPPORT_AGENT_ROLES = ['SUPER_ADMIN', 'STAFF_SUPPORT'] as const satisfies readonly StaffRoleName[];
