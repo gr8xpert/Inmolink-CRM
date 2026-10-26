@@ -5,6 +5,7 @@ import { isAppError } from '@inmolink/platform/errors';
 import { defineJob, UnrecoverableError } from '@inmolink/platform/queue';
 import { z } from 'zod';
 import * as agencies from '../agencies';
+import { pollBatch } from './batch-poll';
 import {
   abandonListingStudioBatch,
   collectListingStudioBulk,
@@ -147,14 +148,16 @@ export const aiFeaturesJobs = {
     async run(p, job) {
       try {
         const who = { requestId: p.requestId, agencyId: p.agencyId, userId: p.userId };
-        const res = await collectListingStudioBulk(who, { giveUp: p.poll > STUDIO_MAX_POLLS });
-        if (res.status === 'IN_PROGRESS') {
-          await aiFeaturesJobs.collectListingStudioBatch.enqueue(
-            { ...p, poll: p.poll + 1 },
-            { delayMs: STUDIO_POLL_MS },
-          );
-          return { status: 'IN_PROGRESS' };
-        }
+        const res = await pollBatch({
+          payload: p,
+          maxPolls: STUDIO_MAX_POLLS,
+          delayMs: STUDIO_POLL_MS,
+          collect: (giveUp) => collectListingStudioBulk(who, { giveUp }),
+          enqueue: async (next, o): Promise<void> => {
+            await aiFeaturesJobs.collectListingStudioBatch.enqueue(next, o);
+          },
+        });
+        if (res.status === 'IN_PROGRESS') return { status: 'IN_PROGRESS' };
         job.log.info(
           { requestId: p.requestId, written: Object.keys(res.outcome.written).length },
           'listing studio batch applied',
@@ -384,21 +387,20 @@ export const whiteLabelJobs = {
     timeoutMs: 10 * 60_000,
     async run(p, { log }) {
       const degradedCodes = new Set<string>();
-      const res = await collectWhiteLabelBackfill(
-        { agencyId: p.agencyId, pageKey: p.pageKey },
-        {
-          requestId: p.pageKey,
-          giveUp: p.poll > WHITE_LABEL_MAX_POLLS,
-          onDegrade: (code) => degradedCodes.add(code),
+      const res: Awaited<ReturnType<typeof collectWhiteLabelBackfill>> = await pollBatch({
+        payload: p,
+        maxPolls: WHITE_LABEL_MAX_POLLS,
+        delayMs: WHITE_LABEL_POLL_MS,
+        collect: (giveUp) =>
+          collectWhiteLabelBackfill(
+            { agencyId: p.agencyId, pageKey: p.pageKey },
+            { requestId: p.pageKey, giveUp, onDegrade: (code) => degradedCodes.add(code) },
+          ),
+        enqueue: async (next, o): Promise<void> => {
+          await whiteLabelJobs.collectWhiteLabelBatch.enqueue(next, o);
         },
-      );
-      if (res.status === 'IN_PROGRESS') {
-        await whiteLabelJobs.collectWhiteLabelBatch.enqueue(
-          { ...p, poll: p.poll + 1 },
-          { delayMs: WHITE_LABEL_POLL_MS },
-        );
-        return res;
-      }
+      });
+      if (res.status === 'IN_PROGRESS') return res;
       if (res.degraded > 0 || res.gaveUp) {
         // Unanswered documents stay deterministic-only until the next sweep (or their next text event).
         log.warn({ ...res, pageKey: p.pageKey, codes: [...degradedCodes] }, 'white-label backfill batch degraded');
