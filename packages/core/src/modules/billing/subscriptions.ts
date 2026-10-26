@@ -48,6 +48,21 @@ export function registerBillingSubscriptions(): void {
       },
       { name: 'billing.free.notice' },
     ),
+    // S13 review: a paying agency falling to Free (subscription cancelled or ended) hears of it too — once, on the change
+    // to Free; `notifyAdmins` reads the plan in force again before sending.
+    subscribe(
+      billingEvents.subscriptionChanged,
+      async (payload, meta) => {
+        if (payload.plan !== FREE_PLAN || payload.previousPlan === FREE_PLAN) return;
+        await billingNoticeJobs.notifyAdmins.enqueue({
+          kind: 'FREE',
+          eventId: meta.eventId,
+          agencyId: meta.agencyId,
+          occurredAt: meta.createdAt.toISOString(),
+        });
+      },
+      { name: 'billing.free.subscriptionNotice' },
+    ),
   ];
 }
 

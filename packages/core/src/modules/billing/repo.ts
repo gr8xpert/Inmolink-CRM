@@ -166,7 +166,35 @@ export async function upsertSubscription(tx: Tx, row: SubscriptionWrite): Promis
   await tx
     .insert(billingSubscriptions)
     .values(row)
-    .onConflictDoUpdate({ target: billingSubscriptions.agencyId, set: rest });
+    .onConflictDoUpdate({
+      target: billingSubscriptions.agencyId,
+      set: {
+        ...rest,
+        // S13 review: the grace-end announcement belongs to one past-due spell; a new spell (or none) clears it.
+        graceEndedAt: sql`case when ${billingSubscriptions.pastDueSince} is not distinct from excluded.past_due_since
+          then ${billingSubscriptions.graceEndedAt} end`,
+      },
+    });
+}
+
+/**
+ * S13 review: claims past-due subscriptions whose dunning grace ended (`past_due_since <= graceStart`) and whose end is
+ * not announced yet — marks them (`grace_ended_at`) and answers their agencies. One claim per spell: a rerun finds
+ * nothing; a new spell clears the mark (`upsertSubscription`). `billing_subscriptions_grace_idx`.
+ */
+export async function claimEndedGraces(tx: Tx, now: Date, graceStart: Date, limit: number): Promise<string[]> {
+  const rows = await tx.execute<{ agency_id: string }>(sql`
+    update ${billingSubscriptions} s set grace_ended_at = ${now.toISOString()}::timestamptz
+    where s.agency_id in (
+      select agency_id from ${billingSubscriptions}
+      where status = 'PAST_DUE' and grace_ended_at is null
+        and past_due_since <= ${graceStart.toISOString()}::timestamptz
+      order by past_due_since
+      limit ${limit}
+      for update skip locked
+    )
+    returning s.agency_id`);
+  return rows.rows.map((r) => r.agency_id);
 }
 
 export interface InvoiceWrite {

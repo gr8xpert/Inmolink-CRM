@@ -1,0 +1,2 @@
+ALTER TABLE "billing_subscriptions" ADD COLUMN "grace_ended_at" timestamp with time zone;--> statement-breakpoint
+CREATE INDEX "billing_subscriptions_grace_idx" ON "billing_subscriptions" USING btree ("past_due_since") WHERE "billing_subscriptions"."status" = 'PAST_DUE' and "billing_subscriptions"."grace_ended_at" is null;

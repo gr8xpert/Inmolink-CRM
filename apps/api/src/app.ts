@@ -4,6 +4,7 @@ import { ipBucket, type RateLimiter, type RateLimitRule, rateLimitPlugin } from 
 import { createServer, type FastifyZod, type HealthCheck, healthRoutes } from '@inmolink/platform/server';
 import { clientModePlugin } from './plugins/client-mode';
 import { ctxPlugin } from './plugins/ctx';
+import { noStorePlugin } from './plugins/no-store';
 import { sessionPlugin } from './plugins/session';
 import { adminRoutes } from './routes/admin/routes';
 import { agenciesRoutes } from './routes/agencies/routes';
@@ -65,6 +66,8 @@ export async function buildApp(deps: ApiDeps): Promise<FastifyZod> {
   });
   // S12-06: first, so its route list and its Client Mode response net cover every route.
   clientModePlugin(app);
+  // S13 review: `Cache-Control: no-store` on every private answer (always on `/v1/staff/*`), before the routes.
+  noStorePlugin(app);
   ctxPlugin(app);
   sessionPlugin(app, { verifier: deps.verifier });
   await app.register(rateLimitPlugin, {

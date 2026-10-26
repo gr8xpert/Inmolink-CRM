@@ -41,10 +41,6 @@ const tags = ['staff', 'admin'];
  */
 export async function adminRoutes(app: FastifyZod): Promise<void> {
   const staff = [app.requireSession];
-  app.addHook('onSend', async (req, reply) => {
-    if (req.url.startsWith('/v1/staff/')) reply.header('cache-control', 'no-store');
-  });
-
   // ---- bulk operations ----
 
   app.get(

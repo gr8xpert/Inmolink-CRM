@@ -9,7 +9,7 @@ import { defineJob, UnrecoverableError } from '@inmolink/platform/queue';
 import { z } from 'zod';
 import { billingConfig, dunningGraceMs, stripeClient } from './config';
 import { billingEvents } from './events';
-import { effectivePlan, UNKNOWN_PLAN } from './plan';
+import { UNKNOWN_PLAN } from './plan';
 import * as repo from './repo';
 import { type StripeClient, StripeError, type StripeInvoice, type StripeSubscription } from './stripe';
 
@@ -23,6 +23,8 @@ import { type StripeClient, StripeError, type StripeInvoice, type StripeSubscrip
  * - `billing.pruneStripeEvents` — daily: applied event ids after `STRIPE_EVENT_RETENTION_DAYS`.
  * - `billing.startTrial` (S13-02) — once per new agency (onboarding finished): its trial grant.
  * - `billing.endPlanGrants` (S13-02) — every 15 minutes: ended or revoked grants announced (`billing.plan.changed`).
+ * - `billing.endDunningGrace` (S13 review) — every 15 minutes: past-due subscriptions whose grace ended announced once
+ *   (`billing.plan.changed` GRACE_ENDED).
  */
 
 const STRIPE_EVENT_RETENTION_DAYS = 30;
@@ -202,6 +204,40 @@ export const billingJobs = {
     },
   }),
 
+  /**
+   * S13 review: every 15 minutes — past-due subscriptions whose dunning grace ended are announced once per past-due
+   * spell (`billing.plan.changed` GRACE_ENDED with the plan now in force), so the Free notice and the sites' plan follow
+   * within minutes. The plan itself already fell at the grace end (computed per request). Batched; a rerun finds nothing
+   * (`grace_ended_at`).
+   */
+  endDunningGrace: defineJob({
+    name: 'billing.endDunningGrace',
+    pool: 'maintenance',
+    payload: z.object({}).strict(),
+    every: 15 * 60_000,
+    attempts: 3,
+    timeoutMs: 5 * 60_000,
+    async run(_p, { log, signal }) {
+      let agencies = 0;
+      for (;;) {
+        const ended = await withSystem('billing.endDunningGrace', async (tx) => {
+          const now = clock.now();
+          const graceStart = new Date(now.getTime() - dunningGraceMs());
+          const ids = await repo.claimEndedGraces(tx, now, graceStart, GRANT_BATCH);
+          for (const agencyId of ids) {
+            const plan = await repo.planInForce(tx, agencyId, now, graceStart);
+            await emit(tx, billingEvents.planChanged({ agencyId, plan: plan.code, reason: 'GRACE_ENDED' }));
+          }
+          return ids.length;
+        });
+        agencies += ended;
+        if (ended < GRANT_BATCH || signal.aborted) break;
+      }
+      if (agencies) log.info({ agencies }, 'dunning graces ended');
+      return { agencies };
+    },
+  }),
+
   pruneStripeEvents: defineJob({
     name: 'billing.pruneStripeEvents',
     pool: 'maintenance',
@@ -342,6 +378,9 @@ async function applySubscription(tx: Tx, agencyId: string, s: StripeSubscription
     return p?.kind === 'ADDON' ? [{ code: p.code, quantity: i.quantity }] : [];
   });
   const now = clock.now();
+  const graceStart = new Date(now.getTime() - dunningGraceMs());
+  // S13 review: the plan in force before and after (grants count: a staff grant keeping Pro announces no fall to Free).
+  const before = current ? (await repo.planInForce(tx, agencyId, now, graceStart)).code : null;
   // The dunning grace counts from the first time Stripe reported the subscription past due.
   const pastDueSince =
     status === 'PAST_DUE'
@@ -363,10 +402,12 @@ async function applySubscription(tx: Tx, agencyId: string, s: StripeSubscription
     pastDueSince,
     syncedAt: now,
   });
-  const before = current ? effectivePlan(current) : null;
-  const plan = effectivePlan({ planCode, status });
+  const plan = (await repo.planInForce(tx, agencyId, now, graceStart)).code;
   if (before !== plan || current?.status !== status) {
-    await emit(tx, billingEvents.subscriptionChanged({ agencyId, plan, status }));
+    await emit(
+      tx,
+      billingEvents.subscriptionChanged({ agencyId, plan, status, ...(before ? { previousPlan: before } : {}) }),
+    );
   }
   // S13-02: the notice before access changes — the plan stays until the grace ends (Stripe retries meanwhile).
   if (status === 'PAST_DUE' && current?.status !== 'PAST_DUE') {

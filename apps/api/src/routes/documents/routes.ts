@@ -26,10 +26,6 @@ const tags = ['documents'];
  * `no-store`.
  */
 export async function documentsRoutes(app: FastifyZod): Promise<void> {
-  app.addHook('onSend', async (_req, reply) => {
-    reply.header('cache-control', 'no-store');
-  });
-
   app.post(
     '/v1/documents/brochures',
     {

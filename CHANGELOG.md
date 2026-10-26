@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- fix(billing): fall-to-Free notices (plan in force, previousPlan), billing.endDunningGrace GRACE_ENDED sweep (migration 0168); api: one no-store plugin for private and staff routes; onboarding: skip events of deleted agencies [S13 review]
 - fix(security): S13 review — portal-push events super-admin replay only, one contact-quota lock helper, plan notices super-admin + re-checked, catalog staff writes super-admin, Client Mode 403 on support/onboarding/billing/AI settings [S13 review]
 - feat(ai-features): white-label backfill on the batch API (white_label_batches, migration 0167), owner identity changes re-run the walk (debounced per agency) [S13-F25]
 - feat(ai-features): Listing Studio batch submit idempotent (gateway idempotency key + provider reconcile, migration 0166), flagged auto-drafts on create / facts change, bulk "Write with AI" [S13-F14]

@@ -1,6 +1,8 @@
 import type { OnboardingStep } from '@inmolink/contracts';
 import { withSystem } from '@inmolink/db';
+import { createLogger, type Logger } from '@inmolink/platform/logger';
 import { type EventDef, type EventMeta, type EventPayload, subscribe } from '@inmolink/platform/outbox';
+import { isMissingAgencyError } from '@inmolink/platform/queue';
 import { PLATFORM_AGENCY_ID } from '@inmolink/platform/tenancy';
 import * as agencies from '../agencies';
 import * as developments from '../developments';
@@ -39,16 +41,30 @@ const SEEN_MAX = 50_000;
 
 const key = (agencyId: string, step: OnboardingStep) => `${agencyId}:${step}`;
 
-/** Completes `step` for the event's agency (nothing for platform events, or when this process wrote an earlier one). */
+let log: Logger | undefined;
+
+/**
+ * Completes `step` for the event's agency (nothing for platform events, or when this process wrote an earlier one).
+ * S13 review: an event whose agency no longer exists (deleted or pruned while the event waited: FK 23503 on
+ * `onboarding_steps`) is skipped and logged at debug — there is no checklist left to complete, and a throw would only
+ * dead-letter the event after burning the dispatcher's retries.
+ */
 export async function recordStep(step: OnboardingStep, meta: Meta): Promise<void> {
   const { agencyId } = meta;
   if (agencyId === PLATFORM_AGENCY_ID) return;
   const at = meta.createdAt.getTime();
   const known = seen.get(key(agencyId, step));
   if (known !== undefined && known <= at) return;
-  await withSystem('onboarding.progress', (tx) =>
-    repo.completeStep(tx, { agencyId, step, completedAt: meta.createdAt, eventId: meta.eventId }),
-  );
+  try {
+    await withSystem('onboarding.progress', (tx) =>
+      repo.completeStep(tx, { agencyId, step, completedAt: meta.createdAt, eventId: meta.eventId }),
+    );
+  } catch (err) {
+    if (!isMissingAgencyError(err)) throw err;
+    log ??= createLogger({ service: 'onboarding' });
+    log.debug({ agencyId, step, eventId: meta.eventId }, 'onboarding: event of a deleted agency skipped');
+    return;
+  }
   if (seen.size >= SEEN_MAX) seen.clear();
   seen.set(key(agencyId, step), at);
 }

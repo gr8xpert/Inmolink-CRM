@@ -156,6 +156,7 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     billingJobs.pruneStripeEvents,
     billingJobs.startTrial, // S13-02
     billingJobs.endPlanGrants, // S13-02
+    billingJobs.endDunningGrace, // S13 review: dunning grace end announced once
     billingNoticeJobs.noticeEndingGrants, // S13-F22
     // S13-03: staff bulk operations (reindex, rebuild read models, re-import, replay outbox), step by step.
     adminJobs.runStaffOperation,

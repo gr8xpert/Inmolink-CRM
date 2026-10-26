@@ -3,6 +3,7 @@ import { createStaffUser, loadStackEnv, setupTestDb } from '@inmolink/db/testing
 import { isAppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { createLogger } from '@inmolink/platform/logger';
+import { defaultSubscribers } from '@inmolink/platform/outbox';
 import { closeQueues, configureQueue, queueFor, stableJobId } from '@inmolink/platform/queue';
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -11,6 +12,7 @@ import { withMemberCtx } from '../../../member';
 import { withStaffCtx } from '../../../staff';
 import { countQueries, createFounder, type Founder } from '../../../testing/factories';
 import * as billing from '../index';
+import * as billingWorker from '../worker';
 import { type FakeStripe, startFakeStripe } from './fake-stripe';
 
 /**
@@ -809,5 +811,116 @@ describe('billing', () => {
       plan: LITE,
       subscription: { planCode: LITE, interval: 'YEAR', currency: 'EUR', status: 'ACTIVE' },
     });
+  });
+});
+
+/**
+ * S13 review: a paying agency that falls to Free hears of it — on the subscription's end and when the dunning grace
+ * runs out (`billing.endDunningGrace`) — once, and never while a staff grant keeps it on its plan.
+ */
+describe('falling to Free (S13 review)', () => {
+  const end = Math.floor(Date.now() / 1000) + 365 * 86_400;
+  const handled = new Set<string>();
+
+  /** Runs billing's Free-notice subscribers over the agency's new plan events, then the notices they queued. */
+  async function freeNotices(agencyId: string): Promise<number> {
+    const events = await system(
+      async (tx) =>
+        (
+          await tx.execute<{ id: string; type: string; version: number; payload: unknown; created_at: string }>(
+            sql`select id, type, version, payload, created_at from outbox_events
+                where agency_id = ${agencyId}::uuid
+                  and type in ('billing.subscription.changed', 'billing.plan.changed') order by id`,
+          )
+        ).rows,
+    );
+    for (const e of events) {
+      if (handled.has(e.id)) continue;
+      handled.add(e.id);
+      for (const sub of defaultSubscribers.get(e.type, e.version)) {
+        if (!sub.name.startsWith('billing.free.')) continue;
+        const meta = { eventId: e.id, agencyId, createdAt: new Date(e.created_at) };
+        await sub.handler(sub.def.schema.parse(e.payload), { ...meta, type: e.type, version: e.version, attempt: 1 });
+        const job = await queueFor('realtime').getJob(
+          stableJobId('billing.notifyAdmins', `billing.notifyAdmins:FREE:${e.id}`),
+        );
+        if (!job) continue;
+        await billingWorker.notifyAdmins((job.data as { p: Parameters<typeof billingWorker.notifyAdmins>[0] }).p);
+        await job.remove();
+      }
+    }
+    const r = await system((tx) =>
+      tx.execute<{ n: number }>(sql`select count(*)::int as n from notifications
+        where agency_id = ${agencyId}::uuid and type = 'BILLING_PLAN_FREE'`),
+    );
+    return r.rows[0]?.n ?? 0;
+  }
+
+  /** A new agency on Pro annual (checkout completed and applied). */
+  async function subscribed(): Promise<{ m: Founder; id: string; customer: string }> {
+    const m = await createFounder();
+    await billing.startCheckout(run(m), { planCode: PRO, interval: 'YEAR', currency: 'EUR', addons: [] });
+    const sessionId = [...stripe.sessions.keys()].at(-1) as string;
+    const sub = stripe.completeCheckout(sessionId, { paymentMethod: 'card', periodEnd: end });
+    await deliver('checkout.session.completed', { id: sessionId, object: 'checkout.session', customer: sub.customer });
+    expect((await as(m, (ctx) => billing.getBillingOverview(ctx))).plan).toBe(PRO);
+    return { m, id: sub.id as string, customer: sub.customer as string };
+  }
+
+  const cancel = async (s: { id: string; customer: string }) => {
+    stripe.updateSubscription(s.id, { status: 'canceled' });
+    return deliver('customer.subscription.deleted', { id: s.id, object: 'subscription', customer: s.customer });
+  };
+
+  beforeAll(() => billingWorker.registerBillingSubscriptions());
+  afterAll(() => billingWorker.unregisterBillingSubscriptions());
+
+  it('[S13 review] cancel → the admins get the Free notice once', async () => {
+    const s = await subscribed();
+    expect((await cancel(s)).result).toMatchObject({ plan: 'free', status: 'CANCELED' });
+    expect(await freeNotices(s.m.agencyId)).toBe(1);
+    // A late redelivery changes nothing and tells no one again.
+    await deliver('customer.subscription.updated', { id: s.id, object: 'subscription', customer: s.customer });
+    expect(await freeNotices(s.m.agencyId)).toBe(1);
+  });
+
+  it('[S13 review] cancel with a running staff grant → no notice; the plan stays', async () => {
+    const s = await subscribed();
+    await system((tx) =>
+      tx.execute(sql`insert into billing_plan_grants (id, agency_id, kind, plan_code, starts_at, ends_at, reason)
+        values (${newId()}::uuid, ${s.m.agencyId}::uuid, 'STAFF', ${PRO}, now() - interval '1 day',
+                now() + interval '30 days', 'pilot')`),
+    );
+    expect((await cancel(s)).result).toMatchObject({ plan: PRO, status: 'CANCELED' });
+    expect(await freeNotices(s.m.agencyId)).toBe(0);
+    expect((await as(s.m, (ctx) => billing.getBillingOverview(ctx))).plan).toBe(PRO);
+  });
+
+  it('[S13 review] the dunning grace ends → one GRACE_ENDED event and the Free notice; a rerun does nothing', async () => {
+    const s = await subscribed();
+    stripe.updateSubscription(s.id, { status: 'past_due' });
+    await deliver('customer.subscription.updated', { id: s.id, object: 'subscription', customer: s.customer });
+    expect(await freeNotices(s.m.agencyId)).toBe(0);
+    await system((tx) =>
+      tx.execute(sql`update billing_subscriptions set past_due_since = now() - interval '15 days'
+                     where agency_id = ${s.m.agencyId}::uuid`),
+    );
+    const graceEnded = () =>
+      system(
+        async (tx) =>
+          (
+            await tx.execute<{ plan: string }>(sql`select payload->>'plan' as plan from outbox_events
+              where agency_id = ${s.m.agencyId}::uuid and type = 'billing.plan.changed'
+                and payload->>'reason' = 'GRACE_ENDED'`)
+          ).rows,
+      );
+    const first = (await billing.billingJobs.endDunningGrace.spec.run({}, jobCtx())) as { agencies: number };
+    expect(first.agencies).toBeGreaterThanOrEqual(1);
+    expect(await graceEnded()).toEqual([{ plan: 'free' }]);
+    expect(await freeNotices(s.m.agencyId)).toBe(1);
+
+    await billing.billingJobs.endDunningGrace.spec.run({}, jobCtx());
+    expect(await graceEnded()).toHaveLength(1);
+    expect(await freeNotices(s.m.agencyId)).toBe(1);
   });
 });

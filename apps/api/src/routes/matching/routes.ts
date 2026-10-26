@@ -20,10 +20,6 @@ const tags = ['matching'];
  * to the market. Per caller: every answer is `no-store`.
  */
 export async function matchingRoutes(app: FastifyZod): Promise<void> {
-  app.addHook('onSend', async (_req, reply) => {
-    reply.header('cache-control', 'no-store');
-  });
-
   app.get(
     '/v1/saved-searches',
     {

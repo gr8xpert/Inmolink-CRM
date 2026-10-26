@@ -386,6 +386,14 @@ describe('the checklist completes from real events', () => {
     expect((await stepRows(c.agencyId)).map((r) => r.step)).toContain('SHARE_LISTING');
   });
 
+  it('[S13 review] an event of an agency that no longer exists is skipped (no throw, no row), not dead-lettered', async () => {
+    const gone = newId(); // no such agency: deleted by the time the event is delivered
+    const meta = { eventId: newId(), agencyId: gone, createdAt: new Date() };
+    await expect(handle('websites.site.created', 1, { siteId: newId(), agencyId: gone }, meta)).resolves.toBe(1);
+    await expect(handle('identity.invite.created', 1, { agencyId: gone, inviteId: newId() }, meta)).resolves.toBe(1);
+    expect(await stepRows(gone)).toEqual([]);
+  });
+
   it('[S13-04] members cannot tick a step: no write path, and the table refuses their writes', async () => {
     expect(
       await refusal(

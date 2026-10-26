@@ -163,8 +163,19 @@ export const billingSubscriptions = pgTable(
     pastDueSince: timestamp('past_due_since', { withTimezone: true }),
     /** When Stripe's state was last read (the job re-reads the object, so a late event never rolls it back). */
     syncedAt: timestamp('synced_at', { withTimezone: true }).notNull(),
+    /**
+     * S13 review: when `billing.endDunningGrace` announced the end of this past-due spell's grace (`billing.plan.changed`
+     * GRACE_ENDED, once). Cleared whenever `past_due_since` changes (a new spell, or the subscription recovered).
+     */
+    graceEndedAt: timestamp('grace_ended_at', { withTimezone: true }),
   },
-  (t) => [uniqueIndex('billing_subscriptions_stripe_uq').on(t.stripeSubscriptionId)],
+  (t) => [
+    uniqueIndex('billing_subscriptions_stripe_uq').on(t.stripeSubscriptionId),
+    // billing.endDunningGrace: past-due subscriptions whose grace end is not announced yet, oldest first.
+    index('billing_subscriptions_grace_idx')
+      .on(t.pastDueSince)
+      .where(sql`${t.status} = 'PAST_DUE' and ${t.graceEndedAt} is null`),
+  ],
 );
 
 /** The agency's invoices as Stripe last reported them. Written only by the webhook job. */

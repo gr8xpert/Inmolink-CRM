@@ -47,10 +47,6 @@ const tags = ['network'];
  * subscriptions. Between agencies, per caller: every answer is `no-store`.
  */
 export async function networkRoutes(app: FastifyZod): Promise<void> {
-  app.addHook('onSend', async (_req, reply) => {
-    reply.header('cache-control', 'no-store');
-  });
-
   app.get(
     '/v1/network/posts',
     {

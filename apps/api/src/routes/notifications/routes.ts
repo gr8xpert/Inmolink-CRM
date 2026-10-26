@@ -37,10 +37,6 @@ const tags = ['notifications'];
  * is apps/realtime's (`/notifications` namespace). Personal: every answer is `no-store`.
  */
 export async function notificationsRoutes(app: FastifyZod): Promise<void> {
-  app.addHook('onSend', async (_req, reply) => {
-    reply.header('cache-control', 'no-store');
-  });
-
   app.get(
     '/v1/notifications',
     {

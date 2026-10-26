@@ -64,10 +64,6 @@ const tags = ['crm'];
  * `leads.ts`). Contacts and leads are PII: every answer is `no-store`, and nothing of it is open in Client Mode (policy).
  */
 export async function crmRoutes(app: FastifyZod): Promise<void> {
-  app.addHook('onSend', async (_req, reply) => {
-    reply.header('cache-control', 'no-store');
-  });
-
   app.get(
     '/v1/crm/contacts',
     {

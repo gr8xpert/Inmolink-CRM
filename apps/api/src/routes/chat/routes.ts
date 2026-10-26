@@ -42,10 +42,6 @@ const tags = ['chat'];
  * apps/realtime's (`/chat` namespace). Personal: every answer is `no-store`.
  */
 export async function chatRoutes(app: FastifyZod): Promise<void> {
-  app.addHook('onSend', async (_req, reply) => {
-    reply.header('cache-control', 'no-store');
-  });
-
   app.get(
     '/v1/chat/threads',
     {

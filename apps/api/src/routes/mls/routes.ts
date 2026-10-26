@@ -38,10 +38,6 @@ const tags = ['mls'];
  * Registrations name clients and viewing terms carry commission: every answer is `no-store`.
  */
 export async function mlsRoutes(app: FastifyZod): Promise<void> {
-  app.addHook('onSend', async (_req, reply) => {
-    reply.header('cache-control', 'no-store');
-  });
-
   app.post(
     '/v1/mls/registrations',
     {

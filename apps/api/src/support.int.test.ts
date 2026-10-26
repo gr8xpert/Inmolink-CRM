@@ -102,3 +102,36 @@ describe('support tickets API (S13-05)', () => {
     }
   });
 });
+
+describe('Cache-Control on private answers (S13 review)', () => {
+  it('[S13 review] a staff support ticket read and the staff onboarding read send no-store; so do member reads', async () => {
+    const f = await createFounder();
+    const asF = await bearer(f.userId, f.agencyId);
+    const created = await app.inject({
+      method: 'POST',
+      url: '/v1/support/tickets',
+      headers: asF,
+      payload: { subject: 'Cache check', category: 'ACCOUNT', body: 'Is this stored anywhere?' },
+    });
+    expect(created.statusCode).toBe(201);
+    const id = created.json<{ id: string }>().id;
+    const asAgent = await bearer((await createStaffUser('STAFF_SUPPORT')).userId);
+
+    const reads = [
+      { url: `/v1/staff/support/tickets/${id}`, headers: asAgent },
+      { url: '/v1/staff/support/tickets', headers: asAgent },
+      { url: `/v1/staff/agencies/${f.agencyId}/onboarding`, headers: asAgent },
+      { url: `/v1/support/tickets/${id}`, headers: asF },
+      { url: '/v1/onboarding', headers: asF },
+    ];
+    for (const r of reads) {
+      const res = await app.inject({ method: 'GET', ...r });
+      expect(res.statusCode, r.url).toBe(200);
+      expect(res.headers['cache-control'], r.url).toBe('no-store');
+    }
+    // A refusal is not stored either.
+    const refused = await app.inject({ method: 'GET', url: `/v1/staff/support/tickets/${id}`, headers: asF });
+    expect(refused.statusCode).toBe(403);
+    expect(refused.headers['cache-control']).toBe('no-store');
+  });
+});
