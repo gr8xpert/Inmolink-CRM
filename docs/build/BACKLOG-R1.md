@@ -1992,7 +1992,7 @@ Ref §15 · Mod website-api · Dep S13-F21
 Ref §3 #63 §7 M14 PATTERNS §19 · Mod websites (portal), public · Dep S5-03 S7-02 · ⚡
 **Build:** inmolink.es on Next.js: locale-prefixed search (filters, map dynamic import), listing detail (ISR, JSON-LD, OG), location landing pages (4 levels + groups), development pages.
 **Done when:**
-- Lighthouse ≥ 90 (performance, SEO, accessibility) on search, detail, location pages
+- Lighthouse ≥ 90 (SEO, accessibility) on search, detail, location pages; performance at the level measured in S15-01 (84–87 locally) until the staging measurement (H4) — ADR 0019 (A)
 - Public JS: framework ≤ 149 KB gzip, route ≤ 30 KB gzip, chunks cached `immutable` (ADR 0013)
 *(Parity reference, Shahzaib 2026-10-25: the live legacy portal, e.g. https://inmolink.es/alicante — every agency's PUBLIC listings; province → comarca → town landing pages (`/alicante/costa-blanca-south`) with an intro text giving live counts per property type and a list of child locations; filters price min/max (fixed steps), grouped property types (Apartments: apartment, duplex, penthouse, studio; Houses: bungalow, country home, semi-detached, townhouse, villa, village house; plot), bedrooms and bathrooms min/max, min build size, features (sea view, golf); sort latest / price ↑ / price ↓; numbered pages (`?page=N`, crawlable); cards with photo, title "<Type> in <Town>", price, excerpt, beds, baths, build / plot / terrace m², and the listing agency linking to its profile (S15-03). Old URL shapes `/property-details/<ref>/<slug>` and `/agent/<id>/<name>` get 301s in S15-02.)*
 
@@ -2040,9 +2040,9 @@ Ref §7 M14 · Mod search, read-models · Dep S15-01
 **Build:** `docPart('portal')` (`search/repo.ts`) reads `detail ->> 'description'` and `detail -> 'terraceM2'` for every card, loading the whole detail JSON (media list included) for 20 rows per page. Put the excerpt and terrace into the card document when the read model is built and read `m.card` only.
 **Done when:** the portal search reads no `detail` column; EXPLAIN on the scale proxy shows no detoast of `detail`; portal int tests green
 
-### S15-F7 · Portal metadata in core, cache invalidation (S15-01 review; after ADR 0019)
+### S15-F7 · Portal metadata in core, cache invalidation (S15-01 review; ADR 0019 accepted: A)
 Ref PATTERNS §19 · Mod website-api, public · Dep S15-01, ADR 0019
-**Build:** move titles, metadata and JSON-LD building from `apps/public/src/portal/{seo,meta}.ts` into `website-api/portal.ts` (`portal.metadataFor` / `portal.jsonLd`, PATTERNS §19). Invalidate on change: listing withdrawn / price change / agency standing or contact change → purge the page (Next `revalidateTag` with a bounded or shared cache handler under option A, CDN cache tags under option B), and clear the in-process agency-contact cache on the agency-profile event.
+**Build:** move titles, metadata and JSON-LD building from `apps/public/src/portal/{seo,meta}.ts` into `website-api/portal.ts` (`portal.metadataFor` / `portal.jsonLd`, PATTERNS §19). Invalidate on change: listing withdrawn / price change / agency standing or contact change → purge the page (Next `revalidateTag` with a bounded or shared cache handler — ADR 0019 (A)), and clear the in-process agency-contact cache on the agency-profile event.
 **Done when:** a withdrawn listing disappears from its page and from search pages within one minute; no unbounded per-instance page cache; tests
 
 ### S15-F8 · Zone member and type caps at save (S15-01 review)

@@ -1,6 +1,6 @@
 # ADR 0019 — Portal page rendering (inmolink.es)
 
-- **Status:** Proposed — S15-01 (needs approval: it changes PATTERNS §19 and how ADR 0013 is met on the portal)
+- **Status:** Accepted — option (A), Shahzaib 2026-10-26: keep the app-router pages and accept the measured cost until the staging measurement (H4)
 - **Date:** 2026-10-26
 - **Task:** S15-01 (PLAN §3 #63, §7 M14); affects S15-02 (enquiries, sitemaps, 301s) and S15-03 (profile pages)
 
@@ -42,7 +42,7 @@ proxy for field interactivity (INP) on mid-range phones, which most portal visit
 
 ## Decision
 
-Two options; **recommended: (B)**.
+**Accepted: (A)** (Shahzaib, 2026-10-26). Two options were proposed; the recommendation was (B).
 
 **(A) Keep app-router pages, accept the measured cost.** PATTERNS §19 stays. The portal's performance target is set
 to the measured level (≥ 85 on this host) until a staging measurement (H4) on a reference machine; S15-01's
