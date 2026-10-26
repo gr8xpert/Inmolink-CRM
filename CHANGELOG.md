@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- test(migration): scope cutover due / DNS readiness / delta agency queries to the test's agencies (optional filters, defaults unchanged) [S15-F3]
 - perf(developments): legacy load screens rows against DB constraints and bisects a failing batch (bounded statements on a bad row) [S15-F2]
 - refactor(migration): shared legacy row helpers and script arg helpers; remove legacy:developments (use legacy:load) [S15-F1]
 - fix(migration): S14 review — safe and per-host redirect targets (migration 0172), public redirect columns hidden, password resets only from cutover once per created user, operator script target guard, e-mail domain warning, delta and stale checkpoints out of validation [S14 review]
