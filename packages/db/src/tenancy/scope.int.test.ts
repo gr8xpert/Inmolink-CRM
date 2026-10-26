@@ -97,6 +97,29 @@ describe('withTenant', () => {
     await configureDb({ ...dbConfig(), APP_ROLE: 'http' });
   });
 
+  it('[S13 e2e] withSystem jit:false turns JIT off for that transaction only, in the BEGIN round trip', async () => {
+    await configureDb({ ...dbConfig(), APP_ROLE: 'worker' });
+    const jitOf = (tx: Parameters<Parameters<typeof withSystem>[1]>[0]) =>
+      tx.execute(sql`select current_setting('jit') as jit, current_setting('app.system_reason', true) as r`);
+    const before = (await withSystem('test.jit.before', async (tx) => (await jitOf(tx)).rows[0])) as { jit: string };
+    let off: unknown;
+    const statements = await countQueries(() =>
+      withSystem(
+        'test.jit',
+        async (tx) => {
+          off = (await jitOf(tx)).rows[0];
+        },
+        { routine: true, jit: false },
+      ),
+    );
+    expect(off).toEqual({ jit: 'off', r: 'test.jit' });
+    expect(statements).toBe(1);
+    // Transaction-local: the next transaction on the pool has the server's default again.
+    const after = await withSystem('test.jit.after', async (tx) => (await jitOf(tx)).rows[0]);
+    expect(after).toMatchObject({ jit: before.jit });
+    await configureDb({ ...dbConfig(), APP_ROLE: 'http' });
+  });
+
   it('[S1-F3] withGlobalRead is a read-only app_user transaction with no tenant', async () => {
     await withGlobalRead(async (tx) => {
       const { rows } = await tx.execute(

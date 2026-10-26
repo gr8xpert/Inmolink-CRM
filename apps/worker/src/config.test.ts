@@ -51,6 +51,13 @@ describe('worker env per pool', () => {
     expect(read('main.ts')).toContain('if (config.REDIS_CACHE_URL) await configureCache(');
   });
 
+  it('[S13 e2e] every pool that builds image variant keys validates the media URL key and configures it at boot', () => {
+    for (const pool of ['indexing', 'ai', 'maintenance', 'exports', 'media'] as const) {
+      expect(Object.keys(workerEnvFor([pool]))).toContain('MEDIA_URL_KEY');
+    }
+    expect(read('main.ts')).toContain('media.configureMedia({ urlKey: config.MEDIA_URL_KEY })');
+  });
+
   it('[S5-02] the search admin key only with the indexing pool, which applies index settings at boot', () => {
     expect(Object.keys(workerEnvFor(['indexing']))).toEqual(expect.arrayContaining(['MEILI_URL', 'MEILI_MASTER_KEY']));
     expect(Object.keys(workerEnvFor(['media']))).not.toContain('MEILI_MASTER_KEY');

@@ -29,7 +29,11 @@ export async function configureDb(next: DbConfig, options: PoolOptions = {}): Pr
   configureFlagReader(next.DATABASE_URL_APP_USER ? (fn) => withGlobalRead((tx) => fn(tx)) : undefined);
 }
 
-/** The outbox dispatcher for the worker's `outbox` pool, wired to `withSystem` (routine: debug-level audit lines). Polls (ADR 0014). */
+/**
+ * The outbox dispatcher for the worker's `outbox` pool, wired to `withSystem` (routine: debug-level audit lines). Polls
+ * (ADR 0014). Without JIT: the claim's estimated cost grows with `outbox_events` and passed the JIT thresholds — every
+ * claim compiled for seconds (S13 e2e: 6 s mean dispatch rounds on a 540k-row outbox).
+ */
 export function createOutboxDispatcher(options: {
   logger: Logger;
   /** S12-F19: tests on the shared database claim only their own agencies' events (`DispatcherOptions.agencyIds`). */
@@ -37,7 +41,7 @@ export function createOutboxDispatcher(options: {
 }): Dispatcher {
   return createDispatcher({
     runSystem: <T>(reason: string, fn: (tx: SqlExecutor) => Promise<T>) =>
-      withSystem(reason, (tx: Tx) => fn(tx), { routine: true }),
+      withSystem(reason, (tx: Tx) => fn(tx), { routine: true, jit: false }),
     logger: options.logger,
     ...(options.agencyIds ? { agencyIds: options.agencyIds } : {}),
   });

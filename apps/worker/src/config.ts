@@ -76,6 +76,9 @@ const systemEnv = {
   ...importsEnv,
   // S8-F1: how often network sites' XML feeds are swept after listings left the network.
   ...siteFeedNetworkEnv,
+  // S13 e2e: image variant keys (`media.variantKey`) — the read-model rebuild (indexing), Listing Studio inputs (ai),
+  // data exports (maintenance). Without it those jobs failed on every listing with a processed image.
+  ...mediaEnv,
 };
 
 /**

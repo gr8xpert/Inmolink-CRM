@@ -273,9 +273,14 @@ test('[S11] full collaboration flow: register a client, request a viewing, accep
   await notificationOf(apiA, 'CHAT_MESSAGE');
 
   // ---- My collaborations (B's dashboard) ---------------------------------------------------------------------------
-  await b.page.goto('/en/collaborations');
+  // S12-F21: a target is named by its reference (from the listing read models, which the worker builds; the id
+  // fragment is only the fallback for a target the caller can no longer read), so the page is reloaded until it is.
+  const targetCode = listingA.ref;
+  await expect(async () => {
+    await b.page.goto('/en/collaborations');
+    await expect(b.page.getByTestId('section-outRegistrations')).toContainText(targetCode, { timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
   await expect(b.page.getByRole('heading', { level: 1, name: 'My collaborations' })).toBeVisible();
-  const targetCode = `${listingA.id.slice(0, 8)}`;
   const outRegistrations = b.page.getByTestId('section-outRegistrations');
   await expect(outRegistrations).toContainText(`Ines Collab${tag}`);
   await expect(outRegistrations).toContainText(targetCode);
