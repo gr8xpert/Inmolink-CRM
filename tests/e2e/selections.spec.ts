@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
-import { type APIRequestContext, type Browser, chromium, expect, type Page, test } from '@playwright/test';
+import { type APIRequestContext, type Browser, chromium, type Page } from '@playwright/test';
 import lighthouse from 'lighthouse';
+import { expect, test } from './fixtures';
 import { SEED_PASSWORD as password, seedListingAgent, TAXONOMY_IDS } from './seed';
 import { PORTS, PUBLIC_URL, testStackEnv } from './stack';
 

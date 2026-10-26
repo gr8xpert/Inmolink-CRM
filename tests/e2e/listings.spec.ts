@@ -1,4 +1,5 @@
-import { expect, type Page, test } from '@playwright/test';
+import type { Page } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { SEED_PASSWORD as password, seedListingAgent } from './seed';
 
 /** Listing editor in the browser (S3-05): create, translate, publish SHARED, lock fields — all by autosave. */

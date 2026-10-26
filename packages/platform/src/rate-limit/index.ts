@@ -72,7 +72,11 @@ function fromEnv(config: RateLimitConfig = {}): State {
   return {
     url: config.url ?? loadConfig({ REDIS_LIMITS_URL: rateLimitEnv.REDIS_LIMITS_URL }).REDIS_LIMITS_URL,
     logger: config.logger ?? createLogger({ service: 'rate-limit', level: process.env.LOG_LEVEL }),
-    commandTimeoutMs: config.commandTimeoutMs ?? 200,
+    // S15-F5: `REDIS_LIMITS_COMMAND_TIMEOUT_MS` (default 200) when the caller does not name one.
+    commandTimeoutMs:
+      config.commandTimeoutMs ??
+      loadConfig({ REDIS_LIMITS_COMMAND_TIMEOUT_MS: rateLimitEnv.REDIS_LIMITS_COMMAND_TIMEOUT_MS })
+        .REDIS_LIMITS_COMMAND_TIMEOUT_MS,
   };
 }
 

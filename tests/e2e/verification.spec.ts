@@ -1,7 +1,8 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { hashPassword } from '@inmolink/platform/crypto/password';
-import { expect, type Page, test } from '@playwright/test';
+import type { Page } from '@playwright/test';
 import pg from 'pg';
+import { expect, test } from './fixtures';
 import { waitForLink } from './mailpit';
 import { testStackEnv } from './stack';
 import { passTwoFactor } from './two-factor';

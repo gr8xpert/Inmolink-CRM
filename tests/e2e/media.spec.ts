@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { expect, type Page, test } from '@playwright/test';
+import type { Page } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { SEED_PASSWORD as password, seedListingAgent } from './seed';
 
 /** Media manager in the browser (S3-06): mass upload with progress, instant duplicate skip, reorder that persists. */

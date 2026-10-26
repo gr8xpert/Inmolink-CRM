@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
-import { expect, type Page, test } from '@playwright/test';
+import type { Page } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { SEED_PASSWORD as password, seedListingAgent } from './seed';
 
 /** Development UI in the browser (S4-03): create, 48 units from a CSV, 3 reserved in bulk, a price list's diff. */

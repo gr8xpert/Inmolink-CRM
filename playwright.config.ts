@@ -13,7 +13,16 @@ const TSX = join(ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs');
 const LOOPBACK = './tests/e2e/loopback-feeds.ts';
 const node = (app: string) =>
   `node "${TSX}" --conditions=@inmolink/source --import @inmolink/platform/telemetry/register --import ${LOOPBACK} ${join('apps', app, 'src', 'main.ts')}`;
-const common = { ...process.env, ...env, NODE_ENV: 'test', LOG_LEVEL: 'warn', E2E_FEED_PORT: String(PORTS.feed) };
+const common = {
+  ...process.env,
+  ...env,
+  NODE_ENV: 'test',
+  LOG_LEVEL: 'warn',
+  E2E_FEED_PORT: String(PORTS.feed),
+  // S15-F5: the test redis-queue runs on half a CPU beside BullMQ and stalls past the 200 ms production cut-off;
+  // the login and 2FA limits fail closed, so a stall refused a login (or an enrolment code) as "too many attempts".
+  REDIS_LIMITS_COMMAND_TIMEOUT_MS: '2000',
+};
 
 export default defineConfig({
   testDir: 'tests/e2e',

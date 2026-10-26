@@ -1,5 +1,6 @@
-import { chromium, expect, test } from '@playwright/test';
+import { chromium } from '@playwright/test';
 import lighthouse, { type Flags } from 'lighthouse';
+import { expect, test } from './fixtures';
 import { SEED_PASSWORD, seedAgent } from './seed';
 import { PORTS, testStackEnv } from './stack';
 

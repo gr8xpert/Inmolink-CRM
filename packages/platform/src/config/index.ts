@@ -71,6 +71,12 @@ export const realtimeEventsEnv = {
  */
 export const rateLimitEnv = {
   REDIS_LIMITS_URL: url(['redis', 'rediss']),
+  /**
+   * Cut-off for one limit check (S15-F5). 200 ms in production: an outage resolves through each rule's fail mode at
+   * once, and credential rules fail closed. The e2e stack raises it — its redis-queue runs on half a CPU next to
+   * BullMQ, stalls past 200 ms there refused logins and 2FA codes as "too many attempts".
+   */
+  REDIS_LIMITS_COMMAND_TIMEOUT_MS: z.coerce.number().int().min(50).max(10_000).default(200),
 };
 
 /** A listen port with a per-app default; each app names its own variable (`API_PORT`, `FEED_API_PORT`, …). */

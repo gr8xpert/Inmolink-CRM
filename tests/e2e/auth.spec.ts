@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { countEmails, waitForLink } from './mailpit';
 import { testStackEnv } from './stack';
 import { passTwoFactor } from './two-factor';

@@ -33,7 +33,10 @@ export async function passTwoFactor(page: Page, email: string, password: string)
   // for a page that is not about to move: the dashboard itself, or one of the two 2FA views.
   const dashboard = page.getByRole('heading', { name: 'Dashboard' });
   const twoFactor = page.getByRole('heading', { name: /two-step verification/i });
-  await expect(dashboard.or(twoFactor)).toBeVisible();
+  // S15-F5: a refused login (its form error) ends the wait at once, with the reason, instead of a 15 s timeout.
+  const loginError = page.getByTestId('form-error');
+  await expect(dashboard.or(twoFactor).or(loginError)).toBeVisible();
+  if (await loginError.isVisible()) throw new Error(`login refused: ${await loginError.textContent()}`);
   if (await dashboard.isVisible()) return;
   // Enrolment's fresh-password step (S1-F8): the setup key appears only after it.
   const passwordStep = page.getByLabel('Your password');

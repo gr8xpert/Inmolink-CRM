@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
-import { type Browser, expect, type Page, test } from '@playwright/test';
+import type { Browser, Page } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { SEED_PASSWORD as password, seedListingAgent } from './seed';
 import { testStackEnv } from './stack';
 
