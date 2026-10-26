@@ -2010,6 +2010,31 @@ Ref §7 M14 · Mod public · Dep S15-01 S1-06
 
 ---
 
+### S15-F1 · Legacy toolkit shared helpers (S14 review)
+Ref §14 · Mod migration · Dep S14-02
+**Build:** one `migration/legacy-rows.ts` for the helpers repeated across the legacy loaders and validation (`cents`, `idsOf` / `idOf`, the legacy-agency lookup) and one script helper for argument parsing (`--map`, `--agency`) shared by the legacy scripts; route the S4-04 `legacy:developments` entry point through the streamed `stagedSource` (or remove it in favour of `legacy:load`).
+**Done when:** the migration suite passes with each helper defined once (grep check)
+
+### S15-F2 · Developments legacy load: fixed statements on a bad row (S14 review)
+Ref §14 · Mod developments · Dep S4-04
+**Build:** `importLegacyDevelopments` retries a failing batch one row per savepoint (up to batch-size statements); validate rows with the contracts schemas before writing and bisect a failing batch instead.
+**Done when:** a batch with one bad row loads the rest in a bounded number of statements (countQueries test)
+
+### S15-F3 · Shared-DB-safe migration tests (S14 review)
+Ref §15 · Mod migration · Dep S14-04 S14-06
+**Build:** scope the cutover `due` list (`DUE_LIMIT`), `legacyDnsReadiness` and `deltaAgencies` test calls to the test's agencies (agency / after parameter) or clean their rows in `afterAll`, so the suites stay correct as the shared test DB grows.
+**Done when:** the migration suite passes twice in a full parallel core run
+
+### S15-F4 · Legacy DB adapter for the delta reader (S14-04)
+Ref §14 · Mod platform, migration, worker · Dep S14-04 · [H1]
+**Build:** move the read-only legacy pg reader into a `platform/legacy-db` adapter (read-only session, statement timeout, connection limit) and register it at worker start from `LEGACY_DATABASE_URL`, so `migration.scheduleLegacyDeltas` queues real deltas; the dump engine (PostgreSQL assumed) confirmed with H1.
+**Done when:** with a legacy URL configured the hourly job queues one delta per non-cut-over agency (test against the fixture DB)
+
+### S15-F5 · Website-feed e2e intermittent in full runs (S14 review)
+Ref §15 · Mod web, e2e · Dep S7-F8
+**Build:** `[S7-F8]` (tests/e2e/website-feed.spec.ts) intermittently fails in the login helper (`tests/e2e/two-factor.ts`): after "Log in" neither the dashboard heading nor the 2FA view appears within 15 s (local full run, the suite's last spec), and once in CI 2FA enrolment showed no recovery codes. It passes alone. Find the cause (a slow cold route, session cookie / redirect race, or the S13-04 dashboard home checklist) and fix it — not by raising the timeout alone.
+**Done when:** the full e2e suite passes three times in a row locally and on CI
+
 ## S16 — Hardening
 
 ### S16-01 · Full load suite
