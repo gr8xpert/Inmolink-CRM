@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import type { CreateSiteInput, PlanFeature } from '@inmolink/contracts';
-import { closeDb, withSystem } from '@inmolink/db';
+import { closeDb, countQueries, withSystem } from '@inmolink/db';
 import { createStaffUser, loadStackEnv, setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
 import { isAppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
@@ -14,7 +14,7 @@ import { createFounder, type Founder } from '../../../testing/factories';
 import * as identity from '../../identity';
 import * as websites from '../../websites';
 import * as billing from '../index';
-import type { CatalogInput } from '../repo';
+import * as repo from '../repo';
 
 /**
  * Plan gates, seats, trial and staff grants (S13-02) with plans enforced, on the bundled catalog (PLAN §11 matrix):
@@ -98,7 +98,7 @@ beforeAll(async () => {
   billing.configureBilling({ enforcePlans: true, trial: { planCode: 'pro', days: 14 }, dunningGraceDays: 14 });
   const file = JSON.parse(
     readFileSync(new URL('../../../../../../scripts/ops/billing-catalog.json', import.meta.url), 'utf8'),
-  ) as { items: CatalogInput[] };
+  ) as { items: repo.CatalogInput[] };
   await system((tx) => billing.upsertCatalog(tx, file.items, newId));
   superAdmin = (await createStaffUser('SUPER_ADMIN')).userId;
 }, 180_000);
@@ -314,6 +314,142 @@ describe('plan gates (S13-02)', () => {
       expect((await refusal(invite(m))).code).toBe('accepted');
     } finally {
       billing.configureBilling({ enforcePlans: true, trial: { planCode: 'pro', days: 14 }, dunningGraceDays: 14 });
+    }
+  });
+});
+
+describe('one plan in force (S14-F1)', () => {
+  /** A Pro subscription PAST_DUE without `past_due_since` (synced `syncedDaysAgo` days ago), two extra users, one site. */
+  const pastDueWithoutSince = (agencyId: string, syncedDaysAgo: number) =>
+    system((tx) =>
+      repo.upsertSubscription(tx, {
+        agencyId,
+        stripeSubscriptionId: `sub_f1_${newId().slice(-12)}`,
+        planCode: 'pro',
+        status: 'PAST_DUE',
+        interval: 'YEAR',
+        currency: 'EUR',
+        addons: [
+          { code: 'extra_user', quantity: 2 },
+          { code: 'extra_website', quantity: 1 },
+        ],
+        paymentMethod: 'card',
+        currentPeriodEnd: null,
+        cancelAt: null,
+        pastDueSince: null,
+        syncedAt: new Date(Date.now() - syncedDaysAgo * 86_400_000),
+      }),
+    );
+
+  /** The plan as each path sees it: plan in force, batched plans, overview + seats, quota with and without the plan. */
+  const everyPath = async (m: Founder) => {
+    const planOf = await as(m, async (ctx) => (await billing.planOf(ctx.tx, ctx.tenant.agencyId)).code);
+    const now = new Date();
+    const batched = await system(
+      async (tx) =>
+        (await repo.plansInForce(tx, [m.agencyId], now, new Date(now.getTime() - 14 * 86_400_000))).get(m.agencyId)
+          ?.code,
+    );
+    const overview = await as(m, (ctx) => billing.getBillingOverview(ctx));
+    const quota = (await refusal(as(m, (ctx) => billing.requireQuota(ctx, 'sites', 10)))).details as {
+      plan: string;
+      limit: number;
+    };
+    const quotaWithPlan = (
+      await refusal(
+        as(m, async (ctx) =>
+          billing.requireQuota(ctx, 'sites', 10, 1, { plan: await billing.planOf(ctx.tx, m.agencyId) }),
+        ),
+      )
+    ).details as { plan: string; limit: number };
+    return {
+      planOf,
+      batched,
+      overview: overview.plan,
+      seats: overview.seats,
+      quota: [quota.plan, quota.limit],
+      quotaWithPlan: [quotaWithPlan.plan, quotaWithPlan.limit],
+    };
+  };
+
+  it('[S14-F1] a PAST_DUE subscription with a null past_due_since gets the same plan from every path', async () => {
+    // Synced 15 days ago (the grace counts from `synced_at`): Free everywhere, and its add-ons no longer count.
+    const lapsed = await createFounder();
+    await pastDueWithoutSince(lapsed.agencyId, 15);
+    expect(await everyPath(lapsed)).toEqual({
+      planOf: 'free',
+      batched: 'free',
+      overview: 'free',
+      seats: 1,
+      quota: ['free', 0],
+      quotaWithPlan: ['free', 0],
+    });
+    expect((await refusal(invite(lapsed))).details).toEqual({ reason: 'seats', plan: 'free', seats: 1 });
+
+    // Synced a day ago: within the grace — Pro everywhere, with its add-ons (4 + 2 seats, 1 + 1 sites).
+    const inGrace = await createFounder();
+    await pastDueWithoutSince(inGrace.agencyId, 1);
+    expect(await everyPath(inGrace)).toEqual({
+      planOf: 'pro',
+      batched: 'pro',
+      overview: 'pro',
+      seats: 6,
+      quota: ['pro', 2],
+      quotaWithPlan: ['pro', 2],
+    });
+  });
+
+  it('[S14-F1] a PAST_DUE subscription with a null past_due_since gets one GRACE_ENDED once its synced_at is past the grace', async () => {
+    const lapsed = await createFounder();
+    await pastDueWithoutSince(lapsed.agencyId, 15);
+    const inGrace = await createFounder();
+    await pastDueWithoutSince(inGrace.agencyId, 1);
+    const graceEnded = async (agencyId: string) =>
+      (await planEvents(agencyId)).filter((e) => e.reason === 'GRACE_ENDED');
+
+    await billing.billingJobs.endDunningGrace.spec.run({}, jobCtx());
+    expect(await graceEnded(lapsed.agencyId)).toEqual([{ plan: 'free', reason: 'GRACE_ENDED' }]);
+    expect(await graceEnded(inGrace.agencyId)).toEqual([]);
+    // Announced once.
+    await billing.billingJobs.endDunningGrace.spec.run({}, jobCtx());
+    expect(await graceEnded(lapsed.agencyId)).toHaveLength(1);
+  });
+
+  it('[S14-F1] billing.endPlanGrants runs a fixed number of statements per batch', async () => {
+    /** Agencies with a Pro grant that ended a day ago (not announced yet). */
+    const endedGrants = async (n: number) => {
+      const ids: string[] = [];
+      for (let i = 0; i < n; i++) {
+        const m = await createFounder();
+        await asStaff(superAdmin, (ctx) =>
+          billing.grantPlan(ctx, {
+            agencyId: m.agencyId,
+            planCode: 'pro',
+            endsAt: new Date(Date.now() + 86_400_000).toISOString(),
+            reason: 'pilot agency',
+          }),
+        );
+        ids.push(m.agencyId);
+      }
+      await system((tx) =>
+        tx.execute(sql`update billing_plan_grants set starts_at = now() - interval '2 days', ends_at = now() - interval '1 day'
+                       where agency_id = any(${sql.param(ids)}::uuid[])`),
+      );
+      return ids;
+    };
+    const run = () => countQueries(() => billing.billingJobs.endPlanGrants.spec.run({}, jobCtx()));
+
+    // Drain anything left over, then one agency and five agencies cost the same statements.
+    await billing.billingJobs.endPlanGrants.spec.run({}, jobCtx());
+    const one = await endedGrants(1);
+    const single = await run();
+    const five = await endedGrants(5);
+    const batch = await run();
+    expect(batch).toBe(single);
+    // Each agency still gets its event, with the plan now in force.
+    for (const agencyId of [...one, ...five]) {
+      const ended = (await planEvents(agencyId)).filter((e) => e.reason === 'GRANT_ENDED');
+      expect(ended).toEqual([{ plan: 'free', reason: 'GRANT_ENDED' }]);
     }
   });
 });

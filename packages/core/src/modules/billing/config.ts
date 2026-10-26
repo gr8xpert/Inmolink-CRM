@@ -57,6 +57,12 @@ const DEFAULT_GRACE_DAYS = 14;
 
 export const dunningGraceMs = (): number => (current.dunningGraceDays ?? DEFAULT_GRACE_DAYS) * 86_400_000;
 
+/**
+ * S14-F1: the start of the dunning grace window at `now` — a subscription past due since before it has lost its plan.
+ * The one definition: services and jobs pass it to the repo's plan-in-force queries.
+ */
+export const graceStart = (now: Date): Date => new Date(now.getTime() - dunningGraceMs());
+
 /** Billing settings from `billingEnv` / `planEnv` values: Stripe only when its secret key is set. */
 export function billingFromEnv(env: {
   STRIPE_SECRET_KEY?: string | undefined;

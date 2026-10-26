@@ -10,7 +10,7 @@ import {
   billingStripeEvents,
   billingSubscriptions,
 } from '@inmolink/db/schema/billing';
-import { and, asc, desc, eq, exists, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, exists, inArray, isNotNull, isNull, type SQL, sql } from 'drizzle-orm';
 import { type KeysetCursor, rowAfter, rowOrder } from '../../pagination';
 import { UNKNOWN_PLAN } from './plan';
 
@@ -178,17 +178,21 @@ export async function upsertSubscription(tx: Tx, row: SubscriptionWrite): Promis
 }
 
 /**
- * S13 review: claims past-due subscriptions whose dunning grace ended (`past_due_since <= graceStart`) and whose end is
- * not announced yet — marks them (`grace_ended_at`) and answers their agencies. One claim per spell: a rerun finds
- * nothing; a new spell clears the mark (`upsertSubscription`). `billing_subscriptions_grace_idx`.
+ * S13 review: claims past-due subscriptions whose dunning grace ended and whose end is not announced yet — marks them
+ * (`grace_ended_at`) and answers their agencies. One claim per spell: a rerun finds nothing; a new spell clears the mark
+ * (`upsertSubscription`). S14-F1: the grace ended by the same rule as `liveSubscriptionSql` (a row without
+ * `past_due_since` counts from `synced_at`), written as an `or` so `billing_subscriptions_grace_idx` is walked in order
+ * (no sort; rows without `past_due_since` come last).
  */
 export async function claimEndedGraces(tx: Tx, now: Date, graceStart: Date, limit: number): Promise<string[]> {
+  const grace = graceStart.toISOString();
   const rows = await tx.execute<{ agency_id: string }>(sql`
     update ${billingSubscriptions} s set grace_ended_at = ${now.toISOString()}::timestamptz
     where s.agency_id in (
       select agency_id from ${billingSubscriptions}
       where status = 'PAST_DUE' and grace_ended_at is null
-        and past_due_since <= ${graceStart.toISOString()}::timestamptz
+        and (past_due_since <= ${grace}::timestamptz
+          or (past_due_since is null and synced_at <= ${grace}::timestamptz))
       order by past_due_since
       limit ${limit}
       for update skip locked
@@ -503,32 +507,52 @@ export interface PlanInForce {
   grant: { kind: 'TRIAL' | 'STAFF'; planCode: string; endsAt: Date } | null;
 }
 
-/** The plans an agency has now (`planInForce`): its live subscription's, its running grants', and Free. */
-function candidatesSql(agencyId: string, now: Date, graceStart: Date) {
-  const at = now.toISOString();
-  return sql`
-      select s.plan_code, null::billing_plan_grant_kind as grant_kind, null::timestamptz as ends_at
-      from ${billingSubscriptions} s
-      where s.agency_id = ${agencyId}::uuid
-        and (s.status in ('TRIALING', 'ACTIVE')
-          or (s.status = 'PAST_DUE'
-            and coalesce(s.past_due_since, s.synced_at) > ${graceStart.toISOString()}::timestamptz))
-      union all
-      select g.plan_code, g.kind, g.ends_at
-      from ${billingPlanGrants} g
-      where g.agency_id = ${agencyId}::uuid and g.revoked_at is null
-        and g.starts_at <= ${at}::timestamptz and g.ends_at > ${at}::timestamptz
-      union all
-      select ${FREE_PLAN}, null, null`;
-}
+/** A uuid[] bind parameter (one parameter, not one per element). */
+const uuidArray = (ids: readonly string[]) => sql`${sql.param(ids)}::uuid[]`;
 
 /**
- * The agency's plan now (one statement): the highest-ranked catalog plan among its subscription's (TRIALING, ACTIVE, or
- * PAST_DUE since after `graceStart` — a row without `past_due_since` counts from its last sync) and its running grants', else Free's row. A plan code the catalog does not know
- * (an unknown price) counts as Free. Retired (inactive) plans still apply to whoever has them.
+ * S14-F1: the one definition of a live subscription row `s` (its plan and add-ons are in force): TRIALING, ACTIVE, or
+ * PAST_DUE since after `graceStart` — a row without `past_due_since` counts from its last sync (`synced_at`).
  */
-export async function planInForce(tx: Tx, agencyId: string, now: Date, graceStart: Date): Promise<PlanInForce> {
+const liveSubscriptionSql = (graceStart: Date) => sql`(s.status in ('TRIALING', 'ACTIVE')
+          or (s.status = 'PAST_DUE'
+            and coalesce(s.past_due_since, s.synced_at) > ${graceStart.toISOString()}::timestamptz))`;
+
+/** The plans the agencies have now (`plansInForce`): each one's live subscription's, its running grants', and Free. */
+function candidatesSql(agencyIds: readonly string[], now: Date, graceStart: Date) {
+  const at = now.toISOString();
+  return sql`
+      select s.agency_id, s.plan_code, null::billing_plan_grant_kind as grant_kind, null::timestamptz as ends_at
+      from ${billingSubscriptions} s
+      where s.agency_id = any(${uuidArray(agencyIds)}) and ${liveSubscriptionSql(graceStart)}
+      union all
+      select g.agency_id, g.plan_code, g.kind, g.ends_at
+      from ${billingPlanGrants} g
+      where g.agency_id = any(${uuidArray(agencyIds)}) and g.revoked_at is null
+        and g.starts_at <= ${at}::timestamptz and g.ends_at > ${at}::timestamptz
+      union all
+      select a.id, ${FREE_PLAN}, null, null from unnest(${uuidArray(agencyIds)}) as a(id)`;
+}
+
+/** No Free row in the catalog (a bare test database): Free without limits or features. */
+const BARE_FREE: PlanInForce = { code: FREE_PLAN, seats: null, features: [], limits: {}, grant: null };
+
+/**
+ * The plans of `agencyIds` now, in one statement (S14-F1: the only definition of the plan in force): for each, the
+ * highest-ranked catalog plan among its live subscription's (`liveSubscriptionSql`) and its running grants', else
+ * Free's row. A plan code the catalog does not know (an unknown price) counts as Free. Retired (inactive) plans still
+ * apply to whoever has them. Every id given is in the map.
+ */
+export async function plansInForce(
+  tx: Tx,
+  agencyIds: readonly string[],
+  now: Date,
+  graceStart: Date,
+): Promise<Map<string, PlanInForce>> {
+  const plans = new Map<string, PlanInForce>();
+  if (agencyIds.length === 0) return plans;
   const rows = await tx.execute<{
+    agency_id: string;
     code: string;
     seats_included: number | null;
     features: string[];
@@ -536,25 +560,31 @@ export async function planInForce(tx: Tx, agencyId: string, now: Date, graceStar
     grant_kind: 'TRIAL' | 'STAFF' | null;
     ends_at: Date | string | null;
   }>(sql`
-    with candidates as (${candidatesSql(agencyId, now, graceStart)})
-    select i.code, i.seats_included, i.features, i.limits, c.grant_kind, c.ends_at
+    with candidates as (${candidatesSql(agencyIds, now, graceStart)})
+    select distinct on (c.agency_id)
+      c.agency_id, i.code, i.seats_included, i.features, i.limits, c.grant_kind, c.ends_at
     from candidates c
     join ${billingCatalogItems} i on i.code = c.plan_code and i.kind = 'PLAN'
-    order by i.rank desc, c.grant_kind nulls first, c.ends_at desc
-    limit 1`);
-  const row = rows.rows[0];
-  // No Free row in the catalog (a bare test database): Free without limits or features.
-  if (!row) return { code: FREE_PLAN, seats: null, features: [], limits: {}, grant: null };
-  return {
-    code: row.code,
-    seats: row.seats_included,
-    features: row.features,
-    limits: row.limits ?? {},
-    grant:
-      row.grant_kind && row.ends_at
-        ? { kind: row.grant_kind, planCode: row.code, endsAt: new Date(row.ends_at) }
-        : null,
-  };
+    order by c.agency_id, i.rank desc, c.grant_kind nulls first, c.ends_at desc`);
+  for (const row of rows.rows) {
+    plans.set(row.agency_id, {
+      code: row.code,
+      seats: row.seats_included,
+      features: row.features,
+      limits: row.limits ?? {},
+      grant:
+        row.grant_kind && row.ends_at
+          ? { kind: row.grant_kind, planCode: row.code, endsAt: new Date(row.ends_at) }
+          : null,
+    });
+  }
+  for (const id of agencyIds) if (!plans.has(id)) plans.set(id, BARE_FREE);
+  return plans;
+}
+
+/** The agency's plan now (one statement): `plansInForce` of one agency. */
+export async function planInForce(tx: Tx, agencyId: string, now: Date, graceStart: Date): Promise<PlanInForce> {
+  return (await plansInForce(tx, [agencyId], now, graceStart)).get(agencyId) ?? BARE_FREE;
 }
 
 /** The plans of the catalog with their rank and gated features (a few rows): `requirePlan`'s matrix. */
@@ -572,14 +602,27 @@ export async function planMatrix(tx: Tx) {
     .orderBy(asc(billingCatalogItems.rank), asc(billingCatalogItems.code));
 }
 
-/** Seats each add-on unit adds (extra user), for the add-on codes given. */
-export async function addonSeats(tx: Tx, codes: string[]): Promise<Map<string, number>> {
-  if (codes.length === 0) return new Map();
-  const rows = await tx
-    .select({ code: billingCatalogItems.code, seats: billingCatalogItems.seatsIncluded })
-    .from(billingCatalogItems)
-    .where(and(eq(billingCatalogItems.kind, 'ADDON'), inArray(billingCatalogItems.code, codes)));
-  return new Map(rows.map((r) => [r.code, r.seats ?? 0]));
+/**
+ * What the live subscription's add-ons of `agencyId` add (units × `perUnit` of the add-on catalog row `ai`), as a scalar
+ * subquery: 0 without a live subscription (`liveSubscriptionSql`) or on an unknown plan.
+ */
+function addonSumSql(agencyId: string, graceStart: Date, perUnit: SQL) {
+  return sql`(select coalesce(sum((a.item->>'quantity')::int * coalesce(${perUnit}, 0)), 0)::int
+       from ${billingSubscriptions} s
+       cross join lateral jsonb_array_elements(s.addons) as a(item)
+       join ${billingCatalogItems} ai on ai.code = a.item->>'code' and ai.kind = 'ADDON'
+       where s.agency_id = ${agencyId}::uuid and s.plan_code <> ${UNKNOWN_PLAN} and ${liveSubscriptionSql(graceStart)})`;
+}
+
+/**
+ * S14-F1: the seats the live subscription's add-ons add (units × the add-on's `seats_included`: extra user), in one
+ * statement — the same live-subscription rule as the plan in force.
+ */
+export async function addonSeatUnits(tx: Tx, agencyId: string, graceStart: Date): Promise<number> {
+  const rows = await tx.execute<{ n: number }>(
+    sql`select ${addonSumSql(agencyId, graceStart, sql`ai.seats_included`)} as n`,
+  );
+  return rows.rows[0]?.n ?? 0;
 }
 
 /**
@@ -587,20 +630,15 @@ export async function addonSeats(tx: Tx, codes: string[]): Promise<Map<string, n
  * statement; 0 without a live subscription (TRIALING, ACTIVE, or PAST_DUE within the grace; not an unknown plan).
  */
 export async function addonQuotaUnits(tx: Tx, agencyId: string, quota: string, graceStart: Date): Promise<number> {
-  const rows = await tx.execute<{ n: number }>(sql`
-    select coalesce(sum((a.item->>'quantity')::int * coalesce((ai.limits->>${quota})::int, 0)), 0)::int as n
-    from ${billingSubscriptions} s
-    cross join lateral jsonb_array_elements(s.addons) as a(item)
-    join ${billingCatalogItems} ai on ai.code = a.item->>'code' and ai.kind = 'ADDON'
-    where s.agency_id = ${agencyId}::uuid and s.plan_code <> ${UNKNOWN_PLAN}
-      and (s.status in ('TRIALING', 'ACTIVE')
-        or (s.status = 'PAST_DUE' and coalesce(s.past_due_since, s.synced_at) > ${graceStart.toISOString()}::timestamptz))`);
+  const rows = await tx.execute<{ n: number }>(
+    sql`select ${addonSumSql(agencyId, graceStart, sql`(ai.limits->>${quota})::int`)} as n`,
+  );
   return rows.rows[0]?.n ?? 0;
 }
 
 /**
  * S13-F21: the plan in force's limit of `quota` plus what the live subscription's add-ons add — one statement (the
- * `planInForce` candidates and the add-on sum). `limit` undefined: the plan has no limit for it.
+ * `plansInForce` candidates and the add-on sum). `limit` undefined: the plan has no limit for it.
  */
 export async function quotaInForce(
   tx: Tx,
@@ -609,9 +647,8 @@ export async function quotaInForce(
   now: Date,
   graceStart: Date,
 ): Promise<{ code: string; limit: number | undefined; extra: number }> {
-  const grace = graceStart.toISOString();
   const rows = await tx.execute<{ code: string; base: number | null; extra: number }>(sql`
-    with candidates as (${candidatesSql(agencyId, now, graceStart)}),
+    with candidates as (${candidatesSql([agencyId], now, graceStart)}),
     plan as (
       select i.code, (i.limits->>${quota})::int as base
       from candidates c
@@ -619,14 +656,7 @@ export async function quotaInForce(
       order by i.rank desc, c.grant_kind nulls first, c.ends_at desc
       limit 1
     )
-    select p.code, p.base,
-      (select coalesce(sum((a.item->>'quantity')::int * coalesce((ai.limits->>${quota})::int, 0)), 0)::int
-       from ${billingSubscriptions} s
-       cross join lateral jsonb_array_elements(s.addons) as a(item)
-       join ${billingCatalogItems} ai on ai.code = a.item->>'code' and ai.kind = 'ADDON'
-       where s.agency_id = ${agencyId}::uuid and s.plan_code <> ${UNKNOWN_PLAN}
-         and (s.status in ('TRIALING', 'ACTIVE')
-           or (s.status = 'PAST_DUE' and coalesce(s.past_due_since, s.synced_at) > ${grace}::timestamptz))) as extra
+    select p.code, p.base, ${addonSumSql(agencyId, graceStart, sql`(ai.limits->>${quota})::int`)} as extra
     from plan p`);
   const row = rows.rows[0];
   // No Free row in the catalog (a bare test database): Free without limits.

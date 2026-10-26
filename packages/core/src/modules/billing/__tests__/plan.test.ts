@@ -108,13 +108,11 @@ describe('plan quotas', () => {
   });
 });
 
-describe('dunning grace', () => {
-  const graceStart = new Date('2026-10-11T00:00:00Z');
-  it('[S13-02] a past-due subscription keeps its plan within the grace, then falls back to Free', () => {
-    const sub = { planCode: 'pro', status: 'PAST_DUE' as const };
-    expect(effectivePlan({ ...sub, pastDueSince: new Date('2026-10-20T00:00:00Z') }, graceStart)).toBe('pro');
-    expect(effectivePlan({ ...sub, pastDueSince: new Date('2026-10-01T00:00:00Z') }, graceStart)).toBe(FREE_PLAN);
-    expect(effectivePlan({ planCode: 'pro', status: 'UNPAID' }, graceStart)).toBe(FREE_PLAN);
-    expect(effectivePlan({ planCode: 'pro', status: 'ACTIVE', pastDueSince: null }, graceStart)).toBe('pro');
+describe('effectivePlan', () => {
+  it('[S14-F1] maps only an unknown (or missing) plan code to Free; liveness is the SQL plan in force', () => {
+    expect(effectivePlan('pro')).toBe('pro');
+    expect(effectivePlan('unknown')).toBe(FREE_PLAN);
+    expect(effectivePlan(null)).toBe(FREE_PLAN);
+    expect(effectivePlan(undefined)).toBe(FREE_PLAN);
   });
 });

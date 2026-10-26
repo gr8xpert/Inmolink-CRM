@@ -1,5 +1,10 @@
-import type { BillingCurrency, BillingInterval, SubscriptionStatus } from '@inmolink/contracts';
-import { SubscriptionStatus as SubscriptionStatusSchema } from '@inmolink/contracts';
+import {
+  type BillingCurrency,
+  type BillingInterval,
+  FREE_PLAN,
+  type SubscriptionStatus,
+  SubscriptionStatus as SubscriptionStatusSchema,
+} from '@inmolink/contracts';
 import { type Tx, withSystem } from '@inmolink/db';
 import { clock } from '@inmolink/platform/clock';
 import { newId } from '@inmolink/platform/ids';
@@ -7,7 +12,7 @@ import type { Logger } from '@inmolink/platform/logger';
 import { emit } from '@inmolink/platform/outbox';
 import { defineJob, UnrecoverableError } from '@inmolink/platform/queue';
 import { z } from 'zod';
-import { billingConfig, dunningGraceMs, stripeClient } from './config';
+import { billingConfig, dunningGraceMs, graceStart, stripeClient } from './config';
 import { billingEvents } from './events';
 import { UNKNOWN_PLAN } from './plan';
 import * as repo from './repo';
@@ -31,7 +36,7 @@ const STRIPE_EVENT_RETENTION_DAYS = 30;
 const PRUNE_BATCH = 5_000;
 /** Stripe calls per catalog sync run (workers.md: ≤ 100 API calls per batch). */
 const SYNC_BATCH = 50;
-/** Grants claimed per `billing.endPlanGrants` statement (one plan read and one event per agency). */
+/** Grants (or graces) claimed per batch: one claim, one batched plan read and one event insert per batch (S14-F1). */
 const GRANT_BATCH = 200;
 
 export const billingJobs = {
@@ -164,7 +169,7 @@ export const billingJobs = {
           grantedBy: null,
         });
         if (!started) return { skipped: 'had_trial' };
-        const plan = await repo.planInForce(tx, p.agencyId, now, new Date(now.getTime() - dunningGraceMs()));
+        const plan = await repo.planInForce(tx, p.agencyId, now, graceStart(now));
         await emit(tx, billingEvents.planChanged({ agencyId: p.agencyId, plan: plan.code, reason: 'TRIAL_STARTED' }));
         return { started: trial.planCode };
       });
@@ -189,11 +194,18 @@ export const billingJobs = {
         const ended = await withSystem('billing.endPlanGrants', async (tx) => {
           const now = clock.now();
           const ids = await repo.claimEndedGrants(tx, now, GRANT_BATCH);
-          const graceStart = new Date(now.getTime() - dunningGraceMs());
-          for (const agencyId of ids) {
-            const plan = await repo.planInForce(tx, agencyId, now, graceStart);
-            await emit(tx, billingEvents.planChanged({ agencyId, plan: plan.code, reason: 'GRANT_ENDED' }));
-          }
+          // S14-F1: a fixed number of statements per batch — the plans in one read, the events in one insert.
+          const plans = await repo.plansInForce(tx, ids, now, graceStart(now));
+          await emit(
+            tx,
+            ids.map((agencyId) =>
+              billingEvents.planChanged({
+                agencyId,
+                plan: plans.get(agencyId)?.code ?? FREE_PLAN,
+                reason: 'GRANT_ENDED',
+              }),
+            ),
+          );
           return ids.length;
         });
         agencies += ended;
@@ -222,12 +234,19 @@ export const billingJobs = {
       for (;;) {
         const ended = await withSystem('billing.endDunningGrace', async (tx) => {
           const now = clock.now();
-          const graceStart = new Date(now.getTime() - dunningGraceMs());
-          const ids = await repo.claimEndedGraces(tx, now, graceStart, GRANT_BATCH);
-          for (const agencyId of ids) {
-            const plan = await repo.planInForce(tx, agencyId, now, graceStart);
-            await emit(tx, billingEvents.planChanged({ agencyId, plan: plan.code, reason: 'GRACE_ENDED' }));
-          }
+          const grace = graceStart(now);
+          const ids = await repo.claimEndedGraces(tx, now, grace, GRANT_BATCH);
+          const plans = await repo.plansInForce(tx, ids, now, grace);
+          await emit(
+            tx,
+            ids.map((agencyId) =>
+              billingEvents.planChanged({
+                agencyId,
+                plan: plans.get(agencyId)?.code ?? FREE_PLAN,
+                reason: 'GRACE_ENDED',
+              }),
+            ),
+          );
           return ids.length;
         });
         agencies += ended;
@@ -378,9 +397,9 @@ async function applySubscription(tx: Tx, agencyId: string, s: StripeSubscription
     return p?.kind === 'ADDON' ? [{ code: p.code, quantity: i.quantity }] : [];
   });
   const now = clock.now();
-  const graceStart = new Date(now.getTime() - dunningGraceMs());
+  const grace = graceStart(now);
   // S13 review: the plan in force before and after (grants count: a staff grant keeping Pro announces no fall to Free).
-  const before = current ? (await repo.planInForce(tx, agencyId, now, graceStart)).code : null;
+  const before = current ? (await repo.planInForce(tx, agencyId, now, grace)).code : null;
   // The dunning grace counts from the first time Stripe reported the subscription past due.
   const pastDueSince =
     status === 'PAST_DUE'
@@ -402,7 +421,7 @@ async function applySubscription(tx: Tx, agencyId: string, s: StripeSubscription
     pastDueSince,
     syncedAt: now,
   });
-  const plan = (await repo.planInForce(tx, agencyId, now, graceStart)).code;
+  const plan = (await repo.planInForce(tx, agencyId, now, grace)).code;
   if (before !== plan || current?.status !== status) {
     await emit(
       tx,

@@ -2,7 +2,6 @@ import {
   type BillingOverviewDto,
   type BillingRedirectDto,
   type CatalogItemDto,
-  FREE_PLAN,
   type GrantPlanBody,
   type InvoicePage,
   type ListInvoicesQuery,
@@ -23,10 +22,10 @@ import { newId } from '@inmolink/platform/ids';
 import { emit } from '@inmolink/platform/outbox';
 import type { Ctx, CtxRunner, StaffCtx } from '../../context';
 import { decodeCursor, toPage } from '../../pagination';
-import { billingConfig, dunningGraceMs, stripeClient } from './config';
+import { billingConfig, dunningGraceMs, graceStart, stripeClient } from './config';
 import { billingEvents } from './events';
 import { billingJobs } from './jobs';
-import { effectivePlan, planGate, quotaGate } from './plan';
+import { planGate, quotaGate } from './plan';
 import { assertCan, assertStaffCan, can } from './policy';
 import * as repo from './repo';
 import { StripeError, verifyStripeSignature } from './stripe';
@@ -35,9 +34,6 @@ import { StripeError, verifyStripeSignature } from './stripe';
  * billing use cases (PATTERNS §7): `(ctx: Ctx, input) → DTO`. Authorize with `assertCan`, read and
  * write through `./repo`, emit outbox events in the same transaction, never call the network inside one.
  */
-
-/** The start of the dunning grace window: a subscription past due since before it has lost its plan. */
-const graceStart = (now: Date) => new Date(now.getTime() - dunningGraceMs());
 
 /**
  * S13-02: the agency's plan in force (one statement) — the highest of its live subscription's (past due: within the
@@ -136,19 +132,6 @@ export async function requireAgencyQuota(
   });
 }
 
-/** What the live subscription's add-ons add (`perUnit` per add-on code × quantity); 0 on Free or without add-ons. */
-async function addonUnits(
-  tx: Tx,
-  agencyId: string,
-  now: Date,
-  perUnit: (codes: string[]) => Promise<Map<string, number>>,
-): Promise<number> {
-  const sub = await repo.subscriptionOf(tx, agencyId);
-  if (!sub || effectivePlan(sub, graceStart(now)) === FREE_PLAN || sub.addons.length === 0) return 0;
-  const units = await perUnit(sub.addons.map((a) => a.code));
-  return sub.addons.reduce((n, a) => n + (units.get(a.code) ?? 0) * a.quantity, 0);
-}
-
 /**
  * S13-02: serialises the seat checks of the caller's agency until the transaction ends. Call it before counting the
  * seats in use (two concurrent invites must not both take the last seat; S1-02 review).
@@ -175,7 +158,8 @@ async function seatLimit(tx: Tx, agencyId: string): Promise<{ plan: string; seat
   const now = clock.now();
   const plan = await repo.planInForce(tx, agencyId, now, graceStart(now));
   if (plan.seats === null) return { plan: plan.code, seats: null };
-  const extra = await addonUnits(tx, agencyId, now, (codes) => repo.addonSeats(tx, codes));
+  // S14-F1: the add-on seats follow the same live-subscription rule as the plan (one statement, in SQL).
+  const extra = await repo.addonSeatUnits(tx, agencyId, graceStart(now));
   return { plan: plan.code, seats: plan.seats + extra };
 }
 
