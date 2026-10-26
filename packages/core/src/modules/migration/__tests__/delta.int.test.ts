@@ -306,4 +306,29 @@ describe('legacy delta sync (S14-04)', () => {
       migration.registerLegacyDeltaSource(null);
     }
   });
+  it('[S15-F4] with a legacy URL configured the hourly job queues one delta per non-cut-over agency', async () => {
+    const open = await loaded('g');
+    const done = await loaded('h');
+    await migration.markLegacyAgencyCutOver({
+      legacyAgencyId: done.legacyAgencyId,
+      agencyId: done.founder.agencyId,
+      cutOver: true,
+    });
+    expect(migration.configureLegacyDelta({ url: undefined })).toBe(false);
+    expect(migration.legacyDeltaSourceFactory()).toBeNull();
+    // The URL is only used when a delta runs; the schedule needs a registered reader.
+    expect(migration.configureLegacyDelta({ url: 'postgres://legacy.invalid:5432/legacy' })).toBe(true);
+    try {
+      const due: string[] = [];
+      for await (const page of migration.deltaAgencies()) due.push(...page.map((a) => a.legacyAgencyId));
+      expect(due).toContain(open.legacyAgencyId);
+      expect(due).not.toContain(done.legacyAgencyId);
+      const log = { info: () => {}, warn: () => {}, error: () => {} } as never;
+      const ctx = { log, signal: new AbortController().signal, attempt: 1 } as never;
+      const out = (await migrationJobs.scheduleLegacyDeltas.spec.run({}, ctx)) as { queued: number };
+      expect(out.queued).toBe(due.length);
+    } finally {
+      migration.registerLegacyDeltaSource(null);
+    }
+  });
 });

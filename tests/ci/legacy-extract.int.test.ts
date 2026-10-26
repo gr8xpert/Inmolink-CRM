@@ -4,16 +4,20 @@ import { join } from 'node:path';
 import { migrateEnv } from '@inmolink/db/migrate';
 import { loadStackEnv } from '@inmolink/db/testing';
 import { loadConfig } from '@inmolink/platform/config';
+import { openLegacySnapshot } from '@inmolink/platform/legacy-db';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { createFixtureReader, type FixtureReader } from '../../scripts/ci/legacy-fixture';
 import { dropDatabase, freshDatabase } from '../../scripts/ci/migrations';
-import { assertOutsideRepo, hashOutput, openReadOnly, runExtract } from '../../scripts/legacy-migration/extract-lib';
+import { assertOutsideRepo, hashOutput, runExtract } from '../../scripts/legacy-migration/extract-lib';
 
 /** Legacy extract (S14-01) against a fixture legacy database (fake data; the real dump is H1). */
 
 const DB = `legacy_fixture_${process.pid}`;
 const dirs: string[] = [];
 let url = '';
+let adminUrl = '';
+let reader: FixtureReader | undefined;
 let cfg: ReturnType<typeof loadConfig<typeof migrateEnv>>;
 
 const out = () => {
@@ -26,8 +30,8 @@ beforeAll(async () => {
   loadStackEnv('test');
   cfg = loadConfig(migrateEnv);
   const scoped = await freshDatabase(cfg, DB);
-  url = scoped.DATABASE_URL_ADMIN as string;
-  const c = new pg.Client({ connectionString: url });
+  adminUrl = scoped.DATABASE_URL_ADMIN as string;
+  const c = new pg.Client({ connectionString: adminUrl });
   await c.connect();
   await c.query(`
     CREATE TABLE agencies (id int PRIMARY KEY, name text);
@@ -49,11 +53,14 @@ beforeAll(async () => {
     INSERT INTO development_units VALUES (1,1,'A1'),(2,1,'A2');
   `);
   await c.end();
+  reader = await createFixtureReader(adminUrl, DB);
+  url = reader.url;
 });
 
 afterAll(async () => {
   for (const d of dirs) rmSync(d, { recursive: true, force: true });
   if (cfg) await dropDatabase(cfg, DB);
+  await reader?.drop();
 });
 
 describe('legacy extract', () => {
@@ -106,15 +113,18 @@ describe('legacy extract', () => {
   });
 
   it('[S14-01] never writes to the legacy database: the connection refuses writes', async () => {
-    const client = await openReadOnly(url);
+    const snap = await openLegacySnapshot({ url });
     try {
-      await expect(client.query("INSERT INTO agencies VALUES (9,'x')")).rejects.toMatchObject({ code: '25006' });
-      await client.query('BEGIN READ ONLY');
-      await expect(client.query('DELETE FROM contacts')).rejects.toMatchObject({ code: '25006' });
+      await expect(snap.query("INSERT INTO agencies VALUES (9,'x')")).rejects.toMatchObject({
+        code: 'LEGACY_DB_READ_ONLY',
+      });
+      await expect(
+        snap.query('WITH d AS (DELETE FROM contacts RETURNING id) SELECT count(*) FROM d'),
+      ).rejects.toMatchObject({ code: '25006' });
     } finally {
-      await client.end();
+      await snap.close();
     }
-    const c = new pg.Client({ connectionString: url });
+    const c = new pg.Client({ connectionString: adminUrl });
     await c.connect();
     const n = await c.query(
       'SELECT (SELECT count(*) FROM agencies)::int AS a, (SELECT count(*) FROM contacts)::int AS c',

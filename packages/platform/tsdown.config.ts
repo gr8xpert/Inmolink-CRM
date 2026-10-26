@@ -13,6 +13,7 @@ export default defineConfig({
     'email/index': 'src/email/index.ts',
     'errors/index': 'src/errors/index.ts',
     'jwt/index': 'src/jwt/index.ts',
+    'legacy-db/index': 'src/legacy-db/index.ts',
     'flags/index': 'src/flags/index.ts',
     'http/index': 'src/http/index.ts',
     'ids/index': 'src/ids/index.ts',

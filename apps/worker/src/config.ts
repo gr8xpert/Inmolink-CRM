@@ -25,6 +25,7 @@ import {
   webUrlEnv,
 } from '@inmolink/platform/config';
 import type { EmailConfig } from '@inmolink/platform/email';
+import { legacyDbEnv } from '@inmolink/platform/legacy-db';
 import { pdfEnv } from '@inmolink/platform/pdf';
 import { POOLS, type Pool } from '@inmolink/platform/queue';
 import { z } from 'zod';
@@ -115,6 +116,8 @@ const billingPoolEnv = {
   STRIPE_API_VERSION: billingEnv.STRIPE_API_VERSION,
   // S13-02: trials, plan grants ending, dunning grace.
   ...planEnv,
+  // S15-F4: the read-only legacy database of the hourly delta (unset: the job queues nothing).
+  ...legacyDbEnv,
 };
 
 /** S12-07: the `social` pool publishes to Meta (the app, image URLs under the media CDN). */

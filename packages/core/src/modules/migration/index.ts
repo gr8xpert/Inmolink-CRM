@@ -68,6 +68,19 @@ export {
   reloadLegacyTaxonomy,
   resetLegacyIdCache,
 } from './legacy-ids';
+export {
+  assertIdent,
+  configureLegacyDelta,
+  DEFAULT_ENTITIES,
+  type DeltaMode,
+  type EntitySpec,
+  type LegacyDeltaReader,
+  type OpenDeltaOptions,
+  openLegacyDeltaReader,
+  qualified,
+  scope,
+  validateSpecs,
+} from './legacy-reader';
 export { agencyOfLegacy } from './legacy-rows';
 export {
   addIssue,

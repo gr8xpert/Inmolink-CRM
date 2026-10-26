@@ -8,53 +8,20 @@ import { once } from 'node:events';
 import { createWriteStream, existsSync, mkdirSync, readdirSync, renameSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join, relative, resolve, sep } from 'node:path';
-import pg from 'pg';
+import {
+  assertIdent,
+  DEFAULT_ENTITIES,
+  type EntitySpec,
+  qualified,
+  scope,
+  validateSpecs,
+} from '@inmolink/core/modules/migration';
+import { type LegacySnapshot, openLegacySnapshot, stableJson } from '@inmolink/platform/legacy-db';
 
 const REPO_ROOT = resolve(import.meta.dirname, '..', '..');
-const IDENT = /^[a-z_][a-z0-9_]{0,62}$/i;
 
-/** One legacy entity: where it lives and how it belongs to an agency. Column names are config (the real schema is H1). */
-export interface EntitySpec {
-  /** Staging file name and inventory key. */
-  name: string;
-  table: string;
-  schema?: string;
-  idColumn: string;
-  /** Own agency column; mutually exclusive with `viaParent`. The agencies entity itself uses `isAgency`. */
-  agencyColumn?: string;
-  /** Child rows without an agency column: joined to a parent entity's table. */
-  viaParent?: { entity: string; fkColumn: string };
-  /** The entity whose rows are the agencies (batching key). */
-  isAgency?: boolean;
-  /**
-   * S14-04: the row's last-change timestamp for the delta sync (default `updated_at`). A table without it is read whole
-   * on every delta (the full-compare fallback).
-   */
-  updatedColumn?: string;
-}
-
-/** Best-known legacy shape (PLAN §14, M22). Override per dump with `--map <file.json>` once H1 delivers the schema. */
-export const DEFAULT_ENTITIES: EntitySpec[] = [
-  { name: 'agencies', table: 'agencies', idColumn: 'id', isAgency: true },
-  { name: 'users', table: 'users', idColumn: 'id', agencyColumn: 'agency_id' },
-  { name: 'contacts', table: 'contacts', idColumn: 'id', agencyColumn: 'agency_id' },
-  { name: 'leads', table: 'leads', idColumn: 'id', agencyColumn: 'agency_id' },
-  { name: 'properties', table: 'properties', idColumn: 'id', agencyColumn: 'agency_id' },
-  {
-    name: 'property_images',
-    table: 'property_images',
-    idColumn: 'id',
-    viaParent: { entity: 'properties', fkColumn: 'property_id' },
-  },
-  { name: 'developments', table: 'developments', idColumn: 'id', agencyColumn: 'agency_id' },
-  // S4-04: the units of a new-build project (`legacy:load` loads both files).
-  {
-    name: 'development_units',
-    table: 'development_units',
-    idColumn: 'id',
-    viaParent: { entity: 'developments', fkColumn: 'development_id' },
-  },
-];
+// The entity specs and scope SQL live in the migration module (S15-F4), shared with the worker's delta reader.
+export { DEFAULT_ENTITIES, type EntitySpec, qualified, scope, stableJson, validateSpecs };
 
 export interface ExtractOptions {
   /** Connection string of the restored legacy copy. */
@@ -89,11 +56,6 @@ export interface Inventory {
   uncoveredTables: string[];
 }
 
-export function assertIdent(value: string, what: string): string {
-  if (!IDENT.test(value)) throw new TypeError(`invalid ${what} identifier: ${JSON.stringify(value)}`);
-  return pg.escapeIdentifier(value);
-}
-
 /** The extract never writes into the repo (CLAUDE.md: legacy data stays outside it). */
 export function assertOutsideRepo(outDir: string): string {
   const abs = resolve(outDir);
@@ -103,71 +65,8 @@ export function assertOutsideRepo(outDir: string): string {
   return abs;
 }
 
-/** Postgres connection that cannot write: session default read-only, so even a stray statement is refused (25006). */
-export async function openReadOnly(url: string): Promise<pg.Client> {
-  const client = new pg.Client({
-    connectionString: url,
-    connectionTimeoutMillis: 10_000,
-    options: '-c default_transaction_read_only=on -c statement_timeout=600000',
-    application_name: 'inmolink-legacy-extract',
-  });
-  await client.connect();
-  return client;
-}
-
-/** Stable JSON: sorted keys, Dates as ISO, bigint/Buffer as strings, so equal data gives equal bytes. */
-export function stableJson(value: unknown): string {
-  return JSON.stringify(value, (_k, v: unknown) => {
-    if (typeof v === 'bigint') return v.toString();
-    if (Buffer.isBuffer(v)) return `base64:${v.toString('base64')}`;
-    if (v && typeof v === 'object' && !Array.isArray(v) && !(v instanceof Date)) {
-      return Object.fromEntries(
-        Object.entries(v as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
-      );
-    }
-    return v;
-  });
-}
-
-export const qualified = (e: EntitySpec) =>
-  `${e.schema ? `${assertIdent(e.schema, 'schema')}.` : ''}${assertIdent(e.table, 'table')}`;
-
-export function validateSpecs(entities: EntitySpec[]): void {
-  const names = new Set<string>();
-  for (const e of entities) {
-    if (names.has(e.name)) throw new Error(`duplicate entity ${e.name}`);
-    names.add(e.name);
-    if (!/^[a-z0-9_]+$/i.test(e.name)) throw new TypeError(`invalid entity name ${e.name}`);
-    qualified(e);
-    assertIdent(e.idColumn, 'column');
-    if (e.agencyColumn) assertIdent(e.agencyColumn, 'column');
-    if (e.viaParent) assertIdent(e.viaParent.fkColumn, 'column');
-    if (e.updatedColumn) assertIdent(e.updatedColumn, 'column');
-    if (!e.isAgency && !e.agencyColumn && !e.viaParent) throw new Error(`entity ${e.name} has no agency scope`);
-  }
-  if (entities.filter((e) => e.isAgency).length !== 1) throw new Error('exactly one entity must have isAgency');
-  for (const e of entities) {
-    if (e.viaParent && !names.has(e.viaParent.entity))
-      throw new Error(`${e.name}: unknown parent ${e.viaParent.entity}`);
-  }
-}
-
-/** FROM/WHERE for one entity within one agency (`$1` = legacy agency id). The agency-owning table is aliased `t`. */
-export function scope(e: EntitySpec, byName: Map<string, EntitySpec>): { from: string; where: string } {
-  const t = qualified(e);
-  if (e.isAgency) return { from: `${t} t`, where: `t.${assertIdent(e.idColumn, 'column')}::text = $1` };
-  if (e.agencyColumn) return { from: `${t} t`, where: `t.${assertIdent(e.agencyColumn, 'column')}::text = $1` };
-  const via = e.viaParent as NonNullable<EntitySpec['viaParent']>;
-  const parent = byName.get(via.entity) as EntitySpec;
-  if (parent.viaParent) throw new Error(`${e.name}: parent ${parent.name} must own an agency column (one level only)`);
-  return {
-    from: `${t} c JOIN ${qualified(parent)} t ON t.${assertIdent(parent.idColumn, 'column')} = c.${assertIdent(via.fkColumn, 'column')}`,
-    where: scope(parent, byName).where,
-  };
-}
-
 async function extractEntity(
-  client: pg.Client,
+  client: LegacySnapshot,
   e: EntitySpec,
   byName: Map<string, EntitySpec>,
   agencyId: string,
@@ -182,28 +81,24 @@ async function extractEntity(
   const tmp = `${file}.tmp`;
   const out = createWriteStream(tmp, { encoding: 'utf8' });
   const hash = createHash('sha256');
-  let after: string | null = null;
   let written = 0;
-  for (;;) {
-    // Keyset on the text form of the id: stable for numeric and uuid keys alike; no OFFSET.
-    const page: pg.QueryResult<Record<string, unknown>> = await client.query(
-      `SELECT ${alias}.* FROM ${from} WHERE ${where}${after === null ? '' : ` AND ${idCol}::text > $2`} ORDER BY ${idCol}::text LIMIT ${limit}`,
-      after === null ? [agencyId] : [agencyId, after],
-    );
-    if (page.rows.length === 0) break;
-    for (const row of page.rows) {
+  // A server-side cursor over the text form of the id (stable for numeric and uuid keys alike): no OFFSET.
+  for await (const rows of client.stream(
+    `SELECT ${alias}.* FROM ${from} WHERE ${where} ORDER BY ${idCol}::text`,
+    [agencyId],
+    limit,
+  )) {
+    for (const row of rows) {
       const line = `${stableJson(row)}\n`;
       hash.update(line);
       if (!out.write(line)) await once(out, 'drain');
       written++;
     }
-    after = String((page.rows[page.rows.length - 1] as Record<string, unknown>)[e.idColumn]);
-    if (page.rows.length < limit) break;
   }
   out.end();
   await once(out, 'finish');
   renameSync(tmp, file);
-  return { legacyRows: Number(total.rows[0]?.n ?? 0), extractedRows: written, sha256: hash.digest('hex') };
+  return { legacyRows: Number(total[0]?.n ?? 0), extractedRows: written, sha256: hash.digest('hex') };
 }
 
 /** Runs the extract. Resolves with the inventory (also written to `<out>/inventory.json`). */
@@ -215,17 +110,13 @@ export async function runExtract(opts: ExtractOptions): Promise<Inventory> {
   const batchSize = opts.batchSize ?? 1000;
   const agencySpec = entities.find((e) => e.isAgency) as EntitySpec;
 
-  const client = await openReadOnly(opts.url);
+  const client = await openLegacySnapshot({ applicationName: 'inmolink-legacy-extract', url: opts.url });
   try {
-    await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
-    const ro = await client.query<{ v: string }>('SELECT current_setting($1) AS v', ['transaction_read_only']);
-    if (ro.rows[0]?.v !== 'on') throw new Error('legacy connection is not read-only; refusing to continue');
-
     const idList = (
       await client.query<{ id: string }>(
         `SELECT ${assertIdent(agencySpec.idColumn, 'column')}::text AS id FROM ${qualified(agencySpec)} ORDER BY 1`,
       )
-    ).rows.map((r) => r.id);
+    ).map((r) => r.id);
     const wanted = opts.agencyIds?.length ? opts.agencyIds : idList;
     const missing = wanted.filter((id) => !idList.includes(id));
     if (missing.length) throw new Error(`unknown legacy agency ids: ${missing.join(', ')}`);
@@ -251,15 +142,14 @@ export async function runExtract(opts: ExtractOptions): Promise<Inventory> {
       `SELECT table_schema AS s, table_name AS t FROM information_schema.tables
        WHERE table_type = 'BASE TABLE' AND table_schema NOT IN ('pg_catalog', 'information_schema') ORDER BY 1, 2`,
     );
-    const uncoveredTables = tables.rows.map((r) => `${r.s}.${r.t}`).filter((n) => !covered.has(n));
+    const uncoveredTables = tables.map((r) => `${r.s}.${r.t}`).filter((n) => !covered.has(n));
 
-    await client.query('ROLLBACK'); // nothing to commit; the snapshot ends here
     const inventory: Inventory = { entities: entities.map((e) => e.name), agencies, totals, uncoveredTables };
     mkdirSync(outDir, { recursive: true });
     await writeFile(join(outDir, 'inventory.json'), `${JSON.stringify(inventory, null, 2)}\n`);
     return inventory;
   } finally {
-    await client.end().catch(() => {});
+    await client.close(); // nothing to commit: the snapshot ends here
   }
 }
 
