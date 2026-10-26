@@ -366,6 +366,26 @@ describe('RLS generator', () => {
     expect(out.indexOf(owner)).toBeGreaterThan(out.indexOf('create or replace function agency_ai_features('));
   });
 
+  it('[S14-F7] agency_ai_features answers the website-search toggle only, for an agency with a live site', () => {
+    const body = out.split('create or replace function agency_ai_features(')[1]?.split('$$;')[0] ?? '';
+    expect(body).toContain("'WEBSITE_SEARCH' = any(s.ai_features)");
+    expect(body).toContain("then array['WEBSITE_SEARCH']::text[] else '{}'::text[] end");
+    expect(body).toMatch(/exists \(select 1 from public\.website_sites w\s+where w\.agency_id = a_id/);
+    expect(body).toContain("g.status <> 'SUSPENDED'");
+    expect(body).not.toMatch(/select coalesce\(\(select s\.ai_features/);
+    const sites = tablesSql(registry).split('-- website_sites: PUBLIC_READ')[1]?.split('\n\n')[0] ?? '';
+    expect(sites).toContain(
+      'create policy definer_read on public."website_sites" for select to app_owner using (true);',
+    );
+  });
+
+  it('[S14-F7] listing_studio_batches: members insert and read, never update or delete (the jobs write on app_system)', () => {
+    const t = tablesSql(registry).split('-- listing_studio_batches: STRICT')[1]?.split('\n\n')[0] ?? '';
+    expect(t).toContain('grant select, insert on table public."listing_studio_batches" to app_user;');
+    expect(t).not.toMatch(/grant [^;]*(?:update|delete)[^;]*listing_studio_batches" to app_user/);
+    expect(t).toContain('grant select, insert, update, delete on table public."listing_studio_batches" to app_system;');
+  });
+
   it('[S1-F10] userSelect: app_user reads through a user predicate and a column list without the hidden columns', () => {
     const userSelect = {
       sql: 'owner_user_id = app_user_id()',

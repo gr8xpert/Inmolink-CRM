@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- fix(agencies,db): public AI-toggle lookup answers website search only, for agencies with a live site; Studio batches member append/read only [S14-F7]
 - refactor(api): drop 137 per-route no-store headers now set by noStorePlugin [S14-F6]
 - fix(search): fallback filters compare kind as the enum column — network sitemap pages walk the code index again, 844 ms → 9 ms [S14-F10]
 - refactor(ai-features): one pollBatch() helper for the Listing Studio and white-label batch-collect jobs [S14-F4]

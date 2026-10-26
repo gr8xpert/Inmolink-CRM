@@ -1,6 +1,6 @@
 import { type AgencyAiFeaturesDto, AI_FEATURES, type AiFeature } from '@inmolink/contracts';
-import { type Tx, withPublicRead } from '@inmolink/db';
-import { cache, cacheKey } from '@inmolink/platform/cache';
+import { type Tx, withPublicRead, withSystem } from '@inmolink/db';
+import { type CacheKey, cache, cacheKey } from '@inmolink/platform/cache';
 import { AppError } from '@inmolink/platform/errors';
 import { emit } from '@inmolink/platform/outbox';
 import type { Ctx, CtxRunner } from '../../context';
@@ -19,8 +19,10 @@ import * as repo from './settings-repo';
  * Each feature's call site asks `aiFeatureEnabled` before any model call: one cached read (redis-cache, tagged with the
  * agency's settings tag, plus a 15-second in-process copy in the process LRU — the feed-api's AI search pays no
  * statement on a warm process). A miss is one primary-key read: on the caller's transaction (`ctx`, RLS) or, without
- * one (feed-api, workers), through the SECURITY DEFINER `agency_ai_features(uuid)` under `withPublicRead` (its own
- * read-only transaction: the platform has no non-transactional read).
+ * one, on a system transaction (workers, `withSystem`). S14-F7: feed-api (APP_ROLE=http, no `withSystem`) asks only
+ * `WEBSITE_SEARCH`, through the SECURITY DEFINER `agency_ai_features(uuid)` under `withPublicRead` (its own read-only
+ * transaction: the platform has no non-transactional read), which answers that toggle only, and only for an agency
+ * with a live website site — its own cache entry, under the same tag.
  *
  * Propagation of a change: after the commit, `setAgencyAiFeature` bumps the agency's settings tag itself, so this
  * process (its in-process copy included) and every Redis reader see the change at once; the event's subscriber bumps it
@@ -33,33 +35,53 @@ export const AI_FEATURES_CACHE = { TTL_SECONDS: 300, LOCAL_TTL_SECONDS: 15 } as 
 export const aiFeaturesCacheKey = (agencyId: string) =>
   cacheKey({ v: 1, module: 'agencies', entity: 'ai-features', scope: { agencyId } });
 
-const known = (features: readonly string[]): AiFeature[] =>
-  features.filter((f): f is AiFeature => (AI_FEATURES as readonly string[]).includes(f));
+/** S14-F7: the public (feed-api) answer — `WEBSITE_SEARCH` or nothing — cached apart from the full toggles. */
+export const websiteSearchCacheKey = (agencyId: string) =>
+  cacheKey({ v: 1, module: 'agencies', entity: 'ai-website-search', scope: { agencyId } });
 
-/** The agency's switched-on AI features (cached). `ctx` (that agency's) reads on its transaction on a miss. */
-export async function enabledAiFeatures(agencyId: string, ctx?: Ctx): Promise<AiFeature[]> {
-  const own = ctx && ctx.tenant.agencyId === agencyId ? ctx : undefined;
-  const fromDb = async (): Promise<string[]> =>
-    own
-      ? ((await repo.aiFeaturesOf(own.tx, agencyId)) ?? [])
-      : withPublicRead((tx) => repo.publicAiFeaturesOf(tx, agencyId));
-  // A transaction that switched a toggle reads its own write, and never caches it (it may still roll back).
-  if (own && settingsWritten(own.tx)) return known(await fromDb());
-  const features = await cache.get(
-    aiFeaturesCacheKey(agencyId),
+const cached = (key: CacheKey, agencyId: string, load: () => Promise<string[]>) =>
+  cache.get(
+    key,
     {
       ttlSeconds: AI_FEATURES_CACHE.TTL_SECONDS,
       localTtlSeconds: AI_FEATURES_CACHE.LOCAL_TTL_SECONDS,
       local: true,
       tags: [agencySettingsCacheTag(agencyId)],
     },
-    fromDb,
+    load,
   );
-  return known(features ?? []);
+
+const known = (features: readonly string[]): AiFeature[] =>
+  features.filter((f): f is AiFeature => (AI_FEATURES as readonly string[]).includes(f));
+
+const ownCtx = (agencyId: string, ctx?: Ctx) => (ctx && ctx.tenant.agencyId === agencyId ? ctx : undefined);
+
+/**
+ * The agency's switched-on AI features (cached). `ctx` (that agency's) reads on its transaction on a miss; without it,
+ * a system transaction (workers only: `withSystem` throws under APP_ROLE=http).
+ */
+export async function enabledAiFeatures(agencyId: string, ctx?: Ctx): Promise<AiFeature[]> {
+  const own = ownCtx(agencyId, ctx);
+  const fromDb = async (): Promise<string[]> =>
+    own
+      ? ((await repo.aiFeaturesOf(own.tx, agencyId)) ?? [])
+      : ((await withSystem(`agencies.aiFeatures: ${agencyId}`, (tx) => repo.aiFeaturesOf(tx, agencyId))) ?? []);
+  // A transaction that switched a toggle reads its own write, and never caches it (it may still roll back).
+  if (own && settingsWritten(own.tx)) return known(await fromDb());
+  return known((await cached(aiFeaturesCacheKey(agencyId), agencyId, fromDb)) ?? []);
 }
 
-/** Whether the agency switched this AI feature on: every call site asks it before any model call. */
+/**
+ * Whether the agency switched this AI feature on: every call site asks it before any model call. `WEBSITE_SEARCH`
+ * without the agency's `ctx` (feed-api) reads the public lookup: on only for an agency with a live website site.
+ */
 export async function aiFeatureEnabled(agencyId: string, feature: AiFeature, ctx?: Ctx): Promise<boolean> {
+  if (feature === 'WEBSITE_SEARCH' && !ownCtx(agencyId, ctx)) {
+    const on = await cached(websiteSearchCacheKey(agencyId), agencyId, () =>
+      withPublicRead((tx) => repo.publicAiFeaturesOf(tx, agencyId)),
+    );
+    return (on ?? []).includes(feature);
+  }
   return (await enabledAiFeatures(agencyId, ctx)).includes(feature);
 }
 

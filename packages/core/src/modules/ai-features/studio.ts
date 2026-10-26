@@ -645,9 +645,13 @@ const countOf = (outcome: StudioOutcome) => ({
   dropped: Object.keys(outcome.dropped).length,
 });
 
+/**
+ * S14-F7: the jobs advance the request's record on a system transaction (`withSystem`, worker only): members insert
+ * and read their agency's batches but never rewrite or remove one (`userAppendRead`).
+ */
 async function finish(req: StudioRequest, state: 'DONE' | 'GAVE_UP', outcome: StudioOutcome): Promise<void> {
-  await withMemberCtx(member(req), (ctx) =>
-    repo.finishStudioBatch(ctx.tx, req.agencyId, req.requestId, { state, ...countOf(outcome) }),
+  await withSystem(`aiFeatures.studioBatch: finish ${req.requestId}`, (tx) =>
+    repo.finishStudioBatch(tx, req.agencyId, req.requestId, { state, ...countOf(outcome) }),
   );
 }
 
@@ -698,10 +702,10 @@ export async function submitListingStudioBulk(input: StudioRequest): Promise<Bul
       return { status: 'DONE', outcome };
     }
     const filled = { items, hashes };
-    const stored = await withMemberCtx(member(req), async (ctx) =>
-      (await repo.fillStudioBatch(ctx.tx, req.agencyId, req.requestId, filled.items, filled.hashes))
+    const stored = await withSystem(`aiFeatures.studioBatch: fill ${req.requestId}`, async (tx) =>
+      (await repo.fillStudioBatch(tx, req.agencyId, req.requestId, filled.items, filled.hashes))
         ? null
-        : repo.getStudioBatch(ctx.tx, req.agencyId, req.requestId),
+        : repo.getStudioBatch(tx, req.agencyId, req.requestId),
     );
     // another run recorded its items first: submit those, never a second set
     if (stored) {
@@ -761,7 +765,9 @@ async function sendBatch(
     return 'DONE';
   }
   const batchId = handle.batchId;
-  await withMemberCtx(member(req), (ctx) => repo.setStudioBatchProvider(ctx.tx, req.agencyId, req.requestId, batchId));
+  await withSystem(`aiFeatures.studioBatch: provider ${req.requestId}`, (tx) =>
+    repo.setStudioBatchProvider(tx, req.agencyId, req.requestId, batchId),
+  );
   return { batchId };
 }
 

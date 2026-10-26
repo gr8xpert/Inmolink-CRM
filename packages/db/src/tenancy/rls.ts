@@ -601,13 +601,21 @@ end $$;`,
                   where p.agency_id = a_id and p.visibility <> 'PRIVATE' and p.status = 'ACTIVE'
                     and p.deleted_at is null and p.network_hidden_at is null and p.share_scope = 'ALL'
                   limit greatest(min_shared, 0)) s) >= min_shared $$;`,
-    // S13-F17: the AI features an agency switched on, for the paths that run without the agency's context — feed-api
-    // (app_public: website AI search) and workers (the white-label model pass) — through `withPublicRead`. One primary
-    // key probe of agency_settings (its `definer_read` policy); the toggles only, nothing else of the row. Cached by the
-    // caller (`agencies.aiFeatureEnabled`).
+    // S13-F17: the AI features an agency switched on, for feed-api (app_public: website AI search, `withPublicRead`).
+    // S14-F7 (S13 review): only the website-search toggle, and only for an agency with a live website site (one whose
+    // plan has not ended) that is not SUSPENDED — any other agency id, or any other toggle, answers nothing (workers
+    // read the full toggles on `withSystem`). Primary key probes of agency_settings and agencies, one range of
+    // website_sites (agency, created) — each through its `definer_read` policy. Cached by the caller
+    // (`agencies.aiFeatureEnabled`).
     `create or replace function agency_ai_features(a_id uuid) returns text[]
   language sql stable security definer set search_path = pg_catalog, pg_temp
-  as $$ select coalesce((select s.ai_features from public.agency_settings s where s.agency_id = a_id), '{}'::text[]) $$;`,
+  as $$ select case when exists (
+                 select 1 from public.agency_settings s
+                   join public.agencies g on g.agency_id = s.agency_id and g.status <> 'SUSPENDED'
+                  where s.agency_id = a_id and 'WEBSITE_SEARCH' = any(s.ai_features)
+                    and exists (select 1 from public.website_sites w
+                                 where w.agency_id = a_id and (w.plan_ends_at is null or w.plan_ends_at > now())))
+               then array['WEBSITE_SEARCH']::text[] else '{}'::text[] end $$;`,
     // S8-02: the v1 shim's listing and unit legacy ids. feed-api (app_public) reads only the taxonomy maps; these two
     // answer, for the ids a request names, the matching ids and nothing else (no scan: at most 1,000 inputs, each an
     // index probe). Owned by app_owner (its `definer_read` policy on legacy_id_maps).

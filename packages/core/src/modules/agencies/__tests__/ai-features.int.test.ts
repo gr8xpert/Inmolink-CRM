@@ -1,6 +1,6 @@
 import { AI_FEATURES } from '@inmolink/contracts';
 import { closeDb, withPublicRead, withSystem } from '@inmolink/db';
-import { setupTestDb } from '@inmolink/db/testing';
+import { setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
 import { closeCache, configureCache } from '@inmolink/platform/cache';
 import { isAppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
@@ -61,6 +61,20 @@ const auditRows = (agencyId: string) =>
     return r.rows;
   });
 
+/** A website site of the agency (S14-F7: the public lookup answers only for an agency with a live one). */
+const addSite = (agencyId: string, userId: string, planEndsAt: Date | null = null) =>
+  system((tx) =>
+    tx.execute(sql`insert into website_sites (id, agency_id, name, mode, locales, default_locale, created_by, plan_ends_at)
+      values (${newId()}, ${agencyId}, 'Site', 'WIDGET', '{en}', 'en', ${userId}, ${planEndsAt?.toISOString() ?? null})`),
+  );
+
+const publicLookup = async (agencyId: string) =>
+  (
+    (await withPublicRead((tx) => tx.execute(sql`select agency_ai_features(${agencyId}::uuid) as f`))).rows[0] as {
+      f: string[];
+    }
+  ).f;
+
 beforeAll(async () => {
   await setupTestDb('worker');
   await configureCache({ prefix: `t:agai:${newId().slice(-12)}` });
@@ -85,7 +99,7 @@ describe('AI feature toggles (S13-F17)', () => {
     const dto = await as(agent, (ctx) => agencies.getAgencyAiFeatures(ctx));
     expect(dto.features).toEqual(Object.fromEntries(AI_FEATURES.map((f) => [f, false])));
     for (const f of AI_FEATURES) expect(await agencies.aiFeatureEnabled(admin.agencyId, f)).toBe(false);
-    // the public lookup (feed-api, workers) answers the same, and nothing for an unknown agency
+    // the public lookup (feed-api) answers the same, and nothing for an unknown agency
     expect(
       await withPublicRead((tx) => tx.execute(sql`select agency_ai_features(${admin.agencyId}::uuid) as f`)),
     ).toMatchObject({ rows: [{ f: [] }] });
@@ -168,6 +182,7 @@ describe('AI feature toggles (S13-F17)', () => {
 
   it('[S13-F17] switched off in this process, the very next call-site read says off (no subscriber run, no wait)', async () => {
     const f = await createFounder();
+    await addSite(f.agencyId, f.userId); // S14-F7: website search answers only for an agency with a live site
     await agencies.setAgencyAiFeature(runAs(f), 'WEBSITE_SEARCH', true);
     // warm: the cached read (Redis and the in-process copy) says on
     expect(await agencies.aiFeatureEnabled(f.agencyId, 'WEBSITE_SEARCH')).toBe(true);
@@ -181,10 +196,37 @@ describe('AI feature toggles (S13-F17)', () => {
 
   it('[S13-F17] the call-site read is cached: a warm read runs no statement', async () => {
     const { countQueries } = await import('@inmolink/db');
+    // both entries warm: the public website-search answer and the full toggles (S14-F7)
     await agencies.aiFeatureEnabled(admin.agencyId, 'WEBSITE_SEARCH');
+    await agencies.aiFeatureEnabled(admin.agencyId, 'LISTING_STUDIO');
     const n = await countQueries(async () => {
       for (const f of AI_FEATURES) await agencies.aiFeatureEnabled(admin.agencyId, f);
     });
     expect(n).toBe(0);
+  });
+
+  it('[S14-F7] the public lookup answers only the website-search toggle, only for an agency with a live site', async () => {
+    const f = await createFounder();
+    await agencies.setAgencyAiFeature(runAs(f), 'WEBSITE_SEARCH', true);
+    await agencies.setAgencyAiFeature(runAs(f), 'WHITE_LABEL', true);
+    // an agency without a site gets nothing — not its website-search toggle, not any other
+    expect(await publicLookup(f.agencyId)).toEqual([]);
+    expect(await agencies.aiFeatureEnabled(f.agencyId, 'WEBSITE_SEARCH')).toBe(false);
+    // workers still read every toggle (system transaction), site or not
+    expect(await agencies.aiFeatureEnabled(f.agencyId, 'WHITE_LABEL')).toBe(true);
+    // a site whose plan ended is not live
+    await addSite(f.agencyId, f.userId, new Date(Date.now() - 60_000));
+    expect(await publicLookup(f.agencyId)).toEqual([]);
+    // a live site: the website-search toggle only, never the others
+    await addSite(f.agencyId, f.userId);
+    expect(await publicLookup(f.agencyId)).toEqual(['WEBSITE_SEARCH']);
+    await agencies.setAgencyAiFeature(runAs(f), 'WEBSITE_SEARCH', false);
+    expect(await publicLookup(f.agencyId)).toEqual([]);
+    await agencies.setAgencyAiFeature(runAs(f), 'WEBSITE_SEARCH', true);
+    // a suspended agency gets nothing
+    await setAgencyStatus(f.agencyId, 'SUSPENDED');
+    expect(await publicLookup(f.agencyId)).toEqual([]);
+    await setAgencyStatus(f.agencyId, 'VERIFIED');
+    expect(await publicLookup(f.agencyId)).toEqual(['WEBSITE_SEARCH']);
   });
 });

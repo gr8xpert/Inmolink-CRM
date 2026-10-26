@@ -243,8 +243,9 @@ export async function aiFeaturesOf(tx: Tx, agencyId: string): Promise<string[] |
 }
 
 /**
- * The same through the SECURITY DEFINER lookup `agency_ai_features(uuid)` (`withPublicRead`, app_public): feed-api and
- * workers, which run without the agency's context. Empty for an unknown agency.
+ * Through the SECURITY DEFINER lookup `agency_ai_features(uuid)` (`withPublicRead`, app_public): feed-api, which runs
+ * without the agency's context. S14-F7: `WEBSITE_SEARCH` or nothing — empty for an unknown agency, one without a live
+ * website site, or a suspended one.
  */
 export async function publicAiFeaturesOf(tx: Tx, agencyId: string): Promise<string[]> {
   const res = await tx.execute(sql`select public.agency_ai_features(${agencyId}::uuid) as f`);
