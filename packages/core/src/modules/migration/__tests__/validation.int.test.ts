@@ -267,6 +267,25 @@ describe('validation reports (S14-03)', () => {
     expect(missing).toBe('NOT_FOUND');
   });
 
+  it('[S14-review] the hourly delta checkpoints (a failed delta batch, the delta state) do not fail the report', async () => {
+    const { founder, st } = await loaded('dl');
+    await system(async (tx) => {
+      await migration.resolveLegacyAgency(tx, lid('dl', 'agency'), founder.agencyId);
+      for (const [entity, seq, status] of [
+        ['delta:properties', 0, 'FAILED'],
+        ['delta:state', 0, 'DONE'],
+      ] as const) {
+        await tx.execute(sql`insert into migration_batches
+          (id, legacy_agency_id, target_agency_id, entity, seq, input_hash, status, rows, error)
+          values (${newId()}, ${lid('dl', 'agency')}, ${founder.agencyId}, ${entity}, ${seq}, ${'0'.repeat(64)},
+                  ${status}, 1, ${status === 'FAILED' ? 'code=DB_57014 first=x' : null})`);
+      }
+    });
+    const report = await validate('dl', founder, st);
+    expect(report.failedBatches).toEqual([]);
+    expect(report.status).toBe('PASS');
+  });
+
   it('[S14-03] an agency whose load stopped at a failed batch fails validation, naming the batch', async () => {
     const founder = await createFounder();
     const st = staging('b');

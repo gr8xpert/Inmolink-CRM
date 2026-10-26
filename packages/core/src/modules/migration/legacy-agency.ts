@@ -34,6 +34,7 @@ import * as properties from '../properties';
 import { type BatchStep, runBatches, type StepOutcome } from './batches';
 import { LEGACY_DEVELOPMENT_ENTITIES, loadDevelopmentsInto } from './legacy-developments';
 import {
+  AGENCY_MAP_METHOD,
   addIssue,
   addWarning,
   agencyTargets,
@@ -48,6 +49,7 @@ import {
   targetsOf,
   validateRows,
 } from './load';
+import * as repo from './repo';
 
 /** Staging file names (S14-01 `DEFAULT_ENTITIES`), in load order. */
 export const LEGACY_STAGING = {
@@ -84,10 +86,45 @@ const ROLES: Record<string, MemberRole> = {
   agency_admin: 'AGENCY_ADMIN',
 };
 
+/**
+ * S14 review: the agency's own e-mail domains — the operator's (`--email-domain`) and those of the members the load did
+ * not create — and those members. Read once per run, before the users step.
+ */
+export interface AgencyEmailDomains {
+  known: ReadonlySet<string>;
+  /** Members that were there before the load (their e-mail was verified in v2, not taken from the dump). */
+  preexisting: ReadonlySet<string>;
+}
+
+const domainOf = (email: string) => email.slice(email.lastIndexOf('@') + 1).toLowerCase();
+
+async function agencyEmailDomains(
+  tx: Tx,
+  agencyId: string,
+  given: readonly string[] = [],
+): Promise<AgencyEmailDomains> {
+  const members = await identity.activeMemberEmails(tx, agencyId);
+  const imported = await repo.importedAmong(
+    tx,
+    'user',
+    agencyId,
+    members.map((m) => m.userId),
+  );
+  const own = members.filter((m) => !imported.has(m.userId));
+  return {
+    known: new Set([
+      ...given.map((d) => d.trim().toLowerCase().replace(/^@/, '')),
+      ...own.map((m) => domainOf(m.email)),
+    ]),
+    preexisting: new Set(own.map((m) => m.userId)),
+  };
+}
+
 async function loadUsers(
   tx: Tx,
   agencyId: string,
   passwordHash: string,
+  domains: AgencyEmailDomains,
   rows: readonly unknown[],
   report: LegacyLoadReport,
 ) {
@@ -112,12 +149,28 @@ async function loadUsers(
   const result = await identity.importLegacyMembers(tx, agencyId, inputs, passwordHash);
   for (const s of result.skipped) addIssue(report, 'user', s.legacyId, s.reason, s.detail);
   for (const { outcome } of result.members.values()) countOutcome(report, 'user', outcome);
+  // `import` only for the members this load created: the cutover's ENABLE_ACCESS mails those (never an existing member
+  // matched by e-mail); a re-run's `matched` answer for a created member keeps its `import` map (`upsertMaps`).
   await recordAgencyMaps(
     tx,
     'user',
     agencyId,
-    [...result.members].map(([legacyId, m]) => [legacyId, m.userId]),
+    [...result.members].map(([legacyId, m]) => [
+      legacyId,
+      m.userId,
+      m.outcome === 'created' ? AGENCY_MAP_METHOD.imported : AGENCY_MAP_METHOD.matched,
+    ]),
   );
+  // A migrated user's e-mail is marked verified from the dump: one outside the agency's own domains is for staff to
+  // check before cutover (a warning; no e-mail or domain in the report).
+  const emailOf = new Map(inputs.map((i) => [i.legacyId, i.email]));
+  for (const [legacyId, m] of result.members) {
+    if (domains.preexisting.has(m.userId)) continue;
+    const email = emailOf.get(legacyId);
+    if (email && !domains.known.has(domainOf(email))) {
+      addWarning(report, 'user', legacyId, 'email_domain', "e-mail domain is not one of the agency's");
+    }
+  }
 }
 
 // ── Listings ───────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -462,8 +515,11 @@ export interface MigrateLegacyAgencyInput {
   dryRun?: boolean;
   /** Ignore checkpoints: every batch runs again (idempotent). */
   restart?: boolean;
-  /** Sends migrated members their password-reset e-mail (cutover day; off for trial runs). */
-  sendPasswordResets?: boolean;
+  /**
+   * S14 review: the agency's e-mail domains (the operator's `--email-domain`), besides those of its members the load
+   * did not create; a migrated user outside them is a report warning (`email_domain`).
+   */
+  emailDomains?: readonly string[];
   /** Rows per batch, per entity (defaults: `LEGACY_BATCH_ROWS`). */
   batchRows?: Partial<Record<'users' | 'listings' | 'contacts' | 'leads', number>>;
   /** Starts the agency's image downloads after the listings committed (default: the media queue). */
@@ -480,8 +536,6 @@ export interface MigrateLegacyAgencyResult {
   steps: Partial<Record<string, StepOutcome>>;
   /** The entity whose batch failed (the run stopped there); null when every step ran. */
   stoppedAt: { entity: string; seq: number; error: string } | null;
-  /** Members asked to reset their password (`sendPasswordResets`). */
-  passwordResets: number;
 }
 
 /** Report entity → its staging file. */
@@ -528,7 +582,7 @@ export async function migrateLegacyAgency(input: MigrateLegacyAgencyInput): Prom
     restart: input.restart ?? false,
   };
   const report = newLoadReport(input.legacyAgencyId, input.agencyId, dryRun);
-  const result: MigrateLegacyAgencyResult = { report, steps: {}, stoppedAt: null, passwordResets: 0 };
+  const result: MigrateLegacyAgencyResult = { report, steps: {}, stoppedAt: null };
   const size = { ...LEGACY_BATCH_ROWS, ...input.batchRows };
   const source = (e: LegacyStagingEntity) => input.staged[e];
   const reason = `legacy-migration.load${dryRun ? '.dry-run' : ''}`;
@@ -557,11 +611,12 @@ export async function migrateLegacyAgency(input: MigrateLegacyAgencyInput): Prom
     const users = source('users');
     if (users) {
       const passwordHash = lazy(() => identity.legacyPasswordPlaceholder());
+      const domains = await withSystem(reason, (tx) => agencyEmailDomains(tx, input.agencyId, input.emailDomains));
       const outcome = await run({
         entity: LEGACY_STAGING.users,
         reportEntities: ['user'],
         batches: users.batches(size.users),
-        load: async (tx, rows, r) => loadUsers(tx, input.agencyId, await passwordHash(), rows, r),
+        load: async (tx, rows, r) => loadUsers(tx, input.agencyId, await passwordHash(), domains, rows, r),
       });
       if (outcome.failed) return false;
       // More members than the plan's seats: a warning for staff to settle before cutover (the load adds them all).
@@ -661,18 +716,10 @@ export async function migrateLegacyAgency(input: MigrateLegacyAgencyInput): Prom
     return true;
   };
 
-  const completed = await steps();
+  await steps();
   if (!dryRun) await onboarding.backfillAgency(input.agencyId, 'legacy-migration.onboarding');
-  const users = source('users');
-  if (completed && !dryRun && input.sendPasswordResets && users) {
-    // The users file again, batch by batch: the members its rows became.
-    for await (const batch of users.batches(size.users)) {
-      result.passwordResets += await withSystem(reason, async (tx) => {
-        const { own } = await agencyTargets(tx, 'user', idsOf(batch, 'id'), input.agencyId);
-        return identity.requestLegacyPasswordResets(tx, input.agencyId, [...own.values()]);
-      });
-    }
-  }
+  // No password-reset e-mail here (S14 review): the cutover's ENABLE_ACCESS step mails the members the load created,
+  // once, with its progress recorded — a re-run of the load never mails anyone.
   for (const [entity, n] of Object.entries(input.legacyRows ?? {})) {
     if (n !== undefined) countsOf(report, entity).legacyRows = n;
   }

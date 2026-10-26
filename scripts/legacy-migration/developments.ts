@@ -1,5 +1,5 @@
 // pnpm legacy:developments --staging <dir> [--agency <legacy id>[=<v2 agency uuid>]]... [--report <file.json>]
-//   [--dry-run] [--strict] [--test]
+//   [--dry-run] [--strict] [--target <db host> | --test]
 //
 // Legacy new-build import (S4-04, PLAN §14). Reads the staging files of the legacy extract (S14-01:
 // `agency-<id>/developments.ndjson`, `agency-<id>/development_units.ndjson`, `inventory.json`) and loads each agency's
@@ -15,13 +15,14 @@ import * as migration from '@inmolink/core/modules/migration';
 import { closeDb, configureDb, dbEnv, withSystem } from '@inmolink/db';
 import { loadConfigOrExit } from '@inmolink/platform/config';
 import { createLogger } from '@inmolink/platform/logger';
-import { readStackEnv } from '../ops/stack-env';
 import { assertOutsideRepo } from './extract-lib';
+import { prepareLegacyScriptEnv } from './guard';
 import { legacyRowsOf, parseAgencyArg, readInventory, readStaged, stagedAgencies } from './staging';
 
 const { values } = parseArgs({
   options: {
     test: { type: 'boolean', default: false },
+    target: { type: 'string' },
     staging: { type: 'string' },
     agency: { type: 'string', multiple: true },
     report: { type: 'string' },
@@ -30,10 +31,8 @@ const { values } = parseArgs({
   },
 });
 
-// Locally, read the stack's env file (dev or --test) unless real credentials are already set.
-if (process.env.NODE_ENV !== 'production' && !Object.keys(process.env).some((k) => k.startsWith('DATABASE_URL_'))) {
-  for (const [k, v] of Object.entries(readStackEnv(values.test ? 'test' : 'dev'))) process.env[k] ??= v;
-}
+// S14 review: `--test` only on the local test stack; any other run names its database host (`--target`).
+prepareLegacyScriptEnv({ test: values.test, target: values.target, script: 'legacy:developments' });
 process.env.APP_ROLE = 'script';
 const log = createLogger({ service: 'legacy:developments', level: process.env.LOG_LEVEL });
 

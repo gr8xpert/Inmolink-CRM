@@ -339,6 +339,11 @@ export interface GlobalTable {
   publicReadSql?: string;
   publicSamples?: PredicateSamples;
   /**
+   * With `publicRead` and `noUserRead` (S14 review): columns `app_public` may not read (bookkeeping a public path does
+   * not need). The public grant becomes a column list of every other column, as on PUBLIC_READ tenant tables.
+   */
+  publicHiddenColumns?: readonly string[];
+  /**
    * `app_owner` (the owner of SECURITY DEFINER functions and of the generated definer views, `rls.ts` `DEFINER_VIEWS`)
    * may read every row: the table is read through one of those only (S7-F4, S7-F10), no application role has a grant.
    * Forced RLS binds the owner too, hence the explicit policy.
@@ -1779,11 +1784,13 @@ export const globalTables: Record<string, GlobalTable> = {
   },
   // S14-05: legacy URL -> v2 URL. Public by nature (the old URLs and where they go); app_public resolves them on the
   // request path, hit counters are bumped by the flush job via withSystem(). Written by the migration scripts only.
+  // S14 review: app_public reads the key and the target only (not which entity row, nor the hit statistics).
   legacy_url_redirects: {
     reason: 'legacy inmolink.es and plugin URLs and the v2 paths they redirect to (PLAN §14), platform data',
     publicRead: true,
     noUserRead: true,
-    base: { source: 'portal', path_key: '/x', target_path: '/es', entity: 'page' },
+    publicHiddenColumns: ['target_id', 'hits', 'last_hit_at'],
+    base: { source: 'portal', host: 'legacy.example', path_key: '/x', target_path: '/es', entity: 'page' },
   },
   // S14-03: validation reports of the legacy migration (legacy ids, counts, field names; no personal values), written
   // by the validation script via withSystem(); every active staff member reads them in the console, nobody writes.

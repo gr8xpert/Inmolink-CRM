@@ -69,6 +69,19 @@ export async function activeMembersAmong(tx: Tx, agencyId: string, userIds: read
   return (res.rows as { id: string }[]).map((r) => r.id);
 }
 
+/** S14 review: the agency's active members and their e-mails (at most `limit`), one statement. */
+export async function activeMemberEmails(
+  tx: Tx,
+  agencyId: string,
+  limit: number,
+): Promise<{ userId: string; email: string }[]> {
+  const res = await tx.execute(sql`
+    select m.user_id as "userId", u.email from ${agencyMembers} m join ${users} u on u.id = m.user_id
+     where m.agency_id = ${agencyId} and m.deactivated_at is null
+     order by m.user_id limit ${limit}`);
+  return res.rows as { userId: string; email: string }[];
+}
+
 /** Active members of the agency (the seats they take), one statement. */
 export async function countActiveMembers(tx: Tx, agencyId: string): Promise<number> {
   const res = await tx.execute(sql`

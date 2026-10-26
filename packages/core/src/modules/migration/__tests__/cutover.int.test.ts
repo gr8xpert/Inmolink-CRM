@@ -350,6 +350,49 @@ describe('cutover checklist (S14-06)', () => {
     expect(await migration.getCutover(agencyId)).toMatchObject({ inventoryMode: 'PARALLEL' });
   });
 
+  it('[S14-review] ENABLE_ACCESS mails each created v2 user once: not twice for two legacy users, never a matched member', async () => {
+    const founder = await createFounder();
+    const db = legacy('t');
+    const legacyAgencyId = lid('t', 'agency');
+    db.users.push(
+      // a second legacy user with u1's e-mail: one v2 user
+      { id: lid('t', 'u3'), email: `cutover-${RUN}-t-1@example.com`, name: 'Twin', role: 'agent' },
+      // the agency's founder, matched by e-mail: already has its way in
+      { id: lid('t', 'u4'), email: founder.email, name: 'Founder', role: 'admin' },
+    );
+    await system((tx) => migration.resolveLegacyAgency(tx, legacyAgencyId, founder.agencyId));
+    const load = await migration.migrateLegacyAgency({
+      legacyAgencyId,
+      agencyId: founder.agencyId,
+      staged: Object.fromEntries(Object.entries(db).map(([k, r]) => [k, migration.fromRows(r)])),
+      requestMedia,
+    });
+    expect(load.stoppedAt).toBeNull();
+    const perUser = async () =>
+      rows<{ userId: string; n: number }>(sql`select payload->>'userId' as "userId", count(*)::int as n
+        from outbox_events where type = 'identity.passwordReset.requested'
+         and (payload->>'userId')::uuid in (select new_id from legacy_id_maps
+                                             where entity = 'user' and target_agency_id = ${founder.agencyId})
+       group by 1 order by 1`);
+    expect(await perUser()).toEqual([]); // the load mailed nobody
+
+    migration.registerLegacyControl(control().c);
+    await migration.planCutover({ agencyId: founder.agencyId, path: 'A', legacyAgencyId });
+    const src = opener(db);
+    await migration.runCutover({ agencyId: founder.agencyId, openSource: src.open, requestMedia });
+    await report(legacyAgencyId, founder.agencyId, 'PASS');
+    const done = await migration.runCutover({ agencyId: founder.agencyId, openSource: src.open, requestMedia });
+    expect(done).toMatchObject({ state: 'CUT_OVER', stoppedAt: null });
+    const mailed = await perUser();
+    expect(mailed).toHaveLength(2); // u1 (= u3) and u2
+    expect(mailed.every((m) => m.n === 1)).toBe(true);
+    expect(mailed.map((m) => m.userId)).not.toContain(founder.userId);
+    expect((await migration.getCutover(founder.agencyId))?.steps.ENABLE_ACCESS).toMatchObject({
+      status: 'DONE',
+      sent: 2,
+    });
+  });
+
   it('[S14-06] DNS readiness lists migrated legacy agencies without a PASS report', async () => {
     const l = await loaded('d');
     const ids = async () => (await migration.legacyDnsReadiness(100_000)).notReady.map((a) => a.legacyAgencyId);

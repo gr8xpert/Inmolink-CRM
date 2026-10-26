@@ -279,6 +279,9 @@ function assertValid(name: string, def: TenantTable | GlobalTable): void {
     if ((def.publicReadSql !== undefined || def.publicSamples) && !(def.publicRead && def.noUserRead)) {
       throw new Error(`${name}: publicReadSql is only valid with publicRead and noUserRead`);
     }
+    if (def.publicHiddenColumns?.length && !(def.publicRead && def.noUserRead)) {
+      throw new Error(`${name}: publicHiddenColumns is only valid with publicRead and noUserRead`);
+    }
     if (def.staffWrite && def.access) throw new Error(`${name}: an ${def.access} table cannot be staffWrite`);
     if (def.staffRead && (def.access || def.staffWrite)) {
       throw new Error(`${name}: staffRead is not valid with access or staffWrite`);
@@ -774,7 +777,9 @@ export function hiddenColumnsOf(def: TenantTable): readonly string[] {
  * Columns `app_public` may not read on a PUBLIC_READ table: the table's own `hiddenColumns` (S6-F1) and its
  * `publicHiddenColumns` (S7-02).
  */
-export function publicHiddenColumnsOf(def: TenantTable): readonly string[] {
+export function publicHiddenColumnsOf(def: TenantTable | GlobalTable): readonly string[] {
+  // S14 review: a public global table's `publicHiddenColumns`.
+  if (!('kind' in def)) return def.publicRead ? (def.publicHiddenColumns ?? []) : [];
   return def.kind === 'PUBLIC_READ' ? [...(def.hiddenColumns ?? []), ...(def.publicHiddenColumns ?? [])] : [];
 }
 
@@ -1081,7 +1086,14 @@ function globalTableSql(name: string, def: GlobalTable): string[] {
         ]
       : []),
     `revoke all on table ${t} from ${APP_ROLES};`,
-    ...(readers ? [`grant select on table ${t} to ${readers};`] : []),
+    // S14 review: hidden columns make app_public's grant a column list (app_public is then the only reader).
+    ...(readers
+      ? [
+          def.publicHiddenColumns?.length
+            ? grantSql(t, 'app_public', ['SELECT'], def.publicHiddenColumns)
+            : `grant select on table ${t} to ${readers};`,
+        ]
+      : []),
     `grant select, insert, update, delete on table ${t} to app_system;`,
     ...staffWrite,
     ...mediaWrite,

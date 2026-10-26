@@ -106,6 +106,11 @@ export const legacyUrlRedirects = pgTable(
     id: uuid('id').primaryKey(),
     /** Where the legacy URL lived: the legacy portal or a plugin-built page. */
     source: text('source').notNull(),
+    /**
+     * The legacy site's host (lower-case, no port, no `www.`; S14 review): plugin-built pages live on each agency's own
+     * domain, so two agencies' `/contacto` are two rows.
+     */
+    host: text('host').notNull(),
     /** The legacy URL's locale (the 9 locales); '' for a URL without one. */
     locale: text('locale').notNull().default(''),
     /** The normalized legacy path (+ the query keys that identify a page); see `normalizeLegacyUrl`. */
@@ -122,13 +127,17 @@ export const legacyUrlRedirects = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    // the resolver: where source = $1 and locale = $2 and path_key = $3 (one probe per request, cached in-process)
-    uniqueIndex('legacy_url_redirects_key_uq').on(t.source, t.locale, t.pathKey),
+    // the resolver: where source = $1 and host = $2 and locale = $3 and path_key = $4 (one probe per request, cached
+    // in-process)
+    uniqueIndex('legacy_url_redirects_key_uq').on(t.source, t.host, t.locale, t.pathKey),
     // rebuilding the targets of one entity when its slug changes
     index('legacy_url_redirects_target_idx').on(t.entity, t.targetId),
     check('legacy_url_redirects_source_ck', sql`${t.source} in ('portal', 'plugin')`),
     check('legacy_url_redirects_status_ck', sql`${t.status} in (301, 308)`),
-    check('legacy_url_redirects_target_ck', sql`${t.targetPath} like '/%' and ${t.targetPath} not like '//%'`),
+    check('legacy_url_redirects_host_ck', sql`${t.host} ~ '^[a-z0-9-]+(\\.[a-z0-9-]+)*$'`),
+    // a path on this site: one leading '/', not followed by '/' or '\', no backslash or control character anywhere
+    // (`/\evil.example` is another host to a browser); the same pattern as `SAFE_REDIRECT_TARGET`
+    check('legacy_url_redirects_target_ck', sql`${t.targetPath} ~ '^/(?![/\\\\])[^\\x01-\\x1f\\\\]*$'`),
   ],
 );
 

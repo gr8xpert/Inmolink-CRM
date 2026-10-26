@@ -6,8 +6,11 @@
 import type { MigrationValidationReport, MigrationValidationStatus } from '@inmolink/contracts';
 import type { Tx } from '@inmolink/db';
 import { migrationBatches, migrationValidationReports } from '@inmolink/db/schema/migration';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, notLike, sql } from 'drizzle-orm';
 import { type KeysetCursor, rowAfter, rowOrder } from '../../pagination';
+
+/** The delta's checkpoint keys (`DELTA.CHECKPOINT_PREFIX`; `delta:state` too). */
+const DELTA_CHECKPOINT_PREFIX = 'delta:';
 
 export interface AgencyCheckpoint {
   entity: string;
@@ -18,7 +21,11 @@ export interface AgencyCheckpoint {
   error: string | null;
 }
 
-/** Every load checkpoint of a legacy agency (all entities). One statement (`migration_batches_batch_uq`). */
+/**
+ * Every full-load checkpoint of a legacy agency (all entities). The hourly delta's (`delta:<entity>`, `delta:state`)
+ * are not the load's: an old failed delta batch is re-run by the next delta and must not fail the report (S14 review).
+ * One statement (`migration_batches_batch_uq`).
+ */
 export async function agencyCheckpoints(tx: Tx, legacyAgencyId: string): Promise<AgencyCheckpoint[]> {
   return (await tx
     .select({
@@ -30,7 +37,12 @@ export async function agencyCheckpoints(tx: Tx, legacyAgencyId: string): Promise
       error: migrationBatches.error,
     })
     .from(migrationBatches)
-    .where(eq(migrationBatches.legacyAgencyId, legacyAgencyId))
+    .where(
+      and(
+        eq(migrationBatches.legacyAgencyId, legacyAgencyId),
+        notLike(migrationBatches.entity, `${DELTA_CHECKPOINT_PREFIX}%`),
+      ),
+    )
     .orderBy(migrationBatches.entity, migrationBatches.seq)) as AgencyCheckpoint[];
 }
 

@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- fix(migration): S14 review — safe and per-host redirect targets (migration 0172), public redirect columns hidden, password resets only from cutover once per created user, operator script target guard, e-mail domain warning, delta and stale checkpoints out of validation [S14 review]
 - feat(identity,web): Selections in the sidebar and a "Create selection" action on the listings bulk bar [S14-F5]
 - perf(onboarding): backfill earliest-listing/shared/development reads are per-agency index probes instead of table scans; S13 backfill, rollup sweep and notes/imports keyset plans recorded [S14-F9]
 - docs(ops): S14-F8 perf re-measures deferred to the staging box [S14-F8]

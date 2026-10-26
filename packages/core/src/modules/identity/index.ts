@@ -58,6 +58,7 @@ export {
 export { identityJobs } from './jobs';
 export {
   activeMemberCount,
+  activeMemberEmails,
   importLegacyMembers,
   type LegacyMemberInput,
   type LegacyMembersResult,

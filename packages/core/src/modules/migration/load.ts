@@ -193,20 +193,29 @@ export async function recordAgencyMaps(
   tx: Tx,
   entity: TenantEntity,
   agencyId: string,
-  pairs: Iterable<[legacyId: string, newId: string]>,
+  pairs: Iterable<[legacyId: string, newId: string, method?: AgencyMapMethod]>,
 ): Promise<void> {
   await repo.upsertMaps(
     tx,
     entity,
-    [...pairs].map(([legacyId, target]) => ({
+    [...pairs].map(([legacyId, target, method]) => ({
       id: newId(),
       legacyId,
       newId: target,
-      method: 'import',
+      method: method ?? AGENCY_MAP_METHOD.imported,
       targetAgencyId: agencyId,
     })),
   );
 }
+
+/**
+ * How a tenant row's map was made (`legacy_id_maps.method`): the load created the row (`import`), or matched one that
+ * was there before it (`matched`, S14 review: users matched by e-mail to an existing member, or a second legacy user
+ * with the e-mail of the first). A later `matched` answer never downgrades a map of the same row (`upsertMaps`): a
+ * re-run finds the members it created, and they stay `import` — the ones the cutover mails.
+ */
+export const AGENCY_MAP_METHOD = { imported: 'import', matched: 'matched' } as const;
+export type AgencyMapMethod = (typeof AGENCY_MAP_METHOD)[keyof typeof AGENCY_MAP_METHOD];
 
 /** An operator-facing refusal of the load: its message names ids only, never row data (safe to print and store). */
 export class LegacyMigrationError extends Error {

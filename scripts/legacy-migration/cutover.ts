@@ -1,4 +1,4 @@
-// pnpm legacy:cutover <command> [options] [--test]
+// pnpm legacy:cutover <command> [options] [--target <db host> | --test]
 //
 // Per-agency cutover checklists (S14-06, PLAN §14 Path A step 7 and Path B; runbook docs/runbooks/cutover.md).
 // Every step is recorded and audited (`migration.cutover.*`), idempotent and resumable: a run stops at the first step
@@ -26,14 +26,15 @@ import { closeCache } from '@inmolink/platform/cache';
 import { loadConfigOrExit } from '@inmolink/platform/config';
 import { createLogger } from '@inmolink/platform/logger';
 import { closeQueues } from '@inmolink/platform/queue';
-import { readStackEnv } from '../ops/stack-env';
 import { openLegacyDeltaReader } from './delta-lib';
 import type { EntitySpec } from './extract-lib';
+import { prepareLegacyScriptEnv } from './guard';
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
   options: {
     test: { type: 'boolean', default: false },
+    target: { type: 'string' },
     agency: { type: 'string' },
     path: { type: 'string' },
     legacy: { type: 'string' },
@@ -50,9 +51,8 @@ const { values, positionals } = parseArgs({
   },
 });
 
-if (process.env.NODE_ENV !== 'production' && !Object.keys(process.env).some((k) => k.startsWith('DATABASE_URL_'))) {
-  for (const [k, v] of Object.entries(readStackEnv(values.test ? 'test' : 'dev'))) process.env[k] ??= v;
-}
+// S14 review: `--test` only on the local test stack; any other run names its database host (`--target`).
+prepareLegacyScriptEnv({ test: values.test, target: values.target, script: 'legacy:cutover' });
 process.env.APP_ROLE = 'script';
 const log = createLogger({ service: 'legacy:cutover', level: process.env.LOG_LEVEL });
 

@@ -1,7 +1,7 @@
 /**
  * Legacy members (S14-02, ADR 0006): the users of a legacy agency become members of its v2 agency. Legacy password
  * hashes are never imported: every migrated member gets an unusable password and signs in through the password-reset
- * flow (`requestLegacyPasswordResets`, sent at cutover). A user is matched by its e-mail: already a member of the
+ * flow (`requestLegacyPasswordResets`, sent once by the cutover's ENABLE_ACCESS step). A user is matched by its e-mail: already a member of the
  * agency → kept as is (v2 is authoritative); a member of another agency, or an account without one (staff) → not
  * migrated and reported. Idempotent: a re-run finds every member it created.
  *
@@ -111,6 +111,18 @@ export async function requestLegacyPasswordResets(
     { agencyId: PLATFORM_AGENCY_ID },
   );
   return ids.length;
+}
+
+/**
+ * S14 review: the agency's active members and their e-mails (at most `limit`): the legacy load learns the agency's own
+ * e-mail domains from the members it did not create (a report warning for migrated users outside them).
+ */
+export function activeMemberEmails(
+  tx: Tx,
+  agencyId: string,
+  limit = 1_000,
+): Promise<{ userId: string; email: string }[]> {
+  return repo.activeMemberEmails(tx, agencyId, limit);
 }
 
 /** Active members of the agency: the legacy load compares them with the plan's seats (a report warning). */

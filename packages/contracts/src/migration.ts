@@ -184,6 +184,11 @@ export const LEGACY_LOAD_ISSUES = [
   'legacy_id_collision',
   /** The agency has more members than its plan's seats (a warning for staff before cutover; `legacyId` = agency). */
   'over_seat',
+  /**
+   * S14 review: a migrated user's e-mail domain is none of the agency's (its other members', the operator's
+   * `--email-domain`) — the e-mail is marked verified from the dump, so staff check it before cutover (a warning).
+   */
+  'email_domain',
 ] as const;
 export type LegacyLoadIssueReason = (typeof LEGACY_LOAD_ISSUES)[number];
 

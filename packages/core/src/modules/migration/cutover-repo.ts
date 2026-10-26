@@ -203,24 +203,31 @@ export async function dueCutovers(tx: Tx, until: string, limit: number): Promise
 }
 
 /**
- * The v2 users the legacy users of this agency became, after `after` in legacy id order (`legacy_id_maps_legacy_uq`
- * range on entity `user`, filtered by agency). The member's way in is a password reset (S14-02).
+ * The distinct v2 users the legacy load created for this agency (`import` maps: not members matched by e-mail, and one
+ * user however many legacy users share it), after `after` in user id order (`legacy_id_maps_new_idx` range on entity
+ * `user`, filtered by agency). The member's way in is a password reset (S14-02, S14 review).
  */
-export async function migratedUsersPage(
+export async function createdUsersPage(
   tx: Tx,
   agencyId: string,
   after: string | null,
   limit: number,
-): Promise<{ legacyId: string; userId: string }[]> {
+): Promise<string[]> {
   const m = legacyIdMaps;
-  return tx
-    .select({ legacyId: m.legacyId, userId: m.newId })
+  const rows = await tx
+    .selectDistinct({ userId: m.newId })
     .from(m)
     .where(
-      and(eq(m.entity, 'user'), eq(m.targetAgencyId, agencyId), after === null ? undefined : gt(m.legacyId, after)),
+      and(
+        eq(m.entity, 'user'),
+        eq(m.targetAgencyId, agencyId),
+        eq(m.method, 'import'),
+        after === null ? undefined : gt(m.newId, after),
+      ),
     )
-    .orderBy(asc(m.legacyId))
+    .orderBy(asc(m.newId))
     .limit(limit);
+  return rows.map((r) => r.userId);
 }
 
 /** A legacy agency's latest validation report: status and time (`migration_validation_reports_latest_uq`). */

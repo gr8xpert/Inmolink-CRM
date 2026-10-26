@@ -12,6 +12,12 @@ Target: one agency's cutover and its rollback each complete in **< 30 minutes** 
 Every command takes `--test` / runs against the dev stack locally; on staging and production the env carries the
 `DATABASE_URL_*` secrets and `LEGACY_DATABASE_URL` (read-only legacy access, H1).
 
+**Target guard (S14 review)** — `legacy:load`, `legacy:cutover`, `legacy:delta`, `legacy:validate` and
+`legacy:developments` print the database host they will write to and refuse to run unless it is named:
+`--target <database host>` (e.g. `--target localhost` on the dev stack, the staging / production database host there)
+must match the host of every `DATABASE_URL_*`. `--test` is refused when any `DATABASE_URL_*` is set or `NODE_ENV` is
+production.
+
 ## Before the parallel run (per agency)
 
 1. **Path A:** `legacy:extract` → `legacy:load` → `legacy:validate` (S14-01…03); the hourly delta (S14-04) keeps v2
@@ -75,7 +81,7 @@ runs of one agency never interleave (a 30-minute lease; a crashed run's lease ex
 | A | `FINAL_DELTA` | one last delta from the frozen legacy (needs `LEGACY_DATABASE_URL` or `--url`) | `NO_LEGACY_SOURCE`, `DELTA_INCOMPLETE` (failed batch: see the delta log), `DELTA_WITHDRAW_GUARD`, `DELTA_STOPPED` (`legacy:delta --reopen` first) | re-done next time |
 | A | `VALIDATE` | gate: the latest report is PASS and newer than the final delta — run `pnpm legacy:validate --staging <fresh extract> --agency <legacy id>` after the final delta | `NO_VALIDATION_REPORT`, `VALIDATION_FAILED`, `VALIDATION_STALE` | re-done next time |
 | A | `STOP_DELTA` | the hourly delta stops for the agency (agents now work in v2) | — | delta re-opened |
-| A | `ENABLE_ACCESS` | password-reset e-mail to every migrated member (their way into the dashboard), batched; a resumed run mails nobody twice | — | kept (mails sent) |
+| A | `ENABLE_ACCESS` | password-reset e-mail to every member the load created (their way into the dashboard) — once per v2 user, never an existing member matched by e-mail; the only place it is sent (`legacy:load` mails nobody); batched, a resumed run mails nobody twice | — | kept (mails sent) |
 | A, B | `NOTIFY` | `MIGRATION_CUT_OVER` notification to the agency's admins | — | re-done next time |
 | B | `PARITY` | gate: v2 network in the area ≥ 95 % of the old provider's — or accept it with `--confirm PARITY` | `PARITY_NOT_CONFIGURED`, `PARITY_NOT_REACHED` | re-done next time |
 | B | `SWITCH_FEED` | switch the managed site to the v2 inventory only, then `--confirm SWITCH_FEED` (inventory mode V2) | `CONFIRM_SWITCH_FEED` | back to PARALLEL |

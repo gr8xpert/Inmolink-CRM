@@ -6,7 +6,8 @@
  * never the message (it may quote personal data) — and stops the entity. A re-run skips each DONE batch whose rows are
  * unchanged (its stored counts and issues go into the report) and resumes at the first one that is not: the failed
  * batch, or one whose staging changed. Every load is idempotent on its own (maps, natural keys), so running a batch
- * again (`restart`) creates no duplicate.
+ * again (`restart`) creates no duplicate. A run that reaches the end of the entity drops its checkpoints past the
+ * last batch (S14 review): a re-extract with fewer rows, or a smaller delta, leaves no stale DONE / FAILED row behind.
  */
 import { createHash } from 'node:crypto';
 import type { LegacyLoadReport } from '@inmolink/contracts';
@@ -121,6 +122,9 @@ export async function runBatches(
       }
       break;
     }
+  }
+  if (!outcome.failed && !opts.dryRun) {
+    await withSystem(reason, (tx) => repo.deleteCheckpointsAfter(tx, opts.legacyAgencyId, step.entity, seq));
   }
   return outcome;
 }

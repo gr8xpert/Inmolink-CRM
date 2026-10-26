@@ -13,8 +13,10 @@
  *    than the final delta. Re-done after a rollback.
  * 4. `STOP_DELTA` — the delta stops (`markLegacyAgencyCutOver`): nothing from legacy overwrites the agents' v2 work.
  *    Reversible: re-opened.
- * 5. `ENABLE_ACCESS` — every migrated member gets the password-reset e-mail (their way in, S14-02), in batches whose
- *    cursor is recorded with them: a resumed run never mails a member twice. Kept on rollback (the mails are sent).
+ * 5. `ENABLE_ACCESS` — every member the load created gets the password-reset e-mail (their way in, S14-02; the only
+ *    place it is sent — the load mails nobody), once per v2 user however many legacy users share it, never an
+ *    existing member matched by e-mail; in pages of distinct user ids whose cursor is recorded with them: a resumed
+ *    run never mails a member twice. Kept on rollback (the mails are sent).
  * 6. `NOTIFY` — the agency's admins are told (`MIGRATION_CUT_OVER`; idempotent by the run's start). Re-done after a
  *    rollback (the next cutover tells them again).
  *
@@ -363,24 +365,24 @@ async function stopDelta(run: Run): Promise<StepOutcome> {
   return { ok: true };
 }
 
-/** Password resets in batches, each with its cursor in the same transaction: a resumed run mails nobody twice. */
+/**
+ * Password resets in pages of distinct created users (user id order), each with its cursor in the same transaction: a
+ * resumed run mails nobody twice, and two legacy users of one v2 user mail it once.
+ */
 async function enableAccess(run: Run): Promise<StepOutcome> {
   const agencyId = run.row.targetAgencyId;
   const progress = run.row.steps.ENABLE_ACCESS;
-  let after = typeof progress?.after === 'string' ? progress.after : null;
+  // `afterUser`: a v2 user id (S14 review; the cursor used to be a legacy id under `after`).
+  let after = typeof progress?.afterUser === 'string' ? progress.afterUser : null;
   let sent = typeof progress?.sent === 'number' ? progress.sent : 0;
   for (;;) {
     const from = after;
     const page = await withSystem(reason('access', agencyId), async (tx) => {
-      const users = await crepo.migratedUsersPage(tx, agencyId, from, CUTOVER.ACCESS_BATCH);
+      const users = await crepo.createdUsersPage(tx, agencyId, from, CUTOVER.ACCESS_BATCH);
       if (users.length === 0) return null;
-      const n = await identity.requestLegacyPasswordResets(
-        tx,
-        agencyId,
-        users.map((u) => u.userId),
-      );
-      const last = (users[users.length - 1] as { legacyId: string }).legacyId;
-      const progress = { status: 'RUNNING' as const, at: clock.now().toISOString(), after: last, sent: sent + n };
+      const n = await identity.requestLegacyPasswordResets(tx, agencyId, users);
+      const last = users[users.length - 1] as string;
+      const progress = { status: 'RUNNING' as const, at: clock.now().toISOString(), afterUser: last, sent: sent + n };
       if (!(await crepo.recordStep(tx, run.row.id, run.runId, 'ENABLE_ACCESS', progress))) {
         throw new CutoverError('BUSY');
       }
@@ -391,7 +393,7 @@ async function enableAccess(run: Run): Promise<StepOutcome> {
     after = page.last;
     if (!page.full) break;
   }
-  return { ok: true, record: { sent, after } };
+  return { ok: true, record: { sent, afterUser: after } };
 }
 
 async function notifyAdmins(run: Run): Promise<StepOutcome> {

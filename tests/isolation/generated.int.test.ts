@@ -909,12 +909,14 @@ describe.each(globalNames)('global table %s', (table) => {
   let ctid = '';
   let column = '';
   let build: () => Row;
+  let seeded: Row = {};
 
   beforeAll(async () => {
     const columns = await columnsOf(admin, table);
     column = columns[0]?.name ?? '';
     build = () => buildRow(table, columns, { ...def?.base });
-    ctid = await withReplicaRole(admin, () => seed(admin, table, build()));
+    seeded = build();
+    ctid = await withReplicaRole(admin, () => seed(admin, table, seeded));
   });
 
   afterAll(async () => {
@@ -1135,7 +1137,17 @@ describe.each(globalNames)('global table %s', (table) => {
 
   if (def?.publicRead) {
     it(`[S0-05] ${table}: app_public can read it`, async () => {
-      expect(await withPublicRead(seen)).toBe(1);
+      if (publicHiddenColumnsOf(def).length === 0) {
+        expect(await withPublicRead(seen)).toBe(1);
+        return;
+      }
+      // S14 review: a column grant does not cover the system column `ctid`; find the row by its id instead.
+      const n = await withPublicRead((tx) =>
+        tx
+          .execute(sql`select count(*) as n from ${sql.identifier(table)} where id = ${seeded.id as string}`)
+          .then((r) => Number(r.rows[0]?.n)),
+      );
+      expect(n).toBe(1);
     });
     const samples = def.publicSamples;
     if (samples) {
@@ -1155,6 +1167,22 @@ describe.each(globalNames)('global table %s', (table) => {
             expect(n, JSON.stringify(sample)).toBe(expected);
           } finally {
             await admin.query(`delete from "${table}" where ctid = $1::tid`, [at]);
+          }
+        }
+      });
+    }
+    const publicHidden = publicHiddenColumnsOf(def);
+    if (publicHidden.length > 0) {
+      it(`[S14-review] ${table}: app_public cannot read the hidden columns (${publicHidden.join(', ')})`, async () => {
+        const t = sql.identifier(table);
+        for (const column of publicHidden) {
+          const id = sql.identifier(column);
+          for (const read of [
+            sql`select ${id} from ${t} limit 1`,
+            sql`select * from ${t} limit 1`,
+            sql`select count(*) from ${t} where ${id} is not null`,
+          ]) {
+            await expectSqlState(() => withPublicRead((tx) => tx.execute(read)), DENIED);
           }
         }
       });

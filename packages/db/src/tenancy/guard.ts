@@ -275,11 +275,12 @@ export async function checkRls(client: pg.ClientBase, registry: TenantRegistry):
 
   // S1-F10, S5-05: a table with `userSelect` or `hiddenColumns` grants app_user SELECT on every column except the
   // hidden ones; S6-F1: a PUBLIC_READ table with `hiddenColumns` does the same for app_public.
-  for (const [name, def] of Object.entries(registry.tenant)) {
+  // S14 review: a public global table's `publicHiddenColumns` likewise.
+  for (const [name, def] of [...Object.entries(registry.tenant), ...Object.entries(registry.global)]) {
     if (!seen.has(name)) continue;
     const checks: [AppRole, readonly string[]][] = [];
-    const hidden = hiddenColumnsOf(def);
-    if (def.userSelect || hidden.length > 0) checks.push(['app_user', hidden]);
+    const hidden = 'kind' in def ? hiddenColumnsOf(def) : [];
+    if (('kind' in def && def.userSelect) || hidden.length > 0) checks.push(['app_user', hidden]);
     const publicHidden = publicHiddenColumnsOf(def);
     if (publicHidden.length > 0) checks.push(['app_public', publicHidden]);
     for (const [role, columns] of checks) {

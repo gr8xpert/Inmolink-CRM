@@ -370,18 +370,85 @@ describe('legacy transform and load (S14-02)', () => {
     expect(left).toEqual({ members: 1, contacts: 0, checkpoints: 0, maps: 0 });
   });
 
-  it('[S14-02] migrated members sign in through a password reset, sent only when asked', async () => {
+  it('[S14-review] the load mails nobody; its maps tell the members it created from those it matched', async () => {
     const founder = await newAgency();
     const resets = () =>
       one<{ n: number }>(sql`select count(*)::int as n from outbox_events o
         where o.type = 'identity.passwordReset.requested' and o.payload->>'userId' in (
-          select u.id::text from users u where u.email like ${`legacy-${RUN}-e-%`})`);
+          select u.id::text from users u where u.email like ${`legacy-${RUN}-e-%`} or u.id = ${founder.userId})`);
+    const methods = () =>
+      rows<{ legacyId: string; method: string }>(sql`select legacy_id as "legacyId", method from legacy_id_maps
+        where entity = 'user' and legacy_id like ${`${RUN}-e-%`} order by legacy_id`);
+    const want = [
+      { legacyId: lid('e', 'u1'), method: 'import' },
+      { legacyId: lid('e', 'u2'), method: 'import' },
+      { legacyId: lid('e', 'u4'), method: 'matched' }, // the founder, matched by e-mail
+    ];
     await migrate(founder, 'e');
+    expect(await methods()).toEqual(want);
+    // a re-run (every batch again) finds its own members: they stay `import`
+    await migrate(founder, 'e', { restart: true });
+    expect(await methods()).toEqual(want);
     expect((await resets()).n).toBe(0);
-    const result = await migrate(founder, 'e', { sendPasswordResets: true });
-    // the two migrated members and the founder (a legacy user too)
-    expect(result.passwordResets).toBe(3);
-    expect((await resets()).n).toBe(2);
+  });
+
+  it('[S14-review] migrated users outside the agency e-mail domains are a report warning', async () => {
+    const founder = await newAgency(); // its e-mail domain: example.com, like the fixture users
+    const st = staging('g', founder.email);
+    st.users.push({
+      id: lid('g', 'u5'),
+      email: `stranger-${RUN}@elsewhere.example`,
+      name: 'X',
+      role: 'agent',
+      locale: 'es',
+    });
+    const run = (extra: Partial<migration.MigrateLegacyAgencyInput> = {}) =>
+      migration.migrateLegacyAgency({
+        legacyAgencyId: lid('g', 'agency'),
+        agencyId: founder.agencyId,
+        staged: sources(st),
+        requestMedia,
+        restart: true,
+        ...extra,
+      });
+    const warned = (r: migration.MigrateLegacyAgencyResult) =>
+      r.report.issues.filter((i) => i.reason === 'email_domain').map((i) => [i.legacyId, i.detail]);
+    const first = await run();
+    expect(warned(first)).toEqual([[lid('g', 'u5'), "e-mail domain is not one of the agency's"]]);
+    expect(JSON.stringify(first.report)).not.toContain('elsewhere.example');
+    expect(first.report.counts.user).toMatchObject({ failed: 1 }); // the inactive user only: a warning is not a failure
+    // a re-run still warns (the member it created is not one of the agency's own); a named domain clears it
+    expect(warned(await run())).toHaveLength(1);
+    expect(warned(await run({ emailDomains: ['@ELSEWHERE.example'] }))).toEqual([]);
+  });
+
+  it('[S14-review] a load drops the checkpoints past an entity’s last batch (a smaller re-extract)', async () => {
+    const founder = await newAgency();
+    const legacyAgencyId = lid('h', 'agency');
+    const st = staging('h', founder.email);
+    const run = (listings: unknown[]) =>
+      migration.migrateLegacyAgency({
+        legacyAgencyId,
+        agencyId: founder.agencyId,
+        staged: sources({ ...st, listings: listings as typeof st.listings }),
+        requestMedia,
+        batchRows: { listings: 1 },
+      });
+    const seqs = async () =>
+      (
+        await rows<{ seq: number; status: string }>(sql`select seq, status from migration_batches
+          where legacy_agency_id = ${legacyAgencyId} and entity = 'properties' order by seq`)
+      ).map((r) => `${r.seq}:${r.status}`);
+    await run(st.listings);
+    expect(await seqs()).toEqual(['0:DONE', '1:DONE', '2:DONE', '3:DONE']);
+    // a stale failed checkpoint far past the end (an older, longer extract)
+    await system((tx) =>
+      tx.execute(sql`insert into migration_batches
+        (id, legacy_agency_id, target_agency_id, entity, seq, input_hash, status, rows, error)
+        values (${newId()}, ${legacyAgencyId}, ${founder.agencyId}, 'properties', 9, ${'0'.repeat(64)}, 'FAILED', 1, 'x')`),
+    );
+    await run(st.listings.slice(0, 2));
+    expect(await seqs()).toEqual(['0:DONE', '1:DONE']);
   });
 
   it('[S14-02] a listing batch is a fixed number of statements, whatever its size', async () => {

@@ -3,8 +3,9 @@
  * `@inmolink/platform/queue`. Idempotent, batched, per-tenant fair share.
  *
  * `migration.flushRedirectHits` (S14-05, schedule: every minute): writes the legacy-redirect hit counters buffered in
- * this process's memory. The portal / feed-api processes that resolve redirects call `flushRedirectHits` on their own
- * interval; this job covers the worker process (plugin shim calls made there) and is a no-op when nothing is buffered.
+ * the worker process's own memory — a no-op today, since no app resolves legacy redirects before S15 (the portal and
+ * the plugin shim). Kept so the schedule exists; the S15 processes that call `resolveLegacyRedirect` must also call
+ * `flushRedirectHits` on their own interval (counters live in the resolving process).
  *
  * `migration.scheduleLegacyDeltas` (S14-04, schedule: hourly, pool `maintenance`): queues one
  * `migration.syncLegacyDelta` per migrated legacy agency not cut over (`deltaAgencies`, `enqueueMany` per page), job

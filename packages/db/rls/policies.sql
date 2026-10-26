@@ -1105,7 +1105,13 @@ alter table public."legacy_url_redirects" enable row level security;
 alter table public."legacy_url_redirects" force row level security;
 create policy global_read on public."legacy_url_redirects" for select to app_public using (true);
 revoke all on table public."legacy_url_redirects" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
-grant select on table public."legacy_url_redirects" to app_public;
+do $$
+declare cols text;
+begin
+  select string_agg(format('%I', attname), ', ' order by attnum) into cols from pg_attribute
+   where attrelid = 'public."legacy_url_redirects"'::regclass and attnum > 0 and not attisdropped and attname <> all (array['target_id', 'hits', 'last_hit_at']);
+  execute format('grant select (%s) on table public."legacy_url_redirects" to app_public', cols);
+end $$;
 grant select, insert, update, delete on table public."legacy_url_redirects" to app_system;
 
 -- listing_bookmarks: STRICT

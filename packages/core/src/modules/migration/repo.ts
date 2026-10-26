@@ -56,11 +56,42 @@ export async function upsertMaps(tx: Tx, entity: LegacyEntity, rows: readonly Id
       .values(rows.slice(i, i + 1000).map((r) => ({ ...r, targetAgencyId: r.targetAgencyId ?? null, entity })))
       .onConflictDoUpdate({
         target: [legacyIdMaps.entity, legacyIdMaps.legacyId],
-        set: { newId: sql`excluded.new_id`, method: sql`excluded.method`, updatedAt: sql`now()` },
+        set: {
+          newId: sql`excluded.new_id`,
+          // S14 review: `matched` (a re-run finding the row the load created) keeps the map's method for the same row.
+          method: sql`case when ${legacyIdMaps.newId} = excluded.new_id and excluded.method = 'matched'
+                           then ${legacyIdMaps.method} else excluded.method end`,
+          updatedAt: sql`now()`,
+        },
         setWhere: sql`${legacyIdMaps.method} <> 'manual'
           and ${legacyIdMaps.targetAgencyId} is not distinct from excluded.target_agency_id`,
       });
   }
+}
+
+/**
+ * S14 review: which of these v2 rows of the agency the load created (`import` maps; `legacy_id_maps_new_idx`). One
+ * statement.
+ */
+export async function importedAmong(
+  tx: Tx,
+  entity: LegacyEntity,
+  agencyId: string,
+  newIds: readonly string[],
+): Promise<Set<string>> {
+  if (newIds.length === 0) return new Set();
+  const rows = await tx
+    .selectDistinct({ newId: legacyIdMaps.newId })
+    .from(legacyIdMaps)
+    .where(
+      and(
+        eq(legacyIdMaps.entity, entity),
+        inArray(legacyIdMaps.newId, [...newIds]),
+        eq(legacyIdMaps.targetAgencyId, agencyId),
+        eq(legacyIdMaps.method, 'import'),
+      ),
+    );
+  return new Set(rows.map((r) => r.newId));
 }
 
 /** The legacy ids mapped to this v2 id (`legacy_id_maps_new_idx`), at most `limit`. */
@@ -184,10 +215,36 @@ export async function saveCheckpoint(
     });
 }
 
+/**
+ * S14 review: drops an entity's checkpoints past its last batch (`seq > lastSeq`; -1 drops all) — a re-extract with
+ * fewer rows, or a smaller delta, leaves no stale DONE / FAILED rows behind for validation. One statement
+ * (`migration_batches_batch_uq` range). Answers the rows removed.
+ */
+export async function deleteCheckpointsAfter(
+  tx: Tx,
+  legacyAgencyId: string,
+  entity: string,
+  lastSeq: number,
+): Promise<number> {
+  const gone = await tx
+    .delete(migrationBatches)
+    .where(
+      and(
+        eq(migrationBatches.legacyAgencyId, legacyAgencyId),
+        eq(migrationBatches.entity, entity),
+        sql`${migrationBatches.seq} > ${lastSeq}`,
+      ),
+    )
+    .returning({ id: migrationBatches.id });
+  return gone.length;
+}
+
 // ---- S14-05: legacy URL redirects ----
 
 export type RedirectRow = {
   source: 'portal' | 'plugin';
+  /** The legacy site's host (`normalizeHost`): plugin pages of two agencies may share a path. */
+  host: string;
   locale: string;
   pathKey: string;
   targetPath: string;
@@ -200,6 +257,7 @@ export type RedirectRow = {
 export async function redirectByKey(
   tx: Tx,
   source: string,
+  host: string,
   locale: string,
   pathKey: string,
 ): Promise<{ targetPath: string; status: number } | null> {
@@ -209,6 +267,7 @@ export async function redirectByKey(
     .where(
       and(
         eq(legacyUrlRedirects.source, source),
+        eq(legacyUrlRedirects.host, host),
         eq(legacyUrlRedirects.locale, locale),
         eq(legacyUrlRedirects.pathKey, pathKey),
       ),
@@ -224,7 +283,12 @@ export async function upsertRedirects(tx: Tx, rows: readonly RedirectRow[]): Pro
       .insert(legacyUrlRedirects)
       .values(rows.slice(i, i + 1000).map((r) => ({ id: newId(), ...r })))
       .onConflictDoUpdate({
-        target: [legacyUrlRedirects.source, legacyUrlRedirects.locale, legacyUrlRedirects.pathKey],
+        target: [
+          legacyUrlRedirects.source,
+          legacyUrlRedirects.host,
+          legacyUrlRedirects.locale,
+          legacyUrlRedirects.pathKey,
+        ],
         set: {
           targetPath: sql`excluded.target_path`,
           entity: sql`excluded.entity`,
@@ -237,19 +301,17 @@ export async function upsertRedirects(tx: Tx, rows: readonly RedirectRow[]): Pro
   return rows.length;
 }
 
+export type RedirectHit = { source: string; host: string; locale: string; pathKey: string; hits: number };
+
 /** Adds counted hits, one statement per 1,000 URLs (the flush). */
-export async function addRedirectHits(
-  tx: Tx,
-  hits: readonly { source: string; locale: string; pathKey: string; hits: number }[],
-  at: Date,
-): Promise<void> {
+export async function addRedirectHits(tx: Tx, hits: readonly RedirectHit[], at: Date): Promise<void> {
   for (let i = 0; i < hits.length; i += 1000) {
     await tx.execute(sql`
       update public.legacy_url_redirects r
          set hits = r.hits + h.hits, last_hit_at = ${at.toISOString()}::timestamptz
         from jsonb_to_recordset(${JSON.stringify(hits.slice(i, i + 1000))}::jsonb)
-             as h(source text, locale text, "pathKey" text, hits int)
-       where r.source = h.source and r.locale = h.locale and r.path_key = h."pathKey"`);
+             as h(source text, host text, locale text, "pathKey" text, hits int)
+       where r.source = h.source and r.host = h.host and r.locale = h.locale and r.path_key = h."pathKey"`);
   }
 }
 

@@ -1,5 +1,5 @@
 // pnpm legacy:delta [--url <postgres url> | LEGACY_DATABASE_URL] [--agency <legacy id>]... [--map <entities.json>]
-//   [--dry-run] [--cutover | --reopen] [--test]
+//   [--dry-run] [--cutover | --reopen] [--target <db host> | --test]
 //
 // Legacy → v2 delta sync, a manual run (S14-04, PLAN §14 Path A step 5; the worker runs it hourly once a legacy reader
 // is registered). For each legacy agency already loaded (`legacy:load`) and not cut over — every one, or the given
@@ -15,13 +15,14 @@ import { closeCache } from '@inmolink/platform/cache';
 import { loadConfigOrExit } from '@inmolink/platform/config';
 import { createLogger } from '@inmolink/platform/logger';
 import { closeQueues } from '@inmolink/platform/queue';
-import { readStackEnv } from '../ops/stack-env';
 import { openLegacyDeltaReader } from './delta-lib';
 import type { EntitySpec } from './extract-lib';
+import { prepareLegacyScriptEnv } from './guard';
 
 const { values } = parseArgs({
   options: {
     test: { type: 'boolean', default: false },
+    target: { type: 'string' },
     url: { type: 'string' },
     agency: { type: 'string', multiple: true },
     map: { type: 'string' },
@@ -31,10 +32,8 @@ const { values } = parseArgs({
   },
 });
 
-// Locally, read the stack's env file (dev or --test) unless real credentials are already set.
-if (process.env.NODE_ENV !== 'production' && !Object.keys(process.env).some((k) => k.startsWith('DATABASE_URL_'))) {
-  for (const [k, v] of Object.entries(readStackEnv(values.test ? 'test' : 'dev'))) process.env[k] ??= v;
-}
+// S14 review: `--test` only on the local test stack; any other run names its database host (`--target`).
+prepareLegacyScriptEnv({ test: values.test, target: values.target, script: 'legacy:delta' });
 process.env.APP_ROLE = 'script';
 const log = createLogger({ service: 'legacy:delta', level: process.env.LOG_LEVEL });
 

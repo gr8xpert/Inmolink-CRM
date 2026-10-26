@@ -1,14 +1,16 @@
 // pnpm legacy:load --staging <dir> [--agency <legacy id>[=<v2 agency uuid>]]... [--report <file.json>]
-//   [--dry-run] [--restart] [--send-password-resets] [--strict] [--test]
+//   [--email-domain <domain>]... [--dry-run] [--restart] [--strict] [--target <db host> | --test]
 //
 // Legacy transform and load (S14-02, PLAN §14 Path A step 3, ADR 0006). Reads the staging files of the legacy extract
 // (S14-01: `agency-<id>/<entity>.ndjson`, `inventory.json`) and loads each agency — users → members (they sign in
 // through a password reset), listings (+ images queued for the media pipeline), developments and units, contacts,
 // leads — in checkpointed batches (`migration_batches`): a re-run skips the batches already done and resumes at the
 // first failed one; `--restart` runs every batch again (idempotent: maps and natural keys, never a duplicate).
-// `--send-password-resets` e-mails the migrated members (cutover day). The report (outside the repo) gives per agency
-// and entity the legacy, staged and loaded counts and lists every row not loaded with a reason; `--strict` exits 1
-// when a count does not match. Run `legacy:taxonomy` first. The first run of an agency names its v2 agency.
+// The load mails nobody: the members it created get their password-reset e-mail once, from the cutover's ENABLE_ACCESS
+// step (`legacy:cutover run`). `--email-domain` names the agency's e-mail domains (besides its existing members'): a
+// migrated user outside them is a report warning (`email_domain`; the dump's e-mail is taken as verified). The report
+// (outside the repo) gives per agency and entity the legacy, staged and loaded counts and lists every row not loaded
+// with a reason; `--strict` exits 1 when a count does not match. Run `legacy:taxonomy` first. The first run of an agency names its v2 agency.
 import { writeFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import * as migration from '@inmolink/core/modules/migration';
@@ -17,27 +19,26 @@ import { closeCache } from '@inmolink/platform/cache';
 import { loadConfigOrExit } from '@inmolink/platform/config';
 import { createLogger } from '@inmolink/platform/logger';
 import { closeQueues } from '@inmolink/platform/queue';
-import { readStackEnv } from '../ops/stack-env';
 import { assertOutsideRepo } from './extract-lib';
+import { prepareLegacyScriptEnv } from './guard';
 import { legacyRowsOf, parseAgencyArg, readInventory, stagedAgencies, stagedSource } from './staging';
 
 const { values } = parseArgs({
   options: {
     test: { type: 'boolean', default: false },
+    target: { type: 'string' },
     staging: { type: 'string' },
     agency: { type: 'string', multiple: true },
     report: { type: 'string' },
     'dry-run': { type: 'boolean', default: false },
     restart: { type: 'boolean', default: false },
-    'send-password-resets': { type: 'boolean', default: false },
+    'email-domain': { type: 'string', multiple: true },
     strict: { type: 'boolean', default: false },
   },
 });
 
-// Locally, read the stack's env file (dev or --test) unless real credentials are already set.
-if (process.env.NODE_ENV !== 'production' && !Object.keys(process.env).some((k) => k.startsWith('DATABASE_URL_'))) {
-  for (const [k, v] of Object.entries(readStackEnv(values.test ? 'test' : 'dev'))) process.env[k] ??= v;
-}
+// S14 review: `--test` only on the local test stack; any other run names its database host (`--target`).
+prepareLegacyScriptEnv({ test: values.test, target: values.target, script: 'legacy:load' });
 process.env.APP_ROLE = 'script';
 const log = createLogger({ service: 'legacy:load', level: process.env.LOG_LEVEL });
 
@@ -87,7 +88,7 @@ try {
         legacyRows,
         dryRun,
         restart: values.restart,
-        sendPasswordResets: values['send-password-resets'],
+        emailDomains: values['email-domain'] ?? [],
       });
       results.push({ legacyAgencyId, ...result });
       log.info(
@@ -115,7 +116,6 @@ try {
             ...r.report,
             steps: r.steps,
             stoppedAt: r.stoppedAt,
-            passwordResets: r.passwordResets,
           })),
         },
         null,
