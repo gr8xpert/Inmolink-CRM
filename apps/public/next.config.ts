@@ -1,6 +1,8 @@
 import { fileURLToPath } from 'node:url';
+import { DEFAULT_PAGE_CACHE_BYTES } from '@inmolink/platform/cache';
 import type { NextConfig } from 'next';
 import createNextIntlPlugin from 'next-intl/plugin';
+import { ENQUIRY_NOTICE_CACHE, PORTAL_ISR_PAGE_CACHE, PORTAL_PAGE_CACHE } from './src/portal/cache-control';
 
 /**
  * Every path but the iFrame embeds (S7-F8) may never be framed. The proxy sets the same on the pages it runs for; this
@@ -12,16 +14,9 @@ export const FRAME_DENY_HEADERS = [
   { key: 'Content-Security-Policy', value: "frame-ancestors 'none'" },
 ];
 
-/**
- * S15-01: the portal's search, location and home pages render per request (filters and pages ride in the query
- * string), so Next would mark them private; they hold no visitor data, so the CDN may keep them briefly and serve a
- * stale copy while it refetches. Listing pages are ISR (`revalidate`) and get Next's own `s-maxage`. S15-F7: at most
- * 45 s + 15 s stale at the edge, so a withdrawn listing or an agency change leaves these pages within a minute (their
- * origin reads are fresh within a minute: documents at once, agency set and contacts ≤ 60 s).
- */
-export const PORTAL_PAGE_CACHE = 'public, max-age=0, s-maxage=45, stale-while-revalidate=15, stale-if-error=86400';
-/** S15-03 review: a page with the enquiry form's answer (`?enquiry=`). */
-export const ENQUIRY_NOTICE_CACHE = 'private, no-store';
+// S15-01 / S15 review: the portal pages' CDN headers (shared with the proxy).
+export { ENQUIRY_NOTICE_CACHE, PORTAL_ISR_PAGE_CACHE, PORTAL_PAGE_CACHE } from './src/portal/cache-control';
+
 const LOCALE = ':locale([a-z]{2})';
 export const PORTAL_CACHED_SOURCES = [
   `/${LOCALE}`,
@@ -31,6 +26,11 @@ export const PORTAL_CACHED_SOURCES = [
   // S15-03: agency profile pages (their listings page like a search).
   `/${LOCALE}/agency/:id/:name`,
 ];
+/**
+ * S15 review: the ISR pages (listing, development). Their `Cache-Control` comes from this rule, not from Next's
+ * `revalidate`-based header (which only applies when none is set): the CDN keeps them a minute, never ~a year stale.
+ */
+export const PORTAL_ISR_SOURCES = [`/${LOCALE}/property/:slug`, `/${LOCALE}/development/:slug`];
 
 /**
  * S15-F7: the ISR page cache (listing and development pages, ADR 0019 (A)): bounded per instance and invalidated on
@@ -38,7 +38,7 @@ export const PORTAL_CACHED_SOURCES = [
  * also write every rendered page to the server's disk — unbounded for ~2M listings × locales.
  */
 export const PAGE_CACHE_HANDLER = fileURLToPath(new URL('./cache-handler.mjs', import.meta.url));
-export const PAGE_CACHE_MAX_BYTES = 256 * 1024 * 1024;
+export const PAGE_CACHE_MAX_BYTES = DEFAULT_PAGE_CACHE_BYTES;
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
@@ -54,9 +54,13 @@ const nextConfig: NextConfig = {
         source,
         headers: [{ key: 'Cache-Control', value: PORTAL_PAGE_CACHE }],
       })),
+      ...PORTAL_ISR_SOURCES.map((source) => ({
+        source,
+        headers: [{ key: 'Cache-Control', value: PORTAL_ISR_PAGE_CACHE }],
+      })),
       // S15-03 review: a page carrying an enquiry form's answer (`?enquiry=`) is the visitor's own: never cached
       // publicly (the proxy sets the same; this rule comes last, so it wins over the one above).
-      ...PORTAL_CACHED_SOURCES.map((source) => ({
+      ...[...PORTAL_CACHED_SOURCES, ...PORTAL_ISR_SOURCES].map((source) => ({
         source,
         has: [{ type: 'query' as const, key: 'enquiry' }],
         headers: [{ key: 'Cache-Control', value: ENQUIRY_NOTICE_CACHE }],

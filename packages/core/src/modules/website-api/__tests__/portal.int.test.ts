@@ -410,4 +410,52 @@ describe('public portal reads (S15-01)', () => {
     expect(filters.cut).toEqual({ locations: 3, types: 0 });
     expect(websiteApi.portalSearchFilters(catalog, q(), [ids.city]).cut).toEqual({ locations: 0, types: 0 });
   });
+  it('[S15-01] review: owner scope — a hide list that would be cut short falls back to a show list (never unlisted stock)', () => {
+    const max = search.MAX_EXCLUDED_OWNERS;
+    const names = (n: number, p: string) => Array.from({ length: n }, (_, i) => `${p}-${i}`);
+    // The usual case: a few unlisted owners to hide.
+    expect(websiteApi.ownerScopeOf(names(10, 'l'), names(2, 'u'))).toEqual({ hide: names(2, 'u') });
+    // More unlisted owners than fit a search, fewer than the listed agencies: never a cut hide list.
+    const scope = websiteApi.ownerScopeOf(names(max + 10, 'l'), names(max + 1, 'u'));
+    expect('show' in scope && scope.show).toEqual(names(max, 'l'));
+    // Fewer listed agencies: shown by name.
+    expect(websiteApi.ownerScopeOf(names(3, 'l'), names(max + 1, 'u'))).toEqual({ show: names(3, 'l') });
+  });
+
+  it('[S15-01] review: the page gate — a known code passes unlimited; made-up codes and code-less slugs cost the client’s limit', async () => {
+    websiteApi.resetPortalCaches();
+    let counted = 0;
+    let allow = true;
+    const beforeProbe = async () => {
+      counted++;
+      return allow;
+    };
+    const real = `villa-in-town-${(await codeOf(L.aVilla)).toLowerCase()}`;
+    // First sight: counted once and probed (one statement), then remembered: no count, no statement.
+    expect(await websiteApi.portalPageCode(real, beforeProbe)).toBe('known');
+    expect(counted).toBe(1);
+    expect(
+      await countQueries(async () => expect(await websiteApi.portalPageCode(real, beforeProbe)).toBe('known')),
+    ).toBe(0);
+    expect(counted).toBe(1);
+    // A development's code is known too (one code table).
+    expect(await websiteApi.portalPageCode(`x-${(await codeOf(D.open)).toLowerCase()}`, beforeProbe)).toBe('known');
+    // A made-up code: counted every time (remembered as unknown: no second probe); a slug without a code likewise.
+    counted = 0;
+    const madeUp = 'villa-in-town-zzzzzzzz';
+    expect(await websiteApi.portalPageCode(madeUp, beforeProbe)).toBe('unknown');
+    expect(
+      await countQueries(async () => expect(await websiteApi.portalPageCode(madeUp, beforeProbe)).toBe('unknown')),
+    ).toBe(0);
+    expect(await websiteApi.portalPageCode('no-code-here', beforeProbe)).toBe('unknown');
+    expect(counted).toBe(3);
+    // Over the limit: refused before any probe; a known code still passes.
+    allow = false;
+    expect(
+      await countQueries(async () =>
+        expect(await websiteApi.portalPageCode('x-yyyyyyyy', beforeProbe)).toBe('limited'),
+      ),
+    ).toBe(0);
+    expect(await websiteApi.portalPageCode(real, beforeProbe)).toBe('known');
+  });
 });

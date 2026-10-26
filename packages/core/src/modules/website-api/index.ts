@@ -76,10 +76,14 @@ export { checkWebsiteLimits, creditChangeFeed, type SliceEndpoint, SYNC_CREDIT_P
 // S15-01: the public portal's reads (inmolink.es search, listing and location pages).
 export {
   localizedListingNames,
+  type OwnerScope,
+  ownerScopeOf,
   PORTAL_DEVELOPMENT_UNITS,
   PORTAL_EXCERPT_CHARS,
+  PORTAL_KNOWN_CODE_TTL_MS,
   PORTAL_MAX_FILTER_TYPES,
   PORTAL_MAX_SEARCH_TYPES,
+  PORTAL_UNKNOWN_CODE_TTL_MS,
   PORTAL_ZONE_MAX_MEMBERS,
   type PortalAgency,
   type PortalAgencyProfile,
@@ -104,6 +108,7 @@ export {
   portalListingPaths,
   portalLocation,
   portalLocationPaths,
+  portalPageCode,
   portalPlaceOf,
   portalSearch,
   portalSearchFilters,
@@ -163,6 +168,7 @@ export {
 } from './portal-sitemaps';
 export {
   agencyPath,
+  codeOfSlug,
   developmentNameOf,
   developmentPath,
   homePath,

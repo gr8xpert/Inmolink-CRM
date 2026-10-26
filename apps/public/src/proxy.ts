@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import createMiddleware from 'next-intl/middleware';
 import { DENY_FRAMING, EMBED_GATE_HEADER, embedPath } from './embed/csp';
 import { routing } from './i18n/routing';
+import { ENQUIRY_NOTICE_CACHE } from './portal/cache-control';
 import { ENQUIRY_PARAM, enquiryParamOf, withoutEnquiryParam } from './portal/enquiry-notices';
 import { localRedirectTarget } from './portal/legacy';
 import { canonicalSearch } from './portal/query';
@@ -51,10 +52,19 @@ const PORTAL_SEARCH_PATH = /^\/[a-z]{2}\/(?:properties|zone|agency)(?:\/|$)/;
 /**
  * S15-03 review: an enquiry form's no-JavaScript answer comes back to its page (listing, agency profile) as
  * `?enquiry=<notice>`. Only a known notice is kept — any other value moves to the page without it, so made-up values
- * never make CDN cache keys — and a page carrying one is never cached publicly (`private, no-store`): the notice is
+ * never make CDN cache keys — and a page carrying one is never cached publicly (`ENQUIRY_NOTICE_CACHE`): the notice is
  * the visitor's own.
  */
-const NOTICE_CACHE = 'private, no-store';
+
+/** S15 review: listing and development pages (`/en/property/<slug>`, `/en/development/<slug>`): the slug's code. */
+const PORTAL_ITEM_PATH = /^\/[a-z]{2}\/(?:property|development)\/([^/]+)\/?$/;
+
+/**
+ * S15 review: the gate of a listing or development page (core `portalPageCode`): `known` — a real public code, passed
+ * unlimited; `unknown` / `limited` — a made-up code or a slug without one, counted against the client's page limit
+ * (`beforeProbe`) before any probe.
+ */
+export type CodeGate = (slug: string, beforeProbe: () => Promise<boolean>) => Promise<'known' | 'unknown' | 'limited'>;
 
 const intl = createMiddleware(routing);
 
@@ -110,6 +120,38 @@ async function legacyTarget(
   }
 }
 
+/**
+ * S15 review: a listing or development page request. A known code renders (unlimited: its ISR copy or a render). A
+ * made-up code or a code-less slug has cost the client one unit of its page limit (`codeGate`'s `beforeProbe`; over
+ * it: 429), and is then looked up as a legacy URL (a true 301; the limit is not counted twice) before the page's 404.
+ * Fails open: a gate or lookup outage renders the page.
+ */
+async function itemPage(
+  codeGate: CodeGate,
+  legacyGate: LegacyGate,
+  portalGate: PortalGate,
+  request: NextRequest,
+  slug: string,
+): Promise<LegacyAnswer> {
+  let limited: { retryAfterSeconds: number } | null = null;
+  const beforeProbe = async () => {
+    const limit = await portalAllowed(portalGate, request.headers.get('x-forwarded-for'));
+    if (!limit.allowed) limited = { retryAfterSeconds: limit.retryAfterSeconds };
+    return limit.allowed;
+  };
+  try {
+    const answer = await codeGate(slug, beforeProbe);
+    if (answer === 'limited') return { kind: 'limited', ...(limited ?? { retryAfterSeconds: 60 }) };
+    if (answer === 'known') return null;
+    const { pathname, search } = request.nextUrl;
+    const found = await legacyGate(`${pathname}${search}`, async () => true);
+    const targetPath = localRedirectTarget(found?.targetPath);
+    return found && targetPath ? { kind: 'redirect', targetPath, status: found.status === 308 ? 308 : 301 } : null;
+  } catch {
+    return null;
+  }
+}
+
 /** S15-02: the portal's configured origin (`PORTAL_URL`, else `PUBLIC_URL`): redirects are built on it. */
 export type PortalOrigin = () => Promise<string>;
 
@@ -129,6 +171,7 @@ export function createProxy(
   portalGate: PortalGate = defaultPortalGate,
   legacyGate: LegacyGate = defaultLegacyGate,
   portalOrigin: PortalOrigin = defaultPortalOrigin,
+  codeGate: CodeGate = defaultCodeGate,
 ) {
   return async function proxy(request: NextRequest): Promise<NextResponse> {
     const embed = embedPath(request.nextUrl.pathname);
@@ -157,6 +200,12 @@ export function createProxy(
         return movedTo(await portalOrigin(), `${pathname}${canonical}${kept}`);
       }
     }
+    const item = PORTAL_ITEM_PATH.exec(pathname);
+    if (item) {
+      const answer = await itemPage(codeGate, legacyGate, portalGate, request, item[1] as string);
+      if (answer?.kind === 'limited') return refuse(429, answer.retryAfterSeconds);
+      if (answer?.kind === 'redirect') return movedTo(await portalOrigin(), answer.targetPath, answer.status);
+    }
     const legacy = await legacyTarget(legacyGate, portalGate, request);
     if (legacy?.kind === 'limited') return refuse(429, legacy.retryAfterSeconds);
     if (legacy?.kind === 'redirect') return movedTo(await portalOrigin(), legacy.targetPath, legacy.status);
@@ -164,13 +213,17 @@ export function createProxy(
     if (LEGACY_FILE_PATH.test(request.nextUrl.pathname)) return refuse(404);
     const res = intl(request);
     for (const [k, v] of Object.entries(DENY_FRAMING)) res.headers.set(k, v);
-    if (notice === 'notice') res.headers.set('Cache-Control', NOTICE_CACHE);
+    if (notice === 'notice') res.headers.set('Cache-Control', ENQUIRY_NOTICE_CACHE);
     return res;
   };
 }
 
 async function defaultLegacyGate(pathWithQuery: string, beforeProbe: () => Promise<boolean>) {
   return (await import('./server/legacy-redirects')).legacyRedirect(pathWithQuery, beforeProbe);
+}
+
+async function defaultCodeGate(slug: string, beforeProbe: () => Promise<boolean>) {
+  return (await import('./server/portal-limits')).portalCodeGate(slug, beforeProbe);
 }
 
 async function defaultPortalOrigin() {

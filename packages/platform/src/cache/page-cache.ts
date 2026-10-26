@@ -37,6 +37,12 @@ export const BREAKER_FAILURES = 3;
 export const BREAKER_OPEN_MS = 5_000;
 /** Default page cache size when Next passes none (bytes). */
 export const DEFAULT_PAGE_CACHE_BYTES = 256 * 1024 * 1024;
+/**
+ * S15 review: the cap of the separate LRU for "not a page" answers (a 404, a redirect: `status` ≥ 300), at most this
+ * and a sixteenth of the page budget. Made-up listing codes each render such an answer: they evict one another, never
+ * the real pages.
+ */
+export const MAX_MISS_CACHE_BYTES = 16 * 1024 * 1024;
 /** Settles remembered per process (tags whose pages are not stored for now). */
 const MAX_SETTLES = 10_000;
 /** Next's header with an entry's cache tags. */
@@ -155,6 +161,8 @@ export interface PageCacheOptions {
   store: PageTagStore;
   /** Byte cap of the process's page LRU. */
   maxBytes: number;
+  /** Byte cap of the miss LRU (404s and redirects); default `min(MAX_MISS_CACHE_BYTES, maxBytes / 16)`. */
+  missMaxBytes?: number;
   now?: () => number;
   /** A lookup failure (logged by the caller; the entry is served). */
   onError?: (err: unknown) => void;
@@ -171,12 +179,24 @@ function tagsOf(data: unknown, ctx: CacheContext): string[] {
   return [...out];
 }
 
+/** A cached answer that is not a page (Next's `status`: a 404 or a redirect) — kept in the miss LRU. */
+function isMiss(data: unknown): boolean {
+  const status = (data as { status?: unknown } | null)?.status;
+  return typeof status === 'number' && status >= 300;
+}
+
 /**
  * The page cache's logic behind Next's `CacheHandler` contract (`get`, `set`, `revalidateTag`,
  * `resetRequestCache`). `PageCacheHandler` (`index.ts`) binds it to redis-cache and a process-wide instance.
  */
 export class PageCache {
   readonly lru: PageLru;
+  /**
+   * S15 review: 404s and redirects (a withdrawn listing's page, a made-up code's), apart from the pages: a flood of
+   * made-up URLs churns only this small LRU. Their tags are looked up like a page's, so a restored listing's cached 404
+   * still goes within a minute.
+   */
+  readonly misses: PageLru;
   private readonly now: () => number;
   /** Tag → until when pages carrying it are not stored (a recent or future change seen by a lookup). */
   private readonly settles = new Map<string, number>();
@@ -187,6 +207,9 @@ export class PageCache {
 
   constructor(private readonly options: PageCacheOptions) {
     this.lru = new PageLru(options.maxBytes);
+    this.misses = new PageLru(
+      options.missMaxBytes ?? Math.min(MAX_MISS_CACHE_BYTES, Math.floor(options.maxBytes / 16)),
+    );
     this.now = options.now ?? Date.now;
   }
 
@@ -229,12 +252,18 @@ export class PageCache {
     }
   }
 
+  /** Drops `key` from both LRUs. */
+  private drop(key: string): void {
+    this.lru.delete(key);
+    this.misses.delete(key);
+  }
+
   async get(key: string): Promise<{ value: unknown; lastModified: number; cacheControl?: unknown } | null> {
-    const e = this.lru.get(key);
+    const e = this.lru.get(key) ?? this.misses.get(key);
     if (!e) return null;
     const now = this.now();
     if (now - e.lastModified > PAGE_TAG_TTL_SECONDS * 1_000) {
-      this.lru.delete(key);
+      this.drop(key);
       return null;
     }
     if (e.shared.length > 0) {
@@ -248,7 +277,7 @@ export class PageCache {
         if (until > now) this.remember(e.shared[i] as string, until);
       });
       if (stale) {
-        this.lru.delete(key);
+        this.drop(key);
         return null;
       }
     }
@@ -261,7 +290,7 @@ export class PageCache {
 
   async set(key: string, data: unknown, ctx?: CacheContext): Promise<void> {
     if (data === null || data === undefined) {
-      this.lru.delete(key);
+      this.drop(key);
       return;
     }
     const tags = tagsOf(data, ctx);
@@ -269,10 +298,13 @@ export class PageCache {
     const now = this.now();
     // A page the next lookup would drop is not stored (its tag is settling).
     if (this.settling(shared, now)) {
-      this.lru.delete(key);
+      this.drop(key);
       return;
     }
-    this.lru.set(key, {
+    // A key moves between the LRUs when its answer changes (a listing withdrawn, then restored).
+    const [into, other] = isMiss(data) ? [this.misses, this.lru] : [this.lru, this.misses];
+    other.delete(key);
+    into.set(key, {
       value: data,
       lastModified: now,
       tags,
@@ -285,7 +317,9 @@ export class PageCache {
   /** `revalidateTag` in any instance: shared tags are marked on redis-cache (every instance), local copies dropped. */
   async revalidateTag(tags: string | readonly string[]): Promise<void> {
     const list = typeof tags === 'string' ? [tags] : [...tags];
-    this.lru.deleteTagged(new Set(list));
+    const tagged = new Set(list);
+    this.lru.deleteTagged(tagged);
+    this.misses.deleteTagged(tagged);
     await markPageTagsChanged(this.options.store, list, this.now());
   }
 }

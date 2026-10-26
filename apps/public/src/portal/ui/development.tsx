@@ -1,7 +1,6 @@
-import type { PortalDevelopment } from '@inmolink/core/modules/website-api';
+import type { Crumb, PortalDevelopment } from '@inmolink/core/modules/website-api';
 import { formatter } from '@inmolink/i18n';
 import { getTranslations } from 'next-intl/server';
-import type { Crumb } from '../seo';
 import { AgencyBox } from './agency-box';
 import { Breadcrumbs } from './breadcrumbs';
 import { townOf } from './results';

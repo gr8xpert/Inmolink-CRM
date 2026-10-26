@@ -3,10 +3,15 @@ import { getRedirectUrl, unstable_doesMiddlewareMatch } from 'next/experimental/
 import { NextRequest } from 'next/server';
 import { describe, expect, it, vi } from 'vitest';
 import { EMBED_GATE_HEADER } from './embed/csp';
-import proxy, { config, createProxy, type EmbedGate, type LegacyGate, type PortalGate } from './proxy';
+import proxy, { type CodeGate, config, createProxy, type EmbedGate, type LegacyGate, type PortalGate } from './proxy';
 
 // S15-02: the default legacy lookup needs the database; these checks pass their own (`createProxy`'s third gate).
 vi.mock('./server/legacy-redirects', () => ({ legacyRedirect: async () => null }));
+// S15 review: the default listing / development page gate needs the database; known by default here.
+vi.mock('./server/portal-limits', () => ({
+  portalCodeGate: async () => 'known',
+  portalPageGate: async () => ({ allowed: true, retryAfterSeconds: 0 }),
+}));
 // Redirects are built on the configured portal origin, never the request's Host (`portal.test` in these requests).
 vi.mock('./server/env', () => ({
   publicConfig: async () => ({}),
@@ -300,5 +305,56 @@ describe('legacy inmolink.es URLs (S15-02)', () => {
     for (const url of ['/sitemap.xml', '/sitemaps/en-listings-1.xml', '/robots.txt', '/api/portal/enquiry']) {
       expect(runs(url), url).toBe(false);
     }
+  });
+});
+
+describe('listing and development page misses (S15 review)', () => {
+  const legacy: LegacyGate = vi.fn(async (path) =>
+    path === '/en/property/old-villa-zzzzzzzz'
+      ? { targetPath: '/en/property/villa-in-x-ab12cd34', status: 301 as const }
+      : null,
+  );
+  /** A gate like core's: a known code passes; anything else costs the client's limit first. */
+  const gate =
+    (knownSlugs: string[]): CodeGate =>
+    async (slug, beforeProbe) => {
+      if (knownSlugs.includes(slug)) return 'known';
+      return (await beforeProbe()) ? 'unknown' : 'limited';
+    };
+
+  it('[S15-01] review: a real listing passes unlimited; a made-up code is counted, asks the legacy URLs (301), else renders its 404', async () => {
+    const counted: PortalGate = vi.fn(async () => ({ allowed: true, retryAfterSeconds: 0 }));
+    const run = createProxy(ok(), counted, legacy, undefined, gate(['villa-in-x-ab12cd34']));
+    const real = await run(request('/en/property/villa-in-x-ab12cd34', { 'x-forwarded-for': '9.9.9.9' }));
+    expect(real.status).toBe(200);
+    expect(counted).not.toHaveBeenCalled();
+    expect(legacy).not.toHaveBeenCalled();
+    // A legacy URL in the listing shape: a true 301, the client counted once (the lookup does not count again).
+    const old = await run(request('/en/property/old-villa-zzzzzzzz', { 'x-forwarded-for': '9.9.9.9' }));
+    expect(old.status).toBe(301);
+    expect(old.headers.get('location')).toBe('https://inmolink.test/en/property/villa-in-x-ab12cd34');
+    expect(counted).toHaveBeenCalledTimes(1);
+    expect(legacy).toHaveBeenCalledWith('/en/property/old-villa-zzzzzzzz', expect.any(Function));
+    // Made up, no legacy row: counted, then the page renders (its 404); a development too.
+    for (const path of ['/en/property/x-yyyyyyyy', '/es/development/no-code-here']) {
+      expect((await run(request(path, { 'x-forwarded-for': '9.9.9.9' }))).status, path).toBe(200);
+    }
+    expect(counted).toHaveBeenCalledTimes(3);
+  });
+
+  it('[S15-01] review: past the page limit, made-up codes get a 429 (no-store); real pages and outages still render', async () => {
+    const limited: PortalGate = vi.fn(async () => ({ allowed: false, retryAfterSeconds: 9 }));
+    const run = createProxy(ok(), limited, legacy, undefined, gate(['villa-in-x-ab12cd34']));
+    for (const path of ['/en/property/x-yyyyyyyy', '/en/development/x-yyyyyyyy']) {
+      const res = await run(request(path, { 'x-forwarded-for': '9.9.9.9' }));
+      expect(res.status, path).toBe(429);
+      expect(res.headers.get('retry-after'), path).toBe('9');
+      expect(res.headers.get('cache-control'), path).toBe('no-store');
+    }
+    expect((await run(request('/en/property/villa-in-x-ab12cd34'))).status).toBe(200);
+    const broken = createProxy(ok(), limited, legacy, undefined, async () => {
+      throw new Error('db down');
+    });
+    expect((await broken(request('/en/property/x-yyyyyyyy'))).status).toBe(200);
   });
 });

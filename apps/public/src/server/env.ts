@@ -175,7 +175,7 @@ async function setup(): Promise<PublicConfig> {
       : null,
     embedOrigin: config.PUBLIC_URL ?? LOCAL_PUBLIC_URL,
     // S15-02: portal enquiry forms solve Turnstile on the portal's host.
-    portalOrigin: config.PORTAL_URL ?? config.PUBLIC_URL ?? LOCAL_PUBLIC_URL,
+    portalOrigin: portalOriginOf(config),
     // S13-F21: the website API cut-off of a site whose plan lost it applies only while plans are enforced.
     enforcePlans: config.BILLING_ENFORCE_PLANS === 'true',
   });

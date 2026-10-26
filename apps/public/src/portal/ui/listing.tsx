@@ -1,10 +1,9 @@
 import type { WebsiteImage } from '@inmolink/contracts';
-import type { PortalListing } from '@inmolink/core/modules/website-api';
+import type { Crumb, PortalListing } from '@inmolink/core/modules/website-api';
 import * as websiteApi from '@inmolink/core/modules/website-api';
 import { formatter } from '@inmolink/i18n';
 import { getTranslations } from 'next-intl/server';
 import type { PortalSettings } from '../data';
-import type { Crumb } from '../seo';
 import { developmentPath, listingPath } from '../urls';
 import { AgencyBox } from './agency-box';
 import { Breadcrumbs } from './breadcrumbs';

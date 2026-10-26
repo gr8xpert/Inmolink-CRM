@@ -5,6 +5,11 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- fix(public): portal listing / development pages s-maxage 60 s + stale-while-revalidate 30 s + stale-if-error 600; all portal pages stale-if-error 600; shared cache-control constants [S15 review]
+- fix(website-api,public): the proxy counts made-up listing / development codes against the per-IP page limit and answers their legacy URLs (portalPageCode); 404s in a separate page-cache LRU [S15 review]
+- fix(platform): legacy-db requires TLS (sslmode require / verify-ca / verify-full) in production [S15 review]
+- fix(website-api): portal owner scope never uses a truncated hide list; enquiry limits inside submitPortalLead [S15 review]
+- refactor(public,core): portalOriginOf everywhere, codeOfSlug in core (PublicCode), portal seo re-export and profileUrl removed [S15 review]
 - fix(e2e): global setup frees the test queue Redis (dead integration-run prefixes, earlier runs' finished jobs); perf:lighthouse --only / --save, portal LCP budget 2.5 s until staging (ADR 0019 A) [S15-F9]
 - feat(website-api,public): portal SEO built in core; ISR pages in a bounded page cache, invalidated on every instance from outbox events; portal search pages s-maxage 45 s [S15-F7]
 - feat(website-api,public): agency profile pages with their PUBLIC listings, contact form, RealEstateAgent JSON-LD, sitemaps and legacy agent redirects [S15-03]

@@ -124,6 +124,35 @@ describe('ISR page cache (S15-F7)', () => {
     expect(await c.get('/en/property/huge')).toBeNull();
   });
 
+  it('[S15-F7] review: 404s and redirects live in a small miss LRU — made-up codes never evict pages; a restore still drops the 404', async () => {
+    const { store } = memoryStore();
+    let now = 7_000_000;
+    const c = new PageCache({ store, maxBytes: 3_200_000, now: () => now });
+    expect(c.misses.maxBytes).toBe(200_000);
+    await c.set('/en/property/real-m2q7zk4p', page('x'.repeat(20_000), 'portal:t:L1'));
+    const notFound = (code: string) => ({ ...page('x'.repeat(20_000), `portal:c:${code}`), status: 404 });
+    // A flood of made-up codes: their 404s churn the miss LRU only.
+    for (let i = 0; i < 100; i++) await c.set(`/en/property/x-${i}`, notFound(`C${i}`));
+    expect(c.misses.bytes).toBeLessThanOrEqual(200_000);
+    expect(c.lru.size).toBe(1);
+    expect(await c.get('/en/property/real-m2q7zk4p')).not.toBeNull();
+    // A withdrawn listing's cached 404 goes when its code is marked (restored), like a page.
+    await c.set('/en/property/gone-k4p2q7zm', notFound('K4P2Q7ZM'));
+    now += RENDER_MARGIN_MS + 1_000;
+    expect(await c.get('/en/property/gone-k4p2q7zm')).toMatchObject({ value: { status: 404 } });
+    await markPageTagsChanged(store, ['portal:c:K4P2Q7ZM'], now);
+    now += 10;
+    expect(await c.get('/en/property/gone-k4p2q7zm')).toBeNull();
+    // A key moves to the pages LRU once it renders a page again (and back).
+    now += RENDER_MARGIN_MS + 1_000;
+    await c.set('/en/property/gone-k4p2q7zm', page('<p>back</p>', 'portal:t:L2'));
+    expect(c.lru.size).toBe(2);
+    await c.set('/en/property/gone-k4p2q7zm', notFound('K4P2Q7ZM'));
+    expect(c.lru.size).toBe(1);
+    await c.revalidateTag('portal:c:K4P2Q7ZM');
+    expect(await c.get('/en/property/gone-k4p2q7zm')).toBeNull();
+  });
+
   it('[S15-F7] fails open: redis-cache down serves the cached page; untagged pages cost no lookup; old pages expire', async () => {
     const { store, state } = memoryStore();
     let now = 1_000;

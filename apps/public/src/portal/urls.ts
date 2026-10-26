@@ -31,17 +31,8 @@ export function agencyPath(locale: string, agency: { id: string; name: string })
   return coreAgencyPath(locale, agency.id, agency.name);
 }
 
-/** An absolute profile URL for JSON-LD. */
-export const profileUrl = (origin: string, path: string) => `${origin}${path}`;
-
 /** `rel` for links to sites the portal does not vouch for. */
 export const EXTERNAL_REL = 'nofollow noopener noreferrer';
-
-/** A listing slug's public code (its last 8 characters after a `-`, upper case), or null. */
-export function codeOfSlug(slug: string): string | null {
-  const m = /-([0-9a-hjkmnp-tv-z]{8})$/i.exec(slug);
-  return m ? (m[1] as string).toUpperCase() : null;
-}
 
 /**
  * A mail link to a published address, or null: a plain `local@domain` address only (no spaces, quotes, angle brackets

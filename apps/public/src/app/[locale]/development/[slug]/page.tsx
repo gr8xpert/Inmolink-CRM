@@ -1,4 +1,5 @@
 import {
+  codeOfSlug,
   portalCrumbs,
   portalJsonLd,
   portalMetadataFor,
@@ -12,16 +13,15 @@ import { notFound, permanentRedirect } from 'next/navigation';
 import { setRequestLocale } from 'next-intl/server';
 import { tagPage } from '@/portal/cache-tags';
 import { assertPortalLocale, developmentByCode, placeOf, portalSettings } from '@/portal/data';
-import { legacyRedirectFor } from '@/portal/legacy';
 import { JsonLd } from '@/portal/ui/breadcrumbs';
 import { DevelopmentView } from '@/portal/ui/development';
 import { PortalShell } from '@/portal/ui/shell';
-import { codeOfSlug } from '@/portal/urls';
 
 /**
  * A new-build development page (S15-01): `/development/<name>-<code>` — an OPEN development's public page with its
  * available and reserved homes, ISR (5 minutes), JSON-LD (`RealEstateListing` with an `AggregateOffer`, breadcrumbs),
  * canonical and hreflang (built in core, S15-F7; the ISR copy carries the development's and agency's cache tags).
+ * Unknown codes are counted and legacy URLs answered by the proxy first; CDN: `PORTAL_ISR_PAGE_CACHE` (next.config.ts).
  * Another slug for the same code 301s to the current one. 2–3 statements.
  */
 
@@ -53,11 +53,11 @@ export default async function DevelopmentPage({ params }: Props) {
   setRequestLocale(locale);
   const development = await load(locale, slug);
   if (!development) {
-    // S15-F7: the cached 404 (or redirect) carries the code, so a restored development comes back within a minute.
+    // S15-F7: the cached 404 carries the code, so a restored development comes back within a minute (the page cache keeps
+    // 404s apart from pages). S15 review: the proxy has already counted this miss against the client's page limit and
+    // answered a legacy URL of this shape (`portalPageCode`, a true 301), so no legacy probe here.
     const code = codeOfSlug(slug);
     if (code) await tagPage([portalPageTag.code(code)]);
-    const to = await legacyRedirectFor(`/${locale}/development/${slug}`);
-    if (to) permanentRedirect(to);
     notFound();
   }
   const path = development.paths[locale] as string;

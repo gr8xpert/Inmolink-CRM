@@ -12,14 +12,14 @@ import { localRedirectTarget } from './legacy';
 /**
  * The portal's enquiry form post (S15-02): `POST /api/portal/enquiry` from a listing page (`EnquiryForm`). Thin, like
  * the embed form's post (S7-F8): urlencoded only, read up to `MAX_FORM_BYTES`; the fields through the website lead
- * contract; the client's lead limits (`checkPortalLeadLimits`); then core `submitPortalLead` (Turnstile, the listing's
+ * contract; then core `submitPortalLead` (the client's lead limits, Turnstile, the listing's
  * owner, the S7-05 intake → CRM as `MARKETPLACE`). `Accept: application/json` (the form's script) → JSON; otherwise (no
  * JavaScript) → 303 back to the listing page with `?enquiry=<result>`. A browser post from another origin is refused
- * (403). Limits: per client address and per listing here, per listing agency in core. No cookie is read or set; nothing
+ * (403). Limits (all in core): per client address, per listing and per listing agency. No cookie is read or set; nothing
  * is logged about the visitor.
  *
  * S15-03: the same form on an agency's profile page posts `agency` (its id) instead of `code`: a general enquiry for
- * that listed agency (core `submitPortalLead` with `agencyId`); limits per client address here, per agency in core.
+ * that listed agency (core `submitPortalLead` with `agencyId`); limits per client address and per agency.
  */
 
 export { ENQUIRY_NOTICES, type EnquiryNotice } from './enquiry-notices';
@@ -82,15 +82,16 @@ export async function enquiryResponse(request: Request): Promise<Response> {
   });
   if (!key.success || !body.success || (code === '' && agencyId === '')) return answer('VALIDATION_FAILED');
   const client = await clientAddress(request.headers.get('x-forwarded-for'));
-  const limit = await websiteApi.checkPortalLeadLimits(rateLimiter(), {
-    ip: client.bucket,
-    ...(code ? { code } : {}),
-  });
-  if (!limit.allowed) return answer('RATE_LIMITED');
   try {
+    // One core call (S15 review): the client's limits, Turnstile, the listing's owner, the intake.
     await websiteApi.submitPortalLead(
       { locale, ...(code ? { code } : { agencyId }), body: body.data },
-      { ...(client.ip ? { ip: client.ip } : {}), idempotencyKey: key.data, limiter: rateLimiter() },
+      {
+        ...(client.ip ? { ip: client.ip } : {}),
+        clientBucket: client.bucket,
+        idempotencyKey: key.data,
+        limiter: rateLimiter(),
+      },
     );
     return answer('sent');
   } catch (err) {

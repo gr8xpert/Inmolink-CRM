@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const core = vi.hoisted(() => ({
   submitPortalLead: vi.fn(),
-  checkPortalLeadLimits: vi.fn(async () => ({ allowed: true, retryAfterSeconds: 0 })),
 }));
 vi.mock('@inmolink/core/modules/website-api', () => core);
 vi.mock('@inmolink/platform/rate-limit', () => ({ rateLimiter: () => ({}) }));
@@ -42,16 +41,14 @@ const post = (body: URLSearchParams | string, headers: Record<string, string> = 
 beforeEach(() => {
   core.submitPortalLead.mockReset();
   core.submitPortalLead.mockResolvedValue({ accepted: { id: 'x' }, created: true, ownerAgencyId: 'a' });
-  core.checkPortalLeadLimits.mockClear();
 });
 
 describe('portal enquiry post (S15-02)', () => {
-  it('[S15-02] a plain form post is validated, limited, handed to core, and answered 303 back to the listing', async () => {
+  it('[S15-02] a plain form post is validated, handed to core in one call (limits there), and answered 303 back to the listing', async () => {
     const res = await post(fields({ phone: '+34 600 000 000', marketingConsent: 'on' }));
     expect(res.status).toBe(303);
     expect(res.headers.get('location')).toBe(`${BACK}?enquiry=sent#enquiry`);
     expect(res.headers.get('cache-control')).toBe('no-store');
-    expect(core.checkPortalLeadLimits).toHaveBeenCalledWith({}, { ip: '203.0.113.7', code: 'AB12CD34' });
     expect(core.submitPortalLead).toHaveBeenCalledWith(
       {
         locale: 'es',
@@ -65,7 +62,7 @@ describe('portal enquiry post (S15-02)', () => {
           turnstileToken: 'token',
         }),
       },
-      { ip: '203.0.113.7', idempotencyKey: 'portal-0123456789abcdef', limiter: {} },
+      { ip: '203.0.113.7', clientBucket: '203.0.113.7', idempotencyKey: 'portal-0123456789abcdef', limiter: {} },
     );
   });
 
@@ -75,10 +72,9 @@ describe('portal enquiry post (S15-02)', () => {
     const res = await post(fields({ code: '', agency: agency.toUpperCase(), back }));
     expect(res.status).toBe(303);
     expect(res.headers.get('location')).toBe(`${back}?enquiry=sent#enquiry`);
-    expect(core.checkPortalLeadLimits).toHaveBeenCalledWith({}, { ip: '203.0.113.7' });
     expect(core.submitPortalLead).toHaveBeenCalledWith(
       { locale: 'es', agencyId: agency, body: expect.not.objectContaining({ ref: expect.anything() }) },
-      expect.objectContaining({ idempotencyKey: 'portal-0123456789abcdef' }),
+      expect.objectContaining({ idempotencyKey: 'portal-0123456789abcdef', clientBucket: '203.0.113.7' }),
     );
     // An agency that is not listed: its own notice; a back path that is no portal page goes home.
     core.submitPortalLead.mockRejectedValueOnce(new AppError('NOT_FOUND'));
@@ -105,7 +101,7 @@ describe('portal enquiry post (S15-02)', () => {
   });
 
   it('[S15-02] rate limited, refused by Turnstile or a gone listing: the visitor sees why; JSON for the script', async () => {
-    core.checkPortalLeadLimits.mockResolvedValueOnce({ allowed: false, retryAfterSeconds: 30 });
+    core.submitPortalLead.mockRejectedValueOnce(new AppError('RATE_LIMITED', { retryAfterSeconds: 30 }));
     expect((await post(fields(), { accept: 'application/json' })).status).toBe(429);
     core.submitPortalLead.mockRejectedValueOnce(new AppError('TURNSTILE_FAILED'));
     expect(await (await post(fields(), { accept: 'application/json' })).json()).toEqual({

@@ -45,7 +45,14 @@ import * as search from '../search';
 import * as taxonomy from '../taxonomy';
 import * as websites from '../websites';
 import { FEATURE_CONCEPTS } from './ai-search-parse';
-import { agencyPath, developmentNameOf, developmentPath, listingPath, portalListingTitle } from './portal-urls';
+import {
+  agencyPath,
+  codeOfSlug,
+  developmentNameOf,
+  developmentPath,
+  listingPath,
+  portalListingTitle,
+} from './portal-urls';
 import { configured } from './settings';
 
 let log: Logger | undefined;
@@ -71,7 +78,24 @@ const OWNER_SCOPE_REFRESH_MS = 45_000;
 export const OWNER_SCOPE_MAX_AGE_MS = 60_000;
 
 /** Whose documents the portal shows: the listed agencies, or everyone but the unlisted owners. */
-type OwnerScope = { show: string[] } | { hide: string[] };
+export type OwnerScope = { show: string[] } | { hide: string[] };
+
+/**
+ * The smaller of the two lists, as long as the hide list fits a search (`MAX_EXCLUDED_OWNERS`). A hide list that would
+ * be cut short is never used — the owners past the cut would show unlisted stock — so it falls back to a show list;
+ * a show list cut short only leaves listed agencies out (logged).
+ */
+export function ownerScopeOf(listed: readonly string[], hide: readonly string[]): OwnerScope {
+  const max = search.MAX_EXCLUDED_OWNERS;
+  if (hide.length <= listed.length && hide.length <= max) return { hide: [...hide] };
+  if (listed.length > max) {
+    logger().error(
+      { listed: listed.length, unlisted: hide.length, max },
+      'portal: too many owners to name in a search; showing the first listed agencies only',
+    );
+  }
+  return { show: listed.slice(0, max) };
+}
 
 let ownerScope: { scope: OwnerScope; at: number } | undefined;
 let ownerScopeLoad: Promise<OwnerScope> | undefined;
@@ -81,17 +105,7 @@ function loadOwnerScope(): Promise<OwnerScope> {
     const listed = await agencies.listedAgencyIds(tx);
     const listedSet = new Set(listed);
     const hide = (await search.searchDocOwners(tx)).filter((o) => !listedSet.has(o));
-    if (Math.min(hide.length, listed.length) > search.MAX_EXCLUDED_OWNERS) {
-      logger().error(
-        { listed: listed.length, unlisted: hide.length, max: search.MAX_EXCLUDED_OWNERS },
-        'portal: too many owners to name in a search; showing the first listed agencies only',
-      );
-    }
-    const scope: OwnerScope =
-      hide.length <= listed.length
-        ? { hide: hide.slice(0, search.MAX_EXCLUDED_OWNERS) }
-        : { show: listed.slice(0, search.MAX_EXCLUDED_OWNERS) };
-    return scope;
+    return ownerScopeOf(listed, hide);
   })
     .then((scope) => {
       ownerScope = { scope, at: Date.now() };
@@ -411,6 +425,8 @@ export function resetPortalCaches(): void {
   profileCache.clear();
   profileMisses.clear();
   placeIndexes.clear();
+  knownCodes.clear();
+  unknownCodes.clear();
   ownerScope = undefined;
 }
 
@@ -831,6 +847,39 @@ export async function portalListing(input: {
   // Named in the page's own locale, whichever locale's read model answered (S15-02).
   const detail = await localizedListingNames(input.locale, found.detail);
   return { ...found, detail, paths: await portalListingPaths(found.detail, code) };
+}
+
+// ── Listing and development page gate ───────────────────────────────────────────────────────────────────────────
+
+/** How long a code known to exist / not to exist is remembered per process. */
+export const PORTAL_KNOWN_CODE_TTL_MS = 10 * 60_000;
+export const PORTAL_UNKNOWN_CODE_TTL_MS = 60_000;
+/** Remembered codes per process (bounded apart, so made-up codes never evict real ones). */
+const knownCodes = new LocalLru<true>(100_000);
+const unknownCodes = new LocalLru<true>(10_000);
+
+/**
+ * S15 review: the proxy's gate for a listing or development page (`/…/property/<slug>`, `/…/development/<slug>`).
+ * A slug whose public code is known to exist passes at once — real pages are never limited, and their ISR copies are
+ * served as before. Anything else costs the client one unit of its page limit first (`beforeProbe`, false: `limited`):
+ * a slug without a code, a code remembered as unknown, or a code not seen yet — then one unique-index probe
+ * (`listing_public_codes`, listings and developments alike). So a flood of made-up codes is cut off per client before
+ * it renders 404s or probes the legacy redirects. A known code may still name nothing the portal shows (withdrawn, an
+ * unlisted agency's): the page answers its 404, cached apart from the pages. An unknown code is remembered a minute, so
+ * a code given out meanwhile soon passes.
+ */
+export async function portalPageCode(
+  slug: string,
+  beforeProbe: () => Promise<boolean>,
+): Promise<'known' | 'unknown' | 'limited'> {
+  const code = codeOfSlug(slug);
+  if (code && knownCodes.get(code)) return 'known';
+  if (!(await beforeProbe())) return 'limited';
+  if (!code || unknownCodes.get(code)) return 'unknown';
+  const known = await withPublicRead((tx) => search.publicCodeInUse(tx, code));
+  if (known) knownCodes.set(code, true, PORTAL_KNOWN_CODE_TTL_MS);
+  else unknownCodes.set(code, true, PORTAL_UNKNOWN_CODE_TTL_MS);
+  return known ? 'known' : 'unknown';
 }
 
 /**

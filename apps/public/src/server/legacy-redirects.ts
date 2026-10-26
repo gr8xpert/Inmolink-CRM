@@ -1,6 +1,6 @@
 import * as migration from '@inmolink/core/modules/migration';
 import { localRedirectTarget } from '@/portal/redirect-target';
-import { LOCAL_PUBLIC_URL, publicConfig } from './env';
+import { portalOriginOf, publicConfig } from './env';
 
 /**
  * Legacy inmolink.es URLs (S15-02 → S14-05 `legacy_url_redirects`): the portal's redirect for a requested path (with
@@ -16,7 +16,7 @@ export async function legacyRedirect(
 ): Promise<{ targetPath: string; status: 301 | 308 } | null> {
   const config = await publicConfig();
   startPushing();
-  const host = new URL(config.PORTAL_URL ?? config.PUBLIC_URL ?? LOCAL_PUBLIC_URL).host;
+  const host = new URL(portalOriginOf(config)).host;
   const found = await migration.resolveLegacyRedirect(
     'portal',
     host,

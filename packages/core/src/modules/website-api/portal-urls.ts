@@ -8,6 +8,7 @@
  * - `/{locale}/development/{name}-{code}` — a new-build development with its units (its public code, lower case)
  * - `/{locale}/agency/{agencyId}/{name}` — a listed agency's profile with its PUBLIC listings (S15-03)
  */
+import { PublicCode } from '@inmolink/contracts';
 import { translator } from '@inmolink/i18n/server';
 import { slugOf } from '../websites';
 
@@ -22,6 +23,17 @@ export const developmentPath = (locale: string, name: string, code: string) =>
 /** S15-03: a listed agency's profile page (its id names it; the name slug follows a rename — the page 301s to it). */
 export const agencyPath = (locale: string, id: string, name: string) =>
   `/${locale}/agency/${id.toLowerCase()}/${slugOf(name, 'agency')}`;
+
+/**
+ * The public code a listing or development slug ends in (`…-<code>`, any case), upper case — or null when the slug
+ * names none (`PublicCode`). S15 review: here, beside the shapes that build the slugs.
+ */
+export function codeOfSlug(slug: string): string | null {
+  const dash = slug.lastIndexOf('-');
+  if (dash < 0) return null;
+  const code = slug.slice(dash + 1).toUpperCase();
+  return PublicCode.safeParse(code).success ? code : null;
+}
 
 /** A card's or listing's place as the portal names its town. */
 export interface PortalPlaceNames {

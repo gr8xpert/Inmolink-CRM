@@ -360,6 +360,31 @@ describe('portal enquiries (S15-02)', () => {
     expect(atListing).toBe(websiteApi.PORTAL_LEAD_LIMITS.perListingDay);
   });
 
+  it('[S15-02] review: submitPortalLead applies the client’s limits itself (one call from the route), before Turnstile', async () => {
+    const limiter = rateLimiter();
+    const clientBucket = `198.18.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`;
+    // A code of its own: the per-listing daily limit of the villa is spent by the test above.
+    const code = Array.from(
+      { length: 8 },
+      () => '0123456789ABCDEFGHJKMNPQRSTVWXYZ'[Math.floor(Math.random() * 32)],
+    ).join('');
+    const answers: string[] = [];
+    for (let i = 0; i < 30; i++) {
+      answers.push(
+        await refusal(
+          websiteApi.submitPortalLead(
+            // A bad token: refused by Turnstile once the limits pass, so no lead is written.
+            { locale: 'en', code, body: enquiry({ turnstileToken: `bad-${newId()}` }) },
+            { ip: clientBucket, clientBucket, idempotencyKey: `portal-${newId()}`, limiter },
+          ),
+        ),
+      );
+    }
+    expect(answers[0]).toBe('TURNSTILE_FAILED');
+    expect(answers).toContain('RATE_LIMITED');
+    expect(answers.lastIndexOf('TURNSTILE_FAILED')).toBeLessThan(answers.indexOf('RATE_LIMITED'));
+  });
+
   it('[S15-02] statement budgets: accepted 2, a double submit by its spent token 1, a failed visitor check 0', async () => {
     const code = await codeOf(L.villa);
     const key = `portal-${newId()}`;

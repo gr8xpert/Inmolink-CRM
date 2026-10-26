@@ -1,24 +1,22 @@
 import { PortalQuery, type WebsiteListingDetail } from '@inmolink/contracts';
-import { type PortalDevelopment, type PortalListing, portalAgencyPaths } from '@inmolink/core/modules/website-api';
+import {
+  breadcrumbJsonLd,
+  codeOfSlug,
+  listingJsonLd,
+  type PortalDevelopment,
+  type PortalListing,
+  portalAgencyPaths,
+  serializeJsonLd,
+} from '@inmolink/core/modules/website-api';
 import { translator } from '@inmolink/i18n/server';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import { localRedirectTarget } from './legacy';
-import { breadcrumbJsonLd, listingJsonLd, serializeJsonLd } from './seo';
 import { DevelopmentView } from './ui/development';
 import { ListingView } from './ui/listing';
 import { pageNumbers } from './ui/results';
 import { languageName } from './ui/shell';
-import {
-  agencyPath,
-  codeOfSlug,
-  hasFilters,
-  listingPath,
-  mailtoHref,
-  queryString,
-  safeHttpUrl,
-  searchPath,
-} from './urls';
+import { agencyPath, hasFilters, listingPath, mailtoHref, queryString, safeHttpUrl, searchPath } from './urls';
 
 // Server components translate on the server: the same catalogs, without a request.
 vi.mock('next-intl/server', () => ({

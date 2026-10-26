@@ -1,3 +1,4 @@
+import * as websiteApi from '@inmolink/core/modules/website-api';
 import { rateLimiter } from '@inmolink/platform/rate-limit';
 import { clientAddress, UNKNOWN_IP } from './embed';
 import { publicConfig } from './env';
@@ -19,4 +20,16 @@ export async function portalPageGate(
     bucket,
   );
   return { allowed: result.allowed, retryAfterSeconds: result.retryAfterSeconds };
+}
+
+/**
+ * S15 review: the listing / development page gate (core `portalPageCode`): a known public code passes unlimited; a
+ * made-up code or a slug without one first costs the client one unit of its page limit (`beforeProbe`).
+ */
+export async function portalCodeGate(
+  slug: string,
+  beforeProbe: () => Promise<boolean>,
+): Promise<'known' | 'unknown' | 'limited'> {
+  await publicConfig();
+  return websiteApi.portalPageCode(slug, beforeProbe);
 }

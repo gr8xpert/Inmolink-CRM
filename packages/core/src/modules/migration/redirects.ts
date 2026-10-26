@@ -9,8 +9,8 @@
  * - `buildRedirectRows` makes rows from the legacy URL list and `legacy_id_maps` (listing / development / location /
  *   agency ids → v2 ids; S15-03: a legacy `/agent/<id>/<name>` page → the agency's portal profile); the v2 path comes
  *   from a caller-supplied `targetPath` (the portal's URL helpers, S15), the legacy ids are not guessed here. An entry that yields no row is returned as `unmapped` (reported, never dropped).
- * - `resolveLegacyRedirect` is the request-path lookup for the portal and the plugin shim (S15; no app calls it yet):
- *   one indexed probe, answers kept in process (hits 10 min, misses 1 min, bounded LRUs so made-up URLs cannot evict
+ * - `resolveLegacyRedirect` is the request-path lookup for the portal (S15-02: the public app's proxy and pages) and
+ *   the plugin shim: one indexed probe, answers kept in process (hits 10 min, misses 1 min, bounded LRUs so made-up URLs cannot evict
  *   real ones), hit counts buffered in memory: no write per request. S15-02: the resolving process (the public pages)
  *   hands its buffer to the shared counters on redis-cache every `REDIRECT_HITS_PUSH_MS` (`pushRedirectHits`: the
  *   public pages have no role that may write the table); the worker's `flushRedirectHits` drains them (and its own

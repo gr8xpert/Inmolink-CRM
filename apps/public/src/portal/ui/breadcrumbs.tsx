@@ -1,4 +1,4 @@
-import type { Crumb } from '../seo';
+import type { Crumb } from '@inmolink/core/modules/website-api';
 
 /** The page's trail (its JSON-LD twin is `breadcrumbJsonLd`); the last crumb is the page itself. */
 export function Breadcrumbs(props: { label: string; crumbs: readonly Crumb[] }) {

@@ -4,7 +4,7 @@ import { UI_LOCALES } from '@inmolink/i18n';
 import { newId } from '@inmolink/platform/ids';
 import { notFound } from 'next/navigation';
 import { cache } from 'react';
-import { LOCAL_PUBLIC_URL, publicConfig } from '@/server/env';
+import { portalOriginOf, publicConfig } from '@/server/env';
 
 /**
  * The portal pages' reads (S15-01): core's portal read services (`website-api/portal.ts`) after the app's lazy setup,
@@ -23,7 +23,7 @@ export interface PortalSettings {
 export const portalSettings = cache(async (): Promise<PortalSettings> => {
   const c = await publicConfig();
   return {
-    origin: c.PORTAL_URL ?? c.PUBLIC_URL ?? LOCAL_PUBLIC_URL,
+    origin: portalOriginOf(c),
     map: c.PORTAL_MAP_TILE_URL ? { tileUrl: c.PORTAL_MAP_TILE_URL, attribution: c.PORTAL_MAP_ATTRIBUTION ?? '' } : null,
     turnstileSiteKey: c.TURNSTILE_SITE_KEY ?? null,
   };

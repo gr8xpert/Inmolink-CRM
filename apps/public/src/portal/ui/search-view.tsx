@@ -1,9 +1,8 @@
 import type { PortalQuery } from '@inmolink/contracts';
-import type { PortalCatalog, PortalSearchPage } from '@inmolink/core/modules/website-api';
+import type { Crumb, PortalCatalog, PortalSearchPage } from '@inmolink/core/modules/website-api';
 import { getTranslations } from 'next-intl/server';
 import type { ReactNode } from 'react';
 import type { PortalSettings } from '../data';
-import type { Crumb } from '../seo';
 import { listingPath, queryString } from '../urls';
 import { Breadcrumbs } from './breadcrumbs';
 import { Filters } from './filters';

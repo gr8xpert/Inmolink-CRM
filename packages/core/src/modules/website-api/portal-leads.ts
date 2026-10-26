@@ -14,7 +14,8 @@
  * 2. the listing its public code names among the portal's stock (listed agencies' PUBLIC listings): 1 statement;
  * 3. the owner's enquiry limit (redis, when the caller passes a limiter);
  * 4. the lead and its event: 1 statement (+1 replay lookup when the key was taken).
- * Per-address and per-listing limits (`checkPortalLeadLimits`) are the caller's, before this.
+ * 0. with `limiter` and the client's address bucket (`clientBucket`): the per-address and per-listing limits
+ *    (`checkPortalLeadLimits`, redis) before anything else — the enquiry route makes this one call (S15 review).
  *
  * The idempotency key is hashed with the listing's code: one key can never reveal another listing's (another
  * agency's) lead. Nothing about the visitor is logged (name, e-mail, phone, message, IP).
@@ -147,11 +148,17 @@ export interface PortalLeadInput {
  * Records a visitor's enquiry about a portal listing for the listing's owner. `created: false` answers a repeated
  * submission (same idempotency key and body) with the first lead; another body under the key is
  * `IDEMPOTENCY_KEY_REUSED`. A code that names no listing the portal shows: `LISTING_NOT_FOUND`. With `limiter`, the
- * listing agency's daily enquiry limit applies (`RATE_LIMITED`).
+ * listing agency's daily enquiry limit applies (`RATE_LIMITED`) — with `clientBucket` too, the client's own limits first.
  */
 export async function submitPortalLead(
   input: PortalLeadInput,
-  facts: { ip?: string; idempotencyKey: string; limiter?: RateLimiter },
+  facts: {
+    ip?: string;
+    /** The client's limit bucket (its address, or its /64): with `limiter`, the per-address limits apply first. */
+    clientBucket?: string;
+    idempotencyKey: string;
+    limiter?: RateLimiter;
+  },
 ): Promise<{ accepted: WebsiteLeadAccepted; created: boolean; ownerAgencyId: string }> {
   // What the form names: a listing (its code) or, S15-03, an agency (its profile page) — exactly one.
   const agencyFormId = input.code === undefined ? input.agencyId?.toLowerCase() : undefined;
@@ -166,6 +173,15 @@ export async function submitPortalLead(
   const body = { ...rest, ref: subject } as WebsiteLeadBody;
   const requestHash = requestHashOf('ENQUIRY', body);
   const idempotencyHash = portalIdempotencyHashOf(subject, facts.idempotencyKey);
+
+  // 0. The client's enquiry limits (per address; per listing for a listing's form), before anything else.
+  if (facts.limiter && facts.clientBucket !== undefined) {
+    const limit = await checkPortalLeadLimits(facts.limiter, {
+      ip: facts.clientBucket,
+      ...(agencyFormId === undefined ? { code } : {}),
+    });
+    if (!limit.allowed) throw new AppError('RATE_LIMITED', { retryAfterSeconds: limit.retryAfterSeconds });
+  }
 
   // 1. The visitor check, before any statement. A failed check is final, except a double submit of an accepted key.
   try {

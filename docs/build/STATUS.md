@@ -3,14 +3,14 @@
 Single source of truth for progress. Claude updates this at the end of every task. Keep **Now**, **Current sprint** and **Blocked** short — the session-start hook injects them.
 
 ## Now
-- **Task:** S15 follow-ups S15-F7, S15-F9, then the S15 sprint review. S15-01 … S15-03 done. S15-01 done (ADR 0019 accepted: option A). Portal = the content, structure and features of https://inmolink.es/alicante with a better layout and design (Decision 2026-10-26). S14 closed 2026-10-26 (`docs/build/reviews/S14.md`, tag `sprint-S14-done`): 6/6 tasks + S4-04 + 9/10 follow-ups committed (S14-F8 BLOCKED-HUMAN H4); the whole legacy toolkit runs on fixtures — exit criterion (dry run of all agencies < 0.5 %) and real runs BLOCKED-HUMAN H1, cutover rehearsal H11; e2e 23/24 (S15-F5). Open follow-ups for S15: **S15-F1 … S15-F5**. **Needs approval:** proposed ADR 0018 (unchanged). Still blocked: S8-02 / S8-F18 … F20 (H2), S8-05 (H3 H18), S8-F10 (H5), S8-F11 / S8-F21 (H15), S9-02 / S9-04 (H6), S9-03 (H4).
+- **Task:** S16-01 — Full load suite (run `node scripts/task-brief.mjs S16-01`). S15 closed 2026-10-27 (`docs/build/reviews/S15.md`, tag `sprint-S15-done`): 3/3 tasks + 8/9 follow-ups (S15-F9 LCP check BLOCKED-HUMAN H4); exit criterion: legacy URLs 301 — met (real URL list with H1); Lighthouse ≥ 90 — accessibility / SEO met, performance accepted at the measured level (ADR 0019 A) until staging (H4); e2e 28/28 × 3. Open follow-ups: S15-F10, S15-F11, **S16-F1 … S16-F3**. **Needs approval:** proposed ADR 0018 (unchanged). H1 / H3 / H4 / H11: no date yet.
 - **Started:** —
-- **Load it with:** `node scripts/task-brief.mjs S15-03`. Longer notes and open human steps: **Handover** below (not injected at session start).
+- **Load it with:** `node scripts/task-brief.mjs S16-01`. Longer notes and open human steps: **Handover** below (not injected at session start).
 - **Waiting on Shahzaib:** the H items (HUMAN-ACTIONS.md). The Anthropic key is in the local `.env` (AI is off unless `AI_PROVIDER=anthropic`, the tier models and `AI_PRICING` are set too). `UNIT_SPLIT_BP` deferred to the end of development (S17).
 ## Current sprint
-- **Sprint:** S15 — Public portal
-- **Exit criteria:** see PLAN §16 (S15 row)
-- **Progress:** 3 / 3 tasks (S15-01 done; ADR 0019 accepted: A); S15-F1 … F3, F5 done. S14 closed 2026-10-26: 6/6 tasks + S4-04 + 9/10 follow-ups; exit criterion BLOCKED-HUMAN H1 (toolkit runs end to end on fixtures); e2e 23/24 — report `docs/build/reviews/S14.md`
+- **Sprint:** S16 — Hardening
+- **Exit criteria:** see PLAN §16 (S16 row)
+- **Progress:** 0 / 5 tasks. S15 closed 2026-10-27: 3/3 tasks + 8/9 follow-ups; exit criterion met (301s; Lighthouse a11y / SEO; performance per ADR 0019 A until H4); e2e 28/28 × 3 — report `docs/build/reviews/S15.md`
 
 ## Blocked
 - **S13-01 · DONE, real Stripe test-mode E2E BLOCKED-HUMAN H3** — billing is built and tested end to end against a fake Stripe server (`packages/core/src/modules/billing/__tests__/fake-stripe.ts`). With H3: a Stripe account with SEPA Direct Debit + Stripe Tax enabled (origin address, registrations, a default product tax code), set `STRIPE_SECRET_KEY` (test mode) / `STRIPE_API_VERSION` for api + the worker `maintenance` pool, `STRIPE_WEBHOOK_SECRET` + `BILLING_RETURN_URL` (https in production) for api, a webhook endpoint `<API>/v1/billing/stripe/webhook` with events `checkout.session.*`, `customer.subscription.*`, `invoice.*`, the Customer Portal configured (plan switching between catalog prices, cancel at period end); run `pnpm billing:catalog`, wait for `billing.syncCatalog`, then the acceptance run: subscribe Pro annual with SEPA (test IBAN) → active; cancel in the portal → Free at period end (Stripe test clock), data intact.
@@ -989,3 +989,4 @@ Single source of truth for progress. Claude updates this at the end of every tas
 | S12 Presentations, AI Studio, Client Mode, social | 2026-10-25 (8/8 + S5-06 + 25/25 follow-ups; S12-07 real Meta BLOCKED-HUMAN H3, S12-F5 acceptance H4; exit criterion met by e2e; e2e 21/21) | [reviews/S12.md](reviews/S12.md) |
 | S13 Billing, staff console, onboarding, support | 2026-10-26 (5/5 + 26/26 follow-ups incl. review fixes; exit criterion met against the fake Stripe server, real test mode BLOCKED-HUMAN H3; e2e 23/23) | [reviews/S13.md](reviews/S13.md) |
 | S14 Migration tooling | 2026-10-26 (6/6 + S4-04 + 9/10 follow-ups, S14-F8 H4; exit criterion BLOCKED-HUMAN H1 — toolkit runs end to end on fixtures; cutover rehearsal H11; e2e 23/24) | [reviews/S14.md](reviews/S14.md) |
+| S15 Portal MVP | 2026-10-27 (3/3 + 8/9 follow-ups, S15-F9 LCP check H4; exit criterion: 301s met, Lighthouse a11y / SEO 100, performance at the measured level per ADR 0019 A until staging; e2e 28/28 × 3) | [reviews/S15.md](reviews/S15.md) |

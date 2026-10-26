@@ -1,4 +1,5 @@
 import {
+  codeOfSlug,
   portalCrumbs,
   portalJsonLd,
   portalMetadataFor,
@@ -12,18 +13,17 @@ import { notFound, permanentRedirect } from 'next/navigation';
 import { setRequestLocale } from 'next-intl/server';
 import { tagPage } from '@/portal/cache-tags';
 import { assertPortalLocale, listingByCode, placeOf, portalSettings } from '@/portal/data';
-import { legacyRedirectFor } from '@/portal/legacy';
 import { JsonLd } from '@/portal/ui/breadcrumbs';
 import { ListingView } from '@/portal/ui/listing';
 import { PortalShell } from '@/portal/ui/shell';
-import { codeOfSlug } from '@/portal/urls';
 
 /**
  * A listing page (S15-01, PATTERNS §19): `/property/<type-in-town>-<code>` — the listing a public code names, ISR
  * (5 minutes; CDN-cacheable), JSON-LD `RealEstateListing` + `BreadcrumbList`, canonical and hreflang (built in core,
  * S15-F7). The ISR copy carries its listing's and agency's cache tags: a price change, a withdrawal or an agency change
  * drops it on every instance (`website-api/portal-cache.ts`). A slug that is
- * not the listing's current one 301s to it; an unknown code asks the legacy redirects (S15-02) before its 404.
+ * not the listing's current one 301s to it. An unknown code never gets here unchecked: the proxy counts it against the
+ * client's page limit and answers a legacy URL (S15-02) first. CDN: `PORTAL_ISR_PAGE_CACHE` (next.config.ts).
  * 1–2 statements.
  */
 
@@ -56,11 +56,11 @@ export default async function ListingPage({ params }: Props) {
   setRequestLocale(locale);
   const listing = await load(locale, slug);
   if (!listing) {
-    // S15-F7: the cached 404 (or redirect) carries the code, so a restored listing comes back within a minute.
+    // S15-F7: the cached 404 carries the code, so a restored listing comes back within a minute (the page cache keeps
+    // 404s apart from pages). S15 review: the proxy has already counted this miss against the client's page limit and
+    // answered a legacy URL of this shape (`portalPageCode`, a true 301), so no legacy probe here.
     const code = codeOfSlug(slug);
     if (code) await tagPage([portalPageTag.code(code)]);
-    const to = await legacyRedirectFor(`/${locale}/property/${slug}`);
-    if (to) permanentRedirect(to);
     notFound();
   }
   const path = listing.paths[locale] as string;

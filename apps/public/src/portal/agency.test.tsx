@@ -1,8 +1,8 @@
 import type { PortalAgencyProfile, PortalCard } from '@inmolink/core/modules/website-api';
+import { agencyJsonLd, serializeJsonLd } from '@inmolink/core/modules/website-api';
 import { translator } from '@inmolink/i18n/server';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { agencyJsonLd, serializeJsonLd } from './seo';
 import { AgencyProfileIntro, initialsOf, profileSummary } from './ui/agency-profile';
 import { ResultList } from './ui/results';
 import { languageName } from './ui/shell';

@@ -15,6 +15,8 @@ import { z } from 'zod';
  * - only `SELECT` / `WITH` statements without a `;` are accepted, before they leave the process;
  * - at most `maxConnections` snapshots are open per process (more wait, up to `acquireTimeoutMs`);
  * - large reads stream through a server-side cursor in batches, never as one result set;
+ * - in production the connection must use TLS (`sslmode=require` / `verify-ca` / `verify-full`, with libpq's
+ *   meanings: the legacy database is reached over the network, H1);
  * - failures surface as `LegacyDbError` carrying a code only: a database or driver message may quote row data or
  *   the URL, and nothing in here logs a credential, a statement parameter or a row.
  */
@@ -40,6 +42,12 @@ export interface LegacyDbConfig {
   /** How long a call waits for a free connection slot before failing (default 30 s). */
   acquireTimeoutMs?: number;
   applicationName?: string;
+  /**
+   * S15 review: the URL must ask for TLS (`sslmode=require`, `verify-ca` or `verify-full`); anything else
+   * (`disable`, `allow`, `prefer`, none) is refused. Default: on when `NODE_ENV=production`; local and test stacks
+   * connect as before.
+   */
+  requireTls?: boolean;
 }
 
 /** A legacy database failure: a code (SQLSTATE or `LEGACY_DB_*`) and a fixed message, never the server's text. */
@@ -152,10 +160,43 @@ function assertSafeUrl(url: string): void {
   }
 }
 
+/** The `sslmode` values that make the connection use TLS (libpq). */
+export const LEGACY_DB_TLS_MODES = ['require', 'verify-ca', 'verify-full'] as const;
+
+/**
+ * The connection string the client gets. With `requireTls`, the URL must name a TLS `sslmode`
+ * (`LEGACY_DB_TLS_MODES`) — refused otherwise — and pg reads it with libpq's meanings (`uselibpqcompat=true`:
+ * `require` encrypts, `verify-ca` checks the server's certificate against `sslrootcert`, `verify-full` also its host
+ * name) instead of pg's own (every mode but `disable` verifying the host). Without it the URL is used as given.
+ */
+export function legacyConnectionString(url: string, requireTls: boolean): string {
+  assertSafeUrl(url);
+  if (!requireTls) return url;
+  const parsed = new URL(url);
+  const mode = parsed.searchParams.get('sslmode');
+  if (!mode || !(LEGACY_DB_TLS_MODES as readonly string[]).includes(mode)) {
+    throw new LegacyDbError(
+      'LEGACY_DB_TLS_REQUIRED',
+      'the legacy database URL must set sslmode=require, verify-ca or verify-full in production',
+    );
+  }
+  if (mode === 'verify-ca' && !parsed.searchParams.get('sslrootcert')) {
+    throw new LegacyDbError('LEGACY_DB_TLS_REQUIRED', 'sslmode=verify-ca needs the CA certificate (sslrootcert)');
+  }
+  if (parsed.searchParams.get('ssl') === 'false' || parsed.searchParams.get('ssl') === '0') {
+    throw new LegacyDbError('LEGACY_DB_TLS_REQUIRED', 'the legacy database URL may not turn TLS off (ssl=false)');
+  }
+  parsed.searchParams.set('uselibpqcompat', 'true');
+  return parsed.href;
+}
+
 function connect(config: LegacyDbConfig): pg.Client {
-  assertSafeUrl(config.url);
+  const connectionString = legacyConnectionString(
+    config.url,
+    config.requireTls ?? process.env.NODE_ENV === 'production',
+  );
   return new pg.Client({
-    connectionString: config.url,
+    connectionString,
     connectionTimeoutMillis: config.connectTimeoutMs ?? 10_000,
     options: '-c default_transaction_read_only=on',
     application_name: config.applicationName ?? 'inmolink-legacy-reader',
