@@ -11,13 +11,33 @@ export const FRAME_DENY_HEADERS = [
   { key: 'Content-Security-Policy', value: "frame-ancestors 'none'" },
 ];
 
+/**
+ * S15-01: the portal's search, location and home pages render per request (filters and pages ride in the query
+ * string), so Next would mark them private; they hold no visitor data, so the CDN may keep them briefly and serve a
+ * stale copy while it refetches. Listing pages are ISR (`revalidate`) and get Next's own `s-maxage`.
+ */
+export const PORTAL_PAGE_CACHE = 'public, max-age=0, s-maxage=120, stale-while-revalidate=600, stale-if-error=86400';
+const LOCALE = ':locale([a-z]{2})';
+export const PORTAL_CACHED_SOURCES = [
+  `/${LOCALE}`,
+  `/${LOCALE}/properties`,
+  `/${LOCALE}/properties/:path+`,
+  `/${LOCALE}/zone/:zone`,
+];
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   // Server-only code loaded from node_modules at runtime, not bundled (S7-F8: the embeds read through core).
   serverExternalPackages: ['@inmolink/core', '@inmolink/db', '@inmolink/platform', 'pg', 'ioredis', 'bullmq'],
   async headers() {
-    return [{ source: NOT_EMBED_SOURCE, headers: FRAME_DENY_HEADERS }];
+    return [
+      { source: NOT_EMBED_SOURCE, headers: FRAME_DENY_HEADERS },
+      ...PORTAL_CACHED_SOURCES.map((source) => ({
+        source,
+        headers: [{ key: 'Cache-Control', value: PORTAL_PAGE_CACHE }],
+      })),
+    ];
   },
 };
 

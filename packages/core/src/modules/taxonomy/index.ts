@@ -89,6 +89,8 @@ export {
   type Tagged,
   type TreeNode,
   taxonomyCacheKey,
+  // S15-01: the portal's location pages and filters (cached objects; warm reads run no query).
+  websiteTaxonomyObjects,
 } from './tree';
 // S12-08: in-memory name lookups for AI search.
 export { dropSearchVocabularyCopies, type SearchVocabulary, searchVocabulary } from './vocabulary';

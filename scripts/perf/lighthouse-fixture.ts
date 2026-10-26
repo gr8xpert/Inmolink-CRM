@@ -2,8 +2,15 @@
 // network agency's listings, in the docker `test` stack. Test agencies are pruned after 6 h (`setupTestDb`). The
 // listings have photos: WebP variants of the media pipeline's sizes in the test MinIO's public media bucket, set on
 // their read models as processed images (the media pipeline itself is not part of this measurement).
-import { CreateListingBody, UpdateListingBody } from '@inmolink/contracts';
+import {
+  CreateDevelopmentBody,
+  CreateListingBody,
+  CreateUnitsBody,
+  SetDevelopmentAccessBody,
+  UpdateListingBody,
+} from '@inmolink/contracts';
 import { closeDb, withMemberCtx } from '@inmolink/core';
+import * as developments from '@inmolink/core/modules/developments';
 import * as presentations from '@inmolink/core/modules/presentations';
 import * as properties from '@inmolink/core/modules/properties';
 import * as search from '@inmolink/core/modules/search';
@@ -11,7 +18,7 @@ import * as taxonomy from '@inmolink/core/modules/taxonomy';
 import * as websites from '@inmolink/core/modules/websites';
 import { createFounder, type Founder, withSystem } from '@inmolink/core/test';
 import { setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
-import { closeCache, configureCache } from '@inmolink/platform/cache';
+import { cache, closeCache, configureCache } from '@inmolink/platform/cache';
 import { newId } from '@inmolink/platform/ids';
 import { configureStorage, storage, storageConfigFromEnv } from '@inmolink/platform/storage';
 import { sql } from 'drizzle-orm';
@@ -28,6 +35,8 @@ export async function seedEmbedFixture(): Promise<{
   siteId: string;
   ref: string;
   selectionPath: string;
+  /** S15-01: the portal's location page (country / region / city) and a listing page of the fixture. */
+  portal: { searchPath: string; locationPath: string; listingPath: string; developmentPath: string };
   close: () => Promise<void>;
 }> {
   const run = newId().slice(-8);
@@ -35,10 +44,10 @@ export async function seedEmbedFixture(): Promise<{
   await configureCache({ prefix: `perf:lighthouse:${run}` });
   const [a, b] = [await createFounder({ companyName: `Lighthouse Homes ${run}` }), await createFounder()];
   for (const m of [a, b]) await setAgencyStatus(m.agencyId, 'VERIFIED');
+  const name = (n: string) => [
+    { locale: 'en', name: n, slug: `${n.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-lh-${run.toLowerCase()}` },
+  ];
   const ids = await withSystem('perf.lighthouse', async (tx) => {
-    const name = (n: string) => [
-      { locale: 'en', name: n, slug: `${n.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-lh-${run.toLowerCase()}` },
-    ];
     const country = await taxonomy.createLocation(tx, {
       level: 'COUNTRY',
       parentId: null,
@@ -70,6 +79,13 @@ export async function seedEmbedFixture(): Promise<{
     });
     return { country, city, villa };
   });
+  // S15-01: the public app reads the taxonomy through the shared cache (an hour): drop its copies from before these
+  // places existed, under the app's own keys (no worker runs here to do it on the taxonomy event).
+  await closeCache();
+  await configureCache({ url: testStackEnv().REDIS_CACHE_URL });
+  await cache.invalidateTag('taxonomy');
+  await closeCache();
+  await configureCache({ prefix: `perf:lighthouse:${run}` });
   const as = <T>(m: Founder, fn: Parameters<typeof withMemberCtx<T>>[1]) =>
     withMemberCtx({ userId: m.userId, agencyId: m.agencyId, requestId: newId(), locale: 'en' }, fn);
   const listing = async (m: Founder, i: number) => {
@@ -141,10 +157,68 @@ export async function seedEmbedFixture(): Promise<{
       items: listingIds.slice(0, 4).map((targetId) => ({ targetId })),
     }),
   );
+  // S15-01: the portal's pages of the same listings (location slugs as `name()` makes them; codes from the rebuild).
+  const slug = (n: string) => name(n)[0]?.slug as string;
+  const code = (await withSystem('perf.lighthouse', (tx) => search.publicCodes(tx, [listingIds[0] as string]))).get(
+    listingIds[0] as string,
+  );
+  if (!code) throw new Error('lighthouse fixture: the listing has no public code');
+  // S15-01: an OPEN development with a few units in Marbella (its page lists them).
+  const dev = await as(a, (ctx) =>
+    developments.createDevelopment(
+      ctx,
+      CreateDevelopmentBody.parse({
+        ref: `LH-DEV-${run}`,
+        name: 'Marina Heights',
+        status: 'UNDER_CONSTRUCTION',
+        completionDate: '2027-06-30',
+        locationId: ids.city,
+        commission: { type: 'PCT', basisPoints: 400, includesVat: false },
+      }),
+    ),
+  );
+  await as(a, (ctx) =>
+    developments.setDevelopmentAccess(
+      ctx,
+      dev.id,
+      SetDevelopmentAccessBody.parse({ version: dev.version, kind: 'OPEN', allowedAgencyIds: [] }),
+    ),
+  );
+  const units = await as(a, (ctx) =>
+    developments.createUnits(
+      ctx,
+      dev.id,
+      CreateUnitsBody.parse({
+        units: Array.from({ length: 8 }, (_, i) => ({
+          ref: `A-${i + 1}-${run}`,
+          status: i === 3 ? 'RESERVED' : 'AVAILABLE',
+          priceCents: 32_000_000 + i * 1_500_000,
+          bedrooms: 1 + (i % 3),
+          bathrooms: 1 + (i % 2),
+          propertyTypeId: ids.villa,
+        })),
+      }),
+    ),
+  );
+  await withSystem('perf.lighthouse', (tx) =>
+    search.rebuildReadModels(
+      tx,
+      'UNIT',
+      units.items.map((u) => u.id),
+    ),
+  );
+  const devCode = (await withSystem('perf.lighthouse', (tx) => search.publicCodes(tx, [dev.id]))).get(dev.id);
+  if (!devCode) throw new Error('lighthouse fixture: the development has no public code');
   return {
     siteId: site.id,
     ref,
     selectionPath: selection.share.path,
+    portal: {
+      searchPath: '/en/properties',
+      locationPath: `/en/properties/${slug('Spain')}/${slug('Costa del Sol')}/${slug('Marbella')}`,
+      listingPath: `/en/property/villa-in-marbella-${code.toLowerCase()}`,
+      developmentPath: `/en/development/marina-heights-${devCode.toLowerCase()}`,
+    },
     close: async () => {
       await closeCache();
       await closeDb();

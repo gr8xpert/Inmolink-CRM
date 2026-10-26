@@ -17,6 +17,11 @@ export async function publicAgencies(tx: Tx, ids: readonly string[]): Promise<Ma
   return new Map(rows.map((r) => [r.agencyId, r]));
 }
 
+/** The agencies listed in the directory now (S15-01, the portal's stock). One statement. */
+export function listedAgencyIds(tx: Tx): Promise<string[]> {
+  return repo.listedAgencyIds(tx);
+}
+
 /** Legal-form suffixes dropped to find the name an agency goes by ("Costa Homes S.L." → "Costa Homes"). */
 const LEGAL_FORM =
   /[\s,]+(?:s\.?\s?l\.?\s?u?\.?|s\.?\s?a\.?|s\.?\s?l\.?\s?n\.?\s?e\.?|s\.?\s?c\.?|c\.?\s?b\.?|ltd\.?|limited|llc|gmbh|b\.?v\.?|inc\.?|plc)\s*$/i;

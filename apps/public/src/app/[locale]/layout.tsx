@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { hasLocale, NextIntlClientProvider } from 'next-intl';
+import { hasLocale } from 'next-intl';
 import { setRequestLocale } from 'next-intl/server';
 import type { ReactNode } from 'react';
 import { routing } from '@/i18n/routing';
@@ -23,9 +23,10 @@ export default async function LocaleLayout({
   return (
     <html lang={locale}>
       <body className="min-h-screen antialiased">
-        {/* No catalogs in the client bundle: pages translate on the server. A client subtree that
-            needs strings wraps itself in a provider with only its namespaces. */}
-        <NextIntlClientProvider messages={null}>{children}</NextIntlClientProvider>
+        {/* No catalogs and no intl provider in the client bundle (S15-01: less to hydrate): pages translate on the
+            server and hand client islands their strings as props. A client subtree that needs next-intl's hooks
+            wraps itself in a provider with only its namespaces. */}
+        {children}
       </body>
     </html>
   );

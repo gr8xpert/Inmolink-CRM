@@ -36,6 +36,7 @@ export * from './network';
 export * from './notifications';
 export * from './onboarding';
 export * from './plugin-updates';
+export * from './portal';
 export * from './preferred-agencies';
 export * from './presentations';
 export * from './properties';

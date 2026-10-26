@@ -3,3 +3,38 @@
 
 /* Workspace UI components live outside this app; Tailwind must scan them for class names. */
 @source "../../../../packages/ui/src";
+
+/*
+ * Portal (S15-01, inmolink.es): a cool, whitewashed coast — sea-blue ink, shore surfaces, one sun accent kept for the
+ * location pages' inventory bar. System fonts only (no font download before the first paint, LCP < 2 s on mobile).
+ */
+@theme {
+  --color-ink: #102a38;
+  --color-sea: #0f5c7a;
+  --color-sea-deep: #0b465d;
+  --color-shore: #e6eef1;
+  --color-foam: #f5f8f9;
+  --color-stone: #4f616b;
+  --color-sun: #f2b134;
+  --color-pine: #2e6a55;
+  --color-mist: #8fb8c9;
+  --font-portal: ui-sans-serif, system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+@layer base {
+  .portal {
+    font-family: var(--font-portal);
+    color: var(--color-ink);
+    background: #fff;
+    font-feature-settings: "kern";
+    text-rendering: optimizeLegibility;
+  }
+  .portal a {
+    text-underline-offset: 0.18em;
+  }
+  .portal :focus-visible {
+    outline: 3px solid var(--color-sea);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+}

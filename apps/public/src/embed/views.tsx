@@ -3,6 +3,7 @@ import type { WebsiteCard, WebsiteDetail, WebsiteImage } from '@inmolink/contrac
 import type { EmbedBranding } from '@inmolink/core/modules/website-api';
 import type { Formatter } from '@inmolink/i18n';
 import type { Translate } from '@inmolink/i18n/server';
+import { srcSet } from '@/media/variants';
 import type { HtmlNode } from './html/jsx-runtime';
 
 /**
@@ -10,16 +11,6 @@ import type { HtmlNode } from './html/jsx-runtime';
  * the checked branding). Rendered by the embed HTML runtime (`html/jsx-runtime.ts`) to static markup: every text is
  * escaped; no HTML from data, ever.
  */
-
-/** Widths of the media pipeline's WebP variants (longest side; `media/variants.ts`). */
-const VARIANT_WIDTHS = { thumb: 320, small: 640, medium: 1280, large: 2048 } as const;
-
-function srcSet(image: WebsiteImage): string | undefined {
-  const parts = (Object.keys(VARIANT_WIDTHS) as (keyof typeof VARIANT_WIDTHS)[])
-    .filter((k) => image.urls[k])
-    .map((k) => `${image.urls[k]} ${VARIANT_WIDTHS[k]}w`);
-  return parts.length > 0 ? parts.join(', ') : undefined;
-}
 
 // S12-04: shared with the selection pages.
 export function Picture(props: {

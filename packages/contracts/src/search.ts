@@ -212,7 +212,10 @@ export const PublicListingSearch = z.strictObject({
   priceMinCents: Amount.optional(),
   priceMaxCents: Amount.optional(),
   bedsMin: z.number().int().min(0).max(50).optional(),
+  /** S15-01: the portal's bedroom and bathroom ranges (inclusive). */
+  bedsMax: z.number().int().min(0).max(50).optional(),
   bathsMin: z.number().int().min(0).max(50).optional(),
+  bathsMax: z.number().int().min(0).max(50).optional(),
   areaMinM2: z.number().min(0).max(1_000_000).optional(),
   areaMaxM2: z.number().min(0).max(1_000_000).optional(),
   /** Map view. */

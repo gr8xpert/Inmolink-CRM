@@ -16,6 +16,7 @@ import type listings from '../messages/en/listings.json';
 import type network from '../messages/en/network.json';
 import type notifications from '../messages/en/notifications.json';
 import type onboarding from '../messages/en/onboarding.json';
+import type portal from '../messages/en/portal.json'; // S15-01
 import type portals from '../messages/en/portals.json';
 import type security from '../messages/en/security.json';
 import type selections from '../messages/en/selections.json'; // S13-F13
@@ -54,6 +55,7 @@ export interface Messages {
   network: typeof network;
   notifications: typeof notifications;
   onboarding: typeof onboarding;
+  portal: typeof portal; // S15-01
   portals: typeof portals;
   security: typeof security;
   selections: typeof selections; // S13-F13

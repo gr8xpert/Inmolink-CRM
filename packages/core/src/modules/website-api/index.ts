@@ -73,6 +73,37 @@ export {
 export { LEAD_TURNSTILE_ACTION, type LeadRequestFacts, submitLead } from './leads';
 export { legacyProperties, legacyProperty, legacyTypes, resetLegacyCaches } from './legacy-v1';
 export { checkWebsiteLimits, creditChangeFeed, type SliceEndpoint, SYNC_CREDIT_POOL, sliceSignature } from './limits';
+// S15-01: the public portal's reads (inmolink.es search, listing and location pages).
+export {
+  PORTAL_DEVELOPMENT_UNITS,
+  PORTAL_EXCERPT_CHARS,
+  PORTAL_MAX_FILTER_TYPES,
+  PORTAL_MAX_SEARCH_TYPES,
+  PORTAL_ZONE_MAX_MEMBERS,
+  type PortalAgency,
+  type PortalCard,
+  type PortalCatalog,
+  type PortalDevelopment,
+  type PortalListing,
+  type PortalLocation,
+  type PortalPlace,
+  type PortalSearchInput,
+  type PortalSearchPage,
+  type PortalTypeGroup,
+  type PortalZone,
+  portalCatalog,
+  portalDevelopment,
+  portalDirectory,
+  portalListing,
+  portalLocation,
+  portalLocationPaths,
+  portalPlaceOf,
+  portalSearch,
+  portalSearchFilters,
+  portalZone,
+  portalZoneSlugs,
+  resetPortalCaches,
+} from './portal';
 // S13-F11: public documents presented as an agency's own site (selections, listing PDFs).
 export {
   type PresentableDocRow,

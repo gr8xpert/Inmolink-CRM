@@ -356,3 +356,15 @@ export async function indexIdentityRows(tx: Tx, ids: readonly string[]): Promise
       left join ${agencyProfiles} p on p.agency_id = t.id`);
   return rows.rows as unknown as IndexIdentityRow[];
 }
+
+/**
+ * Every agency listed in the directory now (S15-01: the portal shows only their stock). One statement on the
+ * directory's primary key; runs as `app_public` too (its public predicate is the listed rows).
+ */
+export async function listedAgencyIds(tx: Tx): Promise<string[]> {
+  const rows = await tx
+    .select({ agencyId: agencyDirectory.agencyId })
+    .from(agencyDirectory)
+    .where(eq(agencyDirectory.listed, true));
+  return rows.map((r) => r.agencyId);
+}

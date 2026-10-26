@@ -211,14 +211,24 @@ export interface PublicSearchSite {
    */
   networkRefPrefix?: string;
   restrict?: SiteRestriction;
+  /**
+   * S15-01: never these owners' documents (the portal leaves out agencies that are not listed in the directory). A
+   * filter in the query, so totals, facets and pages stay right.
+   */
+  excludeOwnerAgencyIds?: readonly string[];
   /** Correlates the engine-failure logs with the request. */
   requestId: string;
 }
 
 const MAX_RESTRICT_IDS = 50;
+/**
+ * Most owner ids a search names, to show or to leave out (S15-01: the portal names the listed agencies, or the unlisted
+ * owners of search documents, whichever set is smaller). Sites name a handful.
+ */
+export const MAX_EXCLUDED_OWNERS = 5_000;
 const PublicSearchSite = z
   .object({
-    ownerAgencyIds: z.array(z.uuid()).max(500).nullable(),
+    ownerAgencyIds: z.array(z.uuid()).max(MAX_EXCLUDED_OWNERS).nullable(),
     networkOf: z.uuid().optional(),
     networkRefPrefix: z
       .string()
@@ -234,6 +244,7 @@ const PublicSearchSite = z
         minCommissionBp: z.number().int().min(1).max(10_000).optional(),
       })
       .optional(),
+    excludeOwnerAgencyIds: z.array(z.uuid()).max(MAX_EXCLUDED_OWNERS).optional(),
     requestId: z.string().max(200),
   })
   .refine((s) => (s.ownerAgencyIds === null ? !s.networkOf : s.ownerAgencyIds.length > 0 || !!s.networkOf), {
@@ -393,13 +404,19 @@ const nonEmpty = (ids: readonly string[] | undefined) => (ids && ids.length > 0 
 
 /** A site's search as one engine-neutral filter: PUBLIC documents of the site's inventory only. */
 export function publicSearchFilter(
-  site: Pick<PublicSearchSite, 'ownerAgencyIds' | 'networkOf' | 'restrict' | 'networkRefPrefix'>,
+  site: Pick<
+    PublicSearchSite,
+    'ownerAgencyIds' | 'networkOf' | 'restrict' | 'networkRefPrefix' | 'excludeOwnerAgencyIds'
+  >,
   q: Parsed,
 ): Filter {
   const filters: Filter[] = [
     { op: 'eq', field: 'visibility', value: 'PUBLIC' },
     { op: 'in', field: 'status', values: q.statuses },
   ];
+  if (site.excludeOwnerAgencyIds && site.excludeOwnerAgencyIds.length > 0) {
+    filters.push({ op: 'not', filter: { op: 'in', field: 'ownerAgencyId', values: [...site.excludeOwnerAgencyIds] } });
+  }
   if (site.ownerAgencyIds) {
     const whose: Filter[] = [];
     if (site.ownerAgencyIds.length > 0) {

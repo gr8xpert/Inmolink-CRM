@@ -15,7 +15,9 @@ export interface AttributeQuery {
   priceMinCents?: number;
   priceMaxCents?: number;
   bedsMin?: number;
+  bedsMax?: number;
   bathsMin?: number;
+  bathsMax?: number;
   areaMinM2?: number;
   areaMaxM2?: number;
   geoBox?: { north: number; west: number; south: number; east: number };
@@ -33,8 +35,8 @@ export function attributeFilters(q: AttributeQuery): Filter[] {
     if (gte !== undefined || lte !== undefined) filters.push({ op: 'range', field, gte, lte });
   };
   range('priceCents', q.priceMinCents, q.priceMaxCents);
-  range('beds', q.bedsMin);
-  range('baths', q.bathsMin);
+  range('beds', q.bedsMin, q.bedsMax);
+  range('baths', q.bathsMin, q.bathsMax);
   range('areaM2', q.areaMinM2, q.areaMaxM2);
   if (q.geoBox) filters.push({ op: 'geoBox', ...q.geoBox });
   return filters;

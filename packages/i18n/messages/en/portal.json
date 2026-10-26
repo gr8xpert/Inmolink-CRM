@@ -1,0 +1,184 @@
+{
+  "nav": {
+    "home": "Inmolink home",
+    "search": "All properties",
+    "skip": "Skip to content",
+    "language": "Language"
+  },
+  "footer": {
+    "about": "Homes for sale in Spain from local and international estate agencies, in one search.",
+    "browse": "Browse by region"
+  },
+  "home": {
+    "title": "Homes for sale in Spain",
+    "metaDescription": "Search apartments, villas, townhouses and plots for sale in Spain, listed by local and international estate agencies.",
+    "heading": "Find your home in Spain",
+    "lead": "Apartments, villas, townhouses and plots from estate agencies along the coast and inland, in one search.",
+    "regions": "Browse by region",
+    "zones": "Popular areas",
+    "searchAll": "Search all properties"
+  },
+  "search": {
+    "titleAll": "Properties for sale in Spain",
+    "titlePlace": "Properties for sale in {place}",
+    "headingAll": "{count, plural, =0 {No properties} one {# property} other {# properties}} for sale",
+    "headingPlace": "{count, plural, =0 {No properties} one {# property} other {# properties}} for sale in {place}",
+    "metaDescriptionAll": "Browse homes for sale in Spain from estate agencies across the country: apartments, villas, townhouses and plots.",
+    "metaDescriptionPlace": "Browse homes for sale in {place} from local and international estate agencies: apartments, villas, townhouses and plots.",
+    "pageSuffix": "page {page}",
+    "results": "Results",
+    "empty": "No properties match these filters. Remove a filter or search a wider area.",
+    "unavailable": "Page {page} can't be shown right now.",
+    "firstPage": "Go to the first page",
+    "degraded": "Search is running in a simplified mode for a moment: counts may be rounded."
+  },
+  "location": {
+    "intro": "Homes for sale in {place} from local and international estate agencies. Pick a property type, or narrow the search to one of the areas below.",
+    "zoneIntro": "Homes for sale across {zone}, from local and international estate agencies.",
+    "byType": "Properties by type",
+    "typeCount": "{type}: {count, plural, one {# property} other {# properties}}",
+    "children": "Areas in {place}",
+    "members": "Places in {zone}",
+    "childCount": "{count, plural, one {# property} other {# properties}}"
+  },
+  "filters": {
+    "title": "Filter properties",
+    "price": "Price",
+    "priceMin": "Minimum price",
+    "priceMax": "Maximum price",
+    "noMin": "No minimum",
+    "noMax": "No maximum",
+    "type": "Property type",
+    "bedrooms": "Bedrooms",
+    "bathrooms": "Bathrooms",
+    "min": "Minimum",
+    "max": "Maximum",
+    "any": "Any",
+    "buildMin": "Minimum built size",
+    "features": "Features",
+    "feature": {
+      "sea-views": "Sea views",
+      "golf": "Golf"
+    },
+    "more": "More filters",
+    "apply": "Show properties",
+    "clear": "Clear filters",
+    "active": "filtered"
+  },
+  "sort": {
+    "label": "Sort by",
+    "latest": "Newest",
+    "price_asc": "Lowest price",
+    "price_desc": "Highest price"
+  },
+  "card": {
+    "title": "{type} in {town}",
+    "onRequest": "Price on request",
+    "beds": "{n, plural, one {# bedroom} other {# bedrooms}}",
+    "baths": "{n, plural, one {# bathroom} other {# bathrooms}}",
+    "built": "{area} built",
+    "plot": "{area} plot",
+    "terrace": "{area} terrace",
+    "listedBy": "Listed by",
+    "noPhoto": "No photo yet",
+    "photos": "{n, plural, one {# photo} other {# photos}}"
+  },
+  "pagination": {
+    "label": "Result pages",
+    "previous": "Previous page",
+    "next": "Next page",
+    "page": "Page {n}",
+    "of": "Page {page} of {pages}"
+  },
+  "breadcrumb": {
+    "label": "Breadcrumb",
+    "home": "Home",
+    "all": "Properties"
+  },
+  "map": {
+    "show": "Show on map",
+    "hide": "Hide map",
+    "loading": "Loading map…",
+    "label": "Map of the properties on this page",
+    "listingLabel": "Map of the property's area",
+    "zoomIn": "Zoom in",
+    "zoomOut": "Zoom out",
+    "approximate": "The marker shows the area, not the exact address."
+  },
+  "listing": {
+    "title": "{type} in {town}",
+    "metaTitle": "{type} for sale in {town}, {price}",
+    "facts": "Key facts",
+    "price": "Price",
+    "reference": "Reference",
+    "type": "Property type",
+    "location": "Location",
+    "bedrooms": "Bedrooms",
+    "bathrooms": "Bathrooms",
+    "built": "Built size",
+    "plot": "Plot size",
+    "terrace": "Terrace",
+    "yearBuilt": "Year built",
+    "energy": "Energy rating",
+    "communityFee": "Community fees",
+    "ibi": "Property tax (IBI)",
+    "garbage": "Rubbish collection",
+    "perMonth": "{amount} a month",
+    "perYear": "{amount} a year",
+    "description": "About this property",
+    "features": "Features",
+    "photos": "Photos",
+    "allPhotos": "See all {n} photos",
+    "photoAlt": "Photo {n} of {type} in {town}",
+    "where": "Where it is",
+    "agency": "Listed by",
+    "agencyProfile": "More properties from {agency}",
+    "call": "Call",
+    "email": "Email",
+    "website": "Agency website",
+    "contactHint": "Quote reference {ref} when you contact the agency.",
+    "unlisted": "Contact details for this agency are not available yet."
+  },
+  "notFound": {
+    "title": "Page not found",
+    "body": "This page doesn't exist or the property is no longer on the market.",
+    "search": "Search all properties"
+  },
+  "development": {
+    "metaTitle": "{name}: new homes in {town}",
+    "metaDescription": "New-build homes in {town}: {units, plural, one {# home} other {# homes}} available from {price}.",
+    "completion": "Completion {date}",
+    "priceRange": "{from} to {to}",
+    "priceFrom": "From {from}",
+    "bedroomsRange": "{min} to {max} bedrooms",
+    "bedroomsOne": "{n, plural, one {# bedroom} other {# bedrooms}}",
+    "unitsSummary": "{available, plural, one {# home available} other {# homes available}}, {reserved, plural, =0 {none reserved} one {# reserved} other {# reserved}}",
+    "description": "About this development",
+    "paymentTerms": "Payment terms",
+    "units": "Homes in this development",
+    "unitsCaption": "Available and reserved homes, in the developer's order",
+    "unit": "Home",
+    "type": "Type",
+    "bedrooms": "Bedrooms",
+    "bathrooms": "Bathrooms",
+    "size": "Size",
+    "terrace": "Terrace",
+    "floor": "Floor",
+    "price": "Price",
+    "status": "Status",
+    "unitStatus": {
+      "AVAILABLE": "Available",
+      "RESERVED": "Reserved",
+      "SOLD": "Sold"
+    },
+    "moreUnits": "More homes are available: ask the agency for the full list.",
+    "fromListing": "This home is part of a new development",
+    "seeDevelopment": "See the development",
+    "developmentStatus": {
+      "OFF_PLAN": "Off plan",
+      "UNDER_CONSTRUCTION": "Under construction",
+      "KEY_READY": "Key ready",
+      "SOLD_OUT": "Sold out"
+    }
+  }
+}

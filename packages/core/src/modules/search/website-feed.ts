@@ -36,7 +36,7 @@ export function siteInventoryFilter(site: PublicSearchSite): Filter {
 export function publicDocs(
   tx: Tx,
   ids: readonly string[],
-  part: 'card' | 'detail',
+  part: 'card' | 'detail' | 'portal',
   locale: string,
   fallback: string,
 ): Promise<repo.PublicDocRow[]> {
@@ -57,6 +57,31 @@ export async function publicDetailByRef(
   const byRef = refFilter(site, ref);
   if (byRef === null) return null;
   return repo.publicDetailWhere(tx, { op: 'and', filters: [siteInventoryFilter(site), byRef] }, locale, fallback);
+}
+
+/** Every agency owning a search document (S15-01, `repo.searchDocOwners`). One statement. */
+export function searchDocOwners(tx: Tx): Promise<string[]> {
+  return repo.searchDocOwners(tx);
+}
+
+/**
+ * The detail a public code names among this inventory (S15-01: the portal's listing pages name a listing by its code,
+ * unique across agencies — an owner's own reference is not). Null: no such document here. One statement
+ * (`listing_search_docs_public_code_idx`).
+ */
+export async function publicDetailByCode(
+  tx: Tx,
+  site: PublicSearchSite,
+  code: string,
+  locale: string,
+  fallback: string,
+): Promise<repo.PublicDocRow | null> {
+  return repo.publicDetailWhere(
+    tx,
+    { op: 'and', filters: [siteInventoryFilter(site), { op: 'eq', field: 'publicCode', value: code }] },
+    locale,
+    fallback,
+  );
 }
 
 /**
@@ -149,6 +174,44 @@ export function developmentByRef(
     ref: developmentRefMatch(site, ref),
     locale,
     fallback,
+  });
+}
+
+/**
+ * The development a public code names among this inventory (S15-01: the portal's development pages name a development
+ * by its code, unique across agencies — a developer's own reference is not), detail document; null: not shown. One
+ * statement.
+ */
+export function developmentByCode(
+  tx: Tx,
+  site: PublicSearchSite,
+  code: string,
+  locale: string,
+  fallback: string,
+): Promise<repo.DevelopmentRow | null> {
+  return repo.developmentByRef(tx, {
+    filter: unitFilter(site),
+    // By code, whoever owns it (a code is unique): the unit filter keeps it to the inventory's owners.
+    scope: { ...developmentScope(site), own: null },
+    ref: { ownRef: null, code },
+    locale,
+    fallback,
+  });
+}
+
+/** `developmentUnitsPage` by the development's public code (S15-01, the portal). One statement. */
+export function developmentUnitsByCode(
+  tx: Tx,
+  site: PublicSearchSite,
+  q: { code: string; after?: string; limit: number; locale: string; fallback: string },
+): Promise<repo.DevelopmentUnitsPage> {
+  const { code, ...page } = q;
+  return repo.developmentUnitsPage(tx, {
+    filter: unitFilter(site),
+    // By code, whoever owns it (a code is unique): the unit filter keeps it to the inventory's owners.
+    scope: { ...developmentScope(site), own: null },
+    ref: { ownRef: null, code },
+    ...page,
   });
 }
 

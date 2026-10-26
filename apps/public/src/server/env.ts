@@ -61,6 +61,25 @@ export const publicEnv = {
     .url()
     .optional()
     .transform((v) => v?.replace(/\/+$/, '')),
+  /**
+   * S15-01: the portal's public origin (`https://inmolink.es`) — canonical, hreflang and Open Graph URLs. Unset: the
+   * pages' own `PUBLIC_URL` (one host serving both).
+   */
+  PORTAL_URL: z
+    .url()
+    .optional()
+    .transform((v) => v?.replace(/\/+$/, '')),
+  /**
+   * S15-01: the map tiles the portal's maps load (`https://…/{z}/{x}/{y}.png`, a provider whose terms allow it) and
+   * the attribution it requires. Unset: no map is offered.
+   */
+  PORTAL_MAP_TILE_URL: z
+    .string()
+    .regex(/^https:\/\/[^\s"'<>]+\{z\}[^\s"'<>]*\{x\}[^\s"'<>]*\{y\}[^\s"'<>]*$/)
+    .optional(),
+  PORTAL_MAP_ATTRIBUTION: z.string().max(200).optional(),
+  /** S15-01: portal search, location and zone pages one client address may load per minute (fails open). */
+  PORTAL_PAGE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).max(100_000).default(240),
 };
 export type PublicConfig = Config<typeof publicEnv>;
 

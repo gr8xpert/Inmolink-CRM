@@ -1,0 +1,184 @@
+{
+  "nav": {
+    "home": "Inicio de Inmolink",
+    "search": "Todos los inmuebles",
+    "skip": "Ir al contenido",
+    "language": "Idioma"
+  },
+  "footer": {
+    "about": "Viviendas en venta en España de inmobiliarias locales e internacionales, en una sola búsqueda.",
+    "browse": "Buscar por región"
+  },
+  "home": {
+    "title": "Viviendas en venta en España",
+    "metaDescription": "Busca pisos, villas, adosados y parcelas en venta en España, publicados por inmobiliarias locales e internacionales.",
+    "heading": "Encuentra tu casa en España",
+    "lead": "Pisos, villas, adosados y parcelas de inmobiliarias de la costa y del interior, en una sola búsqueda.",
+    "regions": "Buscar por región",
+    "zones": "Zonas populares",
+    "searchAll": "Ver todos los inmuebles"
+  },
+  "search": {
+    "titleAll": "Inmuebles en venta en España",
+    "titlePlace": "Inmuebles en venta en {place}",
+    "headingAll": "{count, plural, =0 {Ningún inmueble} one {# inmueble} other {# inmuebles}} en venta",
+    "headingPlace": "{count, plural, =0 {Ningún inmueble} one {# inmueble} other {# inmuebles}} en venta en {place}",
+    "metaDescriptionAll": "Viviendas en venta en España de inmobiliarias de todo el país: pisos, villas, adosados y parcelas.",
+    "metaDescriptionPlace": "Viviendas en venta en {place} de inmobiliarias locales e internacionales: pisos, villas, adosados y parcelas.",
+    "pageSuffix": "página {page}",
+    "results": "Resultados",
+    "empty": "Ningún inmueble cumple estos filtros. Quita algún filtro o busca en una zona más amplia.",
+    "unavailable": "La página {page} no se puede mostrar ahora mismo.",
+    "firstPage": "Ir a la primera página",
+    "degraded": "La búsqueda funciona en modo simplificado unos instantes: los totales pueden estar redondeados."
+  },
+  "location": {
+    "intro": "Viviendas en venta en {place} de inmobiliarias locales e internacionales. Elige un tipo de inmueble o acota la búsqueda a una de las zonas de abajo.",
+    "zoneIntro": "Viviendas en venta en toda la zona de {zone}, de inmobiliarias locales e internacionales.",
+    "byType": "Inmuebles por tipo",
+    "typeCount": "{type}: {count, plural, one {# inmueble} other {# inmuebles}}",
+    "children": "Zonas de {place}",
+    "members": "Lugares de {zone}",
+    "childCount": "{count, plural, one {# inmueble} other {# inmuebles}}"
+  },
+  "filters": {
+    "title": "Filtrar inmuebles",
+    "price": "Precio",
+    "priceMin": "Precio mínimo",
+    "priceMax": "Precio máximo",
+    "noMin": "Sin mínimo",
+    "noMax": "Sin máximo",
+    "type": "Tipo de inmueble",
+    "bedrooms": "Dormitorios",
+    "bathrooms": "Baños",
+    "min": "Mínimo",
+    "max": "Máximo",
+    "any": "Cualquiera",
+    "buildMin": "Superficie construida mínima",
+    "features": "Características",
+    "feature": {
+      "sea-views": "Vistas al mar",
+      "golf": "Golf"
+    },
+    "more": "Más filtros",
+    "apply": "Ver inmuebles",
+    "clear": "Quitar filtros",
+    "active": "con filtros"
+  },
+  "sort": {
+    "label": "Ordenar por",
+    "latest": "Más recientes",
+    "price_asc": "Precio más bajo",
+    "price_desc": "Precio más alto"
+  },
+  "card": {
+    "title": "{type} en {town}",
+    "onRequest": "Precio a consultar",
+    "beds": "{n, plural, one {# dormitorio} other {# dormitorios}}",
+    "baths": "{n, plural, one {# baño} other {# baños}}",
+    "built": "{area} construidos",
+    "plot": "{area} de parcela",
+    "terrace": "{area} de terraza",
+    "listedBy": "Publicado por",
+    "noPhoto": "Aún sin foto",
+    "photos": "{n, plural, one {# foto} other {# fotos}}"
+  },
+  "pagination": {
+    "label": "Páginas de resultados",
+    "previous": "Página anterior",
+    "next": "Página siguiente",
+    "page": "Página {n}",
+    "of": "Página {page} de {pages}"
+  },
+  "breadcrumb": {
+    "label": "Ruta de navegación",
+    "home": "Inicio",
+    "all": "Inmuebles"
+  },
+  "map": {
+    "show": "Ver en el mapa",
+    "hide": "Ocultar mapa",
+    "loading": "Cargando mapa…",
+    "label": "Mapa de los inmuebles de esta página",
+    "listingLabel": "Mapa de la zona del inmueble",
+    "zoomIn": "Acercar",
+    "zoomOut": "Alejar",
+    "approximate": "El marcador indica la zona, no la dirección exacta."
+  },
+  "listing": {
+    "title": "{type} en {town}",
+    "metaTitle": "{type} en venta en {town}, {price}",
+    "facts": "Datos principales",
+    "price": "Precio",
+    "reference": "Referencia",
+    "type": "Tipo de inmueble",
+    "location": "Ubicación",
+    "bedrooms": "Dormitorios",
+    "bathrooms": "Baños",
+    "built": "Superficie construida",
+    "plot": "Parcela",
+    "terrace": "Terraza",
+    "yearBuilt": "Año de construcción",
+    "energy": "Certificado energético",
+    "communityFee": "Gastos de comunidad",
+    "ibi": "IBI",
+    "garbage": "Tasa de basuras",
+    "perMonth": "{amount} al mes",
+    "perYear": "{amount} al año",
+    "description": "Sobre este inmueble",
+    "features": "Características",
+    "photos": "Fotos",
+    "allPhotos": "Ver las {n} fotos",
+    "photoAlt": "Foto {n} de {type} en {town}",
+    "where": "Dónde está",
+    "agency": "Publicado por",
+    "agencyProfile": "Más inmuebles de {agency}",
+    "call": "Llamar",
+    "email": "Enviar email",
+    "website": "Web de la inmobiliaria",
+    "contactHint": "Indica la referencia {ref} cuando contactes con la inmobiliaria.",
+    "unlisted": "Los datos de contacto de esta inmobiliaria aún no están disponibles."
+  },
+  "notFound": {
+    "title": "Página no encontrada",
+    "body": "Esta página no existe o el inmueble ya no está a la venta.",
+    "search": "Ver todos los inmuebles"
+  },
+  "development": {
+    "metaTitle": "{name}: obra nueva en {town}",
+    "metaDescription": "Viviendas de obra nueva en {town}: {units, plural, one {# vivienda disponible} other {# viviendas disponibles}} desde {price}.",
+    "completion": "Entrega {date}",
+    "priceRange": "De {from} a {to}",
+    "priceFrom": "Desde {from}",
+    "bedroomsRange": "De {min} a {max} dormitorios",
+    "bedroomsOne": "{n, plural, one {# dormitorio} other {# dormitorios}}",
+    "unitsSummary": "{available, plural, one {# vivienda disponible} other {# viviendas disponibles}}, {reserved, plural, =0 {ninguna reservada} one {# reservada} other {# reservadas}}",
+    "description": "Sobre esta promoción",
+    "paymentTerms": "Forma de pago",
+    "units": "Viviendas de la promoción",
+    "unitsCaption": "Viviendas disponibles y reservadas, en el orden del promotor",
+    "unit": "Vivienda",
+    "type": "Tipo",
+    "bedrooms": "Dormitorios",
+    "bathrooms": "Baños",
+    "size": "Superficie",
+    "terrace": "Terraza",
+    "floor": "Planta",
+    "price": "Precio",
+    "status": "Estado",
+    "unitStatus": {
+      "AVAILABLE": "Disponible",
+      "RESERVED": "Reservada",
+      "SOLD": "Vendida"
+    },
+    "moreUnits": "Hay más viviendas disponibles: pide la lista completa a la inmobiliaria.",
+    "fromListing": "Esta vivienda forma parte de una promoción de obra nueva",
+    "seeDevelopment": "Ver la promoción",
+    "developmentStatus": {
+      "OFF_PLAN": "Sobre plano",
+      "UNDER_CONSTRUCTION": "En construcción",
+      "KEY_READY": "Llave en mano",
+      "SOLD_OUT": "Vendida"
+    }
+  }
+}

@@ -5,7 +5,8 @@
 // - With `--url` (repeatable): audits those pages as they are served (staging: the iFrame embed search and detail).
 // - Without: a local run — seeds an IFRAME site with own and network listings into the docker `test` stack, starts
 //   the production build of apps/public (`pnpm --filter @inmolink/app-public build` first) on a loopback port with the
-//   test env, and audits its embed search and detail pages and a selection page (`/s/<token>`). Search answers from the Postgres fallback there (the test
+//   test env, and audits its embed search and detail pages, a selection page (`/s/<token>`) and the portal's search, location, listing
+//   and development pages (S15-01). Search answers from the Postgres fallback there (the test
 //   Meilisearch has no index of the seeded listings); the listings' photos are served by the test MinIO (no CDN).
 //   Staging numbers (behind the CDN) are the reference.
 //
@@ -36,8 +37,9 @@ const { values } = parseArgs({
     /** The LCP budget (PLAN: < 2.0 s on mobile): a median LCP at or above it fails. */
     'max-lcp-ms': { type: 'string', default: '2000' },
     /**
-     * The pages are `noindex` on purpose (iFrame embeds: the agency's own site is the indexed page): SEO is scored
-     * without Lighthouse's "is crawlable" audit. Always on for the local embed run.
+     * Every audited page is `noindex` on purpose (iFrame embeds: the agency's own site is the indexed page): SEO is
+     * scored without Lighthouse's "is crawlable" audit. A local run excuses it on its embed and selection pages only
+     * (`NOINDEX_PATHS`); the portal's pages are indexed and scored with it (S15-01).
      */
     'allow-noindex': { type: 'boolean', default: false },
   },
@@ -106,6 +108,11 @@ async function localTarget(): Promise<{ urls: string[]; stop: () => Promise<void
       `${base}/embed/${fixture.siteId}/en/listing/${fixture.ref}`,
       // S13-F13: the selection page a client opens from the agent's link.
       `${base}${fixture.selectionPath}`,
+      // S15-01: the portal's search, location and listing pages (indexable: SEO counts "is crawlable" for them).
+      `${base}${fixture.portal.searchPath}`,
+      `${base}${fixture.portal.locationPath}`,
+      `${base}${fixture.portal.listingPath}`,
+      `${base}${fixture.portal.developmentPath}`,
     ],
     stop: async () => {
       server.kill();
@@ -188,7 +195,9 @@ async function auditOnce(url: string, flags: Flags): Promise<PageScores> {
   const lhr = result?.lhr;
   if (!lhr) throw new Error(`Lighthouse returned no result for ${url}`);
   if (lhr.runtimeError) throw new Error(`${url}: ${lhr.runtimeError.message}`);
-  const excused = new Set(allowNoindex ? ['is-crawlable'] : []);
+  // Local runs excuse only the pages that are noindex on purpose (embeds, selections); portal pages are indexed (S15-01).
+  const noindexPage = values['allow-noindex'] || (local && NOINDEX_PATHS.test(new URL(url).pathname));
+  const excused = new Set(noindexPage ? ['is-crawlable'] : []);
   const scores = Object.fromEntries(
     CATEGORIES.map((c) => [c, categoryScore(lhr, c, c === 'seo' ? excused : new Set())]),
   ) as Record<string, number>;
@@ -213,7 +222,8 @@ async function auditOnce(url: string, flags: Flags): Promise<PageScores> {
 }
 
 const local = !values.url?.length;
-const allowNoindex = values['allow-noindex'] || local;
+/** Local pages that are `noindex` on purpose: iFrame embeds and selection links (S15-01: not the portal's). */
+const NOINDEX_PATHS = /^\/(embed|s)\//;
 const target = local ? await localTarget() : { urls: values.url ?? [], stop: async () => {} };
 let results: PageScores[];
 try {
@@ -225,7 +235,7 @@ if (values.json) {
   console.log(JSON.stringify(results, null, 2));
 } else {
   console.log(
-    `Lighthouse (${values.desktop ? 'desktop' : 'mobile'}, minimum ${MIN} for ${[...GATED].join(', ')}${allowNoindex ? '; SEO without is-crawlable: noindex on purpose' : ''})`,
+    `Lighthouse (${values.desktop ? 'desktop' : 'mobile'}, minimum ${MIN} for ${[...GATED].join(', ')}${values['allow-noindex'] ? '; SEO without is-crawlable: noindex on purpose' : local ? '; SEO without is-crawlable on the embed and selection pages (noindex on purpose)' : ''})`,
   );
   for (const r of results) {
     const path = new URL(r.url).pathname;

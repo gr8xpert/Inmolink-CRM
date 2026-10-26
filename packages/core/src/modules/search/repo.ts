@@ -1719,20 +1719,35 @@ const docRows = (rows: unknown[]): PublicDocRow[] =>
     updatedAt: new Date(r.updatedAt),
   }));
 
+/** Longest description start a portal card reads (S15-01): the card shows an excerpt of it. */
+export const PORTAL_CARD_TEXT_CHARS = 400;
+
+/**
+ * A document part as `publicDocs` reads it: the card or the detail column, or (S15-01, the portal's result cards) the
+ * card with the start of the description and the terrace from the detail (`portalText`, `portalTerraceM2`), never the
+ * detail's media list.
+ */
+const docPart = (part: 'card' | 'detail' | 'portal'): SQL =>
+  part === 'portal'
+    ? sql`m.card || jsonb_build_object('portalText', left(m.detail ->> 'description', ${PORTAL_CARD_TEXT_CHARS}),
+            'portalTerraceM2', m.detail -> 'terraceM2')`
+    : sql`m.${sql.raw(part)}`;
+
 /**
  * Public documents of these targets (website search hydration, S7-03): `card` or `detail` in the best locale, with
- * the owner and public code. One statement; targets without a public read model are absent.
+ * the owner and public code; `portal` (S15-01): the card with the description's start and the terrace. One statement;
+ * targets without a public read model are absent.
  */
 export async function publicDocs(
   tx: Tx,
   ids: readonly string[],
-  part: 'card' | 'detail',
+  part: 'card' | 'detail' | 'portal',
   locale: string,
   fallback: string,
 ): Promise<PublicDocRow[]> {
   if (ids.length === 0) return [];
   const res = await tx.execute(sql`
-    select m.target_id as "targetId", m.kind, m.agency_id as "ownerAgencyId", m.${sql.raw(part)} as doc,
+    select m.target_id as "targetId", m.kind, m.agency_id as "ownerAgencyId", ${docPart(part)} as doc,
            m.updated_at as "updatedAt", c.code as "publicCode", dc.code as "developmentCode",
            dg.ref as "developmentOwnRef", m.locale
       from unnest(${uuidArray([...new Set(ids)])}) as t(id)
@@ -2168,4 +2183,21 @@ export async function websiteNetworkOpen(
     sql`select public.website_network_open(${agencyId}::uuid, ${minShared}::int, ${graceDays}::int) as open`,
   );
   return (res.rows[0] as { open: boolean }).open === true;
+}
+
+/**
+ * Every agency that owns a document in the search rows (S15-01: the portal compares them with the directory's listed
+ * agencies). A skip scan over `listing_search_docs_owner_idx`: one index probe per owner, never the whole table. One
+ * statement.
+ */
+export async function searchDocOwners(tx: Tx): Promise<string[]> {
+  const res = await tx.execute(sql`
+    with recursive o as (
+      (select owner_agency_id as id from ${listingSearchDocs} order by owner_agency_id limit 1)
+      union all
+      select (select s.owner_agency_id from ${listingSearchDocs} s
+               where s.owner_agency_id > o.id order by s.owner_agency_id limit 1)
+        from o where o.id is not null)
+    select id from o where id is not null`);
+  return (res.rows as { id: string }[]).map((r) => r.id);
 }

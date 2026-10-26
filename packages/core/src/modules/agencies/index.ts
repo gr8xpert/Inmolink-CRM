@@ -36,6 +36,7 @@ export {
 } from './preferred';
 export {
   indexOwnerIdentities,
+  listedAgencyIds,
   ownerIdentities,
   ownerIdentitiesQuery,
   type PublicAgency,

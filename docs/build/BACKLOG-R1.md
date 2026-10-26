@@ -2035,6 +2035,26 @@ Ref §15 · Mod web, e2e · Dep S7-F8
 **Build:** `[S7-F8]` (tests/e2e/website-feed.spec.ts) intermittently fails in the login helper (`tests/e2e/two-factor.ts`): after "Log in" neither the dashboard heading nor the 2FA view appears within 15 s (local full run, the suite's last spec), and once in CI 2FA enrolment showed no recovery codes. It passes alone. Find the cause (a slow cold route, session cookie / redirect race, or the S13-04 dashboard home checklist) and fix it — not by raising the timeout alone.
 **Done when:** the full e2e suite passes three times in a row locally and on CI
 
+### S15-F6 · Portal cards read the card document only (S15-01 review)
+Ref §7 M14 · Mod search, read-models · Dep S15-01
+**Build:** `docPart('portal')` (`search/repo.ts`) reads `detail ->> 'description'` and `detail -> 'terraceM2'` for every card, loading the whole detail JSON (media list included) for 20 rows per page. Put the excerpt and terrace into the card document when the read model is built and read `m.card` only.
+**Done when:** the portal search reads no `detail` column; EXPLAIN on the scale proxy shows no detoast of `detail`; portal int tests green
+
+### S15-F7 · Portal metadata in core, cache invalidation (S15-01 review; after ADR 0019)
+Ref PATTERNS §19 · Mod website-api, public · Dep S15-01, ADR 0019
+**Build:** move titles, metadata and JSON-LD building from `apps/public/src/portal/{seo,meta}.ts` into `website-api/portal.ts` (`portal.metadataFor` / `portal.jsonLd`, PATTERNS §19). Invalidate on change: listing withdrawn / price change / agency standing or contact change → purge the page (Next `revalidateTag` with a bounded or shared cache handler under option A, CDN cache tags under option B), and clear the in-process agency-contact cache on the agency-profile event.
+**Done when:** a withdrawn listing disappears from its page and from search pages within one minute; no unbounded per-instance page cache; tests
+
+### S15-F8 · Zone member and type caps at save (S15-01 review)
+Ref §7 M14 · Mod taxonomy · Dep S15-01
+**Build:** zones with more than `PORTAL_ZONE_MAX_MEMBERS` members (and type groups over 50 ids) are cut at read time with a warning. Refuse them when the zone / group is saved (staff taxonomy editor), with a clear error.
+**Done when:** saving an oversize zone is refused with a test; the read-time warning never fires on seeded data
+
+### S15-F9 · Development page LCP and the S12-04 e2e intermittent (S15-01)
+Ref §7 M14 · Mod public, e2e · Dep S15-01
+**Build:** the development page's LCP is 2.41 s locally with no image — find the LCP element and fix it. `[S12-04]` (public selection price poll, 60 s predicate) failed in several full e2e runs and once in a two-spec run, then passed on rerun — find the cause (a read-model rebuild that never runs after a worker crash? the poll interval?).
+**Done when:** development page LCP < 2.0 s in the local Lighthouse run; `[S12-04]` passes in three consecutive full e2e runs
+
 ## S16 — Hardening
 
 ### S16-01 · Full load suite

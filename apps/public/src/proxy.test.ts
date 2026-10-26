@@ -3,7 +3,7 @@ import { getRedirectUrl, unstable_doesMiddlewareMatch } from 'next/experimental/
 import { NextRequest } from 'next/server';
 import { describe, expect, it, vi } from 'vitest';
 import { EMBED_GATE_HEADER } from './embed/csp';
-import proxy, { config, createProxy, type EmbedGate } from './proxy';
+import proxy, { config, createProxy, type EmbedGate, type PortalGate } from './proxy';
 
 const request = (path: string, headers: Record<string, string> = {}) =>
   new NextRequest(`http://portal.test${path}`, { headers });
@@ -110,5 +110,61 @@ describe('iFrame embed gate (S7-F8)', () => {
     for (const url of [`/embed/${SITE}/en`, `/embed/${SITE}/en/listing/A.B-1`, '/embed', `/embed/${SITE}/en/x.js`]) {
       expect(runs(url), url).toBe(true);
     }
+  });
+});
+
+describe('portal search pages (S15-01)', () => {
+  const allow: PortalGate = vi.fn(async () => ({ allowed: true, retryAfterSeconds: 0 }));
+
+  it('[S15-01] junk, defaults and other orders 301 to the one canonical spelling; the canonical URL is served', async () => {
+    const run = createProxy(ok(), allow);
+    const cases: [string, string][] = [
+      ['/en/properties?utm_source=x&price_min=100000', '/en/properties?price_min=100000'],
+      ['/en/properties/spain?page=1&sort=latest', '/en/properties/spain'],
+      ['/es/zone/costa?type=villa&type=apartment&type=villa', '/es/zone/costa?type=apartment&type=villa'],
+      ['/en/properties?price_min=&price_max=200000', '/en/properties?price_max=200000'],
+      ['/en/properties?page=2&price_min=100000', '/en/properties?price_min=100000&page=2'],
+      ['/en/properties?bedrooms_min=lots', '/en/properties'],
+    ];
+    for (const [from, to] of cases) {
+      const res = await run(request(from));
+      expect(res.status, from).toBe(301);
+      expect(res.headers.get('location'), from).toBe(`http://portal.test${to}`);
+      expect(res.headers.get('set-cookie'), from).toBeNull();
+    }
+    for (const path of ['/en/properties', '/en/properties?price_min=100000&page=2', '/es/zone/costa?type=villa']) {
+      const res = await run(request(path));
+      expect(getRedirectUrl(res), path).toBeNull();
+      expect(res.status, path).toBe(200);
+    }
+    // Listing pages carry no search: their query string is left alone.
+    expect(getRedirectUrl(await run(request('/en/property/villa-in-x-ab12cd34?utm=1')))).toBeNull();
+  });
+
+  it('[S15-01] a client past the page limit gets a 429; a limits outage never refuses a page', async () => {
+    const limited: PortalGate = vi.fn(async () => ({ allowed: false, retryAfterSeconds: 12 }));
+    const res = await createProxy(ok(), limited)(request('/en/properties', { 'x-forwarded-for': '9.9.9.9' }));
+    expect(res.status).toBe(429);
+    expect(res.headers.get('retry-after')).toBe('12');
+    expect(limited).toHaveBeenCalledWith('9.9.9.9');
+    const broken: PortalGate = vi.fn(async () => {
+      throw new Error('redis down');
+    });
+    expect((await createProxy(ok(), broken)(request('/en/properties/spain'))).status).toBe(200);
+    // Listing pages (ISR, CDN-cached) and other routes are not counted.
+    const counted: PortalGate = vi.fn(async () => ({ allowed: true, retryAfterSeconds: 0 }));
+    await createProxy(ok(), counted)(request('/en/property/villa-in-x-ab12cd34'));
+    expect(counted).not.toHaveBeenCalled();
+  });
+
+  it('[S15-01] no Set-Cookie on cached portal pages or on the locale redirect (no locale cookie)', async () => {
+    const run = createProxy(ok(), allow);
+    for (const path of ['/en/properties', '/es/property/villa-ab12cd34', '/en']) {
+      const res = await run(request(path, { 'accept-language': 'es' }));
+      expect(res.headers.get('set-cookie'), path).toBeNull();
+    }
+    const unprefixed = await run(request('/properties', { 'accept-language': 'es-ES' }));
+    expect(getRedirectUrl(unprefixed)).toBe('http://portal.test/es/properties');
+    expect(unprefixed.headers.get('set-cookie')).toBeNull();
   });
 });
