@@ -48,3 +48,18 @@ export function portalListingTitle(
 
 /** The development's name as pages title it (the developer's name; its marketing title when it has none). */
 export const developmentNameOf = (d: { name: string; title: string }) => d.name || d.title;
+
+/**
+ * An agency- or agent-supplied URL the portal may link to: absolute `http:` / `https:` only (a `javascript:`, `data:`
+ * or relative value is never rendered as a link — defence in depth beside the profile's own input check). Null: no
+ * link. S15-F7: here, so the page's JSON-LD (`portal-seo.ts`) and its views read one rule.
+ */
+export function safeHttpUrl(value: string | null | undefined): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : null;
+  } catch {
+    return null;
+  }
+}

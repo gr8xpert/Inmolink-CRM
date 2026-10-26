@@ -4,6 +4,8 @@ import { createLogger, type Logger } from '../logger';
 import { Cache, type CacheGetOptions } from './cache';
 import { Counters } from './counts';
 import type { CacheKey } from './key';
+import { DEFAULT_PAGE_CACHE_BYTES, markPageTagsChanged, PageCache, type PageTagStore } from './page-cache';
+import { whenReady } from './ready';
 import { SeenTimes } from './seen';
 import { encodeUserEvent, USER_EVENTS_CHANNEL, type UserEvent } from './user-events';
 
@@ -11,6 +13,20 @@ export { Cache, type CacheGetOptions, type CacheOptions } from './cache';
 export { Counters } from './counts';
 export { assertCacheKey, type CacheKey, type CacheKeyParts, cacheKey } from './key';
 export { LocalLru } from './lru';
+export {
+  approximateBytes,
+  BREAKER_FAILURES,
+  BREAKER_OPEN_MS,
+  DEFAULT_PAGE_CACHE_BYTES,
+  isSharedPageTag,
+  PAGE_TAG_SHARED_PREFIX,
+  PAGE_TAG_TTL_SECONDS,
+  PageCache,
+  type PageCacheOptions,
+  PageLru,
+  type PageTagStore,
+  RENDER_MARGIN_MS,
+} from './page-cache';
 export { whenReady } from './ready';
 export { SeenTimes } from './seen';
 export {
@@ -156,6 +172,91 @@ export const cache = {
   invalidateTags: (tags: readonly string[]): Promise<void> => instance().invalidateTags(tags),
   clearLocal: (): void => instance().clearLocal(),
 };
+
+/** Sets each key to ARGV[1] unless it holds a later time (atomic: concurrent marks keep the latest). */
+const MARK_MAX = `
+for _, k in ipairs(KEYS) do
+  local cur = redis.call('GET', k)
+  if (not cur) or (tonumber(cur) or 0) < tonumber(ARGV[1]) then redis.call('SET', k, ARGV[1], 'EX', ARGV[2]) end
+end
+return 1
+`;
+
+/**
+ * S15-F7: shared page tag times on redis-cache (`page-cache.ts`): one key per tag (`<prefix>:ptag:<tag>`) holding its
+ * latest change time — written by one script (keep the later), read with one MGET.
+ */
+export function redisPageTagStore(): PageTagStore {
+  const keyOf = (tag: string) => `${current().prefix}:ptag:${tag}`;
+  return {
+    async read(tags) {
+      if (tags.length === 0) return [];
+      const redis = cacheConnection();
+      await whenReady(redis);
+      const raw = await redis.mget(...tags.map(keyOf));
+      return raw.map((r) => {
+        const n = r === null ? Number.NaN : Number(r);
+        return Number.isFinite(n) ? n : null;
+      });
+    },
+    async markMax(tags, atMs, ttlSeconds) {
+      if (tags.length === 0) return;
+      const redis = cacheConnection();
+      await whenReady(redis);
+      await redis.eval(MARK_MAX, tags.length, ...tags.map(keyOf), String(Math.trunc(atMs)), String(ttlSeconds));
+    },
+  };
+}
+
+const pageTagStore: PageTagStore = {
+  read: (tags) => redisPageTagStore().read(tags),
+  markMax: (tags, atMs, ttl) => redisPageTagStore().markMax(tags, atMs, ttl),
+};
+
+/**
+ * S15-F7: marks ISR page tags (`portal:…`) changed at `atMs` on redis-cache — every public instance drops the pages
+ * carrying them on its next request (`PageCacheHandler`). A later `atMs` keeps them uncached until then.
+ */
+export const pageTags = {
+  markChanged: (tags: readonly string[], atMs: number): Promise<void> => markPageTagsChanged(pageTagStore, tags, atMs),
+};
+
+const PAGE_CACHE = Symbol.for('@inmolink/platform/page-cache');
+
+/**
+ * S15-F7: Next.js's `cacheHandler` for the public app (`apps/public/cache-handler.mjs`): ISR pages in a byte-capped
+ * in-process LRU (`cacheMaxMemorySize`), invalidated by shared tag times on redis-cache (`page-cache.ts`). Next builds
+ * one handler per request: they share the process's cache.
+ */
+export class PageCacheHandler {
+  private readonly pages: PageCache;
+
+  constructor(ctx: { maxMemoryCacheSize?: number } = {}) {
+    const g = globalThis as { [PAGE_CACHE]?: PageCache };
+    const maxBytes =
+      ctx.maxMemoryCacheSize && ctx.maxMemoryCacheSize > 0 ? ctx.maxMemoryCacheSize : DEFAULT_PAGE_CACHE_BYTES;
+    g[PAGE_CACHE] ??= new PageCache({
+      store: pageTagStore,
+      maxBytes,
+      onError: (err) => current().logger.warn({ err }, 'page cache: tag lookup failed; serving the cached page'),
+    });
+    this.pages = g[PAGE_CACHE];
+  }
+
+  get(key: string, _ctx?: unknown) {
+    return this.pages.get(key);
+  }
+
+  set(key: string, data: unknown, ctx?: { tags?: readonly string[]; cacheControl?: unknown }) {
+    return this.pages.set(key, data, ctx);
+  }
+
+  revalidateTag(tags: string | readonly string[], _durations?: unknown) {
+    return this.pages.revalidateTag(tags);
+  }
+
+  resetRequestCache(): void {}
+}
 
 /** Process-wide "last seen" times on redis-cache (API key usage, S1-05). */
 export const seen = {

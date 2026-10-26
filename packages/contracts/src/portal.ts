@@ -79,3 +79,32 @@ export const PORTAL_QUERY_KEYS = [
   'sort',
   'page',
 ] as const satisfies readonly (keyof PortalQuery)[];
+
+/**
+ * Whether a query narrows the results (any filter or a sort; the page alone does not). S15-F7: here, so the portal's
+ * proxy, pages and core's metadata (`website-api/portal-seo.ts`) read one rule.
+ */
+export function portalQueryHasFilters(q: PortalQuery): boolean {
+  return PORTAL_QUERY_KEYS.some((k) => {
+    if (k === 'page') return false;
+    const v = q[k];
+    return Array.isArray(v) ? v.length > 0 : v !== undefined && !(k === 'sort' && v === 'latest');
+  });
+}
+
+/**
+ * A query string in a stable order without defaults (`sort=latest`, `page=1`), `?`-prefixed or empty: links,
+ * canonicals and pagination always spell one search the same way.
+ */
+export function portalQueryString(q: PortalQuery, change: Partial<PortalQuery> = {}): string {
+  const merged: PortalQuery = { ...q, ...change };
+  const params = new URLSearchParams();
+  for (const k of PORTAL_QUERY_KEYS) {
+    const v = merged[k];
+    if (v === undefined) continue;
+    if (Array.isArray(v)) for (const x of [...v].sort()) params.append(k, String(x));
+    else if (!(k === 'sort' && v === 'latest') && !(k === 'page' && v === 1)) params.append(k, String(v));
+  }
+  const s = params.toString();
+  return s ? `?${s}` : '';
+}

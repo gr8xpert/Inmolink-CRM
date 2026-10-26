@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import type { NextConfig } from 'next';
 import createNextIntlPlugin from 'next-intl/plugin';
 
@@ -14,9 +15,11 @@ export const FRAME_DENY_HEADERS = [
 /**
  * S15-01: the portal's search, location and home pages render per request (filters and pages ride in the query
  * string), so Next would mark them private; they hold no visitor data, so the CDN may keep them briefly and serve a
- * stale copy while it refetches. Listing pages are ISR (`revalidate`) and get Next's own `s-maxage`.
+ * stale copy while it refetches. Listing pages are ISR (`revalidate`) and get Next's own `s-maxage`. S15-F7: at most
+ * 45 s + 15 s stale at the edge, so a withdrawn listing or an agency change leaves these pages within a minute (their
+ * origin reads are fresh within a minute: documents at once, agency set and contacts ≤ 60 s).
  */
-export const PORTAL_PAGE_CACHE = 'public, max-age=0, s-maxage=120, stale-while-revalidate=600, stale-if-error=86400';
+export const PORTAL_PAGE_CACHE = 'public, max-age=0, s-maxage=45, stale-while-revalidate=15, stale-if-error=86400';
 /** S15-03 review: a page with the enquiry form's answer (`?enquiry=`). */
 export const ENQUIRY_NOTICE_CACHE = 'private, no-store';
 const LOCALE = ':locale([a-z]{2})';
@@ -29,9 +32,19 @@ export const PORTAL_CACHED_SOURCES = [
   `/${LOCALE}/agency/:id/:name`,
 ];
 
+/**
+ * S15-F7: the ISR page cache (listing and development pages, ADR 0019 (A)): bounded per instance and invalidated on
+ * every instance by shared tag times (`cache-handler.mjs` → platform `PageCacheHandler`). Next's default handler would
+ * also write every rendered page to the server's disk — unbounded for ~2M listings × locales.
+ */
+export const PAGE_CACHE_HANDLER = fileURLToPath(new URL('./cache-handler.mjs', import.meta.url));
+export const PAGE_CACHE_MAX_BYTES = 256 * 1024 * 1024;
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  cacheHandler: PAGE_CACHE_HANDLER,
+  cacheMaxMemorySize: PAGE_CACHE_MAX_BYTES,
   // Server-only code loaded from node_modules at runtime, not bundled (S7-F8: the embeds read through core).
   serverExternalPackages: ['@inmolink/core', '@inmolink/db', '@inmolink/platform', 'pg', 'ioredis', 'bullmq'],
   async headers() {

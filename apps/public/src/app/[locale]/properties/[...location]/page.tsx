@@ -1,3 +1,4 @@
+import { portalCrumbs, portalJsonLd, portalMetadataFor, serializeJsonLd } from '@inmolink/core/modules/website-api';
 import type { Metadata } from 'next';
 import { notFound, permanentRedirect } from 'next/navigation';
 import { getTranslations, setRequestLocale } from 'next-intl/server';
@@ -11,13 +12,11 @@ import {
   searchPortal,
 } from '@/portal/data';
 import { legacyRedirectFor } from '@/portal/legacy';
-import { searchMetadata } from '@/portal/meta';
-import { breadcrumbJsonLd, type Crumb, serializeJsonLd } from '@/portal/seo';
 import { JsonLd } from '@/portal/ui/breadcrumbs';
 import { LocationIntro } from '@/portal/ui/location-intro';
 import { SearchView } from '@/portal/ui/search-view';
 import { PortalShell } from '@/portal/ui/shell';
-import { homePath, searchPath } from '@/portal/urls';
+import { searchPath } from '@/portal/urls';
 
 /**
  * A location page (S15-01): country, region, city or area by its slugs (`/properties/spain/alicante/torrevieja`) —
@@ -37,20 +36,14 @@ export async function generateMetadata({ params, searchParams }: Props): Promise
   assertPortalLocale(locale);
   const loc = await locationOf(locale, slugsOf(location));
   if (!loc) return {};
-  const t = await getTranslations({ locale, namespace: 'portal' });
   const query = parseQuery(await searchParams);
-  const paths = Object.fromEntries(
-    Object.entries(await locationPaths(loc.place.id)).map(([l, p]) => [l, searchPath(l, p)]),
-  );
-  const page = query.page ?? 1;
-  const title = t('search.titlePlace', { place: loc.place.name });
-  return searchMetadata({
-    origin: (await portalSettings()).origin,
+  return portalMetadataFor({
+    kind: 'location',
     locale,
-    paths,
+    origin: (await portalSettings()).origin,
     query,
-    title: page > 1 ? `${title}, ${t('search.pageSuffix', { page })}` : title,
-    description: t('search.metaDescriptionPlace', { place: loc.place.name }),
+    location: loc,
+    slugs: await locationPaths(loc.place.id),
   });
 }
 
@@ -76,18 +69,15 @@ export default async function LocationPage({ params, searchParams }: Props) {
   // A numbered page past the last (an empty search included) is a 404, never an empty copy of the search.
   if (!result.pageUnavailable && result.page > Math.max(1, result.pageCount)) notFound();
   const path = searchPath(locale, loc.place.path);
-  const crumbs: Crumb[] = [
-    { name: t('breadcrumb.home'), path: homePath(locale) },
-    { name: t('breadcrumb.all'), path: searchPath(locale) },
-    ...loc.ancestors.map((a) => ({ name: a.name, path: searchPath(locale, a.path) })),
-    { name: loc.place.name, path },
-  ];
+  const page = { kind: 'location', locale, origin: settings.origin, query, location: loc, slugs: alternates } as const;
   return (
     <PortalShell
       locale={locale}
       alternates={Object.fromEntries(Object.entries(alternates).map(([l, p]) => [l, searchPath(l, p)]))}
     >
-      <JsonLd json={serializeJsonLd(breadcrumbJsonLd(settings.origin, crumbs))} />
+      {portalJsonLd(page).map((ld) => (
+        <JsonLd key={(ld as { '@type': string })['@type']} json={serializeJsonLd(ld)} />
+      ))}
       <SearchView
         locale={locale}
         path={path}
@@ -95,7 +85,7 @@ export default async function LocationPage({ params, searchParams }: Props) {
         result={result}
         catalog={catalog}
         heading={t('search.headingPlace', { count: result.total, place: loc.place.name })}
-        crumbs={crumbs}
+        crumbs={portalCrumbs(page)}
         settings={settings}
         intro={
           first ? (

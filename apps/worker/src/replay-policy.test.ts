@@ -11,7 +11,7 @@ import { registerSubscriptions } from './subscriptions';
 
 /** Subscribers that rebuild a projection or cache from current state (nothing reaches a person). */
 const PROJECTION =
-  /^(search\.(readModel|index)\.|quality\.recompute\.|websiteApi\.(edge|feed)\.|properties\.overrides\.|taxonomy\.cache\.|agencies\.settingsCache\.|websites\.siteCache\.|media\.objects\.|onboarding\.progress\.)/;
+  /^(search\.(readModel|index)\.|quality\.recompute\.|websiteApi\.(edge|feed|portal)\.|properties\.overrides\.|taxonomy\.cache\.|agencies\.settingsCache\.|websites\.siteCache\.|media\.objects\.|onboarding\.progress\.)/;
 
 /**
  * Subscribers that call an outside system (S13 review): a portal feed pass (`exports.feed.*`) queues

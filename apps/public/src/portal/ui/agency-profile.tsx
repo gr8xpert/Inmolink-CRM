@@ -27,21 +27,14 @@ const paragraphsOf = (text: string) =>
 
 /**
  * The agency's own words as one plain text (meta description): its tagline and about text, a sentence stop between
- * them only where the tagline has none ("Homes by the sea. We sell…", never "sea.. We"). Null without either.
+ * them only where the tagline has none ("Homes by the sea. We sell…", never "sea.. We"). Null without either. Core's
+ * `portalProfileSummary` (S15-F7: the meta description is built there).
  */
-export function profileSummary(agency: Pick<PortalAgencyProfile, 'tagline' | 'description'>): string | null {
-  const parts = [agency.tagline, agency.description]
-    .map((p) => p?.replace(/\s+/g, ' ').trim() ?? '')
-    .filter((p) => p.length > 0);
-  if (parts.length === 0) return null;
-  return parts.map((p, i) => (i < parts.length - 1 && !/[.!?…:;]$/.test(p) ? `${p}.` : p)).join(' ');
-}
+export const profileSummary = websiteApi.portalProfileSummary;
 
-/** "Estate agency in Puerto" / "Property developer". */
+/** "Estate agency in Puerto" / "Property developer" (core's `portalAgencySubline`). */
 export async function agencySubline(locale: string, agency: PortalAgencyProfile): Promise<string> {
-  const t = await getTranslations({ locale, namespace: 'portal' });
-  const kind = t(`agency.kind.${agency.kind}`);
-  return agency.city ? t('agency.kindIn', { kind, city: agency.city }) : kind;
+  return websiteApi.portalAgencySubline(locale, agency);
 }
 
 /**

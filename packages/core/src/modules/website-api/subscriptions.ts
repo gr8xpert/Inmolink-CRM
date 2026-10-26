@@ -17,6 +17,7 @@ import {
   SITE_FEED_SOON_MS,
   websiteApiJobs,
 } from './jobs';
+import { invalidatePortalAgency, invalidatePortalDocs } from './portal-cache';
 
 export { queueEdgePurge };
 
@@ -52,6 +53,11 @@ async function purgeAgencySites(agencyId: string, meta: EventMeta): Promise<void
  * feeds, so it leaves partner feeds within minutes. Other network
  * changes (new listings, prices) and overrides reach partner feeds through the 6-hourly refresh
  * (`websiteApi.refreshSiteFeeds`).
+ *
+ * Outbox → portal page cache (S15-F7): a listing's or development's public documents changing, or an agency's
+ * standing, name or contacts, mark the portal ISR pages' tags (`portal-cache.ts`) — every public instance drops those
+ * pages on its next request. A redelivered event marks the tags again at its delivery time: harmless (the pages render
+ * once more), and a mark never moves a tag's time back.
  *
  * Called once by the worker; idempotent.
  */
@@ -169,6 +175,23 @@ export function registerWebsiteApiSubscriptions(): void {
       },
       { name: 'websiteApi.feed.publicDocsChanged' },
     ),
+    // S15-F7: the portal's ISR pages (listing, development) show these.
+    subscribe(
+      search.searchEvents.publicDocsChanged,
+      async (payload) => {
+        await invalidatePortalDocs(payload);
+      },
+      { name: 'websiteApi.portal.publicDocsChanged' },
+    ),
+    subscribe(agencies.agenciesEvents.statusChanged, (p) => invalidatePortalAgency(p.agencyId), {
+      name: 'websiteApi.portal.agencyStatus',
+    }),
+    subscribe(agencies.agenciesEvents.detailsUpdated, (p) => invalidatePortalAgency(p.agencyId), {
+      name: 'websiteApi.portal.agencyDetails',
+    }),
+    subscribe(agencies.agenciesEvents.profileUpdated, (p) => invalidatePortalAgency(p.agencyId), {
+      name: 'websiteApi.portal.agencyProfile',
+    }),
     subscribe(identity.identityEvents.apiKeyRotated, keyChanged, { name: 'websiteApi.edge.apiKeyRotated' }),
     subscribe(identity.identityEvents.apiKeyRevoked, keyChanged, { name: 'websiteApi.edge.apiKeyRevoked' }),
     subscribe(

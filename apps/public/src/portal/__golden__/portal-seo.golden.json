@@ -1,0 +1,788 @@
+{
+  "listing.en": {
+    "metadata": {
+      "title": "Villa for sale in Rojales, €249,995",
+      "description": "A villa with a pool </script><script>alert(1)</script> & a garden line para. Sunny terrace and sea views. Sunny terrace and sea views. Sunny terrace and sea",
+      "alternates": {
+        "canonical": "https://inmolink.test/en/property/villa-in-rojales-m2q7zk4p",
+        "languages": {
+          "en": "https://inmolink.test/en/property/villa-in-rojales-m2q7zk4p",
+          "es": "https://inmolink.test/es/property/chalet-en-rojales-m2q7zk4p",
+          "x-default": "https://inmolink.test/en/property/villa-in-rojales-m2q7zk4p"
+        }
+      },
+      "openGraph": {
+        "type": "website",
+        "url": "https://inmolink.test/en/property/villa-in-rojales-m2q7zk4p",
+        "title": "Villa in Rojales",
+        "description": "A villa with a pool </script><script>alert(1)</script> & a garden line para. Sunny terrace and sea views. Sunny terrace and sea views. Sunny terrace and sea",
+        "locale": "en",
+        "images": [
+          {
+            "url": "https://media.test/cover/og.webp",
+            "alt": "Villa in Rojales"
+          }
+        ]
+      },
+      "twitter": {
+        "card": "summary_large_image",
+        "title": "Villa in Rojales"
+      }
+    },
+    "jsonLd": [
+      "{\"@context\":\"https://schema.org\",\"@type\":\"RealEstateListing\",\"url\":\"https://inmolink.test/en/property/villa-in-rojales-m2q7zk4p\",\"name\":\"Villa in Rojales\",\"description\":\"A villa with a pool \\u003c/script\\u003e\\u003cscript\\u003ealert(1)\\u003c/script\\u003e \\u0026 a garden\\u2028line\\u2029para. Sunny terrace and sea views. Sunny terrace and sea views. Sunny terrace and sea views. Sunny terrace and sea views. Sunny terrace and sea views. Sunny terrace and sea views. Sunny terrace and sea views. Sunny terrace and sea views. Sunny terrace and sea views. Sunny terrace and sea views. Sunny terrace and sea views. Sunny terrace and sea views. Sunny terrace and sea views. Sunny terrace and sea views. Sunny terrace\",\"image\":[\"https://media.test/cover/og.webp\",\"https://media.test/b/l.webp\"],\"dateModified\":\"2026-10-26T00:00:00.000Z\",\"offers\":{\"@type\":\"Offer\",\"price\":249995,\"priceCurrency\":\"EUR\",\"availability\":\"https://schema.org/InStock\",\"offeredBy\":{\"@type\":\"RealEstateAgent\",\"name\":\"Move Homes\",\"url\":\"https://inmolink.test/en/agency/01900000-0000-7000-8000-0000000000a1/move-homes\"}},\"about\":{\"@type\":\"Accommodation\",\"numberOfBedrooms\":3,\"numberOfBathroomsTotal\":1,\"floorSize\":{\"@type\":\"QuantitativeValue\",\"value\":85,\"unitCode\":\"MTK\"},\"address\":{\"@type\":\"PostalAddress\",\"addressLocality\":\"Rojales\",\"addressRegion\":\"Alicante\",\"addressCountry\":\"Spain\"},\"geo\":{\"@type\":\"GeoCoordinates\",\"latitude\":38.08,\"longitude\":-0.72}}}",
+      "{\"@context\":\"https://schema.org\",\"@type\":\"BreadcrumbList\",\"itemListElement\":[{\"@type\":\"ListItem\",\"position\":1,\"name\":\"Home\",\"item\":\"https://inmolink.test/en\"},{\"@type\":\"ListItem\",\"position\":2,\"name\":\"Properties\",\"item\":\"https://inmolink.test/en/properties\"},{\"@type\":\"ListItem\",\"position\":3,\"name\":\"Spain\",\"item\":\"https://inmolink.test/en/properties/spain\"},{\"@type\":\"ListItem\",\"position\":4,\"name\":\"Alicante\",\"item\":\"https://inmolink.test/en/properties/spain/alicante\"},{\"@type\":\"ListItem\",\"position\":5,\"name\":\"Rojales\",\"item\":\"https://inmolink.test/en/properties/spain/alicante/rojales\"},{\"@type\":\"ListItem\",\"position\":6,\"name\":\"Villa in Rojales\",\"item\":\"https://inmolink.test/en/property/villa-in-rojales-m2q7zk4p\"}]}"
+    ],
+    "crumbs": [
+      [
+        {
+          "name": "Home",
+          "path": "/en"
+        },
+        {
+          "name": "Properties",
+          "path": "/en/properties"
+        },
+        {
+          "name": "Spain",
+          "path": "/en/properties/spain"
+        },
+        {
+          "name": "Alicante",
+          "path": "/en/properties/spain/alicante"
+        },
+        {
+          "name": "Rojales",
+          "path": "/en/properties/spain/alicante/rojales"
+        },
+        {
+          "name": "Villa in Rojales",
+          "path": "/en/property/villa-in-rojales-m2q7zk4p"
+        }
+      ]
+    ]
+  },
+  "listing.es": {
+    "metadata": {
+      "title": "Chalet en venta en Rojales, 249.995 €",
+      "description": "A villa with a pool </script><script>alert(1)</script> & a garden line para. Sunny terrace and sea views. Sunny terrace and sea views. Sunny terrace and sea",
+      "alternates": {
+        "canonical": "https://inmolink.test/es/property/chalet-en-rojales-m2q7zk4p",
+        "languages": {
+          "en": "https://inmolink.test/en/property/villa-in-rojales-m2q7zk4p",
+          "es": "https://inmolink.test/es/property/chalet-en-rojales-m2q7zk4p",
+          "x-default": "https://inmolink.test/en/property/villa-in-rojales-m2q7zk4p"
+        }
+      },
+      "openGraph": {
+        "type": "website",
+        "url": "https://inmolink.test/es/property/chalet-en-rojales-m2q7zk4p",
+        "title": "Chalet en Rojales",
+        "description": "A villa with a pool </script><script>alert(1)</script> & a garden line para. Sunny terrace and sea views. Sunny terrace and sea views. Sunny terrace and sea",
+        "locale": "es",
+        "images": [
+          {
+            "url": "https://media.test/cover/og.webp",
+            "alt": "Chalet en Rojales"
+          }
+        ]
+      },
+      "twitter": {
+        "card": "summary_large_image",
+        "title": "Chalet en Rojales"
+      }
+    },
+    "jsonLd": [
+      "{\"@context\":\"https://schema.org\",\"@type\":\"RealEstateListing\",\"url\":\"https://inmolink.test/es/property/chalet-en-rojales-m2q7zk4p\",\"name\":\"Chalet en Rojales\",\"description\":\"A villa with a pool \\u003c/script\\u003e\\u003cscript\\u003ealert(1)\\u003c/script\\u003e \\u0026 a garden\\u2028line\\u2029para. Sunny terrace and sea views. Sunny terrace and sea views. Sunny terrace and sea views. Sunny terrace and sea views. Sunny terrace and sea views. Sunny terrace and sea views. Sunny terrace and sea views. Sunny terrace and sea views. Sunny terrace and sea views. Sunny terrace and sea views. Sunny terrace and sea views. Sunny terrace and sea views. Sunny terrace and sea views. Sunny terrace and sea views. Sunny terrace\",\"image\":[\"https://media.test/cover/og.webp\",\"https://media.test/b/l.webp\"],\"dateModified\":\"2026-10-26T00:00:00.000Z\",\"offers\":{\"@type\":\"Offer\",\"price\":249995,\"priceCurrency\":\"EUR\",\"availability\":\"https://schema.org/InStock\",\"offeredBy\":{\"@type\":\"RealEstateAgent\",\"name\":\"Move Homes\",\"url\":\"https://inmolink.test/es/agency/01900000-0000-7000-8000-0000000000a1/move-homes\"}},\"about\":{\"@type\":\"Accommodation\",\"numberOfBedrooms\":3,\"numberOfBathroomsTotal\":1,\"floorSize\":{\"@type\":\"QuantitativeValue\",\"value\":85,\"unitCode\":\"MTK\"},\"address\":{\"@type\":\"PostalAddress\",\"addressLocality\":\"Rojales\",\"addressRegion\":\"Alicante\",\"addressCountry\":\"Spain\"},\"geo\":{\"@type\":\"GeoCoordinates\",\"latitude\":38.08,\"longitude\":-0.72}}}",
+      "{\"@context\":\"https://schema.org\",\"@type\":\"BreadcrumbList\",\"itemListElement\":[{\"@type\":\"ListItem\",\"position\":1,\"name\":\"Inicio\",\"item\":\"https://inmolink.test/es\"},{\"@type\":\"ListItem\",\"position\":2,\"name\":\"Inmuebles\",\"item\":\"https://inmolink.test/es/properties\"},{\"@type\":\"ListItem\",\"position\":3,\"name\":\"Spain\",\"item\":\"https://inmolink.test/es/properties/spain\"},{\"@type\":\"ListItem\",\"position\":4,\"name\":\"Alicante\",\"item\":\"https://inmolink.test/es/properties/spain/alicante\"},{\"@type\":\"ListItem\",\"position\":5,\"name\":\"Rojales\",\"item\":\"https://inmolink.test/es/properties/spain/alicante/rojales\"},{\"@type\":\"ListItem\",\"position\":6,\"name\":\"Chalet en Rojales\",\"item\":\"https://inmolink.test/es/property/chalet-en-rojales-m2q7zk4p\"}]}"
+    ],
+    "crumbs": [
+      [
+        {
+          "name": "Inicio",
+          "path": "/es"
+        },
+        {
+          "name": "Inmuebles",
+          "path": "/es/properties"
+        },
+        {
+          "name": "Spain",
+          "path": "/es/properties/spain"
+        },
+        {
+          "name": "Alicante",
+          "path": "/es/properties/spain/alicante"
+        },
+        {
+          "name": "Rojales",
+          "path": "/es/properties/spain/alicante/rojales"
+        },
+        {
+          "name": "Chalet en Rojales",
+          "path": "/es/property/chalet-en-rojales-m2q7zk4p"
+        }
+      ]
+    ]
+  },
+  "listing.onRequest": {
+    "metadata": {
+      "title": "Villa for sale in Rojales, Price on request",
+      "description": "Own meta description",
+      "alternates": {
+        "canonical": "https://inmolink.test/en/property/villa-in-rojales-m2q7zk4p",
+        "languages": {
+          "en": "https://inmolink.test/en/property/villa-in-rojales-m2q7zk4p",
+          "es": "https://inmolink.test/es/property/chalet-en-rojales-m2q7zk4p",
+          "x-default": "https://inmolink.test/en/property/villa-in-rojales-m2q7zk4p"
+        }
+      },
+      "openGraph": {
+        "type": "website",
+        "url": "https://inmolink.test/en/property/villa-in-rojales-m2q7zk4p",
+        "title": "Villa in Rojales",
+        "description": "Own meta description",
+        "locale": "en"
+      },
+      "twitter": {
+        "card": "summary",
+        "title": "Villa in Rojales"
+      }
+    },
+    "jsonLd": [
+      "{\"@context\":\"https://schema.org\",\"@type\":\"RealEstateListing\",\"url\":\"https://inmolink.test/en/property/villa-in-rojales-m2q7zk4p\",\"name\":\"Villa in Rojales\",\"dateModified\":\"2026-10-26T00:00:00.000Z\",\"about\":{\"@type\":\"Accommodation\",\"numberOfBedrooms\":3,\"numberOfBathroomsTotal\":1,\"floorSize\":{\"@type\":\"QuantitativeValue\",\"value\":85,\"unitCode\":\"MTK\"},\"address\":{\"@type\":\"PostalAddress\",\"addressLocality\":\"Rojales\",\"addressRegion\":\"Alicante\",\"addressCountry\":\"Spain\"}}}",
+      "{\"@context\":\"https://schema.org\",\"@type\":\"BreadcrumbList\",\"itemListElement\":[{\"@type\":\"ListItem\",\"position\":1,\"name\":\"Home\",\"item\":\"https://inmolink.test/en\"},{\"@type\":\"ListItem\",\"position\":2,\"name\":\"Properties\",\"item\":\"https://inmolink.test/en/properties\"},{\"@type\":\"ListItem\",\"position\":3,\"name\":\"Spain\",\"item\":\"https://inmolink.test/en/properties/spain\"},{\"@type\":\"ListItem\",\"position\":4,\"name\":\"Alicante\",\"item\":\"https://inmolink.test/en/properties/spain/alicante\"},{\"@type\":\"ListItem\",\"position\":5,\"name\":\"Rojales\",\"item\":\"https://inmolink.test/en/properties/spain/alicante/rojales\"},{\"@type\":\"ListItem\",\"position\":6,\"name\":\"Villa in Rojales\",\"item\":\"https://inmolink.test/en/property/villa-in-rojales-m2q7zk4p\"}]}"
+    ],
+    "crumbs": [
+      [
+        {
+          "name": "Home",
+          "path": "/en"
+        },
+        {
+          "name": "Properties",
+          "path": "/en/properties"
+        },
+        {
+          "name": "Spain",
+          "path": "/en/properties/spain"
+        },
+        {
+          "name": "Alicante",
+          "path": "/en/properties/spain/alicante"
+        },
+        {
+          "name": "Rojales",
+          "path": "/en/properties/spain/alicante/rojales"
+        },
+        {
+          "name": "Villa in Rojales",
+          "path": "/en/property/villa-in-rojales-m2q7zk4p"
+        }
+      ]
+    ]
+  },
+  "development.priced": {
+    "metadata": {
+      "title": "Marina Heights: new homes in Rojales",
+      "description": "New-build homes in Rojales: 1 home available from €250,000.",
+      "alternates": {
+        "canonical": "https://inmolink.test/en/development/marina-heights-d4v3k0pm",
+        "languages": {
+          "en": "https://inmolink.test/en/development/marina-heights-d4v3k0pm",
+          "es": "https://inmolink.test/es/development/marina-heights-d4v3k0pm",
+          "x-default": "https://inmolink.test/en/development/marina-heights-d4v3k0pm"
+        }
+      },
+      "openGraph": {
+        "type": "website",
+        "url": "https://inmolink.test/en/development/marina-heights-d4v3k0pm",
+        "title": "Marina Heights: new homes in Rojales",
+        "description": "New-build homes in Rojales: 1 home available from €250,000.",
+        "locale": "en"
+      },
+      "twitter": {
+        "card": "summary",
+        "title": "Marina Heights: new homes in Rojales"
+      }
+    },
+    "jsonLd": [
+      "{\"@context\":\"https://schema.org\",\"@type\":\"RealEstateListing\",\"url\":\"https://inmolink.test/en/development/marina-heights-d4v3k0pm\",\"name\":\"Marina Heights\",\"description\":\"Two blocks by the marina \\u003cb\\u003e\\u0026 more\\u003c/b\\u003e.\",\"dateModified\":\"2026-10-26T00:00:00.000Z\",\"offers\":{\"@type\":\"AggregateOffer\",\"lowPrice\":250000,\"highPrice\":300000,\"priceCurrency\":\"EUR\",\"offerCount\":1,\"offeredBy\":{\"@type\":\"RealEstateAgent\",\"name\":\"Move Homes\",\"url\":\"https://inmolink.test/en/agency/01900000-0000-7000-8000-0000000000a1/move-homes\"}},\"about\":{\"@type\":\"Residence\",\"address\":{\"@type\":\"PostalAddress\",\"addressLocality\":\"Rojales\",\"addressRegion\":\"Alicante\",\"addressCountry\":\"Spain\"},\"geo\":{\"@type\":\"GeoCoordinates\",\"latitude\":38.1,\"longitude\":-0.7}}}",
+      "{\"@context\":\"https://schema.org\",\"@type\":\"BreadcrumbList\",\"itemListElement\":[{\"@type\":\"ListItem\",\"position\":1,\"name\":\"Home\",\"item\":\"https://inmolink.test/en\"},{\"@type\":\"ListItem\",\"position\":2,\"name\":\"Properties\",\"item\":\"https://inmolink.test/en/properties\"},{\"@type\":\"ListItem\",\"position\":3,\"name\":\"Spain\",\"item\":\"https://inmolink.test/en/properties/spain\"},{\"@type\":\"ListItem\",\"position\":4,\"name\":\"Alicante\",\"item\":\"https://inmolink.test/en/properties/spain/alicante\"},{\"@type\":\"ListItem\",\"position\":5,\"name\":\"Rojales\",\"item\":\"https://inmolink.test/en/properties/spain/alicante/rojales\"},{\"@type\":\"ListItem\",\"position\":6,\"name\":\"Marina Heights\",\"item\":\"https://inmolink.test/en/development/marina-heights-d4v3k0pm\"}]}"
+    ],
+    "crumbs": [
+      [
+        {
+          "name": "Home",
+          "path": "/en"
+        },
+        {
+          "name": "Properties",
+          "path": "/en/properties"
+        },
+        {
+          "name": "Spain",
+          "path": "/en/properties/spain"
+        },
+        {
+          "name": "Alicante",
+          "path": "/en/properties/spain/alicante"
+        },
+        {
+          "name": "Rojales",
+          "path": "/en/properties/spain/alicante/rojales"
+        },
+        {
+          "name": "Marina Heights",
+          "path": "/en/development/marina-heights-d4v3k0pm"
+        }
+      ]
+    ]
+  },
+  "development.unpriced": {
+    "metadata": {
+      "title": "Marina Heights: new homes in Rojales",
+      "description": "Two blocks by the marina <b>& more</b>.",
+      "alternates": {
+        "canonical": "https://inmolink.test/en/development/marina-heights-d4v3k0pm",
+        "languages": {
+          "en": "https://inmolink.test/en/development/marina-heights-d4v3k0pm",
+          "es": "https://inmolink.test/es/development/marina-heights-d4v3k0pm",
+          "x-default": "https://inmolink.test/en/development/marina-heights-d4v3k0pm"
+        }
+      },
+      "openGraph": {
+        "type": "website",
+        "url": "https://inmolink.test/en/development/marina-heights-d4v3k0pm",
+        "title": "Marina Heights: new homes in Rojales",
+        "description": "Two blocks by the marina <b>& more</b>.",
+        "locale": "en"
+      },
+      "twitter": {
+        "card": "summary",
+        "title": "Marina Heights: new homes in Rojales"
+      }
+    },
+    "jsonLd": [
+      "{\"@context\":\"https://schema.org\",\"@type\":\"RealEstateListing\",\"url\":\"https://inmolink.test/en/development/marina-heights-d4v3k0pm\",\"name\":\"Marina Heights\",\"description\":\"Two blocks by the marina \\u003cb\\u003e\\u0026 more\\u003c/b\\u003e.\",\"dateModified\":\"2026-10-26T00:00:00.000Z\",\"about\":{\"@type\":\"Residence\",\"address\":{\"@type\":\"PostalAddress\",\"addressLocality\":\"Rojales\",\"addressRegion\":\"Alicante\",\"addressCountry\":\"Spain\"},\"geo\":{\"@type\":\"GeoCoordinates\",\"latitude\":38.1,\"longitude\":-0.7}}}",
+      "{\"@context\":\"https://schema.org\",\"@type\":\"BreadcrumbList\",\"itemListElement\":[{\"@type\":\"ListItem\",\"position\":1,\"name\":\"Home\",\"item\":\"https://inmolink.test/en\"},{\"@type\":\"ListItem\",\"position\":2,\"name\":\"Properties\",\"item\":\"https://inmolink.test/en/properties\"},{\"@type\":\"ListItem\",\"position\":3,\"name\":\"Spain\",\"item\":\"https://inmolink.test/en/properties/spain\"},{\"@type\":\"ListItem\",\"position\":4,\"name\":\"Alicante\",\"item\":\"https://inmolink.test/en/properties/spain/alicante\"},{\"@type\":\"ListItem\",\"position\":5,\"name\":\"Rojales\",\"item\":\"https://inmolink.test/en/properties/spain/alicante/rojales\"},{\"@type\":\"ListItem\",\"position\":6,\"name\":\"Marina Heights\",\"item\":\"https://inmolink.test/en/development/marina-heights-d4v3k0pm\"}]}"
+    ],
+    "crumbs": [
+      [
+        {
+          "name": "Home",
+          "path": "/en"
+        },
+        {
+          "name": "Properties",
+          "path": "/en/properties"
+        },
+        {
+          "name": "Spain",
+          "path": "/en/properties/spain"
+        },
+        {
+          "name": "Alicante",
+          "path": "/en/properties/spain/alicante"
+        },
+        {
+          "name": "Rojales",
+          "path": "/en/properties/spain/alicante/rojales"
+        },
+        {
+          "name": "Marina Heights",
+          "path": "/en/development/marina-heights-d4v3k0pm"
+        }
+      ]
+    ]
+  },
+  "development.es": {
+    "metadata": {
+      "title": "Marina Heights: obra nueva en Rojales",
+      "description": "Two blocks by the marina <b>& more</b>.",
+      "alternates": {
+        "canonical": "https://inmolink.test/es/development/marina-heights-d4v3k0pm",
+        "languages": {
+          "en": "https://inmolink.test/en/development/marina-heights-d4v3k0pm",
+          "es": "https://inmolink.test/es/development/marina-heights-d4v3k0pm",
+          "x-default": "https://inmolink.test/en/development/marina-heights-d4v3k0pm"
+        }
+      },
+      "openGraph": {
+        "type": "website",
+        "url": "https://inmolink.test/es/development/marina-heights-d4v3k0pm",
+        "title": "Marina Heights: obra nueva en Rojales",
+        "description": "Two blocks by the marina <b>& more</b>.",
+        "locale": "es"
+      },
+      "twitter": {
+        "card": "summary",
+        "title": "Marina Heights: obra nueva en Rojales"
+      }
+    },
+    "jsonLd": [
+      "{\"@context\":\"https://schema.org\",\"@type\":\"RealEstateListing\",\"url\":\"https://inmolink.test/es/development/marina-heights-d4v3k0pm\",\"name\":\"Marina Heights\",\"description\":\"Two blocks by the marina \\u003cb\\u003e\\u0026 more\\u003c/b\\u003e.\",\"dateModified\":\"2026-10-26T00:00:00.000Z\",\"about\":{\"@type\":\"Residence\",\"address\":{\"@type\":\"PostalAddress\",\"addressLocality\":\"Rojales\",\"addressRegion\":\"Alicante\",\"addressCountry\":\"Spain\"},\"geo\":{\"@type\":\"GeoCoordinates\",\"latitude\":38.1,\"longitude\":-0.7}}}",
+      "{\"@context\":\"https://schema.org\",\"@type\":\"BreadcrumbList\",\"itemListElement\":[{\"@type\":\"ListItem\",\"position\":1,\"name\":\"Inicio\",\"item\":\"https://inmolink.test/es\"},{\"@type\":\"ListItem\",\"position\":2,\"name\":\"Inmuebles\",\"item\":\"https://inmolink.test/es/properties\"},{\"@type\":\"ListItem\",\"position\":3,\"name\":\"Spain\",\"item\":\"https://inmolink.test/es/properties/spain\"},{\"@type\":\"ListItem\",\"position\":4,\"name\":\"Alicante\",\"item\":\"https://inmolink.test/es/properties/spain/alicante\"},{\"@type\":\"ListItem\",\"position\":5,\"name\":\"Rojales\",\"item\":\"https://inmolink.test/es/properties/spain/alicante/rojales\"},{\"@type\":\"ListItem\",\"position\":6,\"name\":\"Marina Heights\",\"item\":\"https://inmolink.test/es/development/marina-heights-d4v3k0pm\"}]}"
+    ],
+    "crumbs": [
+      [
+        {
+          "name": "Inicio",
+          "path": "/es"
+        },
+        {
+          "name": "Inmuebles",
+          "path": "/es/properties"
+        },
+        {
+          "name": "Spain",
+          "path": "/es/properties/spain"
+        },
+        {
+          "name": "Alicante",
+          "path": "/es/properties/spain/alicante"
+        },
+        {
+          "name": "Rojales",
+          "path": "/es/properties/spain/alicante/rojales"
+        },
+        {
+          "name": "Marina Heights",
+          "path": "/es/development/marina-heights-d4v3k0pm"
+        }
+      ]
+    ]
+  },
+  "search.en": {
+    "metadata": {
+      "title": "Properties for sale in Spain",
+      "description": "Browse homes for sale in Spain from estate agencies across the country: apartments, villas, townhouses and plots.",
+      "alternates": {
+        "canonical": "https://inmolink.test/en/properties",
+        "languages": {
+          "en": "https://inmolink.test/en/properties",
+          "es": "https://inmolink.test/es/properties",
+          "x-default": "https://inmolink.test/en/properties"
+        }
+      },
+      "robots": {
+        "index": true,
+        "follow": true
+      },
+      "openGraph": {
+        "type": "website",
+        "url": "https://inmolink.test/en/properties",
+        "title": "Properties for sale in Spain",
+        "description": "Browse homes for sale in Spain from estate agencies across the country: apartments, villas, townhouses and plots.",
+        "locale": "en"
+      },
+      "twitter": {
+        "card": "summary",
+        "title": "Properties for sale in Spain"
+      }
+    },
+    "jsonLd": [
+      "{\"@context\":\"https://schema.org\",\"@type\":\"BreadcrumbList\",\"itemListElement\":[{\"@type\":\"ListItem\",\"position\":1,\"name\":\"Home\",\"item\":\"https://inmolink.test/en\"},{\"@type\":\"ListItem\",\"position\":2,\"name\":\"Properties\",\"item\":\"https://inmolink.test/en/properties\"}]}"
+    ],
+    "crumbs": [
+      [
+        {
+          "name": "Home",
+          "path": "/en"
+        },
+        {
+          "name": "Properties",
+          "path": "/en/properties"
+        }
+      ]
+    ]
+  },
+  "search.es.filtered.page2": {
+    "metadata": {
+      "title": "Inmuebles en venta en España, página 2",
+      "description": "Viviendas en venta en España de inmobiliarias de todo el país: pisos, villas, adosados y parcelas.",
+      "alternates": {
+        "canonical": "https://inmolink.test/es/properties?bedrooms_min=2&sort=price_asc&page=2",
+        "languages": {
+          "en": "https://inmolink.test/en/properties?bedrooms_min=2&sort=price_asc&page=2",
+          "es": "https://inmolink.test/es/properties?bedrooms_min=2&sort=price_asc&page=2",
+          "x-default": "https://inmolink.test/en/properties?bedrooms_min=2&sort=price_asc&page=2"
+        }
+      },
+      "robots": {
+        "index": false,
+        "follow": true
+      },
+      "openGraph": {
+        "type": "website",
+        "url": "https://inmolink.test/es/properties?bedrooms_min=2&sort=price_asc&page=2",
+        "title": "Inmuebles en venta en España, página 2",
+        "description": "Viviendas en venta en España de inmobiliarias de todo el país: pisos, villas, adosados y parcelas.",
+        "locale": "es"
+      },
+      "twitter": {
+        "card": "summary",
+        "title": "Inmuebles en venta en España, página 2"
+      }
+    },
+    "jsonLd": [
+      "{\"@context\":\"https://schema.org\",\"@type\":\"BreadcrumbList\",\"itemListElement\":[{\"@type\":\"ListItem\",\"position\":1,\"name\":\"Inicio\",\"item\":\"https://inmolink.test/es\"},{\"@type\":\"ListItem\",\"position\":2,\"name\":\"Inmuebles\",\"item\":\"https://inmolink.test/es/properties\"}]}"
+    ],
+    "crumbs": [
+      [
+        {
+          "name": "Inicio",
+          "path": "/es"
+        },
+        {
+          "name": "Inmuebles",
+          "path": "/es/properties"
+        }
+      ]
+    ]
+  },
+  "location.en": {
+    "metadata": {
+      "title": "Properties for sale in Rojales",
+      "description": "Browse homes for sale in Rojales from local and international estate agencies: apartments, villas, townhouses and plots.",
+      "alternates": {
+        "canonical": "https://inmolink.test/en/properties/spain/alicante/rojales",
+        "languages": {
+          "en": "https://inmolink.test/en/properties/spain/alicante/rojales",
+          "es": "https://inmolink.test/es/properties/espana/alicante/rojales",
+          "x-default": "https://inmolink.test/en/properties/spain/alicante/rojales"
+        }
+      },
+      "robots": {
+        "index": true,
+        "follow": true
+      },
+      "openGraph": {
+        "type": "website",
+        "url": "https://inmolink.test/en/properties/spain/alicante/rojales",
+        "title": "Properties for sale in Rojales",
+        "description": "Browse homes for sale in Rojales from local and international estate agencies: apartments, villas, townhouses and plots.",
+        "locale": "en"
+      },
+      "twitter": {
+        "card": "summary",
+        "title": "Properties for sale in Rojales"
+      }
+    },
+    "jsonLd": [
+      "{\"@context\":\"https://schema.org\",\"@type\":\"BreadcrumbList\",\"itemListElement\":[{\"@type\":\"ListItem\",\"position\":1,\"name\":\"Home\",\"item\":\"https://inmolink.test/en\"},{\"@type\":\"ListItem\",\"position\":2,\"name\":\"Properties\",\"item\":\"https://inmolink.test/en/properties\"},{\"@type\":\"ListItem\",\"position\":3,\"name\":\"Spain\",\"item\":\"https://inmolink.test/en/properties/spain\"},{\"@type\":\"ListItem\",\"position\":4,\"name\":\"Alicante\",\"item\":\"https://inmolink.test/en/properties/spain/alicante\"},{\"@type\":\"ListItem\",\"position\":5,\"name\":\"Rojales\",\"item\":\"https://inmolink.test/en/properties/spain/alicante/rojales\"}]}"
+    ],
+    "crumbs": [
+      [
+        {
+          "name": "Home",
+          "path": "/en"
+        },
+        {
+          "name": "Properties",
+          "path": "/en/properties"
+        },
+        {
+          "name": "Spain",
+          "path": "/en/properties/spain"
+        },
+        {
+          "name": "Alicante",
+          "path": "/en/properties/spain/alicante"
+        },
+        {
+          "name": "Rojales",
+          "path": "/en/properties/spain/alicante/rojales"
+        }
+      ]
+    ]
+  },
+  "location.en.page3.filtered": {
+    "metadata": {
+      "title": "Properties for sale in Rojales, page 3",
+      "description": "Browse homes for sale in Rojales from local and international estate agencies: apartments, villas, townhouses and plots.",
+      "alternates": {
+        "canonical": "https://inmolink.test/en/properties/spain/alicante/rojales?type=villa&page=3",
+        "languages": {
+          "en": "https://inmolink.test/en/properties/spain/alicante/rojales?type=villa&page=3",
+          "es": "https://inmolink.test/es/properties/espana/alicante/rojales?type=villa&page=3",
+          "x-default": "https://inmolink.test/en/properties/spain/alicante/rojales?type=villa&page=3"
+        }
+      },
+      "robots": {
+        "index": false,
+        "follow": true
+      },
+      "openGraph": {
+        "type": "website",
+        "url": "https://inmolink.test/en/properties/spain/alicante/rojales?type=villa&page=3",
+        "title": "Properties for sale in Rojales, page 3",
+        "description": "Browse homes for sale in Rojales from local and international estate agencies: apartments, villas, townhouses and plots.",
+        "locale": "en"
+      },
+      "twitter": {
+        "card": "summary",
+        "title": "Properties for sale in Rojales, page 3"
+      }
+    },
+    "jsonLd": [
+      "{\"@context\":\"https://schema.org\",\"@type\":\"BreadcrumbList\",\"itemListElement\":[{\"@type\":\"ListItem\",\"position\":1,\"name\":\"Home\",\"item\":\"https://inmolink.test/en\"},{\"@type\":\"ListItem\",\"position\":2,\"name\":\"Properties\",\"item\":\"https://inmolink.test/en/properties\"},{\"@type\":\"ListItem\",\"position\":3,\"name\":\"Spain\",\"item\":\"https://inmolink.test/en/properties/spain\"},{\"@type\":\"ListItem\",\"position\":4,\"name\":\"Alicante\",\"item\":\"https://inmolink.test/en/properties/spain/alicante\"},{\"@type\":\"ListItem\",\"position\":5,\"name\":\"Rojales\",\"item\":\"https://inmolink.test/en/properties/spain/alicante/rojales\"}]}"
+    ],
+    "crumbs": [
+      [
+        {
+          "name": "Home",
+          "path": "/en"
+        },
+        {
+          "name": "Properties",
+          "path": "/en/properties"
+        },
+        {
+          "name": "Spain",
+          "path": "/en/properties/spain"
+        },
+        {
+          "name": "Alicante",
+          "path": "/en/properties/spain/alicante"
+        },
+        {
+          "name": "Rojales",
+          "path": "/en/properties/spain/alicante/rojales"
+        }
+      ]
+    ]
+  },
+  "zone.en": {
+    "metadata": {
+      "title": "Properties for sale in Costa Blanca South",
+      "description": "Browse homes for sale in Costa Blanca South from local and international estate agencies: apartments, villas, townhouses and plots.",
+      "alternates": {
+        "canonical": "https://inmolink.test/en/zone/costa-blanca-south",
+        "languages": {
+          "en": "https://inmolink.test/en/zone/costa-blanca-south",
+          "es": "https://inmolink.test/es/zone/costa-blanca-sur",
+          "x-default": "https://inmolink.test/en/zone/costa-blanca-south"
+        }
+      },
+      "robots": {
+        "index": true,
+        "follow": true
+      },
+      "openGraph": {
+        "type": "website",
+        "url": "https://inmolink.test/en/zone/costa-blanca-south",
+        "title": "Properties for sale in Costa Blanca South",
+        "description": "Browse homes for sale in Costa Blanca South from local and international estate agencies: apartments, villas, townhouses and plots.",
+        "locale": "en"
+      },
+      "twitter": {
+        "card": "summary",
+        "title": "Properties for sale in Costa Blanca South"
+      }
+    },
+    "jsonLd": [
+      "{\"@context\":\"https://schema.org\",\"@type\":\"BreadcrumbList\",\"itemListElement\":[{\"@type\":\"ListItem\",\"position\":1,\"name\":\"Home\",\"item\":\"https://inmolink.test/en\"},{\"@type\":\"ListItem\",\"position\":2,\"name\":\"Properties\",\"item\":\"https://inmolink.test/en/properties\"},{\"@type\":\"ListItem\",\"position\":3,\"name\":\"Costa Blanca South\",\"item\":\"https://inmolink.test/en/zone/costa-blanca-south\"}]}"
+    ],
+    "crumbs": [
+      [
+        {
+          "name": "Home",
+          "path": "/en"
+        },
+        {
+          "name": "Properties",
+          "path": "/en/properties"
+        },
+        {
+          "name": "Costa Blanca South",
+          "path": "/en/zone/costa-blanca-south"
+        }
+      ]
+    ]
+  },
+  "zone.es.page2": {
+    "metadata": {
+      "title": "Inmuebles en venta en Costa Blanca South, página 2",
+      "description": "Viviendas en venta en Costa Blanca South de inmobiliarias locales e internacionales: pisos, villas, adosados y parcelas.",
+      "alternates": {
+        "canonical": "https://inmolink.test/es/zone/costa-blanca-sur?page=2",
+        "languages": {
+          "en": "https://inmolink.test/en/zone/costa-blanca-south?page=2",
+          "es": "https://inmolink.test/es/zone/costa-blanca-sur?page=2",
+          "x-default": "https://inmolink.test/en/zone/costa-blanca-south?page=2"
+        }
+      },
+      "robots": {
+        "index": true,
+        "follow": true
+      },
+      "openGraph": {
+        "type": "website",
+        "url": "https://inmolink.test/es/zone/costa-blanca-sur?page=2",
+        "title": "Inmuebles en venta en Costa Blanca South, página 2",
+        "description": "Viviendas en venta en Costa Blanca South de inmobiliarias locales e internacionales: pisos, villas, adosados y parcelas.",
+        "locale": "es"
+      },
+      "twitter": {
+        "card": "summary",
+        "title": "Inmuebles en venta en Costa Blanca South, página 2"
+      }
+    },
+    "jsonLd": [
+      "{\"@context\":\"https://schema.org\",\"@type\":\"BreadcrumbList\",\"itemListElement\":[{\"@type\":\"ListItem\",\"position\":1,\"name\":\"Inicio\",\"item\":\"https://inmolink.test/es\"},{\"@type\":\"ListItem\",\"position\":2,\"name\":\"Inmuebles\",\"item\":\"https://inmolink.test/es/properties\"},{\"@type\":\"ListItem\",\"position\":3,\"name\":\"Costa Blanca South\",\"item\":\"https://inmolink.test/es/zone/costa-blanca-south\"}]}"
+    ],
+    "crumbs": [
+      [
+        {
+          "name": "Inicio",
+          "path": "/es"
+        },
+        {
+          "name": "Inmuebles",
+          "path": "/es/properties"
+        },
+        {
+          "name": "Costa Blanca South",
+          "path": "/es/zone/costa-blanca-south"
+        }
+      ]
+    ]
+  },
+  "agency.en": {
+    "metadata": {
+      "title": "Move Homes: properties for sale",
+      "description": "Homes by the sea. We sell homes on the coast. Since 1998 <script>.",
+      "alternates": {
+        "canonical": "https://inmolink.test/en/agency/01900000-0000-7000-8000-0000000000a1/move-homes",
+        "languages": {
+          "en": "https://inmolink.test/en/agency/01900000-0000-7000-8000-0000000000a1/move-homes",
+          "es": "https://inmolink.test/es/agency/01900000-0000-7000-8000-0000000000a1/move-homes",
+          "x-default": "https://inmolink.test/en/agency/01900000-0000-7000-8000-0000000000a1/move-homes"
+        }
+      },
+      "robots": {
+        "index": true,
+        "follow": true
+      },
+      "openGraph": {
+        "type": "website",
+        "url": "https://inmolink.test/en/agency/01900000-0000-7000-8000-0000000000a1/move-homes",
+        "title": "Move Homes: properties for sale",
+        "description": "Homes by the sea. We sell homes on the coast. Since 1998 <script>.",
+        "locale": "en"
+      },
+      "twitter": {
+        "card": "summary",
+        "title": "Move Homes: properties for sale"
+      }
+    },
+    "jsonLd": [
+      "{\"@context\":\"https://schema.org\",\"@type\":\"RealEstateAgent\",\"@id\":\"https://inmolink.test/en/agency/01900000-0000-7000-8000-0000000000a1/move-homes\",\"url\":\"https://inmolink.test/en/agency/01900000-0000-7000-8000-0000000000a1/move-homes\",\"name\":\"Move Homes\",\"description\":\"Homes by the sea\",\"email\":\"hola@move.example\",\"telephone\":\"+34 600 000 000\",\"sameAs\":[\"https://move.example/\"],\"address\":{\"@type\":\"PostalAddress\",\"addressLocality\":\"Rojales\"},\"knowsLanguage\":[\"es\",\"en\"],\"identifier\":{\"@type\":\"PropertyValue\",\"value\":\"AICAT-4711\"}}",
+      "{\"@context\":\"https://schema.org\",\"@type\":\"BreadcrumbList\",\"itemListElement\":[{\"@type\":\"ListItem\",\"position\":1,\"name\":\"Home\",\"item\":\"https://inmolink.test/en\"},{\"@type\":\"ListItem\",\"position\":2,\"name\":\"Move Homes\",\"item\":\"https://inmolink.test/en/agency/01900000-0000-7000-8000-0000000000a1/move-homes\"}]}"
+    ],
+    "crumbs": [
+      [
+        {
+          "name": "Home",
+          "path": "/en"
+        },
+        {
+          "name": "Move Homes",
+          "path": "/en/agency/01900000-0000-7000-8000-0000000000a1/move-homes"
+        }
+      ]
+    ]
+  },
+  "agency.es.bare.page2": {
+    "metadata": {
+      "title": "Move Homes: inmuebles en venta, página 2",
+      "description": "Move Homes, Promotora inmobiliaria: empresa verificada en Inmolink. Consulta sus inmuebles en venta y contacta con la agencia.",
+      "alternates": {
+        "canonical": "https://inmolink.test/es/agency/01900000-0000-7000-8000-0000000000a1/move-homes?page=2",
+        "languages": {
+          "en": "https://inmolink.test/en/agency/01900000-0000-7000-8000-0000000000a1/move-homes?page=2",
+          "es": "https://inmolink.test/es/agency/01900000-0000-7000-8000-0000000000a1/move-homes?page=2",
+          "x-default": "https://inmolink.test/en/agency/01900000-0000-7000-8000-0000000000a1/move-homes?page=2"
+        }
+      },
+      "robots": {
+        "index": true,
+        "follow": true
+      },
+      "openGraph": {
+        "type": "website",
+        "url": "https://inmolink.test/es/agency/01900000-0000-7000-8000-0000000000a1/move-homes?page=2",
+        "title": "Move Homes: inmuebles en venta, página 2",
+        "description": "Move Homes, Promotora inmobiliaria: empresa verificada en Inmolink. Consulta sus inmuebles en venta y contacta con la agencia.",
+        "locale": "es"
+      },
+      "twitter": {
+        "card": "summary",
+        "title": "Move Homes: inmuebles en venta, página 2"
+      }
+    },
+    "jsonLd": [
+      "{\"@context\":\"https://schema.org\",\"@type\":\"RealEstateAgent\",\"@id\":\"https://inmolink.test/es/agency/01900000-0000-7000-8000-0000000000a1/move-homes\",\"url\":\"https://inmolink.test/es/agency/01900000-0000-7000-8000-0000000000a1/move-homes\",\"name\":\"Move Homes\",\"email\":\"hola@move.example\",\"telephone\":\"+34 600 000 000\",\"knowsLanguage\":[\"es\",\"en\"],\"identifier\":{\"@type\":\"PropertyValue\",\"value\":\"AICAT-4711\"}}",
+      "{\"@context\":\"https://schema.org\",\"@type\":\"BreadcrumbList\",\"itemListElement\":[{\"@type\":\"ListItem\",\"position\":1,\"name\":\"Inicio\",\"item\":\"https://inmolink.test/es\"},{\"@type\":\"ListItem\",\"position\":2,\"name\":\"Move Homes\",\"item\":\"https://inmolink.test/es/agency/01900000-0000-7000-8000-0000000000a1/move-homes\"}]}"
+    ],
+    "crumbs": [
+      [
+        {
+          "name": "Inicio",
+          "path": "/es"
+        },
+        {
+          "name": "Move Homes",
+          "path": "/es/agency/01900000-0000-7000-8000-0000000000a1/move-homes"
+        }
+      ]
+    ]
+  },
+  "home.en": {
+    "metadata": {
+      "title": "Homes for sale in Spain",
+      "description": "Search apartments, villas, townhouses and plots for sale in Spain, listed by local and international estate agencies.",
+      "alternates": {
+        "canonical": "https://inmolink.test/en",
+        "languages": {
+          "en": "https://inmolink.test/en",
+          "es": "https://inmolink.test/es",
+          "x-default": "https://inmolink.test/en"
+        }
+      },
+      "openGraph": {
+        "type": "website",
+        "url": "https://inmolink.test/en",
+        "title": "Homes for sale in Spain",
+        "description": "Search apartments, villas, townhouses and plots for sale in Spain, listed by local and international estate agencies.",
+        "locale": "en"
+      }
+    },
+    "jsonLd": [],
+    "crumbs": []
+  },
+  "home.es": {
+    "metadata": {
+      "title": "Viviendas en venta en España",
+      "description": "Busca pisos, villas, adosados y parcelas en venta en España, publicados por inmobiliarias locales e internacionales.",
+      "alternates": {
+        "canonical": "https://inmolink.test/es",
+        "languages": {
+          "en": "https://inmolink.test/en",
+          "es": "https://inmolink.test/es",
+          "x-default": "https://inmolink.test/en"
+        }
+      },
+      "openGraph": {
+        "type": "website",
+        "url": "https://inmolink.test/es",
+        "title": "Viviendas en venta en España",
+        "description": "Busca pisos, villas, adosados y parcelas en venta en España, publicados por inmobiliarias locales e internacionales.",
+        "locale": "es"
+      }
+    },
+    "jsonLd": [],
+    "crumbs": []
+  }
+}

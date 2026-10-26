@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- feat(website-api,public): portal SEO built in core; ISR pages in a bounded page cache, invalidated on every instance from outbox events; portal search pages s-maxage 45 s [S15-F7]
 - feat(website-api,public): agency profile pages with their PUBLIC listings, contact form, RealEstateAgent JSON-LD, sitemaps and legacy agent redirects [S15-03]
 - feat(search): portal cards read the card document only; excerpt and terrace built into the card [S15-F6]
 - chore(perf): perf:lighthouse gates portal pages' performance at 80 (`--portal-min-performance`), accessibility / SEO stay ≥ 90 — ADR 0019 (A) [S15-01]

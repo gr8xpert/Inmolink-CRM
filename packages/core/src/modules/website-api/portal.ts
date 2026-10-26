@@ -8,7 +8,7 @@
  *
  * Read path (CLAUDE.md rule 9): the search adapter for ids and facet counts, `listing_read_models` for the documents,
  * the taxonomy's cached tree and catalog for places and filters, all as `app_public`. Statements per page, warm: search
- * 1 (documents) + 1 when an agency on the page is not cached (published profiles, cached here for 5 minutes) + 1 when
+ * 1 (documents) + 1 when an agency on the page is not cached (published profiles, cached here for a minute) + 1 when
  * the Postgres fallback answers; a listing page 1–2.
  *
  * R1 scope: the search lists resale listings only (new-build units have no photos of their own); each development has
@@ -61,11 +61,14 @@ const logger = () => {
  * out — `agency_directory.listed`, Decision S15-01 review). Search documents carry their owner but not its standing, so
  * the portal names owners in the query — totals, facets and pages stay right: the listed agencies
  * (`agencies.listedAgencyIds`), or every other owner of a search document (`search.searchDocOwners`, a skip scan, minus
- * the listed ones) to leave out, whichever set is smaller (production: a few unlisted owners). Kept for a minute per
- * process and refreshed in the background while the old set answers, so a page pays the two statements only on a cold
- * process; an agency's change of standing shows within about a minute.
+ * the listed ones) to leave out, whichever set is smaller (production: a few unlisted owners). Refreshed in the
+ * background while the old set answers once it is `OWNER_SCOPE_REFRESH_MS` old, so a busy process pays the two
+ * statements off the request path; never used older than `OWNER_SCOPE_MAX_AGE_MS` (an idle process waits for the
+ * reload), so an agency's change of standing shows within a minute — S15-F7: the portal page cache's agency settle
+ * (`PORTAL_AGENCY_SETTLE_MS`) relies on that bound.
  */
-const OWNER_SCOPE_REFRESH_MS = 60_000;
+const OWNER_SCOPE_REFRESH_MS = 45_000;
+export const OWNER_SCOPE_MAX_AGE_MS = 60_000;
 
 /** Whose documents the portal shows: the listed agencies, or everyone but the unlisted owners. */
 type OwnerScope = { show: string[] } | { hide: string[] };
@@ -100,11 +103,12 @@ function loadOwnerScope(): Promise<OwnerScope> {
   return ownerScopeLoad;
 }
 
-/** The owner scope (cached; the previous one answers while it refreshes). */
+/** The owner scope (cached; the previous one answers while it refreshes, up to `OWNER_SCOPE_MAX_AGE_MS`). */
 async function currentOwnerScope(): Promise<OwnerScope> {
-  if (ownerScope && Date.now() - ownerScope.at < OWNER_SCOPE_REFRESH_MS) return ownerScope.scope;
+  const age = ownerScope ? Date.now() - ownerScope.at : Number.POSITIVE_INFINITY;
+  if (ownerScope && age < OWNER_SCOPE_REFRESH_MS) return ownerScope.scope;
   const next = loadOwnerScope();
-  if (!ownerScope) return next;
+  if (!ownerScope || age >= OWNER_SCOPE_MAX_AGE_MS) return next;
   next.catch((err: unknown) => logger().warn({ err }, 'portal: refreshing the listed agencies failed'));
   return ownerScope.scope;
 }
@@ -392,9 +396,13 @@ export interface PortalAgency {
   website: string | null;
 }
 
-/** Published profiles by agency id; null: not listed (unverified or left the directory) — no agency is named. */
+/**
+ * Published profiles by agency id; null: not listed (unverified or left the directory) — no agency is named. S15-F7:
+ * kept a minute (was 5), so a contact change shows on search pages within a minute and the portal page cache's agency
+ * settle (`PORTAL_AGENCY_SETTLE_MS`) outlasts it. A miss costs one statement for every agency missing on the page.
+ */
 const agencyCache = new LocalLru<PortalAgency | null>(10_000);
-const AGENCY_TTL_MS = 5 * 60_000;
+const AGENCY_TTL_MS = 60_000;
 const UNLISTED_TTL_MS = 60_000;
 
 /** Tests: forget cached agencies. */

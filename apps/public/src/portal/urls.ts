@@ -5,6 +5,7 @@ export {
   developmentPath,
   homePath,
   listingPath,
+  safeHttpUrl,
   searchPath,
   zonePath,
 } from '@inmolink/core/modules/website-api';
@@ -32,21 +33,6 @@ export function agencyPath(locale: string, agency: { id: string; name: string })
 
 /** An absolute profile URL for JSON-LD. */
 export const profileUrl = (origin: string, path: string) => `${origin}${path}`;
-
-/**
- * An agency- or agent-supplied URL the portal may link to: absolute `http:` / `https:` only (a `javascript:`, `data:`
- * or relative value is never rendered as a link — defence in depth beside the profile's own input check). Null: no
- * link.
- */
-export function safeHttpUrl(value: string | null | undefined): string | null {
-  if (!value) return null;
-  try {
-    const url = new URL(value.trim());
-    return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : null;
-  } catch {
-    return null;
-  }
-}
 
 /** `rel` for links to sites the portal does not vouch for. */
 export const EXTERNAL_REL = 'nofollow noopener noreferrer';

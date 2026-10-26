@@ -2060,6 +2060,11 @@ Ref §7 M14 · Mod agencies, public · Dep S15-03
 **Build:** members get an opt-in published profile (name, photo, languages, phone / e-mail they choose to publish) shown on the portal at `/{locale}/agent/{id}/{name}` and on their agency's profile; agency logos on the portal (copy the logo to a public variant on publish — the logo sits in the private bucket today). Only verified, listed agencies; nothing unpublished.
 **Done when:** a member who publishes a profile has a portal page linked from the agency profile; one who has not has none; the agency logo shows on cards and the profile; tests
 
+### S15-F11 · CDN purge of portal listing and development pages (S15-F7)
+Ref §7 M14 · Mod website-api, platform · Dep S15-F7
+**Build:** the S15-F7 subscribers that mark a listing / development / agency tag also queue a CDN purge of that page's URLs in every locale (reuse `queueEdgePurge`, batched, rate-limited); make the page-cache cap configurable (env); update PATTERNS §19 to show `tagPage(portalPageTags(page))` and the 404 code tag.
+**Done when:** a withdrawn listing's page is gone at the edge within one minute (test against the edge adapter's fake); the cap is an env setting; PATTERNS updated
+
 ## S16 — Hardening
 
 ### S16-01 · Full load suite

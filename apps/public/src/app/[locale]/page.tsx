@@ -1,8 +1,7 @@
-import { DEFAULT_UI_LOCALE } from '@inmolink/i18n';
+import { portalMetadataFor } from '@inmolink/core/modules/website-api';
 import type { Metadata } from 'next';
 import { getTranslations, setRequestLocale } from 'next-intl/server';
 import { assertPortalLocale, directoryOf, PORTAL_LOCALES, portalSettings } from '@/portal/data';
-import { languageAlternates } from '@/portal/seo';
 import { PortalShell } from '@/portal/ui/shell';
 import { homePath, searchPath, zonePath } from '@/portal/urls';
 
@@ -19,23 +18,7 @@ const pathsOf = () => Object.fromEntries(PORTAL_LOCALES.map((l) => [l, homePath(
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { locale } = await params;
   assertPortalLocale(locale);
-  const t = await getTranslations({ locale, namespace: 'portal' });
-  const { origin } = await portalSettings();
-  return {
-    title: t('home.title'),
-    description: t('home.metaDescription'),
-    alternates: {
-      canonical: `${origin}${homePath(locale)}`,
-      languages: languageAlternates(origin, pathsOf(), DEFAULT_UI_LOCALE),
-    },
-    openGraph: {
-      type: 'website',
-      url: `${origin}${homePath(locale)}`,
-      title: t('home.title'),
-      description: t('home.metaDescription'),
-      locale,
-    },
-  };
+  return portalMetadataFor({ kind: 'home', locale, origin: (await portalSettings()).origin });
 }
 
 export default async function HomePage({ params }: Props) {

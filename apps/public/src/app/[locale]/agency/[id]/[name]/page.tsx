@@ -1,16 +1,14 @@
-import { excerpt } from '@inmolink/core/modules/websites';
+import { portalCrumbs, portalJsonLd, portalMetadataFor, serializeJsonLd } from '@inmolink/core/modules/website-api';
 import type { Metadata } from 'next';
 import { notFound, permanentRedirect } from 'next/navigation';
 import { getTranslations, setRequestLocale } from 'next-intl/server';
 import { agencyOf, assertPortalLocale, catalogOf, parseQuery, portalSettings, searchPortal } from '@/portal/data';
 import { legacyRedirectFor } from '@/portal/legacy';
-import { searchMetadata } from '@/portal/meta';
-import { agencyJsonLd, breadcrumbJsonLd, type Crumb, serializeJsonLd } from '@/portal/seo';
-import { AgencyProfileIntro, agencySubline, profileSummary } from '@/portal/ui/agency-profile';
+import { AgencyProfileIntro } from '@/portal/ui/agency-profile';
 import { JsonLd } from '@/portal/ui/breadcrumbs';
 import { SearchView } from '@/portal/ui/search-view';
 import { PortalShell } from '@/portal/ui/shell';
-import { hasFilters, homePath, queryString, safeHttpUrl } from '@/portal/urls';
+import { hasFilters, queryString } from '@/portal/urls';
 
 /**
  * An agency profile page (S15-03, PLAN §7 M14): `/agency/<id>/<name>` — a directory-listed agency's published profile
@@ -31,20 +29,8 @@ export async function generateMetadata({ params, searchParams }: Props): Promise
   assertPortalLocale(locale);
   const agency = await agencyOf(locale, id);
   if (!agency) return {};
-  const t = await getTranslations({ locale, namespace: 'portal' });
   const query = parseQuery(await searchParams);
-  const page = query.page ?? 1;
-  const title = t('agency.metaTitle', { agency: agency.name });
-  const subline = await agencySubline(locale, agency);
-  const summary = profileSummary(agency);
-  return searchMetadata({
-    origin: (await portalSettings()).origin,
-    locale,
-    paths: agency.paths,
-    query,
-    title: page > 1 ? `${title}, ${t('search.pageSuffix', { page })}` : title,
-    description: summary ? excerpt(summary, 160) : t('agency.metaDescription', { agency: agency.name, kind: subline }),
-  });
+  return portalMetadataFor({ kind: 'agency', locale, origin: (await portalSettings()).origin, query, agency });
 }
 
 export default async function AgencyPage({ params, searchParams }: Props) {
@@ -70,26 +56,13 @@ export default async function AgencyPage({ params, searchParams }: Props) {
   // A numbered page past the last is a 404, never an empty copy (page 1 stays: the profile is the page).
   if (!result.pageUnavailable && result.page > Math.max(1, result.pageCount)) notFound();
   const first = (query.page ?? 1) === 1;
-  const crumbs: Crumb[] = [
-    { name: t('breadcrumb.home'), path: homePath(locale) },
-    { name: agency.name, path },
-  ];
-  const website = safeHttpUrl(agency.website);
-  const ld = agencyJsonLd({
-    url: `${settings.origin}${path}`,
-    name: agency.name,
-    description: agency.tagline ?? (agency.description ? excerpt(agency.description, 500) : null),
-    email: agency.email,
-    telephone: agency.phone,
-    website,
-    city: agency.city,
-    languages: agency.languages,
-    registerNumber: agency.registerNumber,
-  });
+  const page = { kind: 'agency', locale, origin: settings.origin, query, agency } as const;
+
   return (
     <PortalShell locale={locale} alternates={agency.paths}>
-      <JsonLd json={serializeJsonLd(ld)} />
-      <JsonLd json={serializeJsonLd(breadcrumbJsonLd(settings.origin, crumbs))} />
+      {portalJsonLd(page).map((ld) => (
+        <JsonLd key={(ld as { '@type': string })['@type']} json={serializeJsonLd(ld)} />
+      ))}
       <SearchView
         locale={locale}
         path={path}
@@ -97,7 +70,7 @@ export default async function AgencyPage({ params, searchParams }: Props) {
         result={result}
         catalog={catalog}
         heading={agency.name}
-        crumbs={crumbs}
+        crumbs={portalCrumbs(page)}
         settings={settings}
         intro={<AgencyProfileIntro locale={locale} agency={agency} path={path} settings={settings} full={first} />}
         resultsHeading={t('agency.listings', { count: result.total, agency: agency.name })}

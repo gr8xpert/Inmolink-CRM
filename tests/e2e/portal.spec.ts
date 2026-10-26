@@ -285,3 +285,74 @@ test('[S15-02] portal: an enquiry reaches the listing agency as a MARKETPLACE le
   );
   await context.close();
 });
+
+test('[S15-F7] portal: a cached listing page shows a price change, 404s once withdrawn and comes back when restored, each within a minute', async ({
+  browser,
+  request,
+  page,
+}) => {
+  test.setTimeout(5 * 60_000);
+  const seller = await agent(browser);
+  const headers = { authorization: `Bearer ${seller.token}` };
+  const euros = 300_000 + randomInt(1, 9_999_999);
+  const id = await publish(request, seller.token, euros * 100);
+  const filtered = `${PUBLIC_URL}/en/properties/e2e-listland?price_min=${euros}&price_max=${euros}`;
+  const title = `${LISTING_TAXONOMY.propertyType} in ${LISTING_TAXONOMY.location}`;
+  await expect
+    .poll(
+      async () => {
+        await page.goto(filtered);
+        return page.getByRole('link', { name: title }).count();
+      },
+      { timeout: 150_000, intervals: [1_000, 2_000, 5_000] },
+    )
+    .toBe(1);
+  await page.getByRole('link', { name: title }).click();
+  await expect(page).toHaveURL(/\/en\/property\/e2e-villa-in-e2e-listland-[0-9a-z]{8}$/);
+  const url = page.url();
+  const money = (n: number) =>
+    new Intl.NumberFormat('en', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(n);
+
+  // The page is ISR: served from the page cache (bounded, `cache-handler.mjs`).
+  await expect.poll(async () => (await request.get(url)).headers()['x-nextjs-cache'], { timeout: 30_000 }).toBe('HIT');
+
+  const patch = async (data: Record<string, unknown>) => {
+    const current = await request.get(`${API_URL}/v1/listings/${id}`, { headers });
+    const { version } = (await current.json()) as { version: number };
+    const res = await request.patch(`${API_URL}/v1/listings/${id}`, { headers, data: { version, ...data } });
+    expect(res.status(), await res.text()).toBe(200);
+  };
+
+  // A price change: the cached page drops (outbox → read model → tag mark) and renders the new price.
+  const newEuros = euros + 1_000;
+  let t0 = Date.now();
+  await patch({ priceCents: newEuros * 100 });
+  await expect
+    .poll(async () => (await request.get(url)).text(), { timeout: 60_000, intervals: [1_000, 2_000] })
+    .toContain(money(newEuros));
+  expect(Date.now() - t0).toBeLessThan(60_000);
+
+  // Withdrawn: its page 404s and it leaves the search, within a minute.
+  t0 = Date.now();
+  await patch({ status: 'WITHDRAWN' });
+  await expect
+    .poll(async () => (await request.get(url, { maxRedirects: 0 })).status(), {
+      timeout: 60_000,
+      intervals: [1_000, 2_000],
+    })
+    .toBe(404);
+  expect(Date.now() - t0).toBeLessThan(60_000);
+  await page.goto(`${PUBLIC_URL}/en/properties/e2e-listland?price_min=${newEuros}&price_max=${newEuros}`);
+  await expect(page.getByRole('link', { name: title })).toHaveCount(0);
+
+  // Restored: the cached 404 (tagged with the listing's code) goes, the page is back within a minute.
+  t0 = Date.now();
+  await patch({ status: 'ACTIVE' });
+  await expect
+    .poll(async () => (await request.get(url, { maxRedirects: 0 })).status(), {
+      timeout: 60_000,
+      intervals: [1_000, 2_000],
+    })
+    .toBe(200);
+  expect(Date.now() - t0).toBeLessThan(60_000);
+});

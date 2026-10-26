@@ -111,6 +111,14 @@ export {
   portalZoneSlugs,
   resetPortalCaches,
 } from './portal';
+// S15-F7: the portal pages' SEO (metadata, breadcrumbs, JSON-LD) and their ISR cache tags.
+export {
+  invalidatePortalAgency,
+  invalidatePortalDocs,
+  PORTAL_AGENCY_SETTLE_MS,
+  portalPageTag,
+  portalPageTags,
+} from './portal-cache';
 // S15-02: portal enquiries (marketplace leads → the listing owner), sitemaps and URL shapes.
 export {
   checkPortalLeadLimits,
@@ -119,6 +127,27 @@ export {
   type PortalLeadInput,
   submitPortalLead,
 } from './portal-leads';
+export {
+  type AgencyLd,
+  agencyJsonLd,
+  breadcrumbJsonLd,
+  type Crumb,
+  type DevelopmentLd,
+  developmentJsonLd,
+  type ListingLd,
+  languageAlternates,
+  listingJsonLd,
+  type PortalMetadata,
+  type PortalPage,
+  type PortalPlaceTrail,
+  portalAgencySubline,
+  portalCrumbs,
+  portalJsonLd,
+  portalMetadataFor,
+  portalPageTitle,
+  portalProfileSummary,
+  serializeJsonLd,
+} from './portal-seo';
 export {
   configurePortalSitemaps,
   generatePortalSitemaps,
@@ -140,6 +169,7 @@ export {
   listingPath,
   type PortalPlaceNames,
   portalListingTitle,
+  safeHttpUrl,
   searchPath,
   townOf,
   zonePath,
