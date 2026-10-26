@@ -16,6 +16,7 @@ import type {
   LocationLevel,
   PropertyTypeDto,
 } from '@inmolink/contracts';
+import { PORTAL_MAX_SEARCH_TYPES, PORTAL_ZONE_MAX_MEMBERS } from '@inmolink/contracts';
 import type { Tx } from '@inmolink/db';
 import { isContentLocale } from '@inmolink/i18n';
 import { AppError } from '@inmolink/platform/errors';
@@ -122,11 +123,13 @@ export async function addLocationAlias(tx: Tx, locationId: string, alias: string
 
 export async function createLocationGroup(tx: Tx, input: CreateLocationGroupInput): Promise<string> {
   assertContentLocales(input.translations);
+  const members = [...new Set(input.memberIds)];
+  if (members.length > PORTAL_ZONE_MAX_MEMBERS) throw new AppError('LOCATION_ZONE_TOO_LARGE');
   const known = await repo.existingLocationIds(tx, input.memberIds);
   if (input.memberIds.some((m) => !known.has(m))) throw new AppError('LOCATION_NOT_FOUND');
   const id = newId();
   await uniqueOr(
-    () => repo.insertGroup(tx, { id, key: input.key }, input.translations, [...new Set(input.memberIds)]),
+    () => repo.insertGroup(tx, { id, key: input.key }, input.translations, members),
     'LOCATION_ALIAS_TAKEN',
   );
   return changed(tx, 'locationGroup', id);
@@ -172,6 +175,9 @@ async function createItem(
 ): Promise<string> {
   assertContentLocales(input.translations);
   if (!(await repo.catalogGroupExists(tx, kind, input.groupId))) throw new AppError('TAXONOMY_NOT_FOUND');
+  if (kind === 'propertyType' && (await repo.countCatalogItems(tx, kind, input.groupId)) >= PORTAL_MAX_SEARCH_TYPES) {
+    throw new AppError('TAXONOMY_GROUP_TOO_LARGE');
+  }
   const id = newId();
   await uniqueOr(
     () =>

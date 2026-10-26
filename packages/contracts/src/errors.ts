@@ -149,6 +149,10 @@ export const ErrorCodes = {
   LOCATION_POLYGON_INVALID: 422,
   /** The ids do not match exactly the siblings (or group members) being ordered. */
   TAXONOMY_ORDER_INVALID: 422,
+  /** A zone (location group) has more member locations than the portal search can filter on (S15-F8). */
+  LOCATION_ZONE_TOO_LARGE: 422,
+  /** A property type group has more types than the portal search can filter on (S15-F8). */
+  TAXONOMY_GROUP_TOO_LARGE: 422,
   // media: videos and documents (S3-F5)
   /** Only YouTube, Vimeo and Matterport links are accepted as videos. */
   VIDEO_URL_NOT_ALLOWED: 422,

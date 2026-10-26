@@ -80,6 +80,8 @@
       "LOCATION_POLYGON_INVALID": "La zona se cruza consigo misma. Dibújala sin líneas que se crucen.",
       "LOCATION_PARENT_INVALID": "Ese padre no está un nivel por encima.",
       "TAXONOMY_ORDER_INVALID": "La lista cambió mientras tanto. Recarga e inténtalo de nuevo.",
+      "LOCATION_ZONE_TOO_LARGE": "Una zona admite como máximo 50 ubicaciones. Divídela en zonas más pequeñas.",
+      "TAXONOMY_GROUP_TOO_LARGE": "Un grupo de tipos admite como máximo 50 tipos. Divídelo en grupos más pequeños.",
       "LOCATION_NOT_FOUND": "Este elemento ya no existe.",
       "TAXONOMY_NOT_FOUND": "Este elemento ya no existe.",
       "VALIDATION_FAILED": "Revisa los campos: nombre y slug son obligatorios; el slug usa minúsculas, dígitos y guiones.",

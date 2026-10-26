@@ -12,4 +12,6 @@ export const taxonomyErrors = [
   'TAXONOMY_ALIAS_TAKEN',
   'LOCATION_POLYGON_INVALID',
   'TAXONOMY_ORDER_INVALID',
+  'LOCATION_ZONE_TOO_LARGE',
+  'TAXONOMY_GROUP_TOO_LARGE',
 ] as const satisfies readonly ErrorCode[];

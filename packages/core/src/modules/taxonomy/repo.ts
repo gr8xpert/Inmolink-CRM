@@ -247,6 +247,13 @@ export async function catalogGroupExists(tx: Tx, kind: CatalogKind, id: string):
   return rows.length > 0;
 }
 
+/** How many items a group holds (the cap check at save, S15-F8). */
+export async function countCatalogItems(tx: Tx, kind: CatalogKind, groupId: string): Promise<number> {
+  const f = FAMILIES[kind];
+  const rows = await tx.select({ n: sql<number>`count(*)::int` }).from(f.items).where(eq(f.items.groupId, groupId));
+  return rows[0]?.n ?? 0;
+}
+
 export async function catalogItemExists(tx: Tx, kind: CatalogKind, id: string): Promise<boolean> {
   const f = FAMILIES[kind];
   const rows = await tx.select({ id: f.items.id }).from(f.items).where(eq(f.items.id, id)).limit(1);

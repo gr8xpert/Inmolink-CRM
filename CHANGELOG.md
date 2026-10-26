@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- feat(taxonomy): refuse zones over 50 members and type groups over 50 types at save, shared caps in contracts [S15-F8]
 - feat(website-api,public): inmolink.es portal — search, location, zone, listing and development pages from read models (listed agencies only, canonical URLs, per-IP page limit) [S15-01]
 - fix(e2e,platform): limit-check timeout configurable (e2e 2 s); per-test rate-limit reset; login helper fails fast [S15-F5]
 - test(migration): scope cutover due / DNS readiness / delta agency queries to the test's agencies (optional filters, defaults unchanged) [S15-F3]

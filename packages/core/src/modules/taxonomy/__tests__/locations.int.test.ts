@@ -1,4 +1,4 @@
-import type { CreateLocationInput } from '@inmolink/contracts';
+import { type CreateLocationInput, PORTAL_ZONE_MAX_MEMBERS } from '@inmolink/contracts';
 import { closeDb, withSystem } from '@inmolink/db';
 import { setupTestDb } from '@inmolink/db/testing';
 import { isAppError } from '@inmolink/platform/errors';
@@ -210,6 +210,25 @@ describe('locations', () => {
         taxonomy.createLocationGroup(tx, { key: slug('bad'), translations: tr('Bad', 'bad'), memberIds: [newId()] }),
         'LOCATION_NOT_FOUND',
       );
+    });
+  });
+
+  it('[S15-F8] a zone over the portal member cap is refused at save, one at the cap is saved', async () => {
+    await system(async (tx) => {
+      const over = Array.from({ length: PORTAL_ZONE_MAX_MEMBERS + 1 }, () => newId());
+      await rejects(
+        taxonomy.createLocationGroup(tx, { key: slug('big'), translations: tr('Big', 'big'), memberIds: over }),
+        'LOCATION_ZONE_TOO_LARGE',
+      );
+      // duplicates count once, so the cap is on distinct members
+      const dupes = Array.from({ length: PORTAL_ZONE_MAX_MEMBERS + 5 }, () => cityId);
+      expect(
+        await taxonomy.createLocationGroup(tx, {
+          key: slug('dupes'),
+          translations: tr('Dupes', 'dupes'),
+          memberIds: dupes,
+        }),
+      ).toBeTruthy();
     });
   });
 });

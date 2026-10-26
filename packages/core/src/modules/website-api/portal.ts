@@ -23,7 +23,13 @@ import type {
   UnitDetailDoc,
   WebsiteListingCard,
 } from '@inmolink/contracts';
-import { PORTAL_MAX_PAGE, PORTAL_PAGE_SIZE, PublicCode } from '@inmolink/contracts';
+import {
+  PORTAL_MAX_PAGE,
+  PORTAL_MAX_SEARCH_TYPES,
+  PORTAL_PAGE_SIZE,
+  PORTAL_ZONE_MAX_MEMBERS,
+  PublicCode,
+} from '@inmolink/contracts';
 import { type Tx, withPublicRead } from '@inmolink/db';
 import { type ContentLocale, DEFAULT_CONTENT_LOCALE, FALLBACK_CONTENT_LOCALE, isContentLocale } from '@inmolink/i18n';
 import { LocalLru } from '@inmolink/platform/cache';
@@ -140,8 +146,8 @@ export interface PortalZone {
   members: PortalPlace[];
 }
 
-/** Most member locations a zone's search filters on (the search takes 50 locations). */
-export const PORTAL_ZONE_MAX_MEMBERS = 50;
+/** The caps live in contracts (S15-F8) so the staff editor refuses what the portal would cut; re-exported here. */
+export { PORTAL_MAX_SEARCH_TYPES, PORTAL_ZONE_MAX_MEMBERS };
 
 interface PlaceNode extends PortalPlace {
   parentId: string | null;
@@ -513,9 +519,6 @@ export function portalSearchFilters(
     },
   };
 }
-
-/** Most property types one search filters on (the search takes 50). */
-export const PORTAL_MAX_SEARCH_TYPES = 50;
 
 /** One numbered page of portal results. */
 export async function portalSearch(input: PortalSearchInput): Promise<PortalSearchPage> {

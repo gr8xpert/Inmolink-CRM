@@ -207,6 +207,12 @@ export const LISTING_DOCUMENT_MAX_BYTES = 20 * 1024 * 1024;
 /** Listings per Listing Studio bulk request (one batch job; its payload stays under the 10 KB job cap). S13-F14. */
 export const LISTING_STUDIO_BULK_MAX = 100;
 
+/** Most member locations a zone (location group) may have: the portal search filters on at most this many (S15-F8). */
+export const PORTAL_ZONE_MAX_MEMBERS = 50;
+
+/** Most property types a type group may have: one portal search filters on at most this many (S15-F8). */
+export const PORTAL_MAX_SEARCH_TYPES = 50;
+
 /** Listings per selection (S12-04). The listings bulk bar hands its picks over in the URL, so it caps at this too. */
 export const SELECTION_ITEMS_MAX = 50;
 

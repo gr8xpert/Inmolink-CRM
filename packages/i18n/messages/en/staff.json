@@ -80,6 +80,8 @@
       "LOCATION_POLYGON_INVALID": "The area crosses itself. Redraw it without crossing lines.",
       "LOCATION_PARENT_INVALID": "That parent is not one level above.",
       "TAXONOMY_ORDER_INVALID": "The list changed meanwhile. Reload and try again.",
+      "LOCATION_ZONE_TOO_LARGE": "A zone can hold at most 50 locations. Split it into smaller zones.",
+      "TAXONOMY_GROUP_TOO_LARGE": "A property type group can hold at most 50 types. Split it into smaller groups.",
       "LOCATION_NOT_FOUND": "This item no longer exists.",
       "TAXONOMY_NOT_FOUND": "This item no longer exists.",
       "VALIDATION_FAILED": "Check the fields: names and slugs are required, slugs use lowercase letters, digits and dashes.",

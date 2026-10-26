@@ -1,3 +1,4 @@
+import { PORTAL_MAX_SEARCH_TYPES } from '@inmolink/contracts';
 import { closeDb, withSystem } from '@inmolink/db';
 import { setupTestDb } from '@inmolink/db/testing';
 import { isAppError } from '@inmolink/platform/errors';
@@ -143,5 +144,32 @@ describe('property types and features', () => {
       ),
     );
     await system((tx) => rejects(taxonomy.addFeatureAlias(tx, newId(), 'anything'), 'TAXONOMY_NOT_FOUND'));
+  });
+
+  it('[S15-F8] a type group past the portal type cap refuses another type', async () => {
+    await system(async (tx) => {
+      const gid = await taxonomy.createPropertyTypeGroup(tx, {
+        key: key('cap'),
+        sort: 9,
+        translations: tr('Cap', 'cap'),
+      });
+      for (let i = 0; i < PORTAL_MAX_SEARCH_TYPES; i++) {
+        await taxonomy.createPropertyType(tx, {
+          groupId: gid,
+          key: key(`cap-${i}`),
+          sort: i,
+          translations: tr(`Cap ${i}`, `cap-${i}`),
+        });
+      }
+      await rejects(
+        taxonomy.createPropertyType(tx, {
+          groupId: gid,
+          key: key('cap-x'),
+          sort: 99,
+          translations: tr('Cap x', 'cap-x'),
+        }),
+        'TAXONOMY_GROUP_TOO_LARGE',
+      );
+    });
   });
 });
