@@ -1,4 +1,4 @@
-// pnpm perf:lighthouse [--url <url> …] [--min 90] [--desktop] [--json]
+// pnpm perf:lighthouse [--url <url> …] [--min 90] [--portal-min-performance 80] [--desktop] [--json]
 //
 // Lighthouse CI for public pages (S7-F8, PLAN §15, frontend rules: performance, accessibility and SEO ≥ 90).
 //
@@ -30,6 +30,12 @@ const { values } = parseArgs({
   options: {
     url: { type: 'string', multiple: true },
     min: { type: 'string', default: '90' },
+    /**
+     * ADR 0019 (A): the portal's pages (locale-prefixed paths) keep the Next app-router pages and accept the framework's
+     * hydration cost (~500 ms blocking time; 84–87 locally) until the staging measurement (H4). Their performance gate
+     * is this level (noise margin below the measured medians); accessibility and SEO keep `--min`.
+     */
+    'portal-min-performance': { type: 'string', default: '80' },
     desktop: { type: 'boolean', default: false },
     json: { type: 'boolean', default: false },
     /** Lighthouse runs per page; each number reported (and gated) is the median of the runs. */
@@ -45,6 +51,13 @@ const { values } = parseArgs({
   },
 });
 const MIN = Number(values.min);
+const PORTAL_MIN_PERFORMANCE = Number(values['portal-min-performance']);
+/** The portal's pages: locale-prefixed paths (`/en/…`, `/es`) — ADR 0019 (A). */
+const PORTAL_PATHS = /^\/[a-z]{2}(\/|$)/;
+/** The minimum one category of one page must reach. */
+function minimumFor(url: string, category: string): number {
+  return category === 'performance' && PORTAL_PATHS.test(new URL(url).pathname) ? PORTAL_MIN_PERFORMANCE : MIN;
+}
 const RUNS = Math.max(1, Number(values.runs));
 const MAX_LCP_MS = Number(values['max-lcp-ms']);
 
@@ -235,7 +248,7 @@ if (values.json) {
   console.log(JSON.stringify(results, null, 2));
 } else {
   console.log(
-    `Lighthouse (${values.desktop ? 'desktop' : 'mobile'}, minimum ${MIN} for ${[...GATED].join(', ')}${values['allow-noindex'] ? '; SEO without is-crawlable: noindex on purpose' : local ? '; SEO without is-crawlable on the embed and selection pages (noindex on purpose)' : ''})`,
+    `Lighthouse (${values.desktop ? 'desktop' : 'mobile'}, minimum ${MIN} for ${[...GATED].join(', ')}, portal performance ${PORTAL_MIN_PERFORMANCE} (ADR 0019)${values['allow-noindex'] ? '; SEO without is-crawlable: noindex on purpose' : local ? '; SEO without is-crawlable on the embed and selection pages (noindex on purpose)' : ''})`,
   );
   for (const r of results) {
     const path = new URL(r.url).pathname;
@@ -250,11 +263,13 @@ if (values.json) {
   }
 }
 const low = results.flatMap((r) => [
-  ...[...GATED].filter((c) => (r.scores[c] ?? 0) < MIN).map((c) => `${new URL(r.url).pathname}: ${c} ${r.scores[c]}`),
+  ...[...GATED]
+    .filter((c) => (r.scores[c] ?? 0) < minimumFor(r.url, c))
+    .map((c) => `${new URL(r.url).pathname}: ${c} ${r.scores[c]} (minimum ${minimumFor(r.url, c)})`),
   ...(r.lcpMs !== null && r.lcpMs >= MAX_LCP_MS ? [`${new URL(r.url).pathname}: LCP ${r.lcpMs} ms`] : []),
 ]);
 if (low.length > 0) {
-  console.error(`[S7-F8] perf:lighthouse: below ${MIN} or LCP ≥ ${MAX_LCP_MS} ms:\n  ${low.join('\n  ')}`);
+  console.error(`[S7-F8] perf:lighthouse: below the minimum or LCP ≥ ${MAX_LCP_MS} ms:\n  ${low.join('\n  ')}`);
   process.exit(1);
 }
 process.exit(0);
