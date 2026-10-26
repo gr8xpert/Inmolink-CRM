@@ -829,7 +829,8 @@ describe('Listing Studio batch submit idempotent; auto-drafts (S13-F14)', () => 
         const factsEvents = () =>
           rows<{ created: boolean }>(
             sql`select (payload->>'created')::boolean as created from outbox_events
-                where type = 'properties.listing.factsChanged' and payload->>'listingId' = ${l.id}`,
+                where type = 'properties.listing.factsChanged' and payload->>'listingId' = ${l.id}
+                order by id`,
           );
         expect(await factsEvents()).toEqual([{ created: true }]);
         const priced = await as(f, (ctx) =>
