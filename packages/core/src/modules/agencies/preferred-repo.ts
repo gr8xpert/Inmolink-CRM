@@ -281,6 +281,69 @@ export async function publicAgencies(tx: Tx, ids: readonly string[]): Promise<Pu
   }));
 }
 
+export interface PublicAgencyProfileRow extends PublicAgencyRow {
+  kind: 'AGENCY' | 'DEVELOPER' | 'PARTNER';
+  registerNumber: string | null;
+  languages: string[];
+  city: string | null;
+  /** The locale the tagline and about text are in (the first of the asked locales that has either), or null. */
+  textLocale: string | null;
+  tagline: string | null;
+  description: string | null;
+}
+
+/**
+ * S15-03: a listed agency's portal profile — directory name and kind, published contacts (`agency_profiles`), and
+ * through `agency_public_profile` (SECURITY DEFINER: app_public reads neither `agencies` nor `agency_translations`) the
+ * register number, languages and town it states and its texts in the first of `locales` that has them. One statement;
+ * null: not listed (or unknown). Runs as `app_public`.
+ */
+export async function publicAgencyProfile(
+  tx: Tx,
+  id: string,
+  locales: readonly string[],
+): Promise<PublicAgencyProfileRow | null> {
+  const res = await tx.execute<{
+    agency_id: string;
+    name: string;
+    kind: PublicAgencyProfileRow['kind'];
+    contact_email: string | null;
+    contact_phone: string | null;
+    website_url: string | null;
+    primary_color: string | null;
+    accent_color: string | null;
+    register_number: string | null;
+    languages: string[] | null;
+    city: string | null;
+    locale: string | null;
+    tagline: string | null;
+    description: string | null;
+  }>(sql`select d.agency_id, d.name, d.kind, p.contact_email, p.contact_phone, p.website_url, p.primary_color,
+                p.accent_color, f.register_number, f.languages, f.city, f.locale, f.tagline, f.description
+           from ${agencyDirectory} d
+           join public.agency_public_profile(d.agency_id, ${sql.param([...locales])}::text[]) f on true
+           left join ${agencyProfiles} p on p.agency_id = d.agency_id
+          where d.agency_id = ${id} and d.listed`);
+  const r = res.rows[0];
+  if (!r) return null;
+  return {
+    agencyId: r.agency_id,
+    name: r.name,
+    kind: r.kind,
+    contactEmail: r.contact_email ?? null,
+    contactPhone: r.contact_phone ?? null,
+    websiteUrl: r.website_url ?? null,
+    primaryColor: r.primary_color ?? null,
+    accentColor: r.accent_color ?? null,
+    registerNumber: r.register_number ?? null,
+    languages: r.languages ?? [],
+    city: r.city ?? null,
+    textLocale: r.locale ?? null,
+    tagline: r.tagline ?? null,
+    description: r.description ?? null,
+  };
+}
+
 /**
  * Owners' identity for the white-label sanitizer (S7-02): directory name and published contacts of any agency,
  * listed or not (`agency_directory` / `agency_profiles` public predicates are `true`). One statement.

@@ -102,15 +102,12 @@ export async function ResultList(props: { locale: string; items: readonly Portal
   );
 }
 
-/** The listing agency's name, linked to its profile once the profiles are live (`AGENCY_PROFILES_LIVE`). */
+/** The listing agency's name, linked to its profile page (S15-03). */
 function AgencyName(props: { locale: string; agency: { id: string; name: string } }) {
-  const href = agencyPath(props.locale, props.agency);
-  return href ? (
-    <a href={href} className="font-medium text-sea hover:underline">
+  return (
+    <a href={agencyPath(props.locale, props.agency)} className="font-medium text-sea hover:underline">
       {props.agency.name}
     </a>
-  ) : (
-    <span className="font-medium text-ink">{props.agency.name}</span>
   );
 }
 

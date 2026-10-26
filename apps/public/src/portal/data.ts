@@ -50,6 +50,12 @@ export const developmentByCode = cache(async (locale: string, code: string) => {
   return websiteApi.portalDevelopment({ locale, code, requestId: newId() });
 });
 
+/** S15-03: a listed agency's profile (null: not listed — no page). */
+export const agencyOf = cache(async (locale: string, id: string) => {
+  await publicConfig();
+  return websiteApi.portalAgency(locale, id);
+});
+
 export const locationOf = cache(async (locale: string, slugs: string) => {
   await publicConfig();
   return websiteApi.portalLocation(locale, slugs.split('/'));

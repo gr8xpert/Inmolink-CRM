@@ -24,6 +24,10 @@ export async function SearchView(props: {
   crumbs: readonly Crumb[];
   intro?: ReactNode;
   settings: PortalSettings;
+  /** S15-03: a visible heading over the results (an agency page: its listings); default a screen-reader one. */
+  resultsHeading?: string;
+  /** S15-03: what an empty first page says (default: no listing matches the filters). */
+  emptyText?: string;
 }) {
   const t = await getTranslations({ locale: props.locale, namespace: 'portal' });
   const { result } = props;
@@ -50,8 +54,11 @@ export async function SearchView(props: {
           <Filters locale={props.locale} path={props.path} query={props.query} catalog={props.catalog} />
         </aside>
         <section aria-labelledby="results-heading" className="min-w-0">
-          <h2 id="results-heading" className="sr-only">
-            {t('search.results')}
+          <h2
+            id="results-heading"
+            className={props.resultsHeading ? 'mb-4 text-2xl font-bold tracking-tight text-ink' : 'sr-only'}
+          >
+            {props.resultsHeading ?? t('search.results')}
           </h2>
           <div className="mb-6 flex flex-wrap items-center justify-between gap-3 border-b border-shore pb-4">
             <SortLinks locale={props.locale} path={props.path} query={props.query} />
@@ -84,7 +91,7 @@ export async function SearchView(props: {
               </a>
             </p>
           ) : result.items.length === 0 ? (
-            <p className="rounded-md bg-shore px-4 py-3 text-sm text-ink">{t('search.empty')}</p>
+            <p className="rounded-md bg-shore px-4 py-3 text-sm text-ink">{props.emptyText ?? t('search.empty')}</p>
           ) : (
             <ResultList locale={props.locale} items={result.items} />
           )}

@@ -9,10 +9,11 @@
  * by keyset (`search.portalSitemapPage` on the public-code index; `search.developmentPage`), one short
  * `app_public` transaction and one statement per batch. Every locale's URL comes from the helpers the pages use
  * (`portalListingPaths`: each locale's own taxonomy names, by id; `portalDevelopmentPaths`), so a sitemap URL is the
- * page's canonical. Then the location and zone pages that hold any of it, and the home and search pages. Per UI locale and
- * part (`listings`, `developments`, `places`), files of at most `PORTAL_SITEMAP_URLS` URLs, each URL with its hreflang
- * alternates (`xhtml:link`, `x-default` = the default UI locale), streamed through gzip into a multipart upload
- * (`GzipObjectUpload`: memory holds one batch and one upload part per open file). Last the index (`sitemap.xml`) and the
+ * page's canonical. Then the location and zone pages that hold any of it, and the home and search pages; S15-03: the
+ * profile pages of the agencies that own any of it (`portalAgencyPaths`; names in one statement per batch). Per UI
+ * locale and part (`listings`, `developments`, `places`, `agencies`), files of at most `PORTAL_SITEMAP_URLS` URLs,
+ * each URL with its hreflang alternates (`xhtml:link`, `x-default` = the default UI locale), streamed through gzip
+ * into a multipart upload (`GzipObjectUpload`: memory holds one batch and one upload part per open file). Last the index (`sitemap.xml`) and the
  * manifest (`current.json`, the run and its files' hashes) — only then does the run serve. The previous run's files are
  * kept (a public process may still read its cached manifest) and the run before it is deleted. A failed run deletes
  * its own files and the previous run keeps serving.
@@ -30,6 +31,7 @@ import type { Logger } from '@inmolink/platform/logger';
 import { MIN_UPLOAD_PART_BYTES, storage } from '@inmolink/platform/storage';
 import { XmlWriter } from '@inmolink/platform/xml';
 import { GzipObjectUpload } from '../../stored-feed';
+import * as agencies from '../agencies';
 import * as search from '../search';
 import * as websites from '../websites';
 import {
@@ -39,6 +41,7 @@ import {
   ownView,
   type PlaceIndex,
   placeIndex,
+  portalAgencyPaths,
   portalDevelopmentPaths,
   portalInventory,
   portalListingPaths,
@@ -65,7 +68,7 @@ const fileKey = (runId: string, name: string) => `${PORTAL_SITEMAP_PREFIX}${runI
 
 /** The index and every part file a request may name (`/sitemap.xml`, `/sitemaps/<locale>-<part>-<n>.xml`). */
 export const PORTAL_SITEMAP_INDEX = 'sitemap.xml';
-export const PORTAL_SITEMAP_FILE = /^[a-z]{2}-(?:listings|developments|places)-[1-9][0-9]{0,4}\.xml$/;
+export const PORTAL_SITEMAP_FILE = /^[a-z]{2}-(?:listings|developments|places|agencies)-[1-9][0-9]{0,4}\.xml$/;
 
 const SITEMAP_NS = 'http://www.sitemaps.org/schemas/sitemap/0.9';
 const XHTML_NS = 'http://www.w3.org/1999/xhtml';
@@ -90,7 +93,7 @@ export function configurePortalSitemaps(settings: { origin: string }): void {
 /** Whether the worker can generate sitemaps (the origin is configured). */
 export const portalSitemapsConfigured = () => origin !== undefined;
 
-type Part = 'listings' | 'developments' | 'places';
+type Part = 'listings' | 'developments' | 'places' | 'agencies';
 
 /** One part's files in one locale: a new file every `PORTAL_SITEMAP_URLS` URLs. */
 class PartFiles {
@@ -168,7 +171,7 @@ const placeIdsOf = (place: Place | undefined): string[] =>
 export interface PortalSitemapRun {
   skipped?: 'not-configured';
   runId?: string;
-  urls?: { listings: number; developments: number; places: number };
+  urls?: { listings: number; developments: number; places: number; agencies: number };
   files?: number;
 }
 
@@ -194,8 +197,10 @@ export async function generatePortalSitemaps(
   const add = async (part: Part, paths: Record<string, string>, lastmod: Date | null) => {
     for (const l of Object.keys(paths)) await partOf(l, part).add(base, paths, lastmod);
   };
-  const counts = { listings: 0, developments: 0, places: 0 };
+  const counts = { listings: 0, developments: 0, places: 0, agencies: 0 };
   const seenPlaces = new Set<string>();
+  /** S15-03: the agencies whose stock is listed (their profile pages). */
+  const seenOwners = new Set<string>();
   const requestId = `portal-sitemaps:${runId}`;
   let written: PortalSitemapManifest['files'] = [];
   try {
@@ -220,6 +225,7 @@ export async function generatePortalSitemaps(
         if (!code || doc.kind !== 'LISTING' || !doc.propertyType || !doc.place) continue;
         const paths = await portalListingPaths({ propertyType: doc.propertyType, place: doc.place }, code, locales);
         for (const id of placeIdsOf(doc.place)) seenPlaces.add(id);
+        seenOwners.add(row.ownerAgencyId);
         await add('listings', paths, row.updatedAt);
         counts.listings += 1;
       }
@@ -248,6 +254,7 @@ export async function generatePortalSitemaps(
         ]);
         if (!card) continue;
         for (const id of placeIdsOf((row.doc as PortalDoc).place)) seenPlaces.add(id);
+        seenOwners.add(row.ownerAgencyId);
         await add('developments', portalDevelopmentPaths(card, row.code, locales), row.updatedAt);
         counts.developments += 1;
       }
@@ -282,6 +289,20 @@ export async function generatePortalSitemaps(
       }
       await add('places', paths, null);
       counts.places += 1;
+    }
+
+    // S15-03: the profile pages of the listed agencies whose stock is above (directory names, one statement a batch).
+    const owners = [...seenOwners].sort();
+    for (let i = 0; i < owners.length; i += PORTAL_SITEMAP_BATCH) {
+      opts.signal?.throwIfAborted();
+      const batch = owners.slice(i, i + PORTAL_SITEMAP_BATCH);
+      const found = await withPublicRead((tx) => agencies.publicAgencies(tx, batch));
+      for (const id of batch) {
+        const a = found.get(id);
+        if (!a) continue;
+        await add('agencies', portalAgencyPaths({ id, name: a.name }, locales), null);
+        counts.agencies += 1;
+      }
     }
 
     // 4. Every part file, then the index naming them.

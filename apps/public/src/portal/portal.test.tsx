@@ -1,5 +1,5 @@
 import { PortalQuery, type WebsiteListingDetail } from '@inmolink/contracts';
-import type { PortalDevelopment, PortalListing } from '@inmolink/core/modules/website-api';
+import { type PortalDevelopment, type PortalListing, portalAgencyPaths } from '@inmolink/core/modules/website-api';
 import { translator } from '@inmolink/i18n/server';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
@@ -10,7 +10,6 @@ import { ListingView } from './ui/listing';
 import { pageNumbers } from './ui/results';
 import { languageName } from './ui/shell';
 import {
-  AGENCY_PROFILES_LIVE,
   agencyPath,
   codeOfSlug,
   hasFilters,
@@ -76,9 +75,13 @@ describe('portal URLs and query (S15-01)', () => {
 });
 
 describe('portal links and redirects (S15-01 review)', () => {
-  it('[S15-01] no link to an agency profile page before S15-03 builds them', () => {
-    expect(AGENCY_PROFILES_LIVE).toBe(false);
-    expect(agencyPath('en', { id: '01900000-0000-7000-8000-0000000000a1', name: 'Move Homes' })).toBeNull();
+  it('[S15-03] agency profile pages are live: the listing agency links its profile (core’s one URL helper)', () => {
+    expect(agencyPath('en', { id: '01900000-0000-7000-8000-0000000000A1', name: 'Move Homes S.L.' })).toBe(
+      '/en/agency/01900000-0000-7000-8000-0000000000a1/move-homes-s-l',
+    );
+    expect(agencyPath('es', { id: '01900000-0000-7000-8000-0000000000a1', name: 'Move Homes S.L.' })).toBe(
+      portalAgencyPaths({ id: '01900000-0000-7000-8000-0000000000a1', name: 'Move Homes S.L.' }).es,
+    );
   });
 
   it('[S15-01] legacy redirects stay on the portal: only same-origin paths, never //host or /\\host', () => {
@@ -220,10 +223,10 @@ const renderListing = async (website: string | null, developmentCode: string | n
   );
 
 describe('portal listing page (S15-01)', () => {
-  it('[S15-01] the listing agency is named (no profile link until S15-03); a javascript: or data: website renders no link', async () => {
+  it('[S15-03] the listing agency is named and linked to its profile; a javascript: or data: website renders no link', async () => {
     const ok = await renderListing('https://move-homes.example');
     expect(ok).toContain('Move Homes');
-    expect(ok).not.toContain('/agency/');
+    expect(ok).toContain('href="/en/agency/01900000-0000-7000-8000-0000000000a1/move-homes"');
     expect(ok).toContain('href="https://move-homes.example/"');
     expect(ok).toContain('rel="nofollow noopener noreferrer"');
     for (const bad of ['javascript:alert(1)', 'data:text/html;base64,PHNjcmlwdD4=']) {

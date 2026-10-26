@@ -2,10 +2,18 @@ import { getTranslations } from 'next-intl/server';
 import type { ReactNode } from 'react';
 import { homePath, searchPath } from '../urls';
 
-/** A locale's name in that language ("English", "Español"), from the platform's `Intl` data. */
-export function languageName(locale: string): string {
-  const name = new Intl.DisplayNames([locale], { type: 'language' }).of(locale) ?? locale;
-  return name.charAt(0).toLocaleUpperCase(locale) + name.slice(1);
+/**
+ * A language's name in `displayLocale`, capitalized, from the platform's `Intl` data: by default the locale's own name
+ * in itself ("English", "Español" — the language switch); S15-03: another code in the page's language ("German" on an
+ * English page, "Alemán" on a Spanish one). An unknown code is shown as is.
+ */
+export function languageName(displayLocale: string, code: string = displayLocale): string {
+  try {
+    const name = new Intl.DisplayNames([displayLocale], { type: 'language' }).of(code) ?? code;
+    return name.charAt(0).toLocaleUpperCase(displayLocale) + name.slice(1);
+  } catch {
+    return code;
+  }
 }
 
 /**

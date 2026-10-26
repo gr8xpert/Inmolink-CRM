@@ -40,7 +40,9 @@ export {
   ownerIdentities,
   ownerIdentitiesQuery,
   type PublicAgency,
+  type PublicAgencyProfile,
   publicAgencies,
+  publicAgencyProfile,
 } from './public';
 export {
   createSignupAgency,

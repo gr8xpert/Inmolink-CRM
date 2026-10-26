@@ -15,6 +15,7 @@ import * as presentations from '@inmolink/core/modules/presentations';
 import * as properties from '@inmolink/core/modules/properties';
 import * as search from '@inmolink/core/modules/search';
 import * as taxonomy from '@inmolink/core/modules/taxonomy';
+import * as websiteApi from '@inmolink/core/modules/website-api';
 import * as websites from '@inmolink/core/modules/websites';
 import { createFounder, type Founder, withSystem } from '@inmolink/core/test';
 import { setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
@@ -35,8 +36,15 @@ export async function seedEmbedFixture(): Promise<{
   siteId: string;
   ref: string;
   selectionPath: string;
-  /** S15-01: the portal's location page (country / region / city) and a listing page of the fixture. */
-  portal: { searchPath: string; locationPath: string; listingPath: string; developmentPath: string };
+  /** S15-01: the portal's location page (country / region / city) and a listing page of the fixture; S15-03 its
+   * agency's profile page. */
+  portal: {
+    searchPath: string;
+    locationPath: string;
+    listingPath: string;
+    developmentPath: string;
+    agencyPath: string;
+  };
   close: () => Promise<void>;
 }> {
   const run = newId().slice(-8);
@@ -209,6 +217,17 @@ export async function seedEmbedFixture(): Promise<{
   );
   const devCode = (await withSystem('perf.lighthouse', (tx) => search.publicCodes(tx, [dev.id]))).get(dev.id);
   if (!devCode) throw new Error('lighthouse fixture: the development has no public code');
+  // S15-03: what agency A publishes on its profile page (contacts, register number, languages, its texts).
+  await withSystem('perf.lighthouse', async (tx) => {
+    await tx.execute(sql`update agencies set register_number = 'AICAT-4711', languages = '{es,en}', city = 'Marbella'
+      where agency_id = ${a.agencyId}`);
+    await tx.execute(sql`insert into agency_profiles (agency_id, contact_email, contact_phone, website_url)
+      values (${a.agencyId}, 'hola@lighthouse.example', '+34 600 000 000', 'https://lighthouse.example')
+      on conflict (agency_id) do nothing`);
+    await tx.execute(sql`insert into agency_translations (agency_id, locale, tagline, description)
+      values (${a.agencyId}, 'en', 'Homes on the Costa del Sol since 1998', ${DESCRIPTION})
+      on conflict do nothing`);
+  });
   return {
     siteId: site.id,
     ref,
@@ -218,6 +237,7 @@ export async function seedEmbedFixture(): Promise<{
       locationPath: `/en/properties/${slug('Spain')}/${slug('Costa del Sol')}/${slug('Marbella')}`,
       listingPath: `/en/property/villa-in-marbella-${code.toLowerCase()}`,
       developmentPath: `/en/development/marina-heights-${devCode.toLowerCase()}`,
+      agencyPath: websiteApi.agencyPath('en', a.agencyId, `Lighthouse Homes ${run}`),
     },
     close: async () => {
       await closeCache();

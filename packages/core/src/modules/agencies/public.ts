@@ -10,11 +10,24 @@ import type { OwnerIdentity } from '../../white-label';
 import * as repo from './preferred-repo';
 
 export type PublicAgency = repo.PublicAgencyRow;
+export type PublicAgencyProfile = repo.PublicAgencyProfileRow;
 
 /** Listed agencies' public presentation, by id (one statement); unlisted or unknown ids are absent. */
 export async function publicAgencies(tx: Tx, ids: readonly string[]): Promise<Map<string, PublicAgency>> {
   const rows = await repo.publicAgencies(tx, [...new Set(ids)]);
   return new Map(rows.map((r) => [r.agencyId, r]));
+}
+
+/**
+ * S15-03: a listed agency's public profile for the portal (published contacts, register number, languages, town, its
+ * texts in the first of `locales` that has them); null when it is not listed. One statement; the caller caches.
+ */
+export function publicAgencyProfile(
+  tx: Tx,
+  id: string,
+  locales: readonly string[],
+): Promise<PublicAgencyProfile | null> {
+  return repo.publicAgencyProfile(tx, id, locales);
 }
 
 /** The agencies listed in the directory now (S15-01, the portal's stock). One statement. */

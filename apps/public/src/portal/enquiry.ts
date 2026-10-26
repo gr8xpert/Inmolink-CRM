@@ -6,6 +6,7 @@ import { readFormBody } from '@/embed/form-body';
 import { clientAddress } from '@/server/embed';
 import { portalOriginOf, publicConfig } from '@/server/env';
 import { PORTAL_LOCALES } from './data';
+import { ENQUIRY_NOTICES, type EnquiryNotice } from './enquiry-notices';
 import { localRedirectTarget } from './legacy';
 
 /**
@@ -16,24 +17,21 @@ import { localRedirectTarget } from './legacy';
  * JavaScript) → 303 back to the listing page with `?enquiry=<result>`. A browser post from another origin is refused
  * (403). Limits: per client address and per listing here, per listing agency in core. No cookie is read or set; nothing
  * is logged about the visitor.
+ *
+ * S15-03: the same form on an agency's profile page posts `agency` (its id) instead of `code`: a general enquiry for
+ * that listed agency (core `submitPortalLead` with `agencyId`); limits per client address here, per agency in core.
  */
 
-/** The answers a visitor may see (`portal.enquiry.notices.*`). */
-export const ENQUIRY_NOTICES = [
-  'sent',
-  'VALIDATION_FAILED',
-  'TURNSTILE_FAILED',
-  'RATE_LIMITED',
-  'LISTING_NOT_FOUND',
-  'generic',
-] as const;
-export type EnquiryNotice = (typeof ENQUIRY_NOTICES)[number];
+export { ENQUIRY_NOTICES, type EnquiryNotice } from './enquiry-notices';
 
 /** A form post's body cap (the embed form's). */
 const MAX_FORM_BYTES = 16 * 1024;
 
 /** A listing page path the form may send the visitor back to (a portal listing URL on this origin, nothing else). */
 const LISTING_PAGE = /^\/[a-z]{2}\/property\/[a-z0-9-]{1,200}$/;
+/** S15-03: an agency profile page path (its id, its name slug). */
+const AGENCY_PAGE =
+  /^\/[a-z]{2}\/agency\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/[a-z0-9-]{1,200}$/;
 
 const known = (code: string): EnquiryNotice =>
   (ENQUIRY_NOTICES as readonly string[]).includes(code) && code !== 'sent' ? (code as EnquiryNotice) : 'generic';
@@ -53,7 +51,7 @@ export async function enquiryResponse(request: Request): Promise<Response> {
   const text = (name: string) => (form.get(name) ?? '').trim();
   const locale = PORTAL_LOCALES.includes(text('locale')) ? text('locale') : (PORTAL_LOCALES[0] as string);
   const backPath = localRedirectTarget(text('back'));
-  const back = backPath && LISTING_PAGE.test(backPath) ? backPath : `/${locale}`;
+  const back = backPath && (LISTING_PAGE.test(backPath) || AGENCY_PAGE.test(backPath)) ? backPath : `/${locale}`;
   const answer = (result: EnquiryNotice): Response =>
     wantsJson
       ? Response.json(result === 'sent' ? { status: 'sent' } : { status: 'error', error: result }, {
@@ -70,23 +68,28 @@ export async function enquiryResponse(request: Request): Promise<Response> {
   const phone = text('phone');
   const token = text('cf-turnstile-response');
   const code = text('code');
+  // S15-03: an agency profile's form names the agency instead (exactly one of the two).
+  const agencyId = code === '' ? text('agency').toLowerCase() : '';
   const body = WebsiteLeadBody.safeParse({
     name: text('name'),
     email: text('email'),
     ...(phone ? { phone } : {}),
     message: text('message'),
-    ref: code,
+    ...(code ? { ref: code } : {}),
     privacyAccepted: form.get('privacyAccepted') === 'on' ? true : undefined,
     marketingConsent: form.get('marketingConsent') === 'on',
     ...(token ? { turnstileToken: token } : {}),
   });
-  if (!key.success || !body.success || code === '') return answer('VALIDATION_FAILED');
+  if (!key.success || !body.success || (code === '' && agencyId === '')) return answer('VALIDATION_FAILED');
   const client = await clientAddress(request.headers.get('x-forwarded-for'));
-  const limit = await websiteApi.checkPortalLeadLimits(rateLimiter(), { ip: client.bucket, code });
+  const limit = await websiteApi.checkPortalLeadLimits(rateLimiter(), {
+    ip: client.bucket,
+    ...(code ? { code } : {}),
+  });
   if (!limit.allowed) return answer('RATE_LIMITED');
   try {
     await websiteApi.submitPortalLead(
-      { locale, code, body: body.data },
+      { locale, ...(code ? { code } : { agencyId }), body: body.data },
       { ...(client.ip ? { ip: client.ip } : {}), idempotencyKey: key.data, limiter: rateLimiter() },
     );
     return answer('sent');

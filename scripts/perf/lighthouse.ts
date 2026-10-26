@@ -5,9 +5,10 @@
 // - With `--url` (repeatable): audits those pages as they are served (staging: the iFrame embed search and detail).
 // - Without: a local run — seeds an IFRAME site with own and network listings into the docker `test` stack, starts
 //   the production build of apps/public (`pnpm --filter @inmolink/app-public build` first) on a loopback port with the
-//   test env, and audits its embed search and detail pages, a selection page (`/s/<token>`) and the portal's search, location, listing
-//   and development pages (S15-01). Search answers from the Postgres fallback there (the test
-//   Meilisearch has no index of the seeded listings); the listings' photos are served by the test MinIO (no CDN).
+//   test env, and audits its embed search and detail pages, a selection page (`/s/<token>`) and the portal's search,
+//   location, listing and development pages (S15-01) and an agency profile page (S15-03). Search answers from the
+//   Postgres fallback there (the test Meilisearch has no index of the seeded listings); the listings' photos are
+//   served by the test MinIO (no CDN).
 //   Staging numbers (behind the CDN) are the reference.
 //
 // Mobile form factor with Lighthouse's simulated throttling (desktop with `--desktop`), `--runs` (3) per page, each
@@ -126,6 +127,8 @@ async function localTarget(): Promise<{ urls: string[]; stop: () => Promise<void
       `${base}${fixture.portal.locationPath}`,
       `${base}${fixture.portal.listingPath}`,
       `${base}${fixture.portal.developmentPath}`,
+      // S15-03: an agency's profile page.
+      `${base}${fixture.portal.agencyPath}`,
     ],
     stop: async () => {
       server.kill();

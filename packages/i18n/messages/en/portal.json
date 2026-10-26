@@ -199,7 +199,27 @@
       "TURNSTILE_FAILED": "We could not confirm you are not a robot. Please try again.",
       "RATE_LIMITED": "Too many enquiries from this connection. Please try again later.",
       "LISTING_NOT_FOUND": "This property is no longer available.",
-      "generic": "Your enquiry could not be sent. Please try again."
-    }
+      "generic": "Your enquiry could not be sent. Please try again.",
+      "NOT_FOUND": "This agency no longer takes enquiries on Inmolink."
+    },
+    "messageDefaultAgency": "Hello, I would like more information about your properties. Please contact me."
+  },
+  "agency": {
+    "metaTitle": "{agency}: properties for sale",
+    "metaDescription": "{agency}, {kind}: a verified business on Inmolink. See its properties for sale and contact the agency.",
+    "kind": {
+      "AGENCY": "Estate agency",
+      "DEVELOPER": "Property developer",
+      "PARTNER": "Estate agency"
+    },
+    "kindIn": "{kind} in {city}",
+    "verified": "Verified business on Inmolink",
+    "about": "About {agency}",
+    "register": "Agent register number",
+    "languages": "Languages spoken",
+    "contact": "Contact the agency",
+    "mailSubject": "Enquiry from Inmolink",
+    "listings": "{count, plural, =0 {No properties} one {# property} other {# properties}} for sale",
+    "empty": "{agency} has no properties for sale on Inmolink right now."
   }
 }

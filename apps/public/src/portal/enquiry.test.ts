@@ -69,6 +69,27 @@ describe('portal enquiry post (S15-02)', () => {
     );
   });
 
+  it('[S15-03] an agency profile’s form: a general enquiry for that agency, answered back on its profile page', async () => {
+    const agency = '01900000-0000-7000-8000-0000000000a1';
+    const back = `/es/agency/${agency}/move-homes`;
+    const res = await post(fields({ code: '', agency: agency.toUpperCase(), back }));
+    expect(res.status).toBe(303);
+    expect(res.headers.get('location')).toBe(`${back}?enquiry=sent#enquiry`);
+    expect(core.checkPortalLeadLimits).toHaveBeenCalledWith({}, { ip: '203.0.113.7' });
+    expect(core.submitPortalLead).toHaveBeenCalledWith(
+      { locale: 'es', agencyId: agency, body: expect.not.objectContaining({ ref: expect.anything() }) },
+      expect.objectContaining({ idempotencyKey: 'portal-0123456789abcdef' }),
+    );
+    // An agency that is not listed: its own notice; a back path that is no portal page goes home.
+    core.submitPortalLead.mockRejectedValueOnce(new AppError('NOT_FOUND'));
+    const gone = await post(fields({ code: '', agency, back: '//evil.example/x' }));
+    expect(gone.headers.get('location')).toBe('/es?enquiry=NOT_FOUND#enquiry');
+    // Neither a listing nor an agency: refused before core.
+    core.submitPortalLead.mockClear();
+    expect((await post(fields({ code: '', agency: '' }), { accept: 'application/json' })).status).toBe(400);
+    expect(core.submitPortalLead).not.toHaveBeenCalled();
+  });
+
   it('[S15-02] consent is required and links are refused (the website lead contract); nothing reaches core', async () => {
     for (const bad of [
       fields({ privacyAccepted: '' }),

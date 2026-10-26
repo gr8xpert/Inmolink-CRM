@@ -168,8 +168,8 @@ describe('RLS generator', () => {
   it('[S1-08] partition maintenance is a SECURITY DEFINER helper executable by app_system only (the other: [S7-03])', () => {
     // S8-02 adds the two legacy-id lookups (app_public), S9-03 the portal feed token lookup (app_public), S10-06 the
     // calendar feed token lookup (app_public), S11-F7 the calendar feed fingerprint (app_public), S13-F17 the AI toggles
-    // lookup (app_public), S13-F1 the selection token lookup (app_public).
-    expect(out.match(/security definer/gi)).toHaveLength(9);
+    // lookup (app_public), S13-F1 the selection token lookup (app_public), S15-03 the agency profile lookup (app_public).
+    expect(out.match(/security definer/gi)).toHaveLength(10);
     expect(out).toContain(
       'create or replace function app_partition_maintenance() returns void language plpgsql security definer',
     );
@@ -275,6 +275,32 @@ describe('RLS generator', () => {
       expect(table).toContain(`create policy definer_read on public."${name}" for select to app_owner using (true);`);
       expect(table).not.toMatch(/to [^;]*app_public/);
     }
+  });
+
+  it('[S15-03] agency_public_profile answers a listed, verified agency’s published facts only, for app_public', () => {
+    expect(HELPER_FUNCTIONS as readonly string[]).toContain('agency_public_profile');
+    expect(out).toContain('drop function if exists agency_public_profile(uuid, text[]);');
+    const body = out.split('create function agency_public_profile(')[1]?.split('$$;')[0] ?? '';
+    expect(body).toContain(
+      'returns table(register_number text, languages text[], city text, locale text, tagline text, description text)',
+    );
+    expect(body).toContain('security definer set search_path = pg_catalog, pg_temp');
+    expect(body).toContain('join public.agency_directory d on d.agency_id = g.agency_id and d.listed');
+    expect(body).toContain("where g.agency_id = a_id and g.status = 'VERIFIED'");
+    expect(body).toContain('tr.locale = any(locales[1:3])');
+    // Never the company's private details.
+    expect(body).not.toMatch(/tax_id|address_line|postal_code|give_to_get|ai_features|commission/);
+    expect(out).toContain('grant execute on function agency_public_profile(uuid, text[]) to app_public;');
+    expect(out).not.toMatch(
+      /agency_public_profile\(uuid, text\[\]\) to [^;]*app_(?:user|system|auth|staff|intake|media)/,
+    );
+    const owner = 'alter function agency_public_profile(uuid, text[]) owner to app_owner;';
+    expect(out.indexOf(owner)).toBeGreaterThan(out.indexOf('create function agency_public_profile('));
+    const table = tablesSql(registry).split('-- agency_translations:')[1]?.split('\n\n')[0] ?? '';
+    expect(table).toContain(
+      'create policy definer_read on public."agency_translations" for select to app_owner using (true);',
+    );
+    expect(table).not.toMatch(/to [^;]*app_public/);
   });
 
   it('[S10-06] calendar feed tokens resolve through a SECURITY DEFINER lookup for app_public: the member’s own events, names only', () => {

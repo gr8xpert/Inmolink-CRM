@@ -117,7 +117,7 @@ export const legacyUrlRedirects = pgTable(
     pathKey: text('path_key').notNull(),
     /** The v2 path to redirect to (starts with '/'). */
     targetPath: text('target_path').notNull(),
-    /** What the target is (`listing`, `development`, `location`, `page`), informational. */
+    /** What the target is (`listing`, `development`, `location`, `agency` — S15-03, `page`), informational. */
     entity: text('entity').notNull(),
     targetId: uuid('target_id'),
     status: integer('status').notNull().default(301),

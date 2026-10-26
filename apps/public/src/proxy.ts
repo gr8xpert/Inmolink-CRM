@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import createMiddleware from 'next-intl/middleware';
 import { DENY_FRAMING, EMBED_GATE_HEADER, embedPath } from './embed/csp';
 import { routing } from './i18n/routing';
+import { ENQUIRY_PARAM, enquiryParamOf, withoutEnquiryParam } from './portal/enquiry-notices';
 import { localRedirectTarget } from './portal/legacy';
 import { canonicalSearch } from './portal/query';
 import type { EmbedGateResult } from './server/embed';
@@ -44,8 +45,16 @@ const PORTAL_PAGE_PATH = /^\/[a-z]{2}(?:\/(?:properties|property|development|zon
 /** Old pages with an extension the proxy sees (the matcher's second entry). */
 const LEGACY_FILE_PATH = /\.(?:php|html?|aspx?)$/i;
 
-/** Portal paths whose query string is a search (`/en/properties…`, `/es/zone/…`). */
-const PORTAL_SEARCH_PATH = /^\/[a-z]{2}\/(?:properties|zone)(?:\/|$)/;
+/** Portal paths whose query string is a search (`/en/properties…`, `/es/zone/…`, S15-03: `/en/agency/…`). */
+const PORTAL_SEARCH_PATH = /^\/[a-z]{2}\/(?:properties|zone|agency)(?:\/|$)/;
+
+/**
+ * S15-03 review: an enquiry form's no-JavaScript answer comes back to its page (listing, agency profile) as
+ * `?enquiry=<notice>`. Only a known notice is kept — any other value moves to the page without it, so made-up values
+ * never make CDN cache keys — and a page carrying one is never cached publicly (`private, no-store`): the notice is
+ * the visitor's own.
+ */
+const NOTICE_CACHE = 'private, no-store';
 
 const intl = createMiddleware(routing);
 
@@ -133,13 +142,20 @@ export function createProxy(
       headers.set(EMBED_GATE_HEADER, result.marker);
       return NextResponse.next({ request: { headers } });
     }
-    if (PORTAL_SEARCH_PATH.test(request.nextUrl.pathname)) {
+    const { pathname, search } = request.nextUrl;
+    const notice = PORTAL_PAGE_PATH.test(pathname) ? enquiryParamOf(search) : 'none';
+    if (notice === 'junk') return movedTo(await portalOrigin(), `${pathname}${withoutEnquiryParam(search)}`);
+    if (PORTAL_SEARCH_PATH.test(pathname)) {
       const limit = await portalAllowed(portalGate, request.headers.get('x-forwarded-for'));
       if (!limit.allowed) return refuse(429, limit.retryAfterSeconds);
       // One spelling per search (S15-01 review): any other order, junk or default parameter moves to the canonical URL,
-      // so made-up parameters never make new CDN cache keys or page renders.
-      const canonical = canonicalSearch(request.nextUrl.search);
-      if (canonical !== null) return movedTo(await portalOrigin(), `${request.nextUrl.pathname}${canonical}`);
+      // so made-up parameters never make new CDN cache keys or page renders. A known enquiry notice stays (S15-03).
+      const canonical = canonicalSearch(withoutEnquiryParam(search));
+      if (canonical !== null) {
+        const value = new URLSearchParams(search).get(ENQUIRY_PARAM);
+        const kept = notice === 'notice' ? `${canonical ? '&' : '?'}${ENQUIRY_PARAM}=${value}` : '';
+        return movedTo(await portalOrigin(), `${pathname}${canonical}${kept}`);
+      }
     }
     const legacy = await legacyTarget(legacyGate, portalGate, request);
     if (legacy?.kind === 'limited') return refuse(429, legacy.retryAfterSeconds);
@@ -148,6 +164,7 @@ export function createProxy(
     if (LEGACY_FILE_PATH.test(request.nextUrl.pathname)) return refuse(404);
     const res = intl(request);
     for (const [k, v] of Object.entries(DENY_FRAMING)) res.headers.set(k, v);
+    if (notice === 'notice') res.headers.set('Cache-Control', NOTICE_CACHE);
     return res;
   };
 }

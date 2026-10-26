@@ -2055,6 +2055,11 @@ Ref §7 M14 · Mod public, e2e · Dep S15-01
 **Build:** the development page's LCP is 2.41 s locally with no image — find the LCP element and fix it. `[S12-04]` (public selection price poll, 60 s predicate) failed in several full e2e runs and once in a two-spec run, then passed on rerun — find the cause (a read-model rebuild that never runs after a worker crash? the poll interval?).
 **Done when:** development page LCP < 2.0 s in the local Lighthouse run; `[S12-04]` passes in three consecutive full e2e runs
 
+### S15-F10 · Portal agent (member) profiles and agency logos (S15-03)
+Ref §7 M14 · Mod agencies, public · Dep S15-03
+**Build:** members get an opt-in published profile (name, photo, languages, phone / e-mail they choose to publish) shown on the portal at `/{locale}/agent/{id}/{name}` and on their agency's profile; agency logos on the portal (copy the logo to a public variant on publish — the logo sits in the private bucket today). Only verified, listed agencies; nothing unpublished.
+**Done when:** a member who publishes a profile has a portal page linked from the agency profile; one who has not has none; the agency logo shows on cards and the profile; tests
+
 ## S16 — Hardening
 
 ### S16-01 · Full load suite

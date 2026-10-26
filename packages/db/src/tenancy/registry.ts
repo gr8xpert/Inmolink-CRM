@@ -430,7 +430,9 @@ export const tenantTables: Record<string, TenantTable> = {
     publicHiddenColumns: ['logo_storage_key', 'logo_content_type', 'logo_size_bytes', 'logo_updated_at', 'version'],
     samples: { visible: [{}], hidden: [] },
   },
-  agency_translations: { kind: 'STRICT' },
+  // S15-03: `definerRead` — the portal's profile lookup (`agency_public_profile`, SECURITY DEFINER) reads a listed
+  // agency's tagline and about text for app_public.
+  agency_translations: { kind: 'STRICT', definerRead: true },
   // Membership + role (S1-01, S1-02). app_auth reads only the user it is signing in, and writes only
   // the membership of the user it is signing up or who accepts an invite. Tenant sessions change only
   // role and deactivation, as an admin, never their own (guard trigger, migration 0008).

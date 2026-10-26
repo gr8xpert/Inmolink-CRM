@@ -401,6 +401,54 @@ async function sitemapXml(name: string): Promise<string> {
   return gunzipSync(Buffer.concat(chunks)).toString('utf8');
 }
 
+describe('agency profile enquiries (S15-03)', () => {
+  const submitToAgency = (agencyId: string, body = enquiry(), key = `portal-${newId()}`) =>
+    websiteApi.submitPortalLead({ locale: 'en', agencyId, body }, { ip: '203.0.113.9', idempotencyKey: key });
+
+  it('[S15-03] the profile’s contact form: a general MARKETPLACE lead for the listed agency, no listing', async () => {
+    const key = `portal-${newId()}`;
+    const { accepted, created, ownerAgencyId } = await submitToAgency(a.agencyId.toUpperCase(), enquiry(), key);
+    expect(created).toBe(true);
+    expect(ownerAgencyId).toBe(a.agencyId);
+    const inbound = await withSystem('portal-enquiries.test', (tx) =>
+      tx.execute<{ agency_id: string; site_id: string | null; target_kind: string | null; target_id: string | null }>(
+        sql`select agency_id, site_id, target_kind, target_id from website_leads where id = ${accepted.id}`,
+      ),
+    );
+    expect(inbound.rows[0]).toEqual({ agency_id: a.agencyId, site_id: null, target_kind: null, target_id: null });
+    const promoted = await crm.promoteInboundLead({ agencyId: a.agencyId, inboundLeadId: accepted.id });
+    const lead = await withTenant({ agencyId: a.agencyId }, (tx) =>
+      tx.execute<{
+        agency_id: string;
+        source: string;
+        target_id: string | null;
+        presenting_agency_id: string | null;
+        owner_agency_id: string | null;
+      }>(
+        sql`select agency_id, source, target_id, presenting_agency_id, owner_agency_id
+              from leads where id = ${promoted.leadId}`,
+      ),
+    );
+    // Routed to the agency itself: made to it directly (it presents itself), no listing, nobody introduced.
+    expect(lead.rows[0]).toEqual({
+      agency_id: a.agencyId,
+      source: 'MARKETPLACE',
+      target_id: null,
+      presenting_agency_id: a.agencyId,
+      owner_agency_id: null,
+    });
+    // The same key and body again: the first lead, not a second.
+    const again = await submitToAgency(a.agencyId, enquiry(), key);
+    expect(again).toMatchObject({ created: false, accepted: { id: accepted.id } });
+  });
+
+  it('[S15-03] an unlisted (suspended), unknown or malformed agency takes no enquiry', async () => {
+    expect(await refusal(submitToAgency(c.agencyId))).toBe('NOT_FOUND');
+    expect(await refusal(submitToAgency(newId()))).toBe('NOT_FOUND');
+    expect(await refusal(submitToAgency('nope'))).toBe('NOT_FOUND');
+  });
+});
+
 describe('portal sitemaps (S15-02)', () => {
   it('[S15-02] sitemaps validate and include only PUBLIC listings', async () => {
     websiteApi.resetPortalSitemapCache();
@@ -470,6 +518,28 @@ describe('portal sitemaps (S15-02)', () => {
     has(part('es-places-'), `<loc>${ORIGIN}/es/zone/${slug('bay-coast-es')}</loc>`);
     has(part('en-places-'), `<loc>${ORIGIN}/en</loc>`);
     has(part('en-places-'), `<loc>${ORIGIN}/en/properties</loc>`);
+  }, 300_000);
+
+  it('[S15-03] sitemaps list the profile pages of the listed agencies with stock on the portal, per locale', async () => {
+    websiteApi.resetPortalSitemapCache();
+    const run = await websiteApi.generatePortalSitemaps({ log });
+    expect(run.urls?.agencies).toBeGreaterThan(0);
+    const index = await sitemapXml(websiteApi.PORTAL_SITEMAP_INDEX);
+    const names = [...index.matchAll(/<loc>https:\/\/portal\.test\/sitemaps\/([^<]+)<\/loc>/g)].map(
+      (m) => m[1] as string,
+    );
+    const agencyFiles = names.filter((n) => /^[a-z]{2}-agencies-\d+\.xml$/.test(n));
+    expect(agencyFiles).toEqual(expect.arrayContaining(['en-agencies-1.xml', 'es-agencies-1.xml']));
+    for (const n of agencyFiles) expect(websiteApi.PORTAL_SITEMAP_FILE.test(n), n).toBe(true);
+    const xml = (await Promise.all(agencyFiles.map(sitemapXml))).join('\n');
+    // The page's own canonical and alternates (one core helper).
+    const profile = await websiteApi.portalAgency('en', a.agencyId);
+    const paths = profile?.paths ?? {};
+    expect(xml).toContain(`<loc>${ORIGIN}${paths.en}</loc>`);
+    expect(xml).toContain(`<loc>${ORIGIN}${paths.es}</loc>`);
+    expect(xml).toContain(`<xhtml:link rel="alternate" hreflang="es" href="${ORIGIN}${paths.es}"/>`);
+    // Never an unlisted (suspended) agency's page, though it once published.
+    expect(xml).not.toContain(c.agencyId);
   }, 300_000);
 
   it('[S15-02] a new run serves at once; the previous run stays one more run (cached manifests), then goes', async () => {

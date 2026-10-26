@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { agencyPath } from '../../website-api';
 import {
   buildRedirectRows,
   isSafeRedirectTarget,
@@ -97,6 +98,27 @@ describe('building redirect rows', () => {
       'no-target',
       'invalid-url',
     ]);
+  });
+
+  it('[S15-03] a legacy /agent/<id>/<name> page redirects to the agency’s portal profile', () => {
+    const agency = '0192f2a4-5b6c-7d8e-9f01-23456789abcd';
+    const res = buildRedirectRows({
+      maps: new Map([['agency:7', agency]]),
+      // The portal's own helper (the profile page's canonical), as the redirect build passes it.
+      targetPath: (entity, id, locale) =>
+        entity === 'agency' ? agencyPath(locale || 'es', id, 'Costa Homes S.L.') : null,
+      entries: [
+        { source: 'portal', host: 'inmolink.es', url: '/agent/7/costa-homes', entity: 'agency', legacyId: '7' },
+        { source: 'portal', host: 'inmolink.es', url: '/en/agent/7/costa-homes', entity: 'agency', legacyId: '7' },
+        { source: 'portal', host: 'inmolink.es', url: '/agent/8/gone', entity: 'agency', legacyId: '8' },
+      ],
+    });
+    expect(res.rows.map((r) => [r.pathKey, r.targetPath, r.entity, r.targetId, r.status])).toEqual([
+      ['/agent/7/costa-homes', `/es/agency/${agency}/costa-homes-s-l`, 'agency', agency, 301],
+      ['/en/agent/7/costa-homes', `/en/agency/${agency}/costa-homes-s-l`, 'agency', agency, 301],
+    ]);
+    for (const r of res.rows) expect(isSafeRedirectTarget(r.targetPath)).toBe(true);
+    expect(res.unmapped).toEqual([{ url: '/agent/8/gone', reason: 'no-map' }]);
   });
 
   it('[S14-review] the same plugin path on two agencies’ hosts makes two rows', () => {

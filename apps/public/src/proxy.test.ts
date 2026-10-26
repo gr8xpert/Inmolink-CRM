@@ -150,6 +150,50 @@ describe('portal search pages (S15-01)', () => {
     expect(getRedirectUrl(await run(request('/en/property/villa-in-x-ab12cd34?utm=1')))).toBeNull();
   });
 
+  it('[S15-03] agency profile pages: one spelling of their listings’ query, the page limit counted', async () => {
+    const counted: PortalGate = vi.fn(async () => ({ allowed: true, retryAfterSeconds: 0 }));
+    const run = createProxy(ok(), counted);
+    const page = '/en/agency/01900000-0000-7000-8000-0000000000a1/move-homes';
+    const moved = await run(request(`${page}?utm_source=x&page=1`));
+    expect(moved.status).toBe(301);
+    expect(moved.headers.get('location')).toBe(`https://inmolink.test${page}`);
+    expect(counted).toHaveBeenCalled();
+    for (const path of [page, `${page}?page=2`]) {
+      const res = await run(request(path));
+      expect(getRedirectUrl(res), path).toBeNull();
+      expect(res.status, path).toBe(200);
+      expect(res.headers.get('cache-control'), path).not.toBe('private, no-store');
+    }
+  });
+
+  it('[S15-03] an enquiry notice (`?enquiry=`) is kept only when known, and never cached publicly', async () => {
+    const run = createProxy(ok(), allow);
+    const agency = '/en/agency/01900000-0000-7000-8000-0000000000a1/move-homes';
+    const listing = '/en/property/villa-in-x-ab12cd34';
+    // A known notice: the page renders, privately.
+    for (const path of [`${agency}?enquiry=sent`, `${agency}?page=2&enquiry=RATE_LIMITED`, `${listing}?enquiry=sent`]) {
+      const res = await run(request(path));
+      expect(getRedirectUrl(res), path).toBeNull();
+      expect(res.status, path).toBe(200);
+      expect(res.headers.get('cache-control'), path).toBe('private, no-store');
+    }
+    // Junk (unknown, repeated, made up): 301 to the page without it — never a cache key of its own.
+    const cases: [string, string][] = [
+      [`${agency}?enquiry=x${'a'.repeat(40)}`, agency],
+      [`${agency}?page=2&enquiry=sent&enquiry=sent`, `${agency}?page=2`],
+      [`${listing}?enquiry=%3Cscript%3E`, listing],
+      ['/en/properties?enquiry=nope', '/en/properties'],
+    ];
+    for (const [from, to] of cases) {
+      const res = await run(request(from));
+      expect(res.status, from).toBe(301);
+      expect(res.headers.get('location'), from).toBe(`https://inmolink.test${to}`);
+    }
+    // Another spelling of the page's query keeps a known notice.
+    const respelled = await run(request(`${agency}?page=1&enquiry=sent`));
+    expect(respelled.headers.get('location')).toBe(`https://inmolink.test${agency}?enquiry=sent`);
+  });
+
   it('[S15-01] a client past the page limit gets a 429; a limits outage never refuses a page', async () => {
     const limited: PortalGate = vi.fn(async () => ({ allowed: false, retryAfterSeconds: 12 }));
     const res = await createProxy(ok(), limited)(request('/en/properties', { 'x-forwarded-for': '9.9.9.9' }));

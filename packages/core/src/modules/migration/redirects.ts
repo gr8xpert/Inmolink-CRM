@@ -6,9 +6,9 @@
  *   plugin-built pages live on each agency's own domain, so one agency's `/contacto` is not another's), lower-case
  *   path, no trailing slash, only the query keys that identify a page, sorted. Pure; the builder and the resolver
  *   share it, so they cannot disagree.
- * - `buildRedirectRows` makes rows from the legacy URL list and `legacy_id_maps` (listing / development / location
- *   ids → v2 ids); the v2 path comes from a caller-supplied `targetPath` (the portal's URL helpers, S15), the legacy
- *   ids are not guessed here. An entry that yields no row is returned as `unmapped` (reported, never dropped).
+ * - `buildRedirectRows` makes rows from the legacy URL list and `legacy_id_maps` (listing / development / location /
+ *   agency ids → v2 ids; S15-03: a legacy `/agent/<id>/<name>` page → the agency's portal profile); the v2 path comes
+ *   from a caller-supplied `targetPath` (the portal's URL helpers, S15), the legacy ids are not guessed here. An entry that yields no row is returned as `unmapped` (reported, never dropped).
  * - `resolveLegacyRedirect` is the request-path lookup for the portal and the plugin shim (S15; no app calls it yet):
  *   one indexed probe, answers kept in process (hits 10 min, misses 1 min, bounded LRUs so made-up URLs cannot evict
  *   real ones), hit counts buffered in memory: no write per request. S15-02: the resolving process (the public pages)
@@ -117,7 +117,7 @@ export interface LegacyUrlEntry {
   url: string;
   /** The site it lived on, for a URL given as a path (an absolute URL names its own). */
   host?: string;
-  entity: 'listing' | 'development' | 'location' | 'page';
+  entity: 'listing' | 'development' | 'location' | 'agency' | 'page';
   /** The legacy id the URL names (listings, developments, locations); absent for a static page. */
   legacyId?: string;
   /** Static pages: the v2 path directly. */
@@ -129,7 +129,7 @@ export interface BuildRedirectsInput {
   /** `legacy_id_maps` answers: `<entity>:<legacy id>` → v2 id. */
   maps: ReadonlyMap<string, string>;
   /** The portal's URL helper for a v2 entity in a locale ('' = the default locale). */
-  targetPath: (entity: 'listing' | 'development' | 'location', id: string, locale: string) => string | null;
+  targetPath: (entity: 'listing' | 'development' | 'location' | 'agency', id: string, locale: string) => string | null;
 }
 
 export interface BuildRedirectsResult {

@@ -348,7 +348,8 @@ export async function promoteInboundLead(p: {
       source: marketplace ? 'MARKETPLACE' : 'WEBSITE',
       kind: form.kind,
       contactId,
-      presentingAgencyId: marketplace ? null : p.agencyId,
+      // S15-03: a portal enquiry about no listing (an agency's profile page) is made to this agency directly.
+      presentingAgencyId: marketplace && target ? null : p.agencyId,
       target,
       listingAgentId,
       message: form.message,

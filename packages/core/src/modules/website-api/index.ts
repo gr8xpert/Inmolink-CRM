@@ -82,6 +82,7 @@ export {
   PORTAL_MAX_SEARCH_TYPES,
   PORTAL_ZONE_MAX_MEMBERS,
   type PortalAgency,
+  type PortalAgencyProfile,
   type PortalCard,
   type PortalCatalog,
   type PortalDevelopment,
@@ -93,6 +94,8 @@ export {
   type PortalSearchPage,
   type PortalTypeGroup,
   type PortalZone,
+  portalAgency,
+  portalAgencyPaths,
   portalCatalog,
   portalDevelopment,
   portalDevelopmentPaths,
@@ -130,6 +133,7 @@ export {
   resetPortalSitemapCache,
 } from './portal-sitemaps';
 export {
+  agencyPath,
   developmentNameOf,
   developmentPath,
   homePath,

@@ -112,9 +112,8 @@ test('[S15-01] portal: a visitor finds a new listing on its location page with a
   // Filtered searches are not indexed (the location page and its numbered pages are).
   expect(await page.locator('meta[name="robots"]').getAttribute('content')).toMatch(/noindex/);
 
-  // The card names the listing agency (no link until its profile pages exist, S15-03) and opens the listing page.
-  await expect(page.getByText(seller.company)).toBeVisible();
-  await expect(page.getByRole('link', { name: seller.company })).toHaveCount(0);
+  // The card names the listing agency (S15-03: linked to its profile page) and opens the listing page.
+  await expect(page.getByRole('link', { name: seller.company })).toHaveCount(1);
   await page.getByRole('link', { name: title }).click();
   await expect(page).toHaveURL(/\/en\/property\/e2e-villa-in-e2e-listland-[0-9a-z]{8}$/);
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(title);
@@ -126,7 +125,8 @@ test('[S15-01] portal: a visitor finds a new listing on its location page with a
       .first(),
   ).toBeVisible();
   await expect(page.getByText(seller.company).first()).toBeVisible();
-  expect(await page.locator('a[href*="/agency/"]').count()).toBe(0);
+  // S15-03: the agency box links the agency's profile.
+  expect(await page.locator('a[href*="/agency/"]').count()).toBeGreaterThan(0);
   const ld = await page.locator('script[type="application/ld+json"]').allTextContents();
   expect(ld.map((s) => JSON.parse(s)['@type'])).toEqual(
     expect.arrayContaining(['RealEstateListing', 'BreadcrumbList']),
@@ -140,6 +140,67 @@ test('[S15-01] portal: a visitor finds a new listing on its location page with a
   // The same listing in Spanish (its own localized URL).
   const es = await request.get(page.url().replace('/en/', '/es/'));
   expect(es.status()).toBeLessThan(500);
+});
+
+test('[S15-03] portal: a search card leads to the agency’s profile, which lists its PUBLIC listings and opens one', async ({
+  browser,
+  request,
+  page,
+}) => {
+  test.setTimeout(5 * 60_000);
+  const seller = await agent(browser);
+  const euros = 300_000 + randomInt(1, 9_999_999);
+  await publish(request, seller.token, euros * 100);
+  const filtered = `${PUBLIC_URL}/en/properties/e2e-listland?price_min=${euros}&price_max=${euros}`;
+  const title = `${LISTING_TAXONOMY.propertyType} in ${LISTING_TAXONOMY.location}`;
+  await expect
+    .poll(
+      async () => {
+        await page.goto(filtered);
+        return page.getByRole('link', { name: title }).count();
+      },
+      { timeout: 150_000, intervals: [1_000, 2_000, 5_000] },
+    )
+    .toBe(1);
+
+  // The card's agency link opens the agency's profile page.
+  await page.getByRole('link', { name: seller.company }).click();
+  await expect(page).toHaveURL(/\/en\/agency\/[0-9a-f-]{36}\/[a-z0-9-]+$/);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(seller.company);
+  await expect(page.getByText('Verified business on Inmolink')).toBeVisible();
+  const profileUrl = page.url();
+  // Canonical (itself), hreflang, JSON-LD RealEstateAgent + BreadcrumbList; CDN-cacheable.
+  expect(await page.locator('link[rel="canonical"]').getAttribute('href')).toBe(profileUrl);
+  expect(await page.locator('link[rel="alternate"][hreflang="es"]').getAttribute('href')).toMatch(/\/es\/agency\//);
+  const ld = (await page.locator('script[type="application/ld+json"]').allTextContents()).map((s) => JSON.parse(s));
+  expect(ld.find((x) => x['@type'] === 'RealEstateAgent')).toMatchObject({ name: seller.company, url: profileUrl });
+  expect(ld.map((x) => x['@type'])).toContain('BreadcrumbList');
+  const head = await request.get(profileUrl);
+  expect(head.status()).toBe(200);
+  expect(head.headers()['cache-control']).toMatch(/public.*s-maxage=\d+/);
+  // Its listings are the search's cards; white-label rules hold (no commission, no internal notes).
+  await expect(page.getByRole('heading', { level: 2, name: /propert(?:y|ies) for sale/ })).toBeVisible();
+  const html = await page.content();
+  expect(html).not.toContain('quick sale');
+  expect(html).not.toMatch(/commission/i);
+  // The contact form names the agency.
+  await expect(page.getByTestId('portal-enquiry')).toBeVisible();
+  // Its no-JavaScript answer is the visitor's own: never cached publicly; a made-up value moves away (no cache key).
+  const notice = await request.get(`${profileUrl}?enquiry=sent`, { maxRedirects: 0 });
+  expect(notice.status()).toBe(200);
+  expect(notice.headers()['cache-control']).toMatch(/private.*no-store|no-store.*private/);
+  const junk = await request.get(`${profileUrl}?enquiry=made-up`, { maxRedirects: 0 });
+  expect(junk.status()).toBe(301);
+  // An old name slug moves to the current one; an unknown agency is a 404.
+  const moved = await request.get(profileUrl.replace(/\/[a-z0-9-]+$/, '/old-name'), { maxRedirects: 0 });
+  expect([301, 308]).toContain(moved.status());
+  expect((await request.get(`${PUBLIC_URL}/en/agency/01900000-0000-7000-8000-000000000000/nobody`)).status()).toBe(404);
+
+  // A card on the profile opens the listing page.
+  await page.goto(`${profileUrl}?price_min=${euros}&price_max=${euros}`);
+  await page.getByRole('link', { name: title }).click();
+  await expect(page).toHaveURL(/\/en\/property\/e2e-villa-in-e2e-listland-[0-9a-z]{8}$/);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(title);
 });
 
 /** Cloudflare Turnstile, solved at once (the e2e stack checks tokens with its own siteverify stub). */

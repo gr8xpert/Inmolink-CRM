@@ -1,4 +1,4 @@
-import { slugOf } from '@inmolink/core/modules/websites';
+import { agencyPath as coreAgencyPath } from '@inmolink/core/modules/website-api';
 
 // S15-02: the page shapes live in core (the sitemaps job builds the same URLs); re-exported for the pages.
 export {
@@ -18,24 +18,20 @@ export { hasFilters, queryString } from './query';
  * - `/{locale}/zone/{slug}` — a location group (a comarca, a coast)
  * - `/{locale}/property/{type-in-town}-{code}` — a listing (its public code, lower case)
  * - `/{locale}/development/{name}-{code}` — a new-build development with its units (its public code, lower case)
- * - `/{locale}/agency/{agencyId}/{name}` — the listing agency's profile (built by S15-03; not linked until then,
- *   `AGENCY_PROFILES_LIVE`)
+ * - `/{locale}/agency/{agencyId}/{name}` — a listed agency's profile with its PUBLIC listings (S15-03)
  * Filters ride in the query string (`PortalQuery`), numbered pages as `?page=N`.
  */
 
 /**
- * The agency profile pages are live (S15-03 flips this): until then the portal names the listing agency without a
- * link and its JSON-LD carries no profile URL — no link to a page that does not exist yet.
+ * A listed agency's profile page (S15-03; core's `agencyPath`, the one its canonical, the sitemaps and the legacy
+ * redirects use). Only agencies the portal names have one: an unlisted agency is never named at all.
  */
-export const AGENCY_PROFILES_LIVE = false;
-
-/** The listing agency's profile page, or null while the profiles are not live (`AGENCY_PROFILES_LIVE`). */
-export function agencyPath(locale: string, agency: { id: string; name: string }): string | null {
-  return AGENCY_PROFILES_LIVE ? `/${locale}/agency/${agency.id}/${slugOf(agency.name, 'agency')}` : null;
+export function agencyPath(locale: string, agency: { id: string; name: string }): string {
+  return coreAgencyPath(locale, agency.id, agency.name);
 }
 
-/** An absolute profile URL for JSON-LD, or null while there is no profile page. */
-export const profileUrl = (origin: string, path: string | null) => (path ? `${origin}${path}` : null);
+/** An absolute profile URL for JSON-LD. */
+export const profileUrl = (origin: string, path: string) => `${origin}${path}`;
 
 /**
  * An agency- or agent-supplied URL the portal may link to: absolute `http:` / `https:` only (a `javascript:`, `data:`

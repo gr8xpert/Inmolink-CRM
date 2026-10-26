@@ -17,12 +17,16 @@ export const FRAME_DENY_HEADERS = [
  * stale copy while it refetches. Listing pages are ISR (`revalidate`) and get Next's own `s-maxage`.
  */
 export const PORTAL_PAGE_CACHE = 'public, max-age=0, s-maxage=120, stale-while-revalidate=600, stale-if-error=86400';
+/** S15-03 review: a page with the enquiry form's answer (`?enquiry=`). */
+export const ENQUIRY_NOTICE_CACHE = 'private, no-store';
 const LOCALE = ':locale([a-z]{2})';
 export const PORTAL_CACHED_SOURCES = [
   `/${LOCALE}`,
   `/${LOCALE}/properties`,
   `/${LOCALE}/properties/:path+`,
   `/${LOCALE}/zone/:zone`,
+  // S15-03: agency profile pages (their listings page like a search).
+  `/${LOCALE}/agency/:id/:name`,
 ];
 
 const nextConfig: NextConfig = {
@@ -36,6 +40,13 @@ const nextConfig: NextConfig = {
       ...PORTAL_CACHED_SOURCES.map((source) => ({
         source,
         headers: [{ key: 'Cache-Control', value: PORTAL_PAGE_CACHE }],
+      })),
+      // S15-03 review: a page carrying an enquiry form's answer (`?enquiry=`) is the visitor's own: never cached
+      // publicly (the proxy sets the same; this rule comes last, so it wins over the one above).
+      ...PORTAL_CACHED_SOURCES.map((source) => ({
+        source,
+        has: [{ type: 'query' as const, key: 'enquiry' }],
+        headers: [{ key: 'Cache-Control', value: ENQUIRY_NOTICE_CACHE }],
       })),
     ];
   },

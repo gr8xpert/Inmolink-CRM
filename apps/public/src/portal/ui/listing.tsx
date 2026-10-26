@@ -197,10 +197,10 @@ export async function ListingView(props: {
           {agency ? (
             <EnquiryForm
               locale={props.locale}
-              code={props.listing.code}
+              about={{ code: props.listing.code }}
               back={props.listing.paths[props.locale] ?? listingPath(props.locale, props.title, props.listing.code)}
               agency={agency.name}
-              reference={detail.ref}
+              messageDefault={t('enquiry.messageDefault', { ref: detail.ref })}
               turnstileSiteKey={props.settings.turnstileSiteKey}
               turnstileAction={websiteApi.LEAD_TURNSTILE_ACTION}
               t={t as (key: string, values?: Record<string, string>) => string}

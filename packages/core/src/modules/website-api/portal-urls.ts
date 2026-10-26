@@ -6,6 +6,7 @@
  * - `/{locale}/zone/{slug}` — a location group (a comarca, a coast)
  * - `/{locale}/property/{type-in-town}-{code}` — a listing (its public code, lower case)
  * - `/{locale}/development/{name}-{code}` — a new-build development with its units (its public code, lower case)
+ * - `/{locale}/agency/{agencyId}/{name}` — a listed agency's profile with its PUBLIC listings (S15-03)
  */
 import { translator } from '@inmolink/i18n/server';
 import { slugOf } from '../websites';
@@ -18,6 +19,9 @@ export const listingPath = (locale: string, title: string, code: string) =>
   `/${locale}/property/${slugOf(title, 'property')}-${code.toLowerCase()}`;
 export const developmentPath = (locale: string, name: string, code: string) =>
   `/${locale}/development/${slugOf(name, 'development')}-${code.toLowerCase()}`;
+/** S15-03: a listed agency's profile page (its id names it; the name slug follows a rename — the page 301s to it). */
+export const agencyPath = (locale: string, id: string, name: string) =>
+  `/${locale}/agency/${id.toLowerCase()}/${slugOf(name, 'agency')}`;
 
 /** A card's or listing's place as the portal names its town. */
 export interface PortalPlaceNames {

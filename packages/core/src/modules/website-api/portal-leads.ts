@@ -18,6 +18,10 @@
  *
  * The idempotency key is hashed with the listing's code: one key can never reveal another listing's (another
  * agency's) lead. Nothing about the visitor is logged (name, e-mail, phone, message, IP).
+ *
+ * S15-03: the same form on a listed agency's profile page names the agency instead of a listing (`agencyId`): a general
+ * enquiry (no target) for that agency, step 2 is its cached profile (`portalAgency`: 0–1 statement), the per-address and
+ * per-agency limits apply (no per-listing one), and the key is hashed with the agency's id.
  */
 import type { WebsiteLeadAccepted, WebsiteLeadBody } from '@inmolink/contracts';
 import { PublicCode } from '@inmolink/contracts';
@@ -29,7 +33,7 @@ import { newId } from '@inmolink/platform/ids';
 import type { RateLimitCheck, RateLimiter } from '@inmolink/platform/rate-limit';
 import * as websites from '../websites';
 import { accepted, LEAD_TURNSTILE_ACTION, recipientHashOf, replayOf, requestHashOf } from './leads';
-import { portalListingTarget } from './portal';
+import { isPortalAgencyId, portalAgency, portalListingTarget } from './portal';
 import { configured, leadSecret, turnstileVerifier, websiteLimits } from './settings';
 
 /** Statements per answer (the int test's `countQueries` budgets). */
@@ -131,8 +135,10 @@ export async function checkPortalLeadLimits(
 export interface PortalLeadInput {
   /** The listing page's locale (the CRM lead's language). */
   locale: string;
-  /** The listing's public code (any case), from the page the form is on. */
-  code: string;
+  /** The listing's public code (any case), from the page the form is on — or, S15-03, `agencyId`. */
+  code?: string;
+  /** S15-03: a listed agency's id (its profile page's form): a general enquiry for it, no listing. */
+  agencyId?: string;
   /** The form's fields through the website lead contract (`ref` unused: the code names the listing). */
   body: WebsiteLeadBody;
 }
@@ -147,12 +153,19 @@ export async function submitPortalLead(
   input: PortalLeadInput,
   facts: { ip?: string; idempotencyKey: string; limiter?: RateLimiter },
 ): Promise<{ accepted: WebsiteLeadAccepted; created: boolean; ownerAgencyId: string }> {
-  const code = input.code.toUpperCase();
-  if (!PublicCode.safeParse(code).success) throw new AppError('LISTING_NOT_FOUND');
+  // What the form names: a listing (its code) or, S15-03, an agency (its profile page) — exactly one.
+  const agencyFormId = input.code === undefined ? input.agencyId?.toLowerCase() : undefined;
+  const code = (input.code ?? '').toUpperCase();
+  if (agencyFormId === undefined) {
+    if (!PublicCode.safeParse(code).success) throw new AppError('LISTING_NOT_FOUND');
+  } else if (!isPortalAgencyId(agencyFormId)) {
+    throw new AppError('NOT_FOUND');
+  }
+  const subject = agencyFormId === undefined ? code : `agency:${agencyFormId}`;
   const { turnstileToken: _t, serverVerified: _s, ref: _r, ...rest } = input.body;
-  const body = { ...rest, ref: code } as WebsiteLeadBody;
+  const body = { ...rest, ref: subject } as WebsiteLeadBody;
   const requestHash = requestHashOf('ENQUIRY', body);
-  const idempotencyHash = portalIdempotencyHashOf(code, facts.idempotencyKey);
+  const idempotencyHash = portalIdempotencyHashOf(subject, facts.idempotencyKey);
 
   // 1. The visitor check, before any statement. A failed check is final, except a double submit of an accepted key.
   try {
@@ -168,10 +181,21 @@ export async function submitPortalLead(
     return { accepted: replayOf(earlier, 'ENQUIRY', requestHash), created: false, ownerAgencyId: owner };
   }
 
-  // 2. The listing among the portal's stock (never inside the write transaction): its owner holds the lead.
-  const target = await portalListingTarget(code, input.locale, newId());
-  if (!target) throw new AppError('LISTING_NOT_FOUND');
-  const agencyId = target.ownerAgencyId;
+  // 2. The listing among the portal's stock (never inside the write transaction): its owner holds the lead. S15-03: or
+  // the listed agency itself (a general enquiry).
+  let agencyId: string;
+  let target: websites.InboundLead['target'] = null;
+  if (agencyFormId === undefined) {
+    const listing = await portalListingTarget(code, input.locale, newId());
+    if (!listing) throw new AppError('LISTING_NOT_FOUND');
+    agencyId = listing.ownerAgencyId;
+    // The owner's own listing: no introduced agency; the owner's own reference.
+    target = { kind: 'LISTING', id: listing.targetId, ownerAgencyId: null, shownRef: listing.ref };
+  } else {
+    const agency = await portalAgency(input.locale, agencyFormId);
+    if (!agency) throw new AppError('NOT_FOUND');
+    agencyId = agency.id;
+  }
 
   // 3. The listing agency's daily enquiries (many addresses at many of its listings).
   if (facts.limiter) {
@@ -203,8 +227,7 @@ export async function submitPortalLead(
       idempotencyHash,
       requestHash,
       verification: 'TURNSTILE',
-      // The owner's own listing: no introduced agency; the owner's own reference.
-      target: { kind: 'LISTING', id: target.targetId, ownerAgencyId: null, shownRef: target.ref },
+      target,
       locale: input.locale,
       name: body.name,
       email: body.email,

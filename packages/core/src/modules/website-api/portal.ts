@@ -45,7 +45,7 @@ import * as search from '../search';
 import * as taxonomy from '../taxonomy';
 import * as websites from '../websites';
 import { FEATURE_CONCEPTS } from './ai-search-parse';
-import { developmentNameOf, developmentPath, listingPath, portalListingTitle } from './portal-urls';
+import { agencyPath, developmentNameOf, developmentPath, listingPath, portalListingTitle } from './portal-urls';
 import { configured } from './settings';
 
 let log: Logger | undefined;
@@ -125,6 +125,16 @@ async function listedInventory(
 
 /** The portal's search inventory: listed agencies' PUBLIC listings (no new-build units in R1). */
 export const portalInventory = (requestId: string) => listedInventory(requestId, { restrict: { newBuilds: false } });
+
+/**
+ * S15-03: one agency's PUBLIC listings (its profile page), or null when the cached owner scope leaves the agency out
+ * (not listed now — the same set every portal page uses, so its stock is on its page exactly when it is in the search).
+ */
+async function agencyInventory(agencyId: string, requestId: string): Promise<search.PublicSearchSite | null> {
+  const scope = await currentOwnerScope();
+  const shown = 'show' in scope ? scope.show.includes(agencyId) : !scope.hide.includes(agencyId);
+  return shown ? { ownerAgencyIds: [agencyId], restrict: { newBuilds: false }, requestId } : null;
+}
 
 /** A content locale for `locale` (UI locales are content locales; anything else reads the default). */
 export const contentLocale = (locale: string): ContentLocale =>
@@ -390,6 +400,8 @@ const UNLISTED_TTL_MS = 60_000;
 /** Tests: forget cached agencies. */
 export function resetPortalCaches(): void {
   agencyCache.clear();
+  profileCache.clear();
+  profileMisses.clear();
   placeIndexes.clear();
   ownerScope = undefined;
 }
@@ -434,6 +446,89 @@ export const ownView = (ownerAgencyId: string, agency: PortalAgency | null): web
   mediaBaseUrl: configured().mediaBaseUrl,
 });
 
+// ── Agency profiles (S15-03) ─────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * A listed agency's profile page as the portal shows it: its directory name and kind, the contact details it publishes,
+ * the register number, languages and town it states, and its tagline and about text (in the page's locale, else the
+ * fallback's: `textLocale` says which). Never its tax id, address, settings, commission, members or notes.
+ */
+export interface PortalAgencyProfile extends PortalAgency {
+  kind: 'AGENCY' | 'DEVELOPER' | 'PARTNER';
+  registerNumber: string | null;
+  /** Content locale codes the agency works in. */
+  languages: string[];
+  city: string | null;
+  tagline: string | null;
+  description: string | null;
+  /** The locale of `tagline` / `description` (null without either). */
+  textLocale: string | null;
+  /** Its page in every UI locale (`portalAgencyPaths`): canonical, alternates, sitemaps, legacy redirects. */
+  paths: Record<string, string>;
+}
+
+/**
+ * Profiles by content locale and agency id. A change of standing or profile shows within a minute. Misses (not listed,
+ * unknown ids) are kept apart in a small LRU of their own, so made-up ids in URLs cannot evict real profiles.
+ */
+const profileCache = new LocalLru<PortalAgencyProfile>(5_000);
+const profileMisses = new LocalLru<true>(1_000);
+const PROFILE_TTL_MS = 60_000;
+const AGENCY_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** S15-03: whether `id` can name an agency (a UUID, any case) — the one check the profile reads and enquiries use. */
+export const isPortalAgencyId = (id: string): boolean => AGENCY_ID.test(id);
+
+/** S15-03: an agency's profile URL in every UI locale (one name for all: its directory name). */
+export function portalAgencyPaths(
+  agency: { id: string; name: string },
+  locales: readonly string[] = UI_LOCALES,
+): Record<string, string> {
+  return Object.fromEntries(locales.map((l) => [l, agencyPath(l, agency.id, agency.name)]));
+}
+
+/**
+ * S15-03: the listed agency `id` names, as its profile page shows it; null: not a listed agency (unverified, suspended,
+ * opted out, unknown, or not an id). Cached per process for a minute; a miss costs one statement (`app_public`), and
+ * primes the listing-agency cache, so the page's cards cost none.
+ */
+export async function portalAgency(locale: string, id: string): Promise<PortalAgencyProfile | null> {
+  if (!isPortalAgencyId(id)) return null;
+  const agencyId = id.toLowerCase();
+  const l = contentLocale(locale);
+  const key = `${l}|${agencyId}`;
+  const hit = profileCache.get(key);
+  if (hit !== undefined) return hit;
+  if (profileMisses.get(key)) return null;
+  const locales = [...new Set([l, fallbackOf(l), DEFAULT_CONTENT_LOCALE])];
+  const row = await withPublicRead((tx) => agencies.publicAgencyProfile(tx, agencyId, locales));
+  const profile: PortalAgencyProfile | null = row
+    ? {
+        id: agencyId,
+        name: row.name,
+        email: row.contactEmail,
+        phone: row.contactPhone,
+        website: row.websiteUrl,
+        kind: row.kind,
+        registerNumber: row.registerNumber,
+        languages: row.languages.filter(isContentLocale),
+        city: row.city,
+        tagline: row.tagline,
+        description: row.description,
+        textLocale: row.tagline || row.description ? row.textLocale : null,
+        paths: portalAgencyPaths({ id: agencyId, name: row.name }),
+      }
+    : null;
+  if (!profile) {
+    profileMisses.set(key, true, PROFILE_TTL_MS);
+    return null;
+  }
+  profileCache.set(key, profile, PROFILE_TTL_MS);
+  const { name, email, phone, website } = profile;
+  agencyCache.set(agencyId, { id: agencyId, name, email, phone, website }, AGENCY_TTL_MS);
+  return profile;
+}
+
 // ── Search ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** A result card: the website card (own view), its public code (the listing page's URL) and the portal extras. */
@@ -456,6 +551,8 @@ export interface PortalSearchInput {
   facets?: boolean;
   /** The zone a zone page searches (logged when its members exceed the search's limit). */
   zoneId?: string;
+  /** S15-03: only this agency's listings (its profile page); none while the agency is not listed. */
+  agencyId?: string;
   requestId: string;
 }
 
@@ -555,7 +652,11 @@ export async function portalSearch(input: PortalSearchInput): Promise<PortalSear
   if (impossible) return empty;
   const cursor = search.searchOffsetCursor(sort, (page - 1) * PORTAL_PAGE_SIZE);
   if (cursor === null) return empty;
-  const inventory = await portalInventory(input.requestId);
+  // S15-03 review: an agency's listings only while it has a listed profile (cached: the page read it first) AND the
+  // cached owner scope shows it — a hide-list scope alone would let an agency with no stock through.
+  const agency = input.agencyId ? await portalAgency(input.locale, input.agencyId) : undefined;
+  if (agency === null) return empty;
+  const inventory = agency ? await agencyInventory(agency.id, input.requestId) : await portalInventory(input.requestId);
   if (!inventory) return empty;
   const found = await search.searchPublicListings(inventory, {
     locale,

@@ -1,5 +1,5 @@
 import { TURNSTILE_ORIGIN } from '@/embed/csp';
-import { ENQUIRY_NOTICES } from '../enquiry';
+import { ENQUIRY_NOTICES } from '../enquiry-notices';
 import { EnquiryIsland } from './enquiry-island';
 
 type T = (key: string, values?: Record<string, string>) => string;
@@ -11,16 +11,18 @@ const TURNSTILE_SCRIPT = `${TURNSTILE_ORIGIN}/turnstile/v0/api.js`;
  * The enquiry form on a listing page (S15-02): a plain form POST to `/api/portal/enquiry` (works without the island;
  * answered by a redirect back with `?enquiry=`), with the consent text, the visitor's marketing opt-in and the Turnstile
  * widget; `EnquiryIsland` adds the idempotency key, Turnstile on first use and the in-place answer. The same HTML for
- * every visitor (the page is cached). The enquiry goes to the listing's agency (marketplace: the listing owner).
+ * every visitor (the page is cached). The enquiry goes to the listing's agency (marketplace: the listing owner) — or,
+ * S15-03, on an agency's profile page, to that agency (a general enquiry, no listing).
  */
 export function EnquiryForm(props: {
   locale: string;
-  /** The listing's public code. */
-  code: string;
-  /** The listing page's path (the no-JavaScript answer comes back here). */
+  /** What the enquiry is about: a listing (its public code) or, S15-03, the agency itself (its id). */
+  about: { code: string } | { agencyId: string };
+  /** The page's path (the no-JavaScript answer comes back here). */
   back: string;
   agency: string;
-  reference: string;
+  /** The message field's starting text. */
+  messageDefault: string;
   /** Null: Turnstile is not configured — no form (it could only be refused). */
   turnstileSiteKey: string | null;
   turnstileAction: string;
@@ -53,7 +55,11 @@ export function EnquiryForm(props: {
           <p className="text-stone">{t('enquiry.needsJavaScript')}</p>
         </noscript>
         <input type="hidden" name="locale" value={props.locale} />
-        <input type="hidden" name="code" value={props.code} />
+        {'code' in props.about ? (
+          <input type="hidden" name="code" value={props.about.code} />
+        ) : (
+          <input type="hidden" name="agency" value={props.about.agencyId} />
+        )}
         <input type="hidden" name="back" value={props.back} />
         <input type="hidden" name="idempotencyKey" defaultValue="" />
         <label className="grid gap-1">
@@ -94,7 +100,7 @@ export function EnquiryForm(props: {
             required
             maxLength={4000}
             rows={4}
-            defaultValue={t('enquiry.messageDefault', { ref: props.reference })}
+            defaultValue={props.messageDefault}
             className="rounded-md border border-shore px-3 py-2"
           />
         </label>

@@ -42,6 +42,7 @@ export const HELPER_FUNCTIONS = [
   'calendar_feed_by_token',
   'calendar_feed_tag',
   'selection_by_token',
+  'agency_public_profile',
 ] as const;
 
 /**
@@ -736,7 +737,29 @@ end $$;`,
          where s.token_hash = any(hashes[1:8]) and s.revoked_at is null
            and (s.expires_at is null or s.expires_at > now())
          limit 1 $$;`,
-    `revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), website_network_open(uuid, integer, integer), agency_ai_features(uuid), legacy_target_ids(text[]), legacy_ids_of(uuid[]), portal_feed_by_token(text), calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer), calendar_feed_tag(text), selection_by_token(text[]) from public;`,
+    // S15-03: an agency's portal profile beyond its directory row and published contacts (app_public reads neither
+    // `agencies` nor `agency_translations`): the register number and languages it states, its town, and its tagline
+    // and about text in the first of `locales` (at most 3) that has either. Only a VERIFIED agency listed in the
+    // directory answers; any other id answers no row. Never the tax id, address, status or settings. Primary-key probes
+    // of agencies and agency_directory, one range of agency_translations (agency, locale); owned by app_owner (their
+    // `definer_read` policies). Cached by the caller (`websiteApi.portalAgency`).
+    `drop function if exists agency_public_profile(uuid, text[]);`,
+    `create function agency_public_profile(a_id uuid, locales text[])
+  returns table(register_number text, languages text[], city text, locale text, tagline text, description text)
+  language sql stable security definer set search_path = pg_catalog, pg_temp
+  as $$ select g.register_number, g.languages, g.city, t.locale, t.tagline, t.description
+          from public.agencies g
+          join public.agency_directory d on d.agency_id = g.agency_id and d.listed
+          left join lateral (
+            select tr.locale, tr.tagline, tr.description
+              from public.agency_translations tr
+             where tr.agency_id = g.agency_id and tr.locale = any(locales[1:3])
+               and (tr.tagline is not null or tr.description is not null)
+             order by array_position(locales[1:3], tr.locale)
+             limit 1) t on true
+         where g.agency_id = a_id and g.status = 'VERIFIED' $$;`,
+    `revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), website_network_open(uuid, integer, integer), agency_ai_features(uuid), legacy_target_ids(text[]), legacy_ids_of(uuid[]), portal_feed_by_token(text), calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer), calendar_feed_tag(text), selection_by_token(text[]), agency_public_profile(uuid, text[]) from public;`,
+    `grant execute on function agency_public_profile(uuid, text[]) to app_public;`,
     `grant execute on function calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer) to app_public;`,
     `grant execute on function calendar_feed_tag(text) to app_public;`,
     `grant execute on function portal_feed_by_token(text) to app_public;`,
@@ -759,6 +782,8 @@ end $$;`,
     // S13-F1: reads selections, selection_items and agencies through their `definer_read` policies; recreated on every
     // run.
     `alter function selection_by_token(text[]) owner to app_owner;`,
+    // S15-03: reads agencies, agency_directory and agency_translations through their `definer_read` policies.
+    `alter function agency_public_profile(uuid, text[]) owner to app_owner;`,
     `grant execute on function app_agency(), app_user_id() to app_user, app_system, app_public, app_auth, app_staff;`,
     `grant execute on function app_impersonated_by() to app_user;`,
     `grant execute on function app_agency() to app_intake;`,

@@ -47,16 +47,16 @@ export interface ListingLd {
   builtM2: number | null;
   address: { locality: string | null; region: string | null; country: string | null };
   geo: { lat: number; lng: number } | null;
-  /** The listing agency; `url` its profile page (null until the profiles are live). */
-  agency: { name: string; url: string | null } | null;
+  /** The listing agency; `url` its profile page. */
+  agency: { name: string; url: string } | null;
   dateModified: string;
 }
 
-/** A schema.org `RealEstateAgent` (its profile URL only when there is one). */
-const agentLd = (a: { name: string; url: string | null }) => ({
+/** A schema.org `RealEstateAgent`: the listing agency and its profile page (S15-03). */
+const agentLd = (a: { name: string; url: string }) => ({
   '@type': 'RealEstateAgent',
   name: a.name,
-  ...(a.url ? { url: a.url } : {}),
+  url: a.url,
 });
 
 /** A listing as schema.org `RealEstateListing`, the home as its `about` (an `Accommodation`). */
@@ -104,7 +104,7 @@ export interface DevelopmentLd {
   available: number;
   address: { locality: string | null; region: string | null; country: string | null };
   geo: { lat: number; lng: number } | null;
-  agency: { name: string; url: string | null } | null;
+  agency: { name: string; url: string } | null;
   dateModified: string;
 }
 
@@ -153,4 +153,39 @@ export function languageAlternates(
   const fallback = paths[defaultLocale];
   if (fallback) out['x-default'] = `${origin}${fallback}`;
   return out;
+}
+
+export interface AgencyLd {
+  url: string;
+  name: string;
+  description: string | null;
+  email: string | null;
+  telephone: string | null;
+  /** The agency's own website (`safeHttpUrl` only). */
+  website: string | null;
+  city: string | null;
+  /** Language codes it works in. */
+  languages: readonly string[];
+  registerNumber: string | null;
+}
+
+/**
+ * S15-03: a listed agency's profile as schema.org `RealEstateAgent` (its page is its `@id`): only what it published —
+ * contact details, town, languages and register number.
+ */
+export function agencyJsonLd(a: AgencyLd) {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'RealEstateAgent',
+    '@id': a.url,
+    url: a.url,
+    name: a.name,
+    ...(a.description ? { description: a.description } : {}),
+    ...(a.email ? { email: a.email } : {}),
+    ...(a.telephone ? { telephone: a.telephone } : {}),
+    ...(a.website ? { sameAs: [a.website] } : {}),
+    ...(a.city ? { address: { '@type': 'PostalAddress', addressLocality: a.city } } : {}),
+    ...(a.languages.length > 0 ? { knowsLanguage: [...a.languages] } : {}),
+    ...(a.registerNumber ? { identifier: { '@type': 'PropertyValue', value: a.registerNumber } } : {}),
+  };
 }
