@@ -315,6 +315,11 @@ export interface GlobalTable {
    */
   staffWrite?: true | StaffWriteRule;
   /**
+   * S14-03: every active staff member (`app_is_staff()`) may SELECT every row; no staff write (rows come from
+   * `app_system` scripts). Not with `staffWrite` (which reads already) or `access`.
+   */
+  staffRead?: true;
+  /**
    * `access: 'auth'` only: `app_auth` reaches only the rows of the user its flow is scoped to
    * (`user_id = app_user_id()`, set by `setAuthScope`) — for per-user secrets such as 2FA (S1-04), so
    * no other auth flow can read or change another user's factor.
@@ -1771,6 +1776,22 @@ export const globalTables: Record<string, GlobalTable> = {
     reason: 'checkpoints of the legacy load per legacy agency, entity and batch (ADR 0006), operator data',
     noUserRead: true,
     base: { status: 'DONE' },
+  },
+  // S14-05: legacy URL -> v2 URL. Public by nature (the old URLs and where they go); app_public resolves them on the
+  // request path, hit counters are bumped by the flush job via withSystem(). Written by the migration scripts only.
+  legacy_url_redirects: {
+    reason: 'legacy inmolink.es and plugin URLs and the v2 paths they redirect to (PLAN §14), platform data',
+    publicRead: true,
+    noUserRead: true,
+    base: { source: 'portal', path_key: '/x', target_path: '/es', entity: 'page' },
+  },
+  // S14-03: validation reports of the legacy migration (legacy ids, counts, field names; no personal values), written
+  // by the validation script via withSystem(); every active staff member reads them in the console, nobody writes.
+  migration_validation_reports: {
+    reason: 'per legacy agency validation reports of the legacy migration (PLAN §14 step 6), operator data',
+    noUserRead: true,
+    staffRead: true,
+    base: { status: 'PASS' },
   },
 };
 

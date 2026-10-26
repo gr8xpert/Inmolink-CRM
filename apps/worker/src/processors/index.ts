@@ -16,6 +16,7 @@ import { identityJobs } from '@inmolink/core/modules/identity';
 import { importsJobs } from '@inmolink/core/modules/imports';
 import { matchingJobs } from '@inmolink/core/modules/matching';
 import { mediaDocumentJobs, mediaJobs } from '@inmolink/core/modules/media';
+import { migrationJobs } from '@inmolink/core/modules/migration';
 import { mlsJobs } from '@inmolink/core/modules/mls';
 import { networkJobs } from '@inmolink/core/modules/network';
 import { notificationsJobs } from '@inmolink/core/modules/notifications';
@@ -173,6 +174,8 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     developmentsJobs.deleteDocumentObject,
     developmentsJobs.sweepOrphanDocuments,
     developmentsJobs.purgeDeletedDevelopments,
+    // S14-05: the legacy-redirect hit counters buffered in memory.
+    migrationJobs.flushRedirectHits,
     importsJobs.pruneRuns,
     // S12-F6: the nightly full rebuild of the CRM stage counts (the day's deltas checked against `leads`).
     crmJobs.sweepStageCounts,

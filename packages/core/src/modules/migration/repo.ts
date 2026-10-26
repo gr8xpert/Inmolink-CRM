@@ -3,7 +3,7 @@
  * Queries only `@inmolink/db/schema/migration` — other modules' tables fail `pnpm check:boundaries`.
  */
 import type { Tx } from '@inmolink/db';
-import { legacyIdMaps, migrationBatches } from '@inmolink/db/schema/migration';
+import { legacyIdMaps, legacyUrlRedirects, migrationBatches } from '@inmolink/db/schema/migration';
 import { newId } from '@inmolink/platform/ids';
 import { and, eq, inArray, type SQL, sql } from 'drizzle-orm';
 
@@ -182,4 +182,73 @@ export async function saveCheckpoint(
         updatedAt: sql`now()`,
       },
     });
+}
+
+// ---- S14-05: legacy URL redirects ----
+
+export type RedirectRow = {
+  source: 'portal' | 'plugin';
+  locale: string;
+  pathKey: string;
+  targetPath: string;
+  entity: string;
+  targetId: string | null;
+  status: 301 | 308;
+};
+
+/** One redirect by its key: one probe on `legacy_url_redirects_key_uq`. */
+export async function redirectByKey(
+  tx: Tx,
+  source: string,
+  locale: string,
+  pathKey: string,
+): Promise<{ targetPath: string; status: number } | null> {
+  const [row] = await tx
+    .select({ targetPath: legacyUrlRedirects.targetPath, status: legacyUrlRedirects.status })
+    .from(legacyUrlRedirects)
+    .where(
+      and(
+        eq(legacyUrlRedirects.source, source),
+        eq(legacyUrlRedirects.locale, locale),
+        eq(legacyUrlRedirects.pathKey, pathKey),
+      ),
+    )
+    .limit(1);
+  return row ?? null;
+}
+
+/** Idempotent upsert of a batch (up to 1,000 per statement); a changed target replaces the old one, hits are kept. */
+export async function upsertRedirects(tx: Tx, rows: readonly RedirectRow[]): Promise<number> {
+  for (let i = 0; i < rows.length; i += 1000) {
+    await tx
+      .insert(legacyUrlRedirects)
+      .values(rows.slice(i, i + 1000).map((r) => ({ id: newId(), ...r })))
+      .onConflictDoUpdate({
+        target: [legacyUrlRedirects.source, legacyUrlRedirects.locale, legacyUrlRedirects.pathKey],
+        set: {
+          targetPath: sql`excluded.target_path`,
+          entity: sql`excluded.entity`,
+          targetId: sql`excluded.target_id`,
+          status: sql`excluded.status`,
+          updatedAt: sql`now()`,
+        },
+      });
+  }
+  return rows.length;
+}
+
+/** Adds counted hits, one statement per 1,000 URLs (the flush). */
+export async function addRedirectHits(
+  tx: Tx,
+  hits: readonly { source: string; locale: string; pathKey: string; hits: number }[],
+  at: Date,
+): Promise<void> {
+  for (let i = 0; i < hits.length; i += 1000) {
+    await tx.execute(sql`
+      update public.legacy_url_redirects r
+         set hits = r.hits + h.hits, last_hit_at = ${at.toISOString()}::timestamptz
+        from jsonb_to_recordset(${JSON.stringify(hits.slice(i, i + 1000))}::jsonb)
+             as h(source text, locale text, "pathKey" text, hits int)
+       where r.source = h.source and r.locale = h.locale and r.path_key = h."pathKey"`);
+  }
 }

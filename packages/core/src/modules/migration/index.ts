@@ -57,4 +57,33 @@ export {
   targetsOf,
   validateRows,
 } from './load';
+export { canStaff as canStaffMigration, type MigrationStaffAction } from './policy';
+export {
+  type BuildRedirectsInput,
+  type BuildRedirectsResult,
+  buildRedirectRows,
+  flushRedirectHits,
+  type LegacyUrlEntry,
+  type NormalizedLegacyUrl,
+  normalizeLegacyUrl,
+  REDIRECT_QUERY_KEYS,
+  type RedirectRow,
+  type RedirectSource,
+  type ResolvedRedirect,
+  resetRedirectCache,
+  resolveLegacyRedirect,
+  saveRedirects,
+} from './redirects';
 export { type ImportOptions, importLegacyTaxonomy } from './service';
+export {
+  compareContact,
+  compareLead,
+  compareListing,
+  type FieldDiff,
+  recordValidationReport,
+  settleReport,
+  VALIDATION_BATCH_ROWS,
+  type ValidateLegacyAgencyInput,
+  validateLegacyAgency,
+} from './validate';
+export { getValidationReport, listValidationReports } from './validation-reports';
