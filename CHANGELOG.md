@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- feat(migration): read-only legacy extract to NDJSON staging plus entity inventory (pnpm legacy:extract) [S14-01]
 - fix(outbox): dispatcher claim runs with JIT off (a ~540k-row outbox made Postgres JIT-compile it: 6 s per claim); worker: every pool loads MEDIA_URL_KEY (read-model rebuilds outside the media pool failed); e2e: collaboration asserts the listing reference shown since S12-F21 [S13 review]
 - fix(billing): fall-to-Free notices (plan in force, previousPlan), billing.endDunningGrace GRACE_ENDED sweep (migration 0168); api: one no-store plugin for private and staff routes; onboarding: skip events of deleted agencies [S13 review]
 - fix(security): S13 review — portal-push events super-admin replay only, one contact-quota lock helper, plan notices super-admin + re-checked, catalog staff writes super-admin, Client Mode 403 on support/onboarding/billing/AI settings [S13 review]
