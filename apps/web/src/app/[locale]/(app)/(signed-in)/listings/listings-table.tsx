@@ -1,12 +1,7 @@
 'use client';
 
-import {
-  LISTING_STUDIO_BULK_MAX,
-  type ListingBulkDto,
-  type ListingColumn,
-  type ListingFilter,
-} from '@inmolink/contracts';
-import { LISTING_STATUSES, SHARE_SCOPES, VISIBILITIES } from '@inmolink/contracts/values';
+import type { ListingBulkDto, ListingColumn, ListingFilter } from '@inmolink/contracts';
+import { LISTING_STATUSES, LISTING_STUDIO_BULK_MAX, SHARE_SCOPES, VISIBILITIES } from '@inmolink/contracts/values';
 import { Button, Input, Label } from '@inmolink/ui';
 import { useEffect, useRef, useState, useTransition } from 'react';
 import { Link, useRouter } from '@/i18n/navigation';

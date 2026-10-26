@@ -203,3 +203,6 @@ export const LISTING_ROOM_TYPES = [
 
 /** A listing document is a PDF of at most 20 MB (magic bytes checked, never the name or the header). */
 export const LISTING_DOCUMENT_MAX_BYTES = 20 * 1024 * 1024;
+
+/** Listings per Listing Studio bulk request (one batch job; its payload stays under the 10 KB job cap). S13-F14. */
+export const LISTING_STUDIO_BULK_MAX = 100;

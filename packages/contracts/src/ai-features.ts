@@ -1,6 +1,7 @@
 /** ai-features DTOs (PATTERNS §9): Zod schemas and inferred types for params, bodies and responses. */
 import { z } from 'zod';
 import { ContentLocaleCode } from './properties';
+import { LISTING_STUDIO_BULK_MAX } from './values';
 
 // ---- Listing Studio (S12-02, PLAN §8 #1, §3 #15) ----------------------------------------------------------------
 
@@ -9,8 +10,6 @@ export const LISTING_STUDIO_TONES = ['PROFESSIONAL', 'WARM', 'LUXURY', 'CONCISE'
 export const ListingStudioTone = z.enum(LISTING_STUDIO_TONES);
 export type ListingStudioTone = z.infer<typeof ListingStudioTone>;
 
-/** Listings per bulk request (one batch job; its payload stays under the 10 KB job cap). */
-export const LISTING_STUDIO_BULK_MAX = 100;
 /** Bulk batches one agency may have running at once (`LISTING_STUDIO_BATCH_LIMIT`). */
 export const LISTING_STUDIO_RUNNING_MAX = 3;
 
