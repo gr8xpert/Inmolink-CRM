@@ -340,16 +340,20 @@ describe('PDF documents (S12-05)', () => {
     most.clear();
     starts.length = 0;
     try {
-      const mine = await Promise.all(
-        Array.from({ length: 6 }, (_, i) =>
-          documents.requestPortfolio(run(a), { listingIds: [L.aOwn as string], title: `Batch ${i} ${RUN}` }),
+      // Both agencies ask at once (S15 CI fix): asked one after the other, a slow runner queued the other agency's
+      // renders only after the busy agency's last wave had started — no backlog left to be held behind.
+      const [mine, theirs] = await Promise.all([
+        Promise.all(
+          Array.from({ length: 6 }, (_, i) =>
+            documents.requestPortfolio(run(a), { listingIds: [L.aOwn as string], title: `Batch ${i} ${RUN}` }),
+          ),
         ),
-      );
-      const theirs = await Promise.all(
-        Array.from({ length: 2 }, (_, i) =>
-          documents.requestPortfolio(run(c), { listingIds: [L.cOwn as string], title: `Other ${i} ${RUN}` }),
+        Promise.all(
+          Array.from({ length: 2 }, (_, i) =>
+            documents.requestPortfolio(run(c), { listingIds: [L.cOwn as string], title: `Other ${i} ${RUN}` }),
+          ),
         ),
-      );
+      ]);
       const ready = async (m: Founder, id: string) =>
         until(
           () => documents.getDocument(run(m), id),
