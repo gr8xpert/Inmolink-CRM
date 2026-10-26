@@ -5,9 +5,10 @@ import { setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
 import { configureAi, createAiGateway, filePromptSource } from '@inmolink/platform/ai';
 import { FakeProvider, memoryAiCache, memoryAiStore } from '@inmolink/platform/ai/testing';
 import { closeCache, configureCache } from '@inmolink/platform/cache';
+import { restoreClock, useFakeClock } from '@inmolink/platform/clock';
 import { newId } from '@inmolink/platform/ids';
 import { createLogger } from '@inmolink/platform/logger';
-import { defaultSubscribers } from '@inmolink/platform/outbox';
+import { defaultSubscribers, PLATFORM_AGENCY_ID } from '@inmolink/platform/outbox';
 import { closeRateLimit, configureRateLimit } from '@inmolink/platform/rate-limit';
 import { configureSearch, createMeiliEngine } from '@inmolink/platform/search';
 import { sql } from 'drizzle-orm';
@@ -28,10 +29,13 @@ import {
   BACKFILL_PAGE_TARGETS,
   type BackfillCursor,
   type BackfillPageResult,
+  collectWhiteLabelBackfill,
   DEGRADED_RETRY_DELAYS_MS,
+  OWNER_CHANGE_WINDOW_MS,
   registerWhiteLabelSubscriptions,
   sanitizeTargetTexts,
   unregisterWhiteLabelSubscriptions,
+  WHITE_LABEL_POLL_MS,
   WHITE_LABEL_SWEEP_EVERY_MS,
   whiteLabelBackfillPage,
   whiteLabelJobs,
@@ -293,6 +297,48 @@ describe('white-label sanitizer model pass (S12-03)', () => {
   });
 });
 
+/**
+ * S13-F25: the agency's whole backfill walk — each page submitted (its batch recorded), then every submitted batch
+ * ended by the fake provider and collected. Answers the pages (with what their collect stored).
+ */
+async function walkAndCollect(
+  provider: FakeProvider,
+  agencyId: string,
+  options: { force?: boolean } = {},
+): Promise<BackfillPageResult[]> {
+  const run = newId();
+  const pages: BackfillPageResult[] = [];
+  const submitted: { pageKey: string; page: BackfillPageResult }[] = [];
+  let after: BackfillCursor | null = null;
+  do {
+    const pageKey = `wlb.t-${run}.${pages.length}`;
+    const page: BackfillPageResult = await whiteLabelBackfillPage({ agencyId, after, pageKey, force: options.force });
+    pages.push(page);
+    if (page.batch === 'SUBMITTED') submitted.push({ pageKey, page });
+    after = page.next;
+  } while (after);
+  for (const [batchId, batch] of provider.batches) if (!batch.ended) provider.endBatch(batchId);
+  for (const { pageKey, page } of submitted) {
+    const res = await collectWhiteLabelBackfill({ agencyId, pageKey });
+    if (res.status !== 'DONE') throw new Error(`batch ${pageKey} still running`);
+    page.stored += res.stored;
+  }
+  return pages;
+}
+
+/** Runs one subscriber of an event as the dispatcher would. */
+async function deliver(
+  type: string,
+  subscriber: string,
+  payload: unknown,
+  meta: { eventId: string; agencyId: string },
+) {
+  for (const sub of defaultSubscribers.get(type, 1)) {
+    if (sub.name !== subscriber) continue;
+    await sub.handler(payload as never, { ...meta, type, version: 1, createdAt: new Date(), attempt: 1 });
+  }
+}
+
 /** `search.publicDocs.changed` events of an agency written after `since` (a UUIDv7 taken before the change). */
 async function publicDocsEvents(agencyId: string, since: string) {
   const res = await withSystem('wl.test', (tx) =>
@@ -447,7 +493,12 @@ describe('white-label pass only for network-shown documents; backfill (S13-F7)',
     expect(whiteLabelJobs.whiteLabelBackfill.pool).toBe('ai');
     expect(whiteLabelJobs.whiteLabelBackfill.spec.concurrencyPerGroup).toBe(1);
     expect(
-      whiteLabelJobs.whiteLabelBackfill.spec.group?.({ run: '2026-10-25', agencyId: b.agencyId, after: null }),
+      whiteLabelJobs.whiteLabelBackfill.spec.group?.({
+        run: '2026-10-25',
+        agencyId: b.agencyId,
+        after: null,
+        force: false,
+      }),
     ).toBe(`wl:${b.agencyId}`);
     expect(whiteLabelJobs.whiteLabelSweep.pool).toBe('maintenance');
     expect(whiteLabelJobs.whiteLabelSweep.spec.every).toBe(WHITE_LABEL_SWEEP_EVERY_MS);
@@ -459,16 +510,7 @@ describe('white-label pass only for network-shown documents; backfill (S13-F7)',
     expect(whiteLabelLeaks(before.detail, await ownerOfB())).toEqual([]);
 
     const provider = gateway(model());
-    const walk = async () => {
-      const pages: BackfillPageResult[] = [];
-      let after: BackfillCursor | null = null;
-      do {
-        const page: BackfillPageResult = await whiteLabelBackfillPage({ agencyId: b.agencyId, after });
-        pages.push(page);
-        after = page.next;
-      } while (after);
-      return pages;
-    };
+    const walk = () => walkAndCollect(provider, b.agencyId);
     const first = await walk();
     expect(first.reduce((n, p) => n + p.stored, 0)).toBe(1);
     expect(provider.calls).toHaveLength(1);
@@ -602,7 +644,7 @@ describe('white-label model pass toggle (S13-F17)', () => {
     }
 
     // The backfill: the walk ends at once, the sweep does not page the agency.
-    const page = await whiteLabelBackfillPage({ agencyId: b.agencyId, after: null });
+    const page = await whiteLabelBackfillPage({ agencyId: b.agencyId, after: null, pageKey: `wl-off.${newId()}` });
     expect(page).toMatchObject({ disabled: true, next: null, asked: 0 });
     const swept = await withSystem('wl.test', (tx) =>
       agencies.agencyIdsWithAiFeaturePage(tx, 'WHITE_LABEL', null, 100_000),
@@ -628,3 +670,200 @@ describe('white-label model pass toggle (S13-F17)', () => {
     ).toContain(b.agencyId);
   });
 });
+
+describe('white-label backfill on the batch API; owner changes re-run it (S13-F25)', () => {
+  beforeAll(async () => {
+    registerWhiteLabelSubscriptions();
+    await setAiFeatures(b, ['WHITE_LABEL']);
+  });
+  afterAll(() => unregisterWhiteLabelSubscriptions());
+
+  const jobCtx = () => ({
+    log,
+    jobId: 'wl-f25',
+    attempt: 1,
+    progress: async () => {},
+    signal: new AbortController().signal,
+  });
+
+  it('[S13-F25] a backfill page goes through ai.batch and its removals land after collect', async () => {
+    await writeAiRemovals({ agencyId: b.agencyId, targetId: listingId }, null);
+    const provider = gateway(model());
+    const pageKey = `wlb.t-${newId()}.0`;
+    const page = await whiteLabelBackfillPage({ agencyId: b.agencyId, after: null, pageKey });
+    expect(page).toMatchObject({ batch: 'SUBMITTED', stored: 0, degraded: 0, next: null });
+    expect(page.asked).toBeGreaterThan(0);
+    // One provider batch, no interactive call; the items are kept in the table (the job carries ids only).
+    expect(provider.batches.size).toBe(1);
+    expect(provider.calls).toHaveLength(0);
+    const [batchId] = [...provider.batches.keys()] as [string];
+    const recorded = await batchRecord(pageKey);
+    expect(recorded).toMatchObject({ state: 'RUNNING', provider_batch_id: batchId });
+    expect(recorded?.items).toContainEqual(expect.objectContaining({ targetId: listingId }));
+    // A retried submit sends nothing twice.
+    expect(await whiteLabelBackfillPage({ agencyId: b.agencyId, after: null, pageKey })).toMatchObject({
+      batch: 'SUBMITTED',
+    });
+    expect(provider.batches.size).toBe(1);
+
+    // Until the batch ends: still deterministic only.
+    expect(await collectWhiteLabelBackfill({ agencyId: b.agencyId, pageKey })).toEqual({ status: 'IN_PROGRESS' });
+    expect((await served()).description).toContain(INDIRECT);
+
+    provider.endBatch(batchId);
+    expect(await collectWhiteLabelBackfill({ agencyId: b.agencyId, pageKey })).toMatchObject({
+      status: 'DONE',
+      stored: 1,
+      degraded: 0,
+    });
+    const after = await served();
+    expect(after.description).not.toContain('Marisol');
+    for (const f of FACTS) expect(after.description).toContain(f);
+    expect(whiteLabelLeaks(after.detail, await ownerOfB())).toEqual([]);
+    expect((await batchRecord(pageKey))?.state).toBe('DONE');
+    // A re-run collect applies nothing twice.
+    expect(await collectWhiteLabelBackfill({ agencyId: b.agencyId, pageKey })).toMatchObject({
+      status: 'DONE',
+      stored: 0,
+    });
+  });
+
+  it('[S13-F25] the backfill job queues the collect (ids only), which polls until the batch ends', async () => {
+    await writeAiRemovals({ agencyId: b.agencyId, targetId: listingId }, null);
+    const provider = gateway(model());
+    const collect = vi.spyOn(whiteLabelJobs.collectWhiteLabelBatch, 'enqueue').mockResolvedValue(undefined as never);
+    const nextPage = vi.spyOn(whiteLabelJobs.whiteLabelBackfill, 'enqueue').mockResolvedValue(undefined as never);
+    try {
+      const payload = { run: '2026-10-26', agencyId: b.agencyId, after: null, force: false };
+      const pageKey = whiteLabelJobs.whiteLabelBackfill.spec.jobId?.(payload) as string;
+      expect(pageKey).toBe(`wlb.2026-10-26.${b.agencyId}.start`);
+      await batchCleared(pageKey);
+      await whiteLabelJobs.whiteLabelBackfill.spec.run(payload, jobCtx());
+      const first = { agencyId: b.agencyId, pageKey, poll: 1 };
+      expect(collect.mock.calls).toEqual([[first, { delayMs: WHITE_LABEL_POLL_MS }]]);
+      expect(JSON.stringify(first).length).toBeLessThan(10_000);
+      expect(nextPage).not.toHaveBeenCalled(); // b's one target: a single page
+
+      await whiteLabelJobs.collectWhiteLabelBatch.spec.run(first, jobCtx());
+      expect(collect).toHaveBeenLastCalledWith({ ...first, poll: 2 }, { delayMs: WHITE_LABEL_POLL_MS });
+      for (const id of provider.batches.keys()) provider.endBatch(id);
+      const done = await whiteLabelJobs.collectWhiteLabelBatch.spec.run({ ...first, poll: 2 }, jobCtx());
+      expect(done).toMatchObject({ status: 'DONE', stored: 1 });
+      expect(collect).toHaveBeenCalledTimes(2);
+      expect(whiteLabelLeaks((await served()).detail, await ownerOfB())).toEqual([]);
+    } finally {
+      collect.mockRestore();
+      nextPage.mockRestore();
+    }
+  });
+
+  it('[S13-F25] an owner-change walk asks answered targets again; unchanged texts are answered by the cache', async () => {
+    await writeAiRemovals({ agencyId: b.agencyId, targetId: listingId }, null);
+    const provider = gateway(model());
+    expect((await walkAndCollect(provider, b.agencyId)).reduce((n, p) => n + p.stored, 0)).toBe(1);
+    expect(provider.batches.size).toBe(1);
+    // The sweep's walk: answered, nothing asked.
+    expect((await walkAndCollect(provider, b.agencyId)).reduce((n, p) => n + p.asked, 0)).toBe(0);
+    // An owner-change walk asks again — the same cleaned text comes from the response cache: no second batch.
+    const forced = await walkAndCollect(provider, b.agencyId, { force: true });
+    expect(forced.reduce((n, p) => n + p.asked, 0)).toBeGreaterThan(0);
+    expect(forced.every((p) => p.batch === null)).toBe(true);
+    expect(provider.batches.size).toBe(1);
+    expect(whiteLabelLeaks((await served()).detail, await ownerOfB())).toEqual([]);
+  });
+
+  it("[S13-F25] renaming the agency or a new agent queues the agency's walk once — a burst of changes runs one walk", async () => {
+    const spy = vi.spyOn(whiteLabelJobs.whiteLabelBackfill, 'enqueue').mockResolvedValue(undefined as never);
+    const jobIdOf = (p: unknown) => whiteLabelJobs.whiteLabelBackfill.spec.jobId?.(p as never);
+    const fake = useFakeClock('2026-10-26T10:03:00.000Z');
+    try {
+      const meta = () => ({ eventId: newId(), agencyId: b.agencyId });
+      const platform = () => ({ eventId: newId(), agencyId: PLATFORM_AGENCY_ID });
+      const joined = { memberAgencyId: b.agencyId, userId: b.userId, change: 'JOINED' };
+      const details = (identityChanged: boolean) => ({
+        agencyId: b.agencyId,
+        version: 9,
+        firstOnboarding: false,
+        identityChanged,
+      });
+      const profile = (p: { logoChanged: boolean; identityChanged: boolean }) => ({
+        agencyId: b.agencyId,
+        version: 9,
+        actorUserId: b.userId,
+        impersonatedBy: null,
+        ...p,
+      });
+      // A burst within one window: the agency renamed, its contacts edited, three agents joining (one event delivered
+      // twice by an outbox retry) — minutes apart.
+      const redelivered = platform();
+      const burst: [string, string, unknown, { eventId: string; agencyId: string }][] = [
+        ['agencies.details.updated', 'aiFeatures.whiteLabel.ownerDetailsChanged', details(true), meta()],
+        [
+          'agencies.profile.updated',
+          'aiFeatures.whiteLabel.ownerProfileChanged',
+          profile({ logoChanged: false, identityChanged: true }),
+          meta(),
+        ],
+        ['identity.member.named', 'aiFeatures.whiteLabel.memberNamed', joined, redelivered],
+        ['identity.member.named', 'aiFeatures.whiteLabel.memberNamed', joined, redelivered],
+        ['identity.member.named', 'aiFeatures.whiteLabel.memberNamed', joined, platform()],
+        ['identity.member.named', 'aiFeatures.whiteLabel.memberNamed', joined, platform()],
+      ];
+      for (const [type, subscriber, payload, m] of burst) {
+        await deliver(type, subscriber, payload, m);
+        fake.advance(60_000);
+      }
+      // Changes that clean nothing new: colours or the logo only, details without an identity field.
+      await deliver(
+        'agencies.profile.updated',
+        'aiFeatures.whiteLabel.ownerProfileChanged',
+        profile({ logoChanged: true, identityChanged: false }),
+        meta(),
+      );
+      await deliver('agencies.details.updated', 'aiFeatures.whiteLabel.ownerDetailsChanged', details(false), meta());
+
+      expect(spy).toHaveBeenCalledTimes(burst.length);
+      // One walk: every change queued the same job (BullMQ keeps one job per id) …
+      expect(new Set(spy.mock.calls.map((c) => jobIdOf(c[0])))).toEqual(
+        new Set([`wlb.i-202610261000.${b.agencyId}.start`]),
+      );
+      expect(spy.mock.calls[0]?.[0]).toEqual({ run: 'i-202610261000', agencyId: b.agencyId, after: null, force: true });
+      // … starting after the window closed (10:10 + a minute of slack), so it reads the identity after the last change.
+      const firstDelay = (spy.mock.calls[0]?.[1] as { delayMs: number } | undefined)?.delayMs;
+      expect(firstDelay).toBe(Date.parse('2026-10-26T10:11:00.000Z') - Date.parse('2026-10-26T10:03:00.000Z'));
+      expect(OWNER_CHANGE_WINDOW_MS).toBe(10 * 60_000);
+
+      // A change in the next window: a second walk.
+      spy.mockClear();
+      fake.set('2026-10-26T10:12:00.000Z');
+      await deliver('identity.member.named', 'aiFeatures.whiteLabel.memberNamed', joined, platform());
+      expect(spy.mock.calls.map((c) => jobIdOf(c[0]))).toEqual([`wlb.i-202610261010.${b.agencyId}.start`]);
+
+      // The model pass off: nothing.
+      spy.mockClear();
+      await setAiFeatures(b, ['WHITE_LABEL'], false);
+      await deliver('identity.member.named', 'aiFeatures.whiteLabel.memberNamed', joined, platform());
+      await deliver('agencies.details.updated', 'aiFeatures.whiteLabel.ownerDetailsChanged', details(true), meta());
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      restoreClock();
+      spy.mockRestore();
+      await setAiFeatures(b, ['WHITE_LABEL']);
+    }
+  });
+});
+
+/** S13-F25: a backfill page's batch record. */
+async function batchRecord(pageKey: string) {
+  const res = await withSystem('wl.test', (tx) =>
+    tx.execute<{ state: string; provider_batch_id: string | null; items: unknown[] }>(
+      sql`select state, provider_batch_id, items from white_label_batches where page_key = ${pageKey}`,
+    ),
+  );
+  return res.rows[0];
+}
+
+/** S13-F25: drops a page's batch record (a fixed page key another run of the suite may have used). */
+async function batchCleared(pageKey: string) {
+  await withSystem('wl.test', (tx) => tx.execute(sql`delete from white_label_batches where page_key = ${pageKey}`));
+}

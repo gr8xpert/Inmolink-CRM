@@ -20,7 +20,6 @@ export type ReplayClass = 'SAFE' | 'REFUSED' | 'SUPER_ADMIN';
 export const REPLAY_SAFE_TYPES: ReadonlySet<string> = new Set([
   'agencies.preferred.added',
   'agencies.preferred.removed',
-  'agencies.profile.updated',
   'agencies.settings.changed',
   'developments.development.accessChanged',
   'developments.development.deleted',
@@ -66,6 +65,7 @@ export const REPLAY_REFUSED_PREFIXES: readonly string[] = [
 /** Single events never replayed (a subscriber mails, alerts, calls AI or starts a run). */
 export const REPLAY_REFUSED_TYPES: ReadonlySet<string> = new Set([
   'agencies.details.updated', // billing trial start
+  'agencies.profile.updated', // S13-F25: an owner identity change queues the white-label backfill walk (AI calls)
   'agencies.verification.decided', // decision e-mail
   'imports.connection.paused', // pause notice
   'imports.run.requested', // starts a feed run

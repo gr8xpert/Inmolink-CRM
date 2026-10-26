@@ -8,6 +8,8 @@ export {
   STUDIO_BATCH_RETENTION_DAYS,
   STUDIO_MAX_POLLS,
   STUDIO_POLL_MS,
+  WHITE_LABEL_MAX_POLLS,
+  WHITE_LABEL_POLL_MS,
   WHITE_LABEL_SWEEP_EVERY_MS,
   whiteLabelJobs,
 } from './jobs';
@@ -41,6 +43,9 @@ export {
   studioFacts,
 } from './studio-facts';
 export {
+  OWNER_CHANGE_WINDOW_MS,
+  ownerChangeRun,
+  queueOwnerChangeWalk,
   registerAiFeaturesSubscriptions,
   registerWhiteLabelSubscriptions,
   unregisterAiFeaturesSubscriptions,
@@ -51,13 +56,17 @@ export {
 // agency's WHITE_LABEL toggle first.
 export {
   BACKFILL_PAGE_TARGETS,
+  type BackfillCollect,
   type BackfillCursor,
+  type BackfillItem,
   type BackfillPageResult,
+  collectWhiteLabelBackfill,
   docTexts,
   MAX_MODEL_TEXT_CHARS,
   MIN_MODEL_TEXT_CHARS,
   modelInput,
   type PreparedText,
+  parseRemovals,
   prepareTexts,
   protectedNamesOf,
   removalsByText,
@@ -65,6 +74,7 @@ export {
   sanitizeTargetTexts,
   shownOnNetwork,
   unescapeBlockText,
+  WHITE_LABEL_BACKFILL_FEATURE,
   WHITE_LABEL_BLOCK,
   WHITE_LABEL_FEATURE,
   WHITE_LABEL_PROMPT,

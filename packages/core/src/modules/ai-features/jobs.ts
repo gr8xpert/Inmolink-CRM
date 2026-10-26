@@ -13,7 +13,12 @@ import {
   type StudioRequest,
   submitListingStudioBulk,
 } from './studio';
-import { sanitizeTargetTexts, whiteLabelBackfillPage } from './white-label';
+import {
+  collectWhiteLabelBackfill,
+  pruneWhiteLabelBatches,
+  sanitizeTargetTexts,
+  whiteLabelBackfillPage,
+} from './white-label';
 
 /** The provider's batch answers within 24 h; polled every 2 minutes, given up after a day. */
 export const STUDIO_POLL_MS = 2 * 60_000;
@@ -78,7 +83,8 @@ const asRequest = (p: z.output<z.ZodObject<typeof studioRequest>>): StudioReques
  *   delayed job per poll, job ID = request id + poll number) up to `STUDIO_MAX_POLLS`, then writes the checked
  *   drafts (or marks the record GAVE_UP).
  * - `aiFeatures.pruneListingStudioBatches` (daily, pool `maintenance`, all agencies via `withSystem`): deletes batch
- *   records older than `STUDIO_BATCH_RETENTION_DAYS`, `PRUNE_BATCH` per statement until a short one.
+ *   records older than `STUDIO_BATCH_RETENTION_DAYS`, `PRUNE_BATCH` per statement until a short one — the Listing
+ *   Studio's and (S13-F25) the white-label backfill's (`white_label_batches`).
  */
 export const aiFeaturesJobs = {
   generateListingCopy: defineJob({
@@ -175,7 +181,16 @@ export const aiFeaturesJobs = {
         deleted += n;
         if (n < PRUNE_BATCH || job.signal.aborted) break;
       }
-      return { deleted };
+      // S13-F25: the white-label backfill's batch records too (a batch ends within a day).
+      let whiteLabel = 0;
+      for (;;) {
+        const n = await withSystem('aiFeatures.pruneWhiteLabelBatches', (tx) =>
+          pruneWhiteLabelBatches(tx, before, PRUNE_BATCH),
+        );
+        whiteLabel += n;
+        if (n < PRUNE_BATCH || job.signal.aborted) break;
+      }
+      return { deleted, whiteLabel };
     },
   }),
 };
@@ -192,9 +207,26 @@ export const WHITE_LABEL_SWEEP_EVERY_MS = 30 * 86_400_000;
 export const DEGRADED_RETRY_DELAYS_MS: readonly number[] = [15 * 60_000, 3_600_000, 4 * 3_600_000, 12 * 3_600_000];
 /** Agencies read per statement by the sweep. */
 const SWEEP_AGENCY_PAGE = 500;
-/** A sweep's run id (its UTC day): part of its jobs' ids, so a re-run sweep of the same day queues nothing twice. */
-const RUN_RE = /^\d{4}-\d{2}-\d{2}$/;
-const backfillCursor = z.object({ kind: z.enum(['LISTING', 'UNIT']), targetId: z.uuid() });
+/**
+ * A walk's run id, part of its jobs' ids: a sweep's UTC day (a re-run sweep of the same day queues nothing twice), or
+ * S13-F25 `i-<window start, YYYYMMDDHHmm>` — the walk owner identity changes queued (one per agency and window).
+ */
+const RUN_RE = /^(\d{4}-\d{2}-\d{2}|i-\d{12})$/;
+/** S13-F25: a backfill batch is polled every 10 minutes (it answers within 24 h), given up after a day. */
+export const WHITE_LABEL_POLL_MS = 10 * 60_000;
+export const WHITE_LABEL_MAX_POLLS = 150;
+/** S13-F25: the page key (the backfill job's id and its batch's idempotency key). */
+const PAGE_KEY_RE = /^wlb\.[A-Za-z0-9-]{1,40}\.[0-9a-f-]{36}\.[0-9a-z-]{1,36}$/;
+const backfillPayload = z.object({
+  run: z.string().regex(RUN_RE),
+  agencyId: z.uuid(),
+  after: z.object({ kind: z.enum(['LISTING', 'UNIT']), targetId: z.uuid() }).nullable(),
+  /** S13-F25: re-ask answered targets too (the owner's identity changed). */
+  force: z.boolean().default(false),
+});
+/** S13-F25: the backfill page's key — its job id and its batch's idempotency key. */
+export const backfillPageKey = (p: { run: string; agencyId: string; after: { targetId: string } | null }): string =>
+  `wlb.${p.run}.${p.agencyId}.${p.after?.targetId ?? 'start'}`;
 
 /** S13-F6: the white-label sanitizer's fair-share group, apart from the agency's interactive `ai` jobs. */
 export const whiteLabelGroup = (agencyId: string): string => `wl:${agencyId}`;
@@ -222,6 +254,16 @@ export const whiteLabelGroup = (agencyId: string): string => `wl:${agencyId}`;
  *
  * S13-F17: only for agencies that switched `WHITE_LABEL` on — the sweep pages those only; an event, a retry or a
  * backfill page of an agency that switched it off reads nothing, calls no model, queues no retry and ends the walk.
+ *
+ * S13-F25: a backfill page goes through the batch API (`ai.batch`, half price) instead of `ai.structured`: its items
+ * are recorded in `white_label_batches` (the payload stays ids only) and submitted under the page key (= the job id)
+ * as the idempotency key, the next page is queued at once, and
+ * - `aiFeatures.collectWhiteLabelBatch` (pool `ai`, group `wl:<agency>`; job id = page key + poll number) polls the
+ *   batch every `WHITE_LABEL_POLL_MS` up to `WHITE_LABEL_MAX_POLLS`, then applies the removals (or gives the record up).
+ * An owner identity change (`agencies.details.updated` / `agencies.profile.updated` with the identity changed, an agent
+ * joined — `identity.member.named`) queues the agency's walk early with `force` (answered targets are asked again: the
+ * deterministic pass's output they answered changed), one per agency and 10-minute window (run `i-<window>`, started
+ * after the window closed: `queueOwnerChangeWalk`).
  */
 export const whiteLabelJobs = {
   sanitizeTexts: defineJob({
@@ -293,28 +335,75 @@ export const whiteLabelJobs = {
   whiteLabelBackfill: defineJob({
     name: 'aiFeatures.whiteLabelBackfill',
     pool: 'ai',
-    payload: z.object({ run: z.string().regex(RUN_RE), agencyId: z.uuid(), after: backfillCursor.nullable() }),
-    jobId: (p) => `wlb.${p.run}.${p.agencyId}.${p.after?.targetId ?? 'start'}`,
+    payload: backfillPayload,
+    jobId: backfillPageKey,
     group: (p) => whiteLabelGroup(p.agencyId),
     concurrencyPerGroup: 1,
     attempts: 3,
     backoff: { type: 'exponential', delay: 60_000 },
     timeoutMs: 10 * 60_000,
-    async run(p, { log, jobId }) {
+    async run(p, { log }) {
       const degradedCodes = new Set<string>();
+      const pageKey = backfillPageKey(p);
       const result = await whiteLabelBackfillPage(
-        { agencyId: p.agencyId, after: p.after },
-        { requestId: jobId, onDegrade: (code) => degradedCodes.add(code) },
+        { agencyId: p.agencyId, after: p.after, pageKey, force: p.force },
+        { requestId: pageKey, onDegrade: (code) => degradedCodes.add(code) },
       );
       if (result.degraded > 0) {
-        // Over budget or the model unavailable: the agency's walk stops here; events and the next sweep carry on.
+        // Over budget: nothing was sent, the agency's walk stops here; events and the next sweep carry on.
         log.warn({ ...result, codes: [...degradedCodes] }, 'white-label backfill degraded: walk stopped');
         return { ...result, stopped: true };
       }
+      if (result.batch === 'SUBMITTED') {
+        await whiteLabelJobs.collectWhiteLabelBatch.enqueue(
+          { agencyId: p.agencyId, pageKey, poll: 1 },
+          { delayMs: WHITE_LABEL_POLL_MS },
+        );
+      }
       if (result.next) {
-        await whiteLabelJobs.whiteLabelBackfill.enqueue({ run: p.run, agencyId: p.agencyId, after: result.next });
+        await whiteLabelJobs.whiteLabelBackfill.enqueue({
+          run: p.run,
+          agencyId: p.agencyId,
+          after: result.next,
+          force: p.force,
+        });
       }
       return result;
+    },
+  }),
+
+  collectWhiteLabelBatch: defineJob({
+    name: 'aiFeatures.collectWhiteLabelBatch',
+    pool: 'ai',
+    payload: z.object({ agencyId: z.uuid(), pageKey: z.string().regex(PAGE_KEY_RE), poll: z.number().int().min(1) }),
+    jobId: (p) => `${p.pageKey}.c${p.poll}`,
+    group: (p) => whiteLabelGroup(p.agencyId),
+    concurrencyPerGroup: 1,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 60_000 },
+    timeoutMs: 10 * 60_000,
+    async run(p, { log }) {
+      const degradedCodes = new Set<string>();
+      const res = await collectWhiteLabelBackfill(
+        { agencyId: p.agencyId, pageKey: p.pageKey },
+        {
+          requestId: p.pageKey,
+          giveUp: p.poll > WHITE_LABEL_MAX_POLLS,
+          onDegrade: (code) => degradedCodes.add(code),
+        },
+      );
+      if (res.status === 'IN_PROGRESS') {
+        await whiteLabelJobs.collectWhiteLabelBatch.enqueue(
+          { ...p, poll: p.poll + 1 },
+          { delayMs: WHITE_LABEL_POLL_MS },
+        );
+        return res;
+      }
+      if (res.degraded > 0 || res.gaveUp) {
+        // Unanswered documents stay deterministic-only until the next sweep (or their next text event).
+        log.warn({ ...res, pageKey: p.pageKey, codes: [...degradedCodes] }, 'white-label backfill batch degraded');
+      }
+      return res;
     },
   }),
 };

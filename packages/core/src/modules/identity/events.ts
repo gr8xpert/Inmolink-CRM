@@ -50,6 +50,18 @@ export const identityEvents = {
     1,
     z.object({ agencyId: z.uuid(), keyId: z.uuid(), prefix: z.string().max(40), tier: z.enum(['STANDARD', 'HIGH']) }),
   ),
+  /**
+   * S13-F25: a member's display name is new to the agency — JOINED (an invite accepted; a member rename feature adds
+   * its own value when it is built). The white-label
+   * backfill re-checks the agency's network-shown texts (agent names point buyers at the owner). A platform event
+   * (nil agency: `app_auth` may append only those), so the agency is in the payload (`memberAgencyId`: `emit`
+   * refuses a payload `agencyId` other than the event's).
+   */
+  memberNamed: defineEvent(
+    'identity.member.named',
+    1,
+    z.object({ memberAgencyId: z.uuid(), userId: z.uuid(), change: z.enum(['JOINED']) }),
+  ),
   /** The member can no longer log in or reach the agency. */
   memberDeactivated: defineEvent('identity.member.deactivated', 1, z.object({ agencyId: z.uuid(), userId: z.uuid() })),
   /** The user's sessions were revoked (`session_version` moved on, e.g. a password reset): realtime closes them (S12-F10). */

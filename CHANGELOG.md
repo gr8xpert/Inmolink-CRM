@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- feat(ai-features): white-label backfill on the batch API (white_label_batches, migration 0167), owner identity changes re-run the walk (debounced per agency) [S13-F25]
 - feat(ai-features): Listing Studio batch submit idempotent (gateway idempotency key + provider reconcile, migration 0166), flagged auto-drafts on create / facts change, bulk "Write with AI" [S13-F14]
 - feat(billing): plan quotas as catalog data (requireQuota, incl. CSV import), remaining plan gates, website API/XML feed 402 after a downgrade notice (WEBSITE_PLAN_NOTICE_DAYS, only with BILLING_ENFORCE_PLANS), AI budgets by plan applied; migrations 0164–0165 [S13-F21]
 - feat(platform,presentations,social,matching,db): retention for the S12 growth tables — daily batched prunes of ai_jobs (13 mo), social_posts and selection_interactions (12 mo), per-search daily alert cap, 4 index-backed deletes (migration 0163) [S13-F9]

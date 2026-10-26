@@ -221,6 +221,7 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     whiteLabelJobs.sanitizeTexts,
     // S13-F7: the backfill walk, one page of an agency's network-shown documents per job.
     whiteLabelJobs.whiteLabelBackfill,
+    whiteLabelJobs.collectWhiteLabelBatch,
     // S12-02: the AI Listing Studio — one listing's drafts, and bulk drafts through the batch API.
     aiFeaturesJobs.generateListingCopy,
     aiFeaturesJobs.submitListingStudioBatch,

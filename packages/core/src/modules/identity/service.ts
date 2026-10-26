@@ -666,6 +666,10 @@ export async function acceptInvite(ctx: AuthCtx, input: AcceptInviteInput): Prom
     if (!(await repo.markInviteAccepted(tx, invite.id, tokenHash, userId, now))) throw new AppError('TOKEN_INVALID');
     const member = { agencyId, userId, role: invite.role, name: input.name, email: invite.email, createdAt: now };
     await repo.insertMember(tx, member);
+    // S13-F25: a new agent's name — the white-label backfill re-checks the agency's shared texts.
+    await emit(tx, identityEvents.memberNamed({ memberAgencyId: agencyId, userId, change: 'JOINED' }), {
+      agencyId: PLATFORM_AGENCY_ID,
+    });
     await compliance.auditAuth(tx, {
       type: 'identity.member.joined',
       userId,

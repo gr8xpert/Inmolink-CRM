@@ -15,6 +15,7 @@ import {
   primaryKey,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
@@ -89,5 +90,42 @@ export const listingStudioUsage = pgTable(
     // the quota check and the increment: where agency_id = ? and month = ?
     primaryKey({ columns: [t.agencyId, t.month] }),
     check('listing_studio_usage_listings_ck', sql`${t.listings} >= 0`),
+  ],
+);
+
+/**
+ * S13-F25: one page of the white-label backfill walk sent to the provider's batch API (half price) — submitted by
+ * `aiFeatures.whiteLabelBackfill`, answered by `aiFeatures.collectWhiteLabelBatch` up to a day later. The collect job
+ * must hand the gateway the very items it submitted (a batch is matched by the hash of its items), so they are kept
+ * here, not in the job payload (≤ 10 KB): per network-shown document of the page `{ customId, targetId, version,
+ * texts: [{ key, sent }] }` (the deterministic pass's output only, never an identity or contact), plus `spans` for an
+ * item the response cache answered at submit. `page_key` is the backfill job's id — the batch's idempotency key (a
+ * retried submit never sends the page twice); `cursor` where the walk's next page starts (null: the last page).
+ * `state` RUNNING until the answers are applied (DONE) or the batch is given up (GAVE_UP). Worker-only (`withSystem`);
+ * pruned with the Listing Studio batches (`STUDIO_BATCH_RETENTION_DAYS` after they were created).
+ */
+export const whiteLabelBatches = pgTable(
+  'white_label_batches',
+  {
+    id: uuid('id').primaryKey(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agencies.id),
+    pageKey: text('page_key').notNull(),
+    items: jsonb('items').notNull(),
+    cursor: jsonb('cursor'),
+    /** Null until the provider accepted the batch (or every item came from the response cache). */
+    providerBatchId: text('provider_batch_id'),
+    state: text('state').notNull().default('RUNNING'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // the retried submit / the collect job: where agency_id = ? and page_key = ? (also the FK index)
+    uniqueIndex('white_label_batches_page_uq').on(t.agencyId, t.pageKey),
+    // the prune (all agencies): batches older than the retention, oldest first
+    index('white_label_batches_created_idx').on(t.createdAt),
+    check('white_label_batches_state_ck', sql`${t.state} in ('RUNNING', 'DONE', 'GAVE_UP')`),
+    check('white_label_batches_page_key_ck', sql`length(${t.pageKey}) between 1 and 128`),
   ],
 );

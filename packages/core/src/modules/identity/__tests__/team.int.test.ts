@@ -13,6 +13,7 @@ import {
   privateKeyFromBase64,
 } from '@inmolink/platform/jwt';
 import { createLogger } from '@inmolink/platform/logger';
+import { PLATFORM_AGENCY_ID } from '@inmolink/platform/outbox';
 import { sql } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { authCtx, type Ctx } from '../../../context';
@@ -128,6 +129,23 @@ describe('invites', () => {
       },
     ]);
     expect(JSON.stringify(rows)).not.toContain(sent.email);
+  });
+
+  it('[S13-F25] a new agent (an invite accepted) emits identity.member.named JOINED for the agency', async () => {
+    const admin = await createFounder();
+    const sent = await invite(admin);
+    const { userId } = await identity.acceptInvite(anon(), { token: sent.token, name: 'Luis', password: PASSWORD });
+    const events = await withSystem('team test: read outbox', async (tx) => {
+      const r = await tx.execute<{ agency_id: string; payload: unknown }>(
+        sql`select agency_id, payload from outbox_events
+             where type = 'identity.member.named' and payload->>'userId' = ${userId}`,
+      );
+      return r.rows;
+    });
+    // A platform event (app_auth appends only those): the agency is in the payload, never the name or e-mail.
+    expect(events).toEqual([
+      { agency_id: PLATFORM_AGENCY_ID, payload: { memberAgencyId: admin.agencyId, userId, change: 'JOINED' } },
+    ]);
   });
 
   it('[S1-02] invite accept joins the inviting agency with the chosen role', async () => {

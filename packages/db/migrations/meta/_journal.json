@@ -1170,6 +1170,13 @@
       "when": 1792970670894,
       "tag": "0166_s13_f14_batch_idempotency",
       "breakpoints": true
+    },
+    {
+      "idx": 167,
+      "version": "7",
+      "when": 1792972623964,
+      "tag": "0167_s13_f25_white_label_batches",
+      "breakpoints": true
     }
   ]
 }

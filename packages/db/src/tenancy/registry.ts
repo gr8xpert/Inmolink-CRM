@@ -847,6 +847,9 @@ export const tenantTables: Record<string, TenantTable> = {
       items: '[]',
     },
   },
+  // S13-F25: white-label backfill pages sent to the batch API (the submitted items, kept for the collect job). Written
+  // by workers only (`withSystem`): members get no write grant (`userReadOnly`; security review), their own rows only.
+  white_label_batches: { kind: 'STRICT', userReadOnly: true, base: { page_key: 'isolation-page', items: '[]' } },
   // S13-F21: Listing Studio listings requested per month (the plan quota): written in the member's request transaction.
   // The guard (migration 0165) lets members only add to it — no delete, no lower count (security review).
   listing_studio_usage: { kind: 'STRICT', triggers: ['listing_studio_usage_guard'], base: { month: '2026-01-01' } },
