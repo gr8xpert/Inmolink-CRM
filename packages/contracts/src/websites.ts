@@ -311,7 +311,8 @@ export type WebsiteMedia = z.infer<typeof WebsiteMedia>;
  */
 const DevelopmentRef = z.string().nullable();
 
-export const WebsiteListingCard = ListingCardDoc.omit({ cover: true }).extend({
+// The portal's card extras (S15-F6) are not part of a website card: the serializer never sends them.
+export const WebsiteListingCard = ListingCardDoc.omit({ cover: true, portalText: true, portalTerraceM2: true }).extend({
   cover: WebsiteImage.nullable(),
   developmentRef: DevelopmentRef,
 });

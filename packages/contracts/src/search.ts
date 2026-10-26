@@ -334,7 +334,8 @@ export type NetworkCommission = z.infer<typeof NetworkCommission>;
 export const NetworkSearchItem = z.object({
   id: z.uuid(),
   kind: z.enum(['LISTING', 'UNIT']),
-  card: z.union([ListingCardDoc, UnitCardDoc]),
+  /** Network search strips the portal's card extras (S15-F6): never documented or sent here. */
+  card: z.union([ListingCardDoc.omit({ portalText: true, portalTerraceM2: true }), UnitCardDoc]),
   /** The listing agent (agent side only: never shown to a client). */
   ownerAgency: z.object({ id: z.uuid(), name: z.string() }),
   /** The owner is on the caller's preferred list. */
