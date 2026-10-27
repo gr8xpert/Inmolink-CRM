@@ -26,7 +26,7 @@ One file per decision: `NNNN-short-title.md` with **Status**, **Context**, **Dec
 | [0015](0015-staff-access-role.md) | Staff access: `app_staff` login role and `staff_users` | Accepted |
 | [0016](0016-narrowed-tenant-read.md) | Narrowed tenant read: `userSelect` and column grants | Accepted |
 | [0017](0017-tenant-bulk-load-without-copy.md) | Tenant bulk loads without COPY: `INSERT … jsonb_to_recordset` into UNLOGGED staging | Accepted |
-| [0018](0018-feed-api-ai-usage-queue.md) | feed-api enqueues AI usage jobs (an AI-only queue connection) | Proposed |
+| [0018](0018-feed-api-ai-usage-queue.md) | feed-api enqueues AI usage jobs (an AI-only queue connection) | Accepted |
 | [0019](0019-portal-page-rendering.md) | Portal page rendering (app router vs zero-JS HTML) | Accepted (A) |
 
 "Accepted (design)" means the decision is settled but the code lands with a later task, which the ADR names.

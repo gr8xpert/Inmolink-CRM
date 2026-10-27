@@ -1,6 +1,6 @@
 # ADR 0018 — feed-api enqueues AI usage jobs (an AI-only queue connection)
 
-- **Status:** Proposed — S12-08 (needs approval: it amends PLAN §5.3)
+- **Status:** Accepted — Shahzaib, 2026-10-27 (amends PLAN §5.3; S12-08)
 - **Date:** 2026-10-25
 - **Task:** S12-08 (PLAN §8 #3, §9.1); builds on S12-01's request-path metering
 
