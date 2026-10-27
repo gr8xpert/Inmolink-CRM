@@ -1,7 +1,13 @@
+import { DEFAULT_PAGE_CACHE_BYTES } from '@inmolink/platform/cache';
 import { unstable_getResponseFromNextConfig } from 'next/experimental/testing/server';
 import { NextRequest } from 'next/server';
 import { describe, expect, it, vi } from 'vitest';
-import nextConfig, { ENQUIRY_NOTICE_CACHE, PORTAL_ISR_PAGE_CACHE, PORTAL_PAGE_CACHE } from '../next.config';
+import nextConfig, {
+  ENQUIRY_NOTICE_CACHE,
+  PAGE_CACHE_MAX_BYTES,
+  PORTAL_ISR_PAGE_CACHE,
+  PORTAL_PAGE_CACHE,
+} from '../next.config';
 import { type CodeGate, createProxy, type EmbedGate, type PortalGate } from './proxy';
 
 vi.mock('./server/legacy-redirects', () => ({ legacyRedirect: async () => null }));
@@ -20,6 +26,12 @@ async function configCache(path: string): Promise<string | null> {
 async function effectiveCache(path: string, proxyRes: Response): Promise<string | null> {
   return proxyRes.headers.get('cache-control') ?? (await configCache(path));
 }
+
+describe('next.config page cache (S15 review)', () => {
+  it('[S15-F7] the page cache size equals the platform default (no workspace import in next.config)', () => {
+    expect(PAGE_CACHE_MAX_BYTES).toBe(DEFAULT_PAGE_CACHE_BYTES);
+  });
+});
 
 describe('portal CDN headers (S15 review)', () => {
   it('[S15-01] review: listing and development pages get a minute at the edge, never Next’s ~1-year stale window', async () => {

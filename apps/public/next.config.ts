@@ -1,5 +1,4 @@
 import { fileURLToPath } from 'node:url';
-import { DEFAULT_PAGE_CACHE_BYTES } from '@inmolink/platform/cache';
 import type { NextConfig } from 'next';
 import createNextIntlPlugin from 'next-intl/plugin';
 import { ENQUIRY_NOTICE_CACHE, PORTAL_ISR_PAGE_CACHE, PORTAL_PAGE_CACHE } from './src/portal/cache-control';
@@ -38,7 +37,9 @@ export const PORTAL_ISR_SOURCES = [`/${LOCALE}/property/:slug`, `/${LOCALE}/deve
  * also write every rendered page to the server's disk — unbounded for ~2M listings × locales.
  */
 export const PAGE_CACHE_HANDLER = fileURLToPath(new URL('./cache-handler.mjs', import.meta.url));
-export const PAGE_CACHE_MAX_BYTES = DEFAULT_PAGE_CACHE_BYTES;
+// The platform's `DEFAULT_PAGE_CACHE_BYTES` (256 MB), spelled out: `next typegen` loads this file before the platform
+// package is built, so it imports no workspace package (next-config.test.ts pins the two equal).
+export const PAGE_CACHE_MAX_BYTES = 256 * 1024 * 1024;
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
