@@ -13,10 +13,14 @@
  * profile pages of the agencies that own any of it (`portalAgencyPaths`; names in one statement per batch). Per UI
  * locale and part (`listings`, `developments`, `places`, `agencies`), files of at most `PORTAL_SITEMAP_URLS` URLs,
  * each URL with its hreflang alternates (`xhtml:link`, `x-default` = the default UI locale), streamed through gzip
- * into a multipart upload (`GzipObjectUpload`: memory holds one batch and one upload part per open file). Last the index (`sitemap.xml`) and the
- * manifest (`current.json`, the run and its files' hashes) — only then does the run serve. The previous run's files are
- * kept (a public process may still read its cached manifest) and the run before it is deleted. A failed run deletes
- * its own files and the previous run keeps serving.
+ * into a multipart upload (`GzipObjectUpload`: memory holds one batch and one upload part per open file). S16-F2: a
+ * part's files are finished as soon as its walk ends, so at most one upload per UI locale is open at a time — memory
+ * is bounded by the locale count, never by locales × parts. Last the index (`sitemap.xml`) and the manifest
+ * (`current.json`, the run and its files' hashes) — only then does the run serve. The previous run's files are kept (a
+ * public process may still read its cached manifest); the run before it is deleted, and S16-F2 so is every other run
+ * prefix (`sweepPortalSitemapRuns`: the files of a run killed mid-way, which no manifest ever named). A failed run deletes its
+ * own files and the previous run keeps serving. Uploads a dead worker left open are aborted by the `feeds` bucket's
+ * lifecycle rule (runbook deploy.md step 6).
  *
  * **Serving** (`portalSitemapFile`): the manifest (cached in process for `MANIFEST_TTL_MS`), the file's strong ETag
  * (its gzip SHA-256), the stored gzip bytes as a stream.
@@ -169,7 +173,8 @@ const placeIdsOf = (place: Place | undefined): string[] =>
   place ? (['country', 'region', 'city', 'area'] as const).flatMap((k) => (place[k]?.id ? [place[k].id] : [])) : [];
 
 export interface PortalSitemapRun {
-  skipped?: 'not-configured';
+  /** `superseded` (S16-F2): a newer run published while this one ran (a stalled job's retry); its files are gone. */
+  skipped?: 'not-configured' | 'superseded';
   runId?: string;
   urls?: { listings: number; developments: number; places: number; agencies: number };
   files?: number;
@@ -196,6 +201,10 @@ export async function generatePortalSitemaps(
   };
   const add = async (part: Part, paths: Record<string, string>, lastmod: Date | null) => {
     for (const l of Object.keys(paths)) await partOf(l, part).add(base, paths, lastmod);
+  };
+  /** S16-F2: a part's walk is over — finish its open file in every locale (one open upload per locale at a time). */
+  const finishPart = async (part: Part) => {
+    for (const [k, f] of files) if (k.endsWith(`|${part}`)) await f.finish();
   };
   const counts = { listings: 0, developments: 0, places: 0, agencies: 0 };
   const seenPlaces = new Set<string>();
@@ -233,6 +242,7 @@ export async function generatePortalSitemaps(
       if (next === null) break;
       after = next;
     }
+    await finishPart('listings');
 
     // 2. Developments (newest first, keyset by code): one walk, one name for every locale (`portalDevelopmentPaths`).
     const devInventory = await developmentInventory(requestId);
@@ -262,6 +272,7 @@ export async function generatePortalSitemaps(
       if (rows.length <= DEVELOPMENT_BATCH || !last) break;
       afterDev = last.code;
     }
+    await finishPart('developments');
 
     // 3. The home and search pages, and every location and zone page that holds any of it.
     await add('places', Object.fromEntries(locales.map((l) => [l, homePath(l)])), null);
@@ -290,6 +301,7 @@ export async function generatePortalSitemaps(
       await add('places', paths, null);
       counts.places += 1;
     }
+    await finishPart('places');
 
     // S15-03: the profile pages of the listed agencies whose stock is above (directory names, one statement a batch).
     const owners = [...seenOwners].sort();
@@ -305,8 +317,9 @@ export async function generatePortalSitemaps(
       }
     }
 
-    // 4. Every part file, then the index naming them.
-    for (const f of files.values()) await f.finish();
+    await finishPart('agencies');
+
+    // 4. The index naming every part file (each finished when its walk ended).
     written = [...files.values()].flatMap((f) => f.done).sort((a, b) => (a.name < b.name ? -1 : 1));
     const index = new XmlWriter();
     index.open('sitemapindex', { xmlns: SITEMAP_NS }).newline();
@@ -333,24 +346,140 @@ export async function generatePortalSitemaps(
   }
 
   // 5. The run serves from here on. The previous run stays (public processes trust the manifest they read for up to
-  // `MANIFEST_TTL_MS`); the run before it goes.
-  const current = await readManifest();
-  const manifest: PortalSitemapManifest = {
-    runId,
-    generatedAt: generatedAt.toISOString(),
-    files: written,
-    ...(current && current.runId !== runId
-      ? { previous: { runId: current.runId, files: current.files.map((f) => f.name) } }
-      : {}),
-  };
-  await storage().put('feeds', MANIFEST_KEY, Buffer.from(JSON.stringify(manifest)), {
-    contentType: 'application/json',
-  });
+  // `MANIFEST_TTL_MS`); the run before it goes. S16-F2: published only over an older run's manifest, by a conditional
+  // write — a stalled run that finishes after its own retry never replaces the newer manifest (whose sweep may have
+  // removed the stalled run's early files).
+  const published = await publishManifest(runId, generatedAt.toISOString(), written);
+  if (!published) {
+    await deleteRun(
+      runId,
+      written.map((f) => f.name),
+      opts.log,
+    );
+    opts.log?.warn({ runId }, 'portal sitemaps superseded by a newer run: not published');
+    return { skipped: 'superseded', runId };
+  }
+  const { manifest, current } = published;
+  // The run before the previous one: named by the old manifest, complete, gone at once.
   const older = current?.previous;
   if (older && older.runId !== runId) await deleteRun(older.runId, older.files, opts.log);
   manifestCache = undefined;
-  opts.log?.info({ runId, ...counts, files: written.length }, 'portal sitemaps generated');
+  const swept = await sweepPortalSitemapRuns(manifest, opts.log);
+  opts.log?.info({ runId, ...counts, files: written.length, swept }, 'portal sitemaps generated');
   return { runId, urls: counts, files: written.length };
+}
+
+/** Conditional manifest writes tried before giving up (each loses only to another run's write in between). */
+const PUBLISH_TRIES = 5;
+
+/**
+ * S16-F2: writes the manifest naming this run unless the stored one is a newer run's (`generatedAt`, then `runId`:
+ * UUIDv7, time-ordered) — `If-Match` on the ETag read, or `If-None-Match: *` when there is none, so no other run's
+ * manifest is overwritten unseen. Null: superseded.
+ */
+async function publishManifest(
+  runId: string,
+  generatedAt: string,
+  files: PortalSitemapManifest['files'],
+): Promise<{ manifest: PortalSitemapManifest; current: PortalSitemapManifest | null } | null> {
+  for (let attempt = 0; attempt < PUBLISH_TRIES; attempt += 1) {
+    const head = await storage().head('feeds', MANIFEST_KEY);
+    const current = head ? await readManifest() : null;
+    if (
+      current &&
+      (current.generatedAt > generatedAt || (current.generatedAt === generatedAt && current.runId > runId))
+    ) {
+      return null;
+    }
+    const manifest: PortalSitemapManifest = {
+      runId,
+      generatedAt,
+      files,
+      ...(current && current.runId !== runId
+        ? { previous: { runId: current.runId, files: current.files.map((f) => f.name) } }
+        : {}),
+    };
+    const written = await storage().putIf(
+      'feeds',
+      MANIFEST_KEY,
+      Buffer.from(JSON.stringify(manifest)),
+      { contentType: 'application/json' },
+      head ? { ifMatch: head.etag } : { ifNoneMatch: '*' },
+    );
+    if (written) return { manifest, current };
+  }
+  throw new Error('portal sitemaps: manifest kept changing; not published');
+}
+
+/** A run's files: `portal-sitemaps/<runId>/<name>.gz`. */
+const RUN_KEY = /^portal-sitemaps\/([A-Za-z0-9_-]{1,64})\/[^/]+$/;
+/** Run prefixes a sweep tracks at most (two kept runs, plus the leftovers of a few killed ones). */
+const SWEEP_MAX_RUNS = 1_000;
+/** The job's time limit (`websiteApi.generatePortalSitemaps`): a run older than this has been stopped by its worker. */
+export const PORTAL_SITEMAP_TIMEOUT_MS = 60 * 60_000;
+/**
+ * How much older than the live run's oldest file an unnamed run's newest file must be to be swept: the job's time limit
+ * plus 10 minutes (an abort lands at the next batch; storage timestamps are whole seconds, and a multipart object's is
+ * its upload's start). Only a run that began over 70 minutes before the live run's first file can match — stopped by
+ * then, whether it was killed or is a stalled job still running past its retry.
+ */
+const SWEEP_AGE_MS = PORTAL_SITEMAP_TIMEOUT_MS + 10 * 60_000;
+
+/**
+ * S16-F2: deletes every run prefix the manifest does not name (neither the live run nor the previous one) — the files
+ * of a run killed mid-way (a dead worker never reaches its `catch`, so its finished part files stay; no manifest ever
+ * names them). One listing of `portal-sitemaps/`, pages of 1,000 keys. A run is swept only when its newest file is
+ * `SWEEP_AGE_MS` older than the live run's oldest file (both storage timestamps: no clock skew between worker and
+ * store), so a run that may still be writing beside this one (a stalled job and its retry, either started first) is
+ * left for a later sweep: a killed run's files go with the first run that starts over 70 minutes after it (the
+ * schedule's next run, 6 hours on). Best effort: a failure is logged, the live run serves regardless. Returns the
+ * number of files deleted.
+ */
+export async function sweepPortalSitemapRuns(manifest: PortalSitemapManifest, log?: Logger): Promise<number> {
+  const keep = new Set([manifest.runId, ...(manifest.previous ? [manifest.previous.runId] : [])]);
+  const runs = new Map<string, { keys: string[]; newest: number }>();
+  let liveOldest = Number.POSITIVE_INFINITY;
+  try {
+    let after: string | undefined;
+    do {
+      const page = await storage().list('feeds', PORTAL_SITEMAP_PREFIX, { limit: 1_000, ...(after ? { after } : {}) });
+      for (const o of page.objects) {
+        const runId = RUN_KEY.exec(o.key)?.[1];
+        if (!runId) continue;
+        const at = o.lastModified.getTime();
+        if (runId === manifest.runId) liveOldest = Math.min(liveOldest, at);
+        if (keep.has(runId)) continue;
+        let run = runs.get(runId);
+        if (!run) {
+          if (runs.size >= SWEEP_MAX_RUNS) continue;
+          run = { keys: [], newest: 0 };
+          runs.set(runId, run);
+        }
+        run.keys.push(o.key);
+        run.newest = Math.max(run.newest, at);
+      }
+      after = page.next ?? undefined;
+    } while (after);
+  } catch (err) {
+    log?.warn({ err: err instanceof Error ? err.name : 'error' }, 'portal sitemap runs not listed');
+    return 0;
+  }
+  // The live run's files not listed (an eventually consistent listing): nothing to compare with — next run.
+  if (!Number.isFinite(liveOldest)) return 0;
+  let deleted = 0;
+  for (const [runId, run] of runs) {
+    if (run.newest >= liveOldest - SWEEP_AGE_MS) continue;
+    for (const key of run.keys) {
+      try {
+        await storage().delete('feeds', key);
+        deleted += 1;
+      } catch (err) {
+        // An orphan file is never served (the manifest names the live run only); the next sweep retries.
+        log?.warn({ runId, err: err instanceof Error ? err.name : 'error' }, 'old portal sitemap file not deleted');
+      }
+    }
+  }
+  return deleted;
 }
 
 async function deleteRun(runId: string, names: readonly string[], log?: Logger): Promise<void> {

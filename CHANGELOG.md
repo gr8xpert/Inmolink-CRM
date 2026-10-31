@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- feat(website-api): portal sitemap job sweeps orphaned run prefixes (killed runs, past the job timeout) and publishes its manifest by conditional write only over an older run's; open multipart uploads bounded to one per UI locale; peak RSS 374 MB on the scale seed [S16-F2]
 - feat(tests): full load suite (PLAN §15) — k6 dashboard and realtime scenarios, website soak profiles, import / matching storm drivers, soak sampler and verdict; `perf:load:tokens`, `perf:realtime:publish`, `perf:storm`, `perf:soak:sample`; results `docs/build/reviews/load-R1.md` [S16-01]
 - fix(e2e): S15-F7 waits out the listing tag's 30 s settle window before expecting an ISR HIT (CI reached the page inside it) [S15-F7]
 - fix(platform): legacy DB in production accepts only verify-full / verify-ca with sslrootcert, never adds uselibpqcompat, refuses repeated TLS URL parameters [S15-F4]

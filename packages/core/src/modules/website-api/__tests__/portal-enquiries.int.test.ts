@@ -9,6 +9,7 @@ import {
 } from '@inmolink/contracts';
 import { closeDb, countQueries, withPublicRead, withSystem, withTenant } from '@inmolink/db';
 import { setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
+import { UI_LOCALES } from '@inmolink/i18n';
 import { closeCache, configureCache } from '@inmolink/platform/cache';
 import { closeEmail, configureEmail, createMemoryMailer, type MemoryMailer } from '@inmolink/platform/email';
 import { isAppError } from '@inmolink/platform/errors';
@@ -16,7 +17,13 @@ import { newId } from '@inmolink/platform/ids';
 import { createLogger } from '@inmolink/platform/logger';
 import { closeRateLimit, rateLimiter } from '@inmolink/platform/rate-limit';
 import { configureSearch, createMeiliEngine } from '@inmolink/platform/search';
-import { configureStorage, createMemoryStore } from '@inmolink/platform/storage';
+import {
+  configureStorage,
+  createMemoryStore,
+  type MemoryStore,
+  type ObjectStore,
+  storage,
+} from '@inmolink/platform/storage';
 import type { TurnstileVerifier } from '@inmolink/platform/turnstile';
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -581,6 +588,109 @@ describe('portal sitemaps (S15-02)', () => {
     expect(await second?.open()).not.toBeNull();
     for (const bad of ['../current.json', 'en-listings-0.xml', 'xx.xml', 'en-listings-1.xml.gz', 'current.json']) {
       expect(await websiteApi.portalSitemapFile(bad), bad).toBeNull();
+    }
+  }, 300_000);
+});
+
+describe('portal sitemaps: orphaned runs and memory (S16-F2)', () => {
+  const runFile = (runId: string, name: string) => `portal-sitemaps/${runId}/${name}.gz`;
+
+  it("[S16-F2] a killed run's files are gone after the next run", async () => {
+    const mem = storage() as MemoryStore;
+    const live = await websiteApi.generatePortalSitemaps({ log });
+    // A worker killed mid-run: two finished part files, no manifest names them, its catch never ran.
+    const killed = newId();
+    // A stalled job still writing: it STARTED before the run below (its retry) and its last file is 30 minutes old.
+    const stalled = newId();
+    for (const [runId, name] of [
+      [killed, 'en-listings-1.xml'],
+      [killed, 'es-listings-1.xml'],
+      [stalled, 'en-listings-1.xml'],
+    ] as const) {
+      await mem.put('feeds', runFile(runId, name), new Uint8Array([1, 2, 3]), { contentType: 'application/gzip' });
+    }
+    const at = (runId: string, name: string, d: Date) => {
+      const o = mem.objects.get(`feeds/${runFile(runId, name)}`);
+      if (o) o.lastModified = d;
+    };
+    const old = new Date(Date.now() - 3 * 3_600_000);
+    at(killed, 'en-listings-1.xml', old);
+    at(killed, 'es-listings-1.xml', old);
+    at(stalled, 'en-listings-1.xml', new Date(Date.now() - 30 * 60_000));
+
+    const next = await websiteApi.generatePortalSitemaps({ log });
+    const keys = [...mem.objects.keys()].filter((k) => k.startsWith('feeds/portal-sitemaps/'));
+    const runsLeft = new Set(keys.flatMap((k) => /^feeds\/portal-sitemaps\/([^/]+)\//.exec(k)?.[1] ?? []));
+    expect(keys.some((k) => k.includes(killed))).toBe(false);
+    // The live run and the previous one (cached manifests may name it) stay; so does the stalled run, which may still
+    // be running (younger than the job's time limit plus a margin before the live run's first file).
+    expect(runsLeft).toEqual(new Set([next.runId, live.runId, stalled]));
+    // Once it is past the job's time limit it has been stopped: the next run sweeps it.
+    at(stalled, 'en-listings-1.xml', old);
+    await websiteApi.generatePortalSitemaps({ log });
+    expect([...mem.objects.keys()].some((k) => k.includes(stalled) || k.includes(live.runId as string))).toBe(false);
+  }, 300_000);
+
+  it('[S16-F2] a stalled run that finishes after a newer run never replaces its manifest', async () => {
+    const mem = storage() as MemoryStore;
+    const key = 'portal-sitemaps/current.json';
+    const before = await mem.get('feeds', key, { maxBytes: 1024 * 1024 });
+    // A newer run (the stalled job's retry) published while this one was still walking.
+    const newer = { runId: newId(), generatedAt: new Date(Date.now() + 3_600_000).toISOString(), files: [] };
+    await mem.put('feeds', key, Buffer.from(JSON.stringify(newer)), { contentType: 'application/json' });
+    try {
+      const run = await websiteApi.generatePortalSitemaps({ log });
+      expect(run.skipped).toBe('superseded');
+      const stored = JSON.parse(Buffer.from((await mem.get('feeds', key, { maxBytes: 1024 * 1024 })) ?? []).toString());
+      expect(stored).toEqual(newer);
+      // Its own files are gone (no manifest will ever name them).
+      expect([...mem.objects.keys()].some((k) => k.includes(run.runId as string))).toBe(false);
+    } finally {
+      if (before) await mem.put('feeds', key, before, { contentType: 'application/json' });
+      websiteApi.resetPortalSitemapCache();
+    }
+  }, 300_000);
+
+  it('[S16-F2] a run keeps at most one upload open per UI locale (memory bounded by locales, not locales × parts)', async () => {
+    const inner = storage();
+    let open = 0;
+    let peak = 0;
+    const opened: string[] = [];
+    const counting: ObjectStore = {
+      ...inner,
+      upload(bucket, key, options) {
+        const u = inner.upload(bucket, key, options);
+        open += 1;
+        peak = Math.max(peak, open);
+        opened.push(key);
+        let closed = false;
+        const close = () => {
+          if (!closed) open -= 1;
+          closed = true;
+        };
+        return {
+          write: (chunk) => u.write(chunk),
+          complete: () => u.complete().finally(close),
+          abort: () => u.abort().finally(close),
+        };
+      },
+    };
+    configureStorage(counting);
+    try {
+      const run = await websiteApi.generatePortalSitemaps({ log });
+      // Every part has a file in every locale (so the old order held locales × 4 open at once).
+      for (const part of ['listings', 'developments', 'places', 'agencies']) {
+        for (const l of UI_LOCALES)
+          expect(
+            opened.some((k) => k.endsWith(`/${l}-${part}-1.xml.gz`)),
+            `${l} ${part}`,
+          ).toBe(true);
+      }
+      expect(run.files).toBeGreaterThanOrEqual(UI_LOCALES.length * 4 + 1);
+      expect(peak).toBeLessThanOrEqual(UI_LOCALES.length);
+      expect(open).toBe(0);
+    } finally {
+      configureStorage(inner);
     }
   }, 300_000);
 });

@@ -50,7 +50,7 @@ import {
   takePendingPurges,
 } from './edge-purge';
 import { notifyLocale, renderLeadAck, renderLeadNotification } from './emails';
-import { generatePortalSitemaps, PORTAL_SITEMAP_EVERY_MS } from './portal-sitemaps';
+import { generatePortalSitemaps, PORTAL_SITEMAP_EVERY_MS, PORTAL_SITEMAP_TIMEOUT_MS } from './portal-sitemaps';
 import { type ApiSite, searchListings, siteForKey } from './service';
 import { websiteLimits } from './settings';
 import {
@@ -591,7 +591,7 @@ export const websiteApiJobs = {
     globalConcurrency: 1,
     attempts: 2,
     backoff: { type: 'exponential', delay: 60_000 },
-    timeoutMs: 60 * 60_000,
+    timeoutMs: PORTAL_SITEMAP_TIMEOUT_MS,
     async run(_p, { log, signal, progress }) {
       const result = await generatePortalSitemaps({ signal, log, progress: (urls) => progress({ urls }) });
       if (result.skipped) log.info({ skipped: result.skipped }, 'portal sitemaps skipped');
