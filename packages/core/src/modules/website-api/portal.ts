@@ -67,15 +67,24 @@ const logger = () => {
  * The portal shows only the stock of agencies listed in the directory (verified, active, not suspended, not opted
  * out — `agency_directory.listed`, Decision S15-01 review). Search documents carry their owner but not its standing, so
  * the portal names owners in the query — totals, facets and pages stay right: the listed agencies
- * (`agencies.listedAgencyIds`), or every other owner of a search document (`search.searchDocOwners`, a skip scan, minus
- * the listed ones) to leave out, whichever set is smaller (production: a few unlisted owners). Refreshed in the
- * background while the old set answers once it is `OWNER_SCOPE_REFRESH_MS` old, so a busy process pays the two
- * statements off the request path; never used older than `OWNER_SCOPE_MAX_AGE_MS` (an idle process waits for the
- * reload), so an agency's change of standing shows within a minute — S15-F7: the portal page cache's agency settle
- * (`PORTAL_AGENCY_SETTLE_MS`) relies on that bound.
+ * (`agencies.listedAgencyIds`), or every other owner of a search document (minus the listed ones) to leave out,
+ * whichever set is smaller (production: a few unlisted owners). S16-F1: the owners come from the shared set the search
+ * worker keeps on redis-cache (`search.sharedDocOwners`, one GET; the skip scan runs at most once a minute across all
+ * instances); while it is missing and another process is scanning, the listed agencies are named instead (never
+ * unlisted stock) and the scope is retried after `OWNER_SCOPE_RETRY_MS`. Refreshed in the background while the old
+ * set answers once it is `OWNER_SCOPE_REFRESH_MS` old, so a busy process pays the GET and one statement off the
+ * request path; never used older than `OWNER_SCOPE_MAX_AGE_MS` (an idle process waits for the reload), so an agency's
+ * change of standing shows within a minute — S15-F7: the portal page cache's agency settle (`PORTAL_AGENCY_SETTLE_MS`)
+ * relies on that bound. The shared set itself never lags that bound for a new owner: the build that writes an
+ * agency's first PUBLIC document marks it stale before the document reaches the index (`search.noteDocOwner`), and a
+ * set older than `search.DOC_OWNERS_MAX_AGE_MS` is never used (a stalled worker) — both read as missing, so the next
+ * load names the listed agencies (or scans, under the shared claim). Removals need no mark: hiding an agency that no
+ * longer owns documents changes nothing.
  */
 const OWNER_SCOPE_REFRESH_MS = 45_000;
 export const OWNER_SCOPE_MAX_AGE_MS = 60_000;
+/** A scope built without the shared owner set (another process is scanning) is retried this soon. */
+const OWNER_SCOPE_RETRY_MS = 2_000;
 
 /** Whose documents the portal shows: the listed agencies, or everyone but the unlisted owners. */
 export type OwnerScope = { show: string[] } | { hide: string[] };
@@ -85,30 +94,34 @@ export type OwnerScope = { show: string[] } | { hide: string[] };
  * be cut short is never used — the owners past the cut would show unlisted stock — so it falls back to a show list;
  * a show list cut short only leaves listed agencies out (logged).
  */
-export function ownerScopeOf(listed: readonly string[], hide: readonly string[]): OwnerScope {
+export function ownerScopeOf(listed: readonly string[], hide: readonly string[] | null): OwnerScope {
   const max = search.MAX_EXCLUDED_OWNERS;
-  if (hide.length <= listed.length && hide.length <= max) return { hide: [...hide] };
+  // S16-F1: without the owner set (null) only a show list is safe.
+  if (hide && hide.length <= listed.length && hide.length <= max) return { hide: [...hide] };
   if (listed.length > max) {
     logger().error(
-      { listed: listed.length, unlisted: hide.length, max },
+      { listed: listed.length, unlisted: hide?.length ?? null, max },
       'portal: too many owners to name in a search; showing the first listed agencies only',
     );
   }
   return { show: listed.slice(0, max) };
 }
 
-let ownerScope: { scope: OwnerScope; at: number } | undefined;
+let ownerScope: { scope: OwnerScope; at: number; refreshMs: number } | undefined;
 let ownerScopeLoad: Promise<OwnerScope> | undefined;
 
 function loadOwnerScope(): Promise<OwnerScope> {
-  ownerScopeLoad ??= withPublicRead(async (tx) => {
-    const listed = await agencies.listedAgencyIds(tx);
+  ownerScopeLoad ??= (async () => {
+    // The shared set first, outside the transaction (a redis-cache call; its rare fallback scan has its own).
+    const shared = await search.sharedDocOwners();
+    const listed = await withPublicRead((tx) => agencies.listedAgencyIds(tx));
+    if (!shared) return { scope: ownerScopeOf(listed, null), refreshMs: OWNER_SCOPE_RETRY_MS };
     const listedSet = new Set(listed);
-    const hide = (await search.searchDocOwners(tx)).filter((o) => !listedSet.has(o));
-    return ownerScopeOf(listed, hide);
-  })
-    .then((scope) => {
-      ownerScope = { scope, at: Date.now() };
+    const hide = shared.owners.filter((o) => !listedSet.has(o));
+    return { scope: ownerScopeOf(listed, hide), refreshMs: OWNER_SCOPE_REFRESH_MS };
+  })()
+    .then(({ scope, refreshMs }) => {
+      ownerScope = { scope, at: Date.now(), refreshMs };
       return scope;
     })
     .finally(() => {
@@ -120,7 +133,7 @@ function loadOwnerScope(): Promise<OwnerScope> {
 /** The owner scope (cached; the previous one answers while it refreshes, up to `OWNER_SCOPE_MAX_AGE_MS`). */
 async function currentOwnerScope(): Promise<OwnerScope> {
   const age = ownerScope ? Date.now() - ownerScope.at : Number.POSITIVE_INFINITY;
-  if (ownerScope && age < OWNER_SCOPE_REFRESH_MS) return ownerScope.scope;
+  if (ownerScope && age < ownerScope.refreshMs) return ownerScope.scope;
   const next = loadOwnerScope();
   if (!ownerScope || age >= OWNER_SCOPE_MAX_AGE_MS) return next;
   next.catch((err: unknown) => logger().warn({ err }, 'portal: refreshing the listed agencies failed'));

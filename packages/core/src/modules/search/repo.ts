@@ -2258,3 +2258,14 @@ export async function searchDocOwners(tx: Tx): Promise<string[]> {
     select id from o where id is not null`);
   return (res.rows as { id: string }[]).map((r) => r.id);
 }
+
+/**
+ * Does the agency own a search document the caller sees (S16-F1: as `app_public`, a PUBLIC one)? One probe of
+ * `listing_search_docs_owner_idx`. One statement.
+ */
+export async function ownsSearchDoc(tx: Tx, agencyId: string): Promise<boolean> {
+  const res = await tx.execute(
+    sql`select 1 as x from ${listingSearchDocs} where owner_agency_id = ${agencyId}::uuid limit 1`,
+  );
+  return res.rows.length > 0;
+}

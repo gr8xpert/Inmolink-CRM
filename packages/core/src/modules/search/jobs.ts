@@ -1,6 +1,7 @@
 import { clock } from '@inmolink/platform/clock';
 import { defineJob } from '@inmolink/platform/queue';
 import { z } from 'zod';
+import { DOC_OWNERS_REFRESH_MS, noteDocOwner, refreshDocOwners } from './doc-owners';
 import { checkIndexDrift, repairIndex, syncIndex } from './indexer';
 import {
   drainReadModelQueue,
@@ -51,6 +52,10 @@ const READ_MODEL_OVERDUE_MS = 30_000;
  *
  * `search.prunePublicChanges` (schedule: every hour, S7-03): drops website change-log rows past retention.
  *
+ * `search.refreshDocOwners` (schedule: every minute, S16-F1): the owners of PUBLIC search documents, stored on
+ * redis-cache for the portal (`doc-owners.ts`); skipped when a scan ran within the shared claim window. The read-model
+ * builds mark the set stale when they write a PUBLIC document of an owner it lacks (`noteDocOwner`).
+ *
  * `search.checkIndexDrift` (schedule: every 24 h): count and sample check of the index against read models;
  * queues mismatched samples and starts `search.repairIndex` on drift.
  *
@@ -75,6 +80,8 @@ export const searchJobs = {
         signal,
         // Each batch's documents reach the index while the run goes on (a long burst must not hold them back).
         onBatch: async (r) => {
+          // S16-F1: a new PUBLIC owner marks the portal's owner set stale before its documents reach the index.
+          if (r.written > 0) await noteDocOwner(p.agencyId);
           if (r.written + r.deleted > 0) await requestIndexSync();
         },
       });
@@ -113,6 +120,7 @@ export const searchJobs = {
     timeoutMs: 300_000,
     async run(p, { log }) {
       const result = await rebuildDevelopmentReadModels(p.developmentId);
+      if (result.written > 0) await noteDocOwner(p.agencyId);
       if (result.written + result.deleted > 0) await requestIndexSync();
       log.info({ developmentId: p.developmentId, ...result, pendingMedia: undefined }, 'development read models built');
       return { built: result.built, written: result.written, deleted: result.deleted };
@@ -133,6 +141,7 @@ export const searchJobs = {
         reason: 'search.buildAgencyReadModels',
         onProgress: (r) => void progress({ kind: r.kind, done: r.done }),
       });
+      await noteDocOwner(p.agencyId);
       await requestIndexSync();
       log.info({ agencyId: p.agencyId, result }, 'agency read models built');
       return { listings: result.LISTING.built, units: result.UNIT.built };
@@ -171,6 +180,21 @@ export const searchJobs = {
       const deleted = await prunePublicChanges(clock.now());
       if (deleted > 0) log.info({ deleted }, 'website change log pruned');
       return { deleted };
+    },
+  }),
+
+  refreshDocOwners: defineJob({
+    name: 'search.refreshDocOwners',
+    pool: 'indexing',
+    payload: z.object({}),
+    every: DOC_OWNERS_REFRESH_MS,
+    attempts: 3,
+    backoff: { type: 'exponential', delay: 5_000 },
+    timeoutMs: 30_000,
+    async run(_p, { log }) {
+      const result = await refreshDocOwners();
+      log.debug(result, 'search document owners refreshed');
+      return result;
     },
   }),
 

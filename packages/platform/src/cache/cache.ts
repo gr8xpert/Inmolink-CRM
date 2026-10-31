@@ -224,6 +224,25 @@ export class Cache {
     }
   }
 
+  /**
+   * S16-F1: claims `key` for `ttlMs` (`SET NX PX` on `<prefix>:claim:<key>`): true for the one caller that got it, false
+   * while another holds it — "at most one of every instance per window" for work several processes may want to start.
+   * Throws when redis-cache is down (the caller picks its fail mode).
+   */
+  async claim(key: CacheKey, ttlMs: number): Promise<boolean> {
+    assertCacheKey(key);
+    if (!Number.isInteger(ttlMs) || ttlMs < 1) throw new TypeError('claim: ttlMs must be a positive integer');
+    await whenReady(this.redis);
+    return (await this.redis.set(`${this.prefix}:claim:${key}`, '1', 'PX', ttlMs, 'NX')) === 'OK';
+  }
+
+  /** S16-F1: gives up a claim early (the claimed work failed: let the next caller try now). */
+  async release(key: CacheKey): Promise<void> {
+    assertCacheKey(key);
+    await whenReady(this.redis);
+    await this.redis.del(`${this.prefix}:claim:${key}`);
+  }
+
   async delete(key: CacheKey): Promise<void> {
     assertCacheKey(key);
     this.local.delete(key);

@@ -58,6 +58,8 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     searchJobs.syncIndex,
     searchJobs.checkIndexDrift,
     searchJobs.prunePublicChanges,
+    // S16-F1: the portal's shared owner set (one scan a minute across every instance).
+    searchJobs.refreshDocOwners,
     searchJobs.repairIndex,
     // S7-06: purges the website API's edge cache when public listings, sites or keys change.
     websiteApiJobs.purgeEdgeCache,

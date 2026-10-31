@@ -166,6 +166,9 @@ export const cache = {
   set: (key: CacheKey, value: unknown, opts: Omit<CacheGetOptions, 'local'>): Promise<void> =>
     instance().set(key, value, opts),
   delete: (key: CacheKey): Promise<void> => instance().delete(key),
+  // S16-F1: one holder per window across every process (SET NX PX).
+  claim: (key: CacheKey, ttlMs: number): Promise<boolean> => instance().claim(key, ttlMs),
+  release: (key: CacheKey): Promise<void> => instance().release(key),
   // S12-03: one MGET of worker-written values (misses and outages read as undefined).
   peekMany: (keys: readonly CacheKey[]): Promise<unknown[]> => instance().peekMany(keys),
   invalidateTag: (tag: string): Promise<void> => instance().invalidateTag(tag),

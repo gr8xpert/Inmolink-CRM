@@ -1,5 +1,15 @@
 /** search — public API (PATTERNS §1). The only import path for other modules and apps. */
 export { type BuiltDoc, etagOf, pickText } from './build';
+export {
+  DOC_OWNERS_CLAIM_MS,
+  DOC_OWNERS_MAX_AGE_MS,
+  DOC_OWNERS_REFRESH_MS,
+  type DocOwners,
+  noteDocOwner,
+  refreshDocOwners,
+  resetDocOwnersCopy,
+  sharedDocOwners,
+} from './doc-owners';
 export { searchErrors } from './errors';
 export { searchEvents } from './events';
 export {
@@ -143,7 +153,6 @@ export {
   publicDetailByRef,
   publicDocs,
   type SiteChange,
-  searchDocOwners,
   siteChanges,
   siteInventoryFilter,
   sitemapPage,

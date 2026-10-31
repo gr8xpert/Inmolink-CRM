@@ -59,11 +59,6 @@ export async function publicDetailByRef(
   return repo.publicDetailWhere(tx, { op: 'and', filters: [siteInventoryFilter(site), byRef] }, locale, fallback);
 }
 
-/** Every agency owning a search document (S15-01, `repo.searchDocOwners`). One statement. */
-export function searchDocOwners(tx: Tx): Promise<string[]> {
-  return repo.searchDocOwners(tx);
-}
-
 /**
  * The detail a public code names among this inventory (S15-01: the portal's listing pages name a listing by its code,
  * unique across agencies — an owner's own reference is not). Null: no such document here. One statement
