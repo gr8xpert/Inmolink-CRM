@@ -83,6 +83,31 @@ export const PROFILES = {
     preAllocatedVUs: 400,
     maxVUs: 3_000,
   },
+  // S16-01 (PLAN §15 "Soak"): 50 % of the origin target for 24 h, at origin, the acceptance budgets. Run beside
+  // `scripts/perf/soak-sampler.ts` (memory and connections over time). An acceptance profile: no overrides.
+  soak: {
+    rate: SLO.rps / 2,
+    seconds: 24 * 3_600,
+    warmupSeconds: 300,
+    edge: false,
+    degraded: false,
+    p95Ms: SLO.p95Ms,
+    errorRate: SLO.errorRate,
+    preAllocatedVUs: 200,
+    maxVUs: 1_000,
+  },
+  // A local slice of the soak (S16-01): 10 minutes at the smoke rate; overrides allowed; never the acceptance soak.
+  'soak-slice': {
+    rate: 20,
+    seconds: 600,
+    warmupSeconds: 30,
+    edge: false,
+    degraded: false,
+    p95Ms: SLO.p95Ms,
+    errorRate: SLO.errorRate,
+    preAllocatedVUs: 10,
+    maxVUs: 50,
+  },
 } as const satisfies Record<string, Profile>;
 export type ProfileName = keyof typeof PROFILES;
 
@@ -96,7 +121,7 @@ const positive = (name: string, v: string | undefined): number | undefined => {
 /** The profile that is the acceptance check (S7-08): it takes no overrides. */
 export const ACCEPTANCE_PROFILE: ProfileName = 'staging';
 /** Profiles whose numbers are an acceptance check (S7-08; S7-F9's degraded-engine run): no overrides. */
-const FIXED_PROFILES: ReadonlySet<ProfileName> = new Set([ACCEPTANCE_PROFILE, 'degraded']);
+const FIXED_PROFILES: ReadonlySet<ProfileName> = new Set([ACCEPTANCE_PROFILE, 'degraded', 'soak']);
 const OVERRIDES = ['RATE', 'DURATION', 'WARMUP', 'EDGE', 'P95_MS', 'DEGRADED'] as const;
 
 /**
@@ -550,7 +575,9 @@ export function summaryText(data: SummaryData, p: Profile): string {
     ? ' (the acceptance profile)'
     : same(PROFILES.degraded)
       ? ' (the degraded-engine acceptance profile, S7-F9)'
-      : ' — NOT the acceptance profile';
+      : same(PROFILES.soak)
+        ? ' (the 24-hour soak profile, S16-01)'
+        : ' — NOT the acceptance profile';
   const lines = [
     `website API load test — ${r.target.edge ? 'edge' : 'origin'}${r.target.degraded ? ', search engine stopped' : ''}, target ${r.target.rps} rps for ${r.target.seconds} s${label}`,
     `  sent ${r.requests} requests in the steady phase = ${r.rps} rps; errors ${(r.errorRate * 100).toFixed(3)} %; dropped ${r.dropped}` +

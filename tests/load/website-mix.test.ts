@@ -104,6 +104,22 @@ describe('website API load test (S7-08)', () => {
     expect(summaryText(empty, smoke)).toContain('NOT the acceptance profile');
   });
 
+  it('[S16-01] soak profile: 50 % of the origin target for 24 h at the acceptance budgets; a shortened run says so', () => {
+    const s = resolveProfile({ PROFILE: 'soak' });
+    expect(s).toMatchObject({ rate: 500, seconds: 86_400, edge: false, degraded: false, p95Ms: 150, errorRate: 0.001 });
+    const t = thresholds(s);
+    expect(t['http_req_duration{phase:steady}']).toEqual(['p(95)<150']);
+    expect(t['http_req_failed{phase:steady}']).toEqual(['rate<0.001']);
+    expect(t['http_reqs{phase:steady}']).toEqual([`count>=${Math.floor(500 * 86_400 * 0.99)}`]);
+    const empty = { metrics: {} };
+    expect(summaryText(empty, s)).toContain('(the 24-hour soak profile, S16-01)');
+    // The soak's numbers are an acceptance check: no overrides; a local slice is its own profile.
+    expect(() => resolveProfile({ PROFILE: 'soak', DURATION: '600' })).toThrow(/acceptance check: no DURATION/);
+    const slice = resolveProfile({ PROFILE: 'soak-slice', DURATION: '540' });
+    expect(slice).toMatchObject({ rate: 20, seconds: 540 });
+    expect(summaryText(empty, slice)).toContain('NOT the acceptance profile');
+  });
+
   it('[S7-F9] degraded-engine profile: the S7-08 rate, length and thresholds, and every search from the fallback', () => {
     const d = resolveProfile({ PROFILE: 'degraded' });
     const { degraded: _, ...staging } = PROFILES.staging;
@@ -252,7 +268,7 @@ describe('website API load test (S7-08)', () => {
       expect(schema.safeParse(query(o.path)).success, o.path).toBe(true);
     }
     expect(detailRequest(rng, { ...pool, refs: [] })).toBeUndefined();
-  });
+  }, 30_000); // 20k generated requests parsed by the contracts: ~1 s alone, more on a loaded CI runner
 
   it("[S7-08] edge mode sends feed-api's own `_k` token (S7-06), so the edge path is measured apart from origin", () => {
     const sha = (s: string) => createHash('sha256').update(s).digest('base64url');

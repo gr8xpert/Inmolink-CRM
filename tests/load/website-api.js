@@ -3,7 +3,7 @@
 //   k6 run -e BASE_URL=https://feed-origin.staging.example -e PROFILE=staging -e KEYS_FILE=keys.json website-api.js
 //
 // Env: BASE_URL (origin, or the CDN host with EDGE=1), KEYS_FILE (written by `pnpm perf:load:setup`), PROFILE
-// (smoke | staging | spike | degraded), RATE, DURATION (s), WARMUP (s), EDGE (1: `_k` on every request, report edge
+// (smoke | staging | spike | degraded | soak | soak-slice), RATE, DURATION (s), WARMUP (s), EDGE (1: `_k` on every request, report edge
 // hits), P95_MS, DEGRADED (1: the search engine is stopped — every search must come from the Postgres fallback),
 // SUMMARY_FILE (k6's summary as JSON). Runbook: docs/runbooks/website-api.md › Load test.
 import { check } from 'k6';

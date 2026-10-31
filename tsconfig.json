@@ -23,6 +23,11 @@
     "scripts/legacy-api",
     "scripts/perf/load-setup.ts",
     "scripts/perf/load-sites.ts",
-    "scripts/perf/smoke.ts"
+    "scripts/perf/smoke.ts",
+    "scripts/perf/storm.ts",
+    "scripts/perf/load-tokens.ts",
+    "scripts/perf/realtime-publisher.ts",
+    "scripts/perf/soak-sampler.ts",
+    "scripts/perf/lib"
   ]
 }

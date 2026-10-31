@@ -2109,6 +2109,11 @@ Ref §7 M14 · Mod agencies, website-api · Dep S15-F7
 **Build:** portal invalidation relies on `agencies.statusChanged` / directory events — add a contract test that every code path changing an agency's status or directory standing emits it (future suspension / opt-out paths included); regenerate the portal sitemaps (or drop the agency's URLs) on that event instead of waiting up to 6 h; legacy redirect hit counts drained with a two-step rename so a failed flush loses nothing.
 **Done when:** the contract test lists every writer of status / `listed`; a delisted agency's URLs leave the sitemaps within minutes; a failed hit flush is retried from Redis
 
+### S16-F4 · Scale seed covers the load suite's data (S16-01)
+Ref §15 · Mod tests · Dep S16-01 · ⚡
+**Build:** `scripts/seed` seeds what `profile.ts` already counts but no seeder writes: 1 feed connection per agency (Kyero, pointing at a load-test feed host given at seed time, paused by default), 200 client profiles / saved searches per agency (DAILY), 2,000 contacts per agency with leads, tasks, activities, calendar entries and notifications in PLAN §4.1 ratios — deterministic and idempotent like the other seeders (COPY per chunk). The storms then use the seeded rows instead of provisioning their own; the dashboard mix asserts its CRM endpoints return items.
+**Done when:** `db:seed:scale --agencies=5000` yields 5,000 feed connections, 1M client profiles and 10M contacts (counts in the scale-seed runbook); the storms run without provisioning; the dashboard smoke shows non-empty CRM pages; seed timing for 5,000 agencies recorded
+
 ## S17 — Pilot
 
 ### S17-01 · Pilot cutover
