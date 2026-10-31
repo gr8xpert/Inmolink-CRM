@@ -3,13 +3,13 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { docker, restoreDrill } from '../../scripts/ops/pitr';
+import { docker, POSTGRES_IMAGE, restoreDrill, TEST_STACK_NETWORK } from '../../scripts/ops/pitr';
 
 // Production commands against fixtures (S0-15, H3/H4 pending): the Postgres image's own ops scripts, a
 // WAL-G store on the test stack's MinIO (R2 stand-in), and fresh containers as the "fresh server".
 const ROOT = join(import.meta.dirname, '..', '..');
-const IMAGE = 'inmolink/postgres:18-3.6-walg3.0.9';
-const NETWORK = 'inmolink_default';
+const IMAGE = POSTGRES_IMAGE;
+const NETWORK = TEST_STACK_NETWORK;
 const id = `${Date.now().toString(36)}${randomBytes(2).toString('hex')}`;
 const PRIMARY = `drill-primary-${id}`;
 const REPLICA = `drill-replica-${id}`;

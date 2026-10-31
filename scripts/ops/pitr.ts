@@ -56,6 +56,11 @@ export interface DrillReport {
 
 export class DrillError extends Error {}
 
+/** The Postgres image with WAL-G and the inmolink-* ops scripts (infra/docker/postgres), as built locally. */
+export const POSTGRES_IMAGE = 'inmolink/postgres:18-3.6-walg3.0.9';
+/** The docker `test` stack's network (MinIO is `minio-test` there): drills' throwaway containers join it. */
+export const TEST_STACK_NETWORK = 'inmolink_default';
+
 /** On every container and volume a drill creates, so a cancelled run can be cleaned up (`cleanupDrills`). */
 export const DRILL_LABEL = 'inmolink.restore-drill=1';
 
@@ -185,6 +190,12 @@ export async function restoreDrill(o: DrillOptions): Promise<DrillReport> {
       [
         'run',
         '--rm',
+        // Named and labelled: if this command times out, killing the CLI leaves the container running — the
+        // cleanup below removes it by name (S16-02 review).
+        '--name',
+        `${container}-prepare`,
+        '--label',
+        DRILL_LABEL,
         '-u',
         'postgres',
         '-v',
@@ -262,6 +273,7 @@ export async function restoreDrill(o: DrillOptions): Promise<DrillReport> {
     };
   } finally {
     if (created && !o.keep) {
+      await docker(['rm', '-f', '-v', `${container}-prepare`], o).catch(() => undefined);
       await docker(['rm', '-f', '-v', container], o).catch(() => undefined);
       await docker(['volume', 'rm', '-f', volume], o).catch(() => undefined);
     }

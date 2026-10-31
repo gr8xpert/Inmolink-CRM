@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- feat(ops): chaos drills — pnpm ops:drill / ops:chaos: search, feed-api origin, Postgres failover, redis-queue restart + crash, AI outage, PITR; matrix checks with measured RTO/RPO, staging drills behind --confirm and CHAOS_STAGING_HOSTS; results in docs/build/reviews/chaos-R1.md [S16-02]
 - feat(search,website-api,platform): portal owner scope shared on redis-cache — one worker scan a minute across all instances, stale on age or on a new PUBLIC owner (noteDocOwner); cache.claim()/release() for one holder across processes [S16-F1]
 - feat(website-api): portal sitemap job sweeps orphaned run prefixes (killed runs, past the job timeout) and publishes its manifest by conditional write only over an older run's; open multipart uploads bounded to one per UI locale; peak RSS 374 MB on the scale seed [S16-F2]
 - feat(tests): full load suite (PLAN §15) — k6 dashboard and realtime scenarios, website soak profiles, import / matching storm drivers, soak sampler and verdict; `perf:load:tokens`, `perf:realtime:publish`, `perf:storm`, `perf:soak:sample`; results `docs/build/reviews/load-R1.md` [S16-01]

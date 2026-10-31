@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 
 // Vitest workspace: `pnpm vitest` at the root runs every package; Turbo runs them per package.
 export default defineConfig({
@@ -118,12 +118,31 @@ export default defineConfig({
         test: {
           name: 'ops',
           include: ['tests/ops/**/*.int.test.ts'],
+          // The chaos drills disrupt the shared stack: their own project, never in test:int:root (per push).
+          exclude: [...configDefaults.exclude, 'tests/ops/chaos.int.test.ts'],
           environment: 'node',
           pool: 'threads',
           fileParallelism: false,
           globalSetup: ['tests/infra/global-setup.ts'],
           testTimeout: 300_000,
           hookTimeout: 180_000,
+        },
+      },
+      {
+        // `pnpm ops:drill <drill> --local` (S16-02): chaos drills that stop Meilisearch and restart / kill redis-queue
+        // of the test stack for seconds, and kill throwaway Postgres containers. Run by hand or before a release
+        // (PLAN §15: before R1 go-live, then quarterly), not per push. Drives core services: source resolution.
+        ssr: { resolve: { conditions: ['@inmolink/source', 'node'] } },
+        resolve: { conditions: ['@inmolink/source', 'import', 'module', 'default'] },
+        test: {
+          name: 'ops-chaos',
+          include: ['tests/ops/chaos.int.test.ts'],
+          environment: 'node',
+          pool: 'threads',
+          fileParallelism: false,
+          globalSetup: ['tests/infra/global-setup.ts'],
+          testTimeout: 300_000,
+          hookTimeout: 300_000,
         },
       },
       {
