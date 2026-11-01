@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- fix(tests): chat markLinkRead plan test seeds notifications at a mid-month anchor and checks only the partition holding the member's rows (other suites' rows in next month's partition gave a Seq Scan of cost 1.07 on CI); the S9-03 portal feed race test holds upload completion until both runs have read the served file [S16 CI]
 - feat(agencies,website-api,migration,platform): status-writer contract test; sitemaps regenerate on delisting; leased two-step redirect-hit drain (hash-tagged keys) [S16-F3]
 - feat(ops): chaos drills — pnpm ops:drill / ops:chaos: search, feed-api origin, Postgres failover, redis-queue restart + crash, AI outage, PITR; matrix checks with measured RTO/RPO, staging drills behind --confirm and CHAOS_STAGING_HOSTS; results in docs/build/reviews/chaos-R1.md [S16-02]
 - feat(search,website-api,platform): portal owner scope shared on redis-cache — one worker scan a minute across all instances, stale on age or on a new PUBLIC owner (noteDocOwner); cache.claim()/release() for one holder across processes [S16-F1]

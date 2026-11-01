@@ -58,6 +58,18 @@ const TOKEN = { kyero: '' };
 
 const memory = createMemoryStore();
 const uploads = { completed: 0, aborted: 0 };
+/**
+ * A barrier on completing uploads (the race test): each `complete` waits until `parties` have arrived, so every racer
+ * has planned (read the served file) before any records its run. Unset: no wait.
+ */
+let completeGate: { parties: number; arrived: number; open: () => void; opened: Promise<void> } | undefined;
+function gateCompletes(parties: number): void {
+  let open = () => {};
+  const opened = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  completeGate = { parties, arrived: 0, open, opened };
+}
 /** The memory store, counting completed and aborted uploads (a rewrite completes one). */
 const store: ObjectStore = {
   ...memory,
@@ -66,6 +78,11 @@ const store: ObjectStore = {
     return {
       write: (chunk) => u.write(chunk),
       complete: async () => {
+        const gate = completeGate;
+        if (gate) {
+          if (++gate.arrived >= gate.parties) gate.open();
+          await gate.opened;
+        }
         uploads.completed++;
         return u.complete();
       },
@@ -494,7 +511,12 @@ describe('[S9-03] run history and serialization', () => {
     expect(spec.concurrencyPerGroup).toBe(1);
     // Defence in depth: two runs started from the same served file — only one is recorded as served.
     await readModel(a, 'three', { description: `Race ${RUN}. ${DESCRIPTION}` });
-    const [x, y] = await Promise.all([generate([C.kyero]), generate([C.kyero])]);
+    // Both runs plan from the served file before either records (the gate holds each upload's completion until both
+    // arrive): unsynchronized, the second could plan after the first recorded and be a plain UNCHANGED run.
+    gateCompletes(2);
+    const [x, y] = await Promise.all([generate([C.kyero]), generate([C.kyero])]).finally(() => {
+      completeGate = undefined;
+    });
     expect([...x.written, ...y.written]).toEqual([C.kyero]);
     expect([...x.failed, ...y.failed]).toEqual([C.kyero]);
     const keys = objectsOf(C.kyero);

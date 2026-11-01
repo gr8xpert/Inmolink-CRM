@@ -26,6 +26,16 @@ const LIMIT = 25;
 let a: Founder;
 let bigThread = '';
 const RUN = newId().slice(-8);
+/**
+ * The notifications' clock: the 16th of the current UTC month. Seeded from `now()`, the `since` window (7 days) always
+ * reached the next, premade partitions, and which partition held the member's rows moved with the date; a few rows
+ * other suites left in the next month (CI, 2026-10-31 23:01Z: 2 rows in p20261101, analysed → a Seq Scan of cost 1.07)
+ * broke the "only empty partitions are scanned" check. Anchored mid-month, the member's rows (14 days back) and the
+ * window sit in one partition on any date.
+ */
+const today = new Date();
+const ANCHOR = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 16));
+const ANCHOR_SQL = `'${ANCHOR.toISOString()}'::timestamptz`;
 
 beforeAll(async () => {
   await setupTestDb('worker');
@@ -54,12 +64,12 @@ beforeAll(async () => {
     select '${A}', gen_random_uuid(), '${other?.id}', '${A}', gen_random_uuid(), 'Bea', 'other ' || g,
            now() - (g * interval '1 second') from generate_series(1, ${OTHER_MESSAGES}) g;
     insert into notifications (id, agency_id, user_id, created_at, type, params, link, in_app, email_pending, read_at)
-    select gen_random_uuid(), '${A}', '${U}', date_trunc('milliseconds', now() - (g * interval '1 minute'), 'UTC'),
+    select gen_random_uuid(), '${A}', '${U}', date_trunc('milliseconds', ${ANCHOR_SQL} - (g * interval '1 minute'), 'UTC'),
            'CHAT_MESSAGE', '{}'::jsonb, '/chat/' || '${RUN}-' || (g % 500), true, g <= ${UNREAD} and g % 3 = 0,
            case when g <= ${UNREAD} then null else now() end
       from generate_series(1, ${NOTIFICATIONS}) g;
     insert into notifications (id, agency_id, user_id, created_at, type, params, link, in_app, email_pending)
-    select gen_random_uuid(), '${A}', gen_random_uuid(), date_trunc('milliseconds', now() - (g * interval '10 seconds'), 'UTC'),
+    select gen_random_uuid(), '${A}', gen_random_uuid(), date_trunc('milliseconds', ${ANCHOR_SQL} - (g * interval '10 seconds'), 'UTC'),
            'CHAT_MESSAGE', '{}'::jsonb, '/chat/' || '${RUN}-' || (g % 500), true, g % 3 = 0
       from generate_series(1, ${OTHER_NOTIFICATIONS}) g;
     commit;`);
@@ -158,19 +168,26 @@ describe('chat statements at scale', () => {
   }, 120_000);
 
   it('[S11-03] a thread read marks its chat notifications read: the unread / digest indexes, < 20 ms', async () => {
-    const since = new Date(Date.now() - 7 * 86_400_000);
+    const since = new Date(ANCHOR.getTime() - 7 * 86_400_000);
+    // the partitions holding the member's notifications (one, by the anchor)
+    const populated = (
+      await adminQuery<{ part: string }>(
+        `select distinct tableoid::regclass::text as part from notifications where agency_id = '${a.agencyId}'`,
+      )
+    ).map((r) => r.part);
+    expect(populated).toHaveLength(1);
     const best = await explain(asMember, () =>
       markLinkReadStatement(a.agencyId, a.userId, 'CHAT_MESSAGE', `/chat/${RUN}-7`, since, 100),
     );
     console.info(
       `chat markLinkRead (${NOTIFICATIONS + OTHER_NOTIFICATIONS} notifications, ${UNREAD} unread): ${best.ms} ms\n${best.plan}`,
     );
-    // the populated month is read through the unread / digest partial indexes; only empty partitions (cost < 1) are scanned
-    expect(best.plan).toMatch(/Bitmap Index Scan on notifications_p\d+_agency_id_user_id/);
-    const seqCosts = [...best.plan.matchAll(/Seq Scan on notifications\S* \S+ +\(cost=[\d.]+\.\.([\d.]+)/g)].map((m) =>
-      Number(m[1]),
-    );
-    expect(seqCosts.every((c) => c < 1)).toBe(true);
+    // the populated month is read through the unread / digest partial indexes, never scanned; other months hold none of
+    // the member's rows (empty, or other suites' few), and the planner may scan those
+    for (const part of populated) {
+      expect(best.plan).toMatch(new RegExp(`Bitmap Index Scan on ${part}_agency_id_user_id`));
+      expect(best.plan).not.toMatch(new RegExp(`Seq Scan on ${part} `));
+    }
     expect(best.ms).toBeLessThan(20);
   }, 120_000);
 });
