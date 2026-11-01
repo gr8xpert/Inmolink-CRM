@@ -21,6 +21,20 @@ function ctxAs(actor: Ctx['actor'], clientMode = false): Ctx {
 const admin = ctxAs({ kind: 'user', userId: USER, role: 'AGENCY_ADMIN' });
 
 describe('compliance policy', () => {
+  it('[S16-04] consent history: members of the agency, never in Client Mode; retention: admins, set never while impersonated', () => {
+    const agent = ctxAs({ kind: 'user', userId: USER, role: 'AGENT' });
+    const impersonated = ctxAs({ kind: 'user', userId: USER, role: 'AGENCY_ADMIN', impersonatedBy: OTHER_AGENCY });
+    expect(can(agent, 'compliance.consents.read')).toBe(true);
+    expect(can(ctxAs({ kind: 'user', userId: USER, role: 'AGENT' }, true), 'compliance.consents.read')).toBe(false);
+    expect(can(agent, 'compliance.consents.read', { agencyId: OTHER_AGENCY })).toBe(false);
+    expect(can(admin, 'compliance.retention.read')).toBe(true);
+    expect(can(admin, 'compliance.retention.manage')).toBe(true);
+    expect(can(agent, 'compliance.retention.read')).toBe(false);
+    expect(can(agent, 'compliance.retention.manage')).toBe(false);
+    expect(can(impersonated, 'compliance.retention.read')).toBe(true);
+    expect(can(impersonated, 'compliance.retention.manage')).toBe(false);
+  });
+
   it('[S1-08] the audit log is read by the agency’s own admins (also while impersonated)', () => {
     expect(can(admin, 'compliance.auditLog.read')).toBe(true);
     expect(can(ctxAs({ kind: 'user', userId: USER, role: 'DEVELOPER_ADMIN' }), 'compliance.auditLog.read')).toBe(true);

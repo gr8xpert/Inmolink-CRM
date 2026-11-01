@@ -14,6 +14,8 @@ import { cancelOperationAction, startOperationAction } from './actions';
 
 const ERRORS = [
   'FORBIDDEN',
+  'AGENCY_ERASURE_REFUSED',
+  'MFA_CODE_INVALID',
   'STAFF_OPERATION_ACTIVE',
   'STAFF_OPERATION_NOT_FOUND',
   'NOT_FOUND',
@@ -99,6 +101,20 @@ export default async function StaffOperationsPage({ searchParams }: { searchPara
               />
               <span id="op-reason-hint" className="text-xs text-muted-foreground">
                 {t('ops.operations.reasonHint')}
+              </span>
+            </div>
+            <div className="flex flex-col gap-1">
+              <Label htmlFor="op-code">{t('ops.operations.twoFactorCode')}</Label>
+              <input
+                id="op-code"
+                name="twoFactorCode"
+                autoComplete="one-time-code"
+                maxLength={16}
+                aria-describedby="op-code-hint"
+                className="h-9 rounded-md border bg-background px-2 text-sm"
+              />
+              <span id="op-code-hint" className="text-xs text-muted-foreground">
+                {t('ops.operations.twoFactorCodeHint')}
               </span>
             </div>
             <fieldset className="grid gap-3 rounded-md border p-3 sm:col-span-2 sm:grid-cols-2">

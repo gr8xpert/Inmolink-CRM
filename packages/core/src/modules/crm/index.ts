@@ -30,8 +30,27 @@ export {
   type ExportLeadRow,
   type ExportPageQuery,
   leadsForExport,
+  SUBJECT_PAGE_MAX,
+  type SubjectContactRow,
+  subjectActivities,
+  subjectContact,
+  subjectLeads,
+  subjectNotes,
+  subjectTasks,
 } from './data-export';
-export { eraseContact, eraseContactData } from './erasure';
+export {
+  anonymizeInactiveContacts,
+  eraseAgencyContacts,
+  eraseAgencyCrmText,
+  eraseContact,
+  eraseContactData,
+  eraseContactsBySystem,
+  erasedContactIds,
+  openContactExists,
+  purgeAgencyContactImports,
+  purgeContactImportFiles,
+  SYSTEM_ERASE_BATCH,
+} from './erasure';
 export { crmErrors } from './errors';
 export { crmEvents } from './events';
 export {
@@ -108,6 +127,7 @@ export {
   type CreateContactResult,
   createContact,
   getContact,
+  listContactConsents,
   listContactNotes,
   listContacts,
   lookupContacts,

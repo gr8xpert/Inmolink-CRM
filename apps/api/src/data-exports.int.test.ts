@@ -245,3 +245,46 @@ describe('data export routes', () => {
     expect(bad.statusCode).toBe(422);
   });
 });
+
+describe('GDPR routes (S16-04)', () => {
+  it('[S16-04] a data subject export names an open contact; consent history and the retention period over HTTP', async () => {
+    const f = await founderWithAuthenticator();
+    const headers = await bearer(f.userId, f.agencyId);
+    const contact = await app.inject({
+      method: 'POST',
+      url: '/v1/crm/contacts',
+      headers,
+      payload: { firstName: 'Petra', emails: [`petra-${newId()}@example.com`], consentMarketing: true },
+    });
+    expect(contact.statusCode).toBe(201);
+    const contactId = contact.json().contact?.id ?? contact.json().id;
+    const post = (payload: object) => app.inject({ method: 'POST', url: '/v1/agency/data-exports', headers, payload });
+    expect((await post({ kind: 'SUBJECT', twoFactorCode: f.code() })).json().error.code).toBe('VALIDATION_FAILED');
+    expect((await post({ kind: 'SUBJECT', contactId: newId(), twoFactorCode: f.code() })).statusCode).toBe(404);
+    const subject = await post({ kind: 'SUBJECT', contactId, twoFactorCode: f.code() });
+    expect(subject.statusCode).toBe(201);
+    expect(subject.json()).toMatchObject({ kind: 'SUBJECT', subjectContactId: contactId, status: 'QUEUED' });
+
+    const consents = await app.inject({ method: 'GET', url: `/v1/crm/contacts/${contactId}/consents`, headers });
+    expect(consents.statusCode).toBe(200);
+    expect(consents.json().items).toMatchObject([{ purpose: 'MARKETING', granted: true, source: 'DASHBOARD' }]);
+
+    const get = await app.inject({ method: 'GET', url: '/v1/agency/retention', headers });
+    expect(get.json()).toMatchObject({ inactiveContactMonths: null, previousMonths: null });
+    const put = (payload: object) => app.inject({ method: 'PUT', url: '/v1/agency/retention', headers, payload });
+    expect((await put({ inactiveContactMonths: 3, twoFactorCode: f.code() })).statusCode).toBe(422);
+    // S16-04 review: a change needs a fresh second-factor code
+    expect((await put({ inactiveContactMonths: 36 })).statusCode).toBe(422);
+    expect((await put({ inactiveContactMonths: 36, twoFactorCode: '000000' })).json().error.code).toBe(
+      'MFA_CODE_INVALID',
+    );
+    const set = await put({ inactiveContactMonths: 36, twoFactorCode: f.code() });
+    expect(set.statusCode).toBe(200);
+    // turning it on shortens "never": it applies after the grace window
+    expect(set.json()).toMatchObject({ inactiveContactMonths: 36, previousMonths: null });
+    expect(Date.parse(set.json().effectiveAt)).toBeGreaterThan(Date.now() + 13 * 86_400_000);
+    expect((await put({ inactiveContactMonths: null, twoFactorCode: f.code() })).json()).toMatchObject({
+      inactiveContactMonths: null,
+    });
+  });
+});

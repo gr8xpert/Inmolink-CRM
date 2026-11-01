@@ -6,6 +6,7 @@ export {
   selectionPath,
   selectionTokenHash,
 } from './config';
+export { eraseAgencySelections, eraseContactSelections } from './erasure';
 export { presentationsErrors } from './errors';
 export { presentationsEvents } from './events';
 export { presentationsJobs } from './jobs';

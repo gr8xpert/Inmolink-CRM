@@ -17,6 +17,7 @@ import * as media from '../media';
 import * as properties from '../properties';
 import { DATA_EXPORT_CONTENT_TYPES, DATA_EXPORT_TTL_MS, dataExportExtension, dataExportKey } from './data-export';
 import * as repo from './data-export-repo';
+import { SUBJECT_REVIEW_TABLES, subjectTables } from './data-export-subject';
 
 /**
  * Data export, the worker side (S10-08): `compliance.runDataExport` writes one export's file. Only `worker.ts` (the
@@ -37,6 +38,8 @@ import * as repo from './data-export-repo';
  * Outcomes are written only by the attempt holding the claim (`finishExport`: `RUNNING` and this attempt); a stale
  * attempt's uploaded file is deleted. A permanent error or the last attempt fails the export at once (expiring now,
  * so the sweep deletes anything stored), so the agency can start another. Logs carry ids and counts only, never a cell.
+ *
+ * `SUBJECT` (S16-04): one data subject's ZIP, the tables of `data-export-subject.ts` (read as the agency, RLS).
  *
  * Assumption (STATUS Decisions): the export is the agency's own data — every open contact is included, `do not
  * contact` ones too (the flag is a column), and so are commissions and internal fields; merged (closed) contacts,
@@ -62,7 +65,7 @@ const num = (v: string | number | null | undefined) => (v === null || v === unde
 type Progress = (rows: number) => Promise<void>;
 
 interface Table {
-  name: 'contacts' | 'leads' | 'listings' | 'media';
+  name: string;
   header: readonly string[];
   rows: (agencyId: string) => AsyncGenerator<ExportCell[]>;
 }
@@ -372,7 +375,7 @@ const MEDIA: Table = {
   },
 };
 
-const TABLES: Record<Exclude<DataExportKind, 'ACCOUNT'>, Table> = {
+const TABLES: Record<Exclude<DataExportKind, 'ACCOUNT' | 'SUBJECT'>, Table> = {
   CONTACTS,
   LEADS,
   LISTINGS,
@@ -451,9 +454,13 @@ export async function runDataExport(
     };
   let uploaded = false;
   try {
-    if (kind === 'ACCOUNT') {
+    if (kind === 'ACCOUNT' || kind === 'SUBJECT') {
       const zip = new ZipWriter(sink, { now: clock.now() });
-      for (const table of [CONTACTS, LEADS, LISTINGS, MEDIA]) {
+      const tables: readonly Table[] =
+        kind === 'ACCOUNT'
+          ? [CONTACTS, LEADS, LISTINGS, MEDIA]
+          : subjectTables(p.agencyId, claim.subjectContactId as string).map((t) => ({ ...t, rows: () => t.rows() }));
+      for (const table of tables) {
         // a workbook is a ZIP already: stored as is, not deflated twice
         await zip.begin(`${table.name}.${format}`, { store: format === 'xlsx' });
         counts[table.name] = await writeTable(table, p.agencyId, format, (c) => zip.write(c), {
@@ -469,6 +476,16 @@ export async function runDataExport(
           {
             exportId: p.exportId,
             agencyId: p.agencyId,
+            ...(kind === 'SUBJECT'
+              ? {
+                  kind,
+                  subjectContactId: claim.subjectContactId,
+                  // S16-04 review: what the agency's members wrote may name colleagues, other clients or owners
+                  reviewBeforeSending: SUBJECT_REVIEW_TABLES,
+                  reviewNote:
+                    'Notes, tasks and activity bodies are free text written by the agency: read them before sending this export to the person, and remove what concerns other people.',
+                }
+              : {}),
             generatedAt: clock.now().toISOString(),
             format,
             files: Object.fromEntries(

@@ -8,4 +8,5 @@ export const adminErrors = [
   'STAFF_OPERATION_NOT_FOUND',
   'STAFF_OPERATION_ACTIVE',
   'OUTBOX_REPLAY_TYPE_REFUSED',
+  'AGENCY_ERASURE_REFUSED',
 ] as const satisfies readonly ErrorCode[];

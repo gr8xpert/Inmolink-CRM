@@ -94,6 +94,8 @@ export function registerSubscriptions(): void {
   exportsWorker.registerExportsSubscriptions();
   // S10-08: a requested data export queues its run (worker-only entry).
   complianceWorker.registerComplianceWorkerSubscriptions();
+  // S16-04: the ERASE_AGENCY staff operation's steps are the compliance worker's agency erasure.
+  admin.configureAgencyEraser(complianceWorker.eraseAgencyData);
   // S11-04: raised notifications are pushed live and queued for the e-mail digest.
   notifications.registerNotificationsSubscriptions();
   // S11-03: sent messages are delivered live and notified; viewing threads are seated.

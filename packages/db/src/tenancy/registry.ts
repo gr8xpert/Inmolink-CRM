@@ -724,6 +724,15 @@ export const tenantTables: Record<string, TenantTable> = {
     base: { kind: 'CONTACTS', format: 'csv', status: 'FAILED' },
     userAppendRead: true,
   },
+  // S16-04: a contact's consent history (ids, purposes, sources, times — no PII). Evidence: members read and append
+  // their agency's rows and never change or remove one; an erasure keeps them.
+  consent_records: {
+    kind: 'STRICT',
+    base: { purpose: 'MARKETING', source: 'DASHBOARD', granted: true },
+    userAppendRead: true,
+  },
+  // S16-04: the agency's retention period for inactive contacts — one row per agency, admins write it.
+  retention_settings: { kind: 'STRICT', singleRow: true },
   // Staff impersonation sessions (S1-09), under the agency acted on. An impersonated request reads its own
   // session row (app_user, own agency) to check it is still open; tenants never write it (guard 0026; a
   // no-op update proves the grant). The access-token mint (app_auth) reads the staff member's own rows;

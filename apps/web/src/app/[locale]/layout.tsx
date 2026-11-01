@@ -3,6 +3,8 @@ import { notFound } from 'next/navigation';
 import { hasLocale, NextIntlClientProvider } from 'next-intl';
 import { getMessages, getTranslations, setRequestLocale } from 'next-intl/server';
 import type { ReactNode } from 'react';
+import { CookieBanner } from '@/components/legal/cookie-banner';
+import { getPathname } from '@/i18n/navigation';
 import { routing } from '@/i18n/routing';
 import '../globals.css';
 
@@ -29,6 +31,7 @@ export default async function LocaleLayout({
   if (!hasLocale(routing.locales, locale)) notFound();
   setRequestLocale(locale);
   const messages = await getMessages();
+  const legal = await getTranslations({ locale, namespace: 'legal' });
   return (
     <html lang={locale}>
       <body className="min-h-screen antialiased">
@@ -37,6 +40,17 @@ export default async function LocaleLayout({
         <NextIntlClientProvider messages={{ shell: { error: messages.shell.error } }}>
           {children}
         </NextIntlClientProvider>
+        {/* S16-04: the cookie choice (only strictly necessary cookies today; optional ones wait for `all`) */}
+        <CookieBanner
+          policyHref={getPathname({ href: '/legal/cookies', locale })}
+          text={{
+            text: legal('consent.text'),
+            essentialOnly: legal('consent.essentialOnly'),
+            acceptAll: legal('consent.acceptAll'),
+            policy: legal('consent.policy'),
+            label: legal('consent.label'),
+          }}
+        />
       </body>
     </html>
   );

@@ -1,6 +1,7 @@
 import {
   AppError,
   CONTACT_LIMITS,
+  type ConsentRecordList,
   type ContactDto,
   type ContactDuplicateMatch,
   type ContactListItemDto,
@@ -235,6 +236,11 @@ export async function createContact(
     );
   });
   await repo.syncFacets(ctx.tx, agencyId, [id]);
+  // S16-04: each consent given is a consent record, in this transaction
+  await compliance.recordConsents(ctx.tx, agencyId, compliance.initialConsents(id, input), {
+    source: 'DASHBOARD',
+    ctx,
+  });
   await emit(ctx.tx, crmEvents.contactCreated({ agencyId, contactId: id, source: input.source }));
   return { contact: await loadContact(ctx, id), outcome: 'CREATED' };
 }
@@ -308,6 +314,19 @@ export async function getContact(ctx: Ctx, id: string): Promise<ContactDto> {
   const contact = await loadContact(ctx, id);
   await auditImpersonatedRead(ctx, 'contacts', { target: { type: 'contact', id } });
   return contact;
+}
+
+/**
+ * `GET /v1/crm/contacts/:id/consents` (S16-04): the contact's consent history, newest first (compliance's records) —
+ * for the members who may read the contact; an impersonated read is audited like the contact's.
+ */
+export async function listContactConsents(ctx: Ctx, id: string): Promise<ConsentRecordList> {
+  assertCan(ctx, 'crm.contacts.read');
+  const contact = await loadContact(ctx, id);
+  await auditImpersonatedRead(ctx, 'contacts', { target: { type: 'contact', id } });
+  // the proof compliance asks for: the contact as crm loaded it for this member (policy + RLS)
+  const proof = { kind: 'crm.contact', id: contact.id, agencyId: ctx.tenant.agencyId } as const;
+  return { items: await compliance.listConsents(ctx, proof) };
 }
 
 /** `GET /v1/crm/contacts`: newest first, keyset (≤ 100 per page, one query); filters by tag, type and owner. */
@@ -399,6 +418,15 @@ export async function updateContact(ctx: Ctx, id: string, input: UpdateContactBo
     }
   }
   if (input.tags || input.types) await repo.syncFacets(ctx.tx, agencyId, [id]);
+  // S16-04: each consent given or withdrawn is a consent record, in this transaction
+  const consents: compliance.ConsentChange[] = [];
+  if (patch.consentMarketing !== undefined) {
+    consents.push({ contactId: id, purpose: 'MARKETING', granted: patch.consentMarketing });
+  }
+  if (patch.consentProcessing !== undefined) {
+    consents.push({ contactId: id, purpose: 'PROCESSING', granted: patch.consentProcessing });
+  }
+  await compliance.recordConsents(ctx.tx, agencyId, consents, { source: 'DASHBOARD', ctx });
   await emit(ctx.tx, crmEvents.contactUpdated({ agencyId, contactId: id, version: updated.version }));
   return loadContact(ctx, id);
 }

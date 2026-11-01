@@ -290,7 +290,8 @@
         "REINDEX": "Reindexar la búsqueda",
         "REBUILD_READ_MODELS": "Reconstruir modelos de lectura",
         "REIMPORT": "Reimportar feeds",
-        "REPLAY_OUTBOX": "Reenviar eventos del outbox"
+        "REPLAY_OUTBOX": "Reenviar eventos del outbox",
+        "ERASE_AGENCY": "Suprimir los datos personales de una agencia (agencia suspendida, superadministradores; no se puede deshacer)"
       },
       "agencyId": "ID de la agencia",
       "agencyIdHint": "Déjalo vacío para ejecutarla en todas las agencias.",
@@ -328,8 +329,12 @@
         "STAFF_OPERATION_NOT_FOUND": "Esa operación ya no existe.",
         "NOT_FOUND": "Ninguna agencia tiene ese ID.",
         "VALIDATION_FAILED": "Revisa los campos: un motivo de 10–500 caracteres y una ventana de reenvío de 7 días como máximo.",
-        "OUTBOX_REPLAY_TYPE_REFUSED": "Este tipo de evento no se puede reenviar: sus suscriptores envían e-mails, notifican, facturan, llaman a la IA o inician trabajos — o tu rol solo puede reenviar eventos de proyección (modelos de lectura, índice de búsqueda, cachés)."
-      }
+        "OUTBOX_REPLAY_TYPE_REFUSED": "Este tipo de evento no se puede reenviar: sus suscriptores envían e-mails, notifican, facturan, llaman a la IA o inician trabajos — o tu rol solo puede reenviar eventos de proyección (modelos de lectura, índice de búsqueda, cachés).",
+        "AGENCY_ERASURE_REFUSED": "Solo se puede suprimir una agencia suspendida: suspéndela primero.",
+        "MFA_CODE_INVALID": "Ese código no es válido o ya se usó. Introduce el código actual."
+      },
+      "twoFactorCode": "Código del autenticador (solo supresión de agencia)",
+      "twoFactorCodeHint": "La supresión de una agencia requiere un código nuevo de tu app de autenticación (o un código de recuperación). Déjalo vacío para las demás operaciones."
     },
     "flags": {
       "title": "Feature flags",

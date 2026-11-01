@@ -22,4 +22,10 @@ describe('admin policy (S13-03)', () => {
     expect(canStaff(staff('STAFF_DATA_OPS'), 'staff.admin.setFlag')).toBe(false);
     expect(canStaff(staff('STAFF_SUPPORT'), 'staff.admin.setFlag')).toBe(false);
   });
+
+  it('[S16-04] only super admins erase an agency', () => {
+    expect(canStaff(staff('SUPER_ADMIN'), 'staff.admin.eraseAgency')).toBe(true);
+    expect(canStaff(staff('STAFF_DATA_OPS'), 'staff.admin.eraseAgency')).toBe(false);
+    expect(canStaff(staff('STAFF_SUPPORT'), 'staff.admin.eraseAgency')).toBe(false);
+  });
 });

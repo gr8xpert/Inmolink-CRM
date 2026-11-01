@@ -83,10 +83,25 @@ function assertReplayable(ctx: StaffCtx, type: string): void {
  * `STAFF_OPERATION_ACTIVE` otherwise), audits it (`staff.operation.started`: kind and scope; the reason stays on the
  * row) and asks for its job (`admin.operation.requested`) in the same transaction.
  */
-export async function startOperation(ctx: StaffCtx, input: StartStaffOperationBody): Promise<StaffOperationDto> {
+export async function startOperation(
+  ctx: StaffCtx,
+  input: StartStaffOperationBody,
+  opts: { verifyStepUp?: () => Promise<void> } = {},
+): Promise<StaffOperationDto> {
   assertStaffCan(ctx, 'staff.admin.runOperation');
   if (input.agencyId && (await agencies.agencyNames(ctx, [input.agencyId])).size === 0) {
     throw new AppError('NOT_FOUND', { agencyId: input.agencyId });
+  }
+  if (input.kind === 'ERASE_AGENCY') {
+    // S16-04: erasing an agency's personal data cannot be undone — super admins only (policy), one agency, only once
+    // the agency is suspended (offboarding: nobody of it can sign in or publish meanwhile; every step checks again),
+    // and with a fresh second factor of the super admin (`opts.verifyStepUp`, identity's, bound at the core root)
+    assertStaffCan(ctx, 'staff.admin.eraseAgency');
+    if (!input.agencyId) throw new AppError('VALIDATION_FAILED');
+    const agency = await agencies.getTenantSummary(ctx, { agencyId: input.agencyId });
+    if (agency.status !== 'SUSPENDED') throw new AppError('AGENCY_ERASURE_REFUSED', { status: agency.status });
+    if (!opts.verifyStepUp) throw new AppError('MFA_CODE_INVALID');
+    await opts.verifyStepUp();
   }
   if (input.replay) assertReplayable(ctx, input.replay.type);
   const replay = input.replay

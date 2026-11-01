@@ -201,6 +201,12 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     crmJobs.repointSellerListings,
     // S11-F12: a contact erasure clears its activity bodies and the listings' seller link.
     crmJobs.eraseContactData,
+    // S16-04: the daily retention sweep and each agency's anonymization of contacts inactive past its period.
+    crmJobs.sweepRetention,
+    crmJobs.anonymizeInactiveContacts,
+    // S16-04 review: an erased contact's client registrations (details tombstoned, fingerprints gone) and selections.
+    mlsJobs.eraseContactRegistrations,
+    presentationsJobs.eraseContactSelections,
     // S11-01: a contact merge moves the agency's client registrations to the survivor.
     mlsJobs.repointRegistrations,
     // S11-01: the client fingerprint rehash during an HMAC rotation window, and the fingerprints' retention.

@@ -28,6 +28,7 @@ export {
   XML_CONTENT_TYPES,
   xmlRecords,
 } from './connectors';
+export { eraseAgencyImports } from './erasure';
 export { importsErrors } from './errors';
 export { importsEvents } from './events';
 export { emptyFeed, FeedAnomalyError, massWithdrawal, typicalVolume, volumeSpike } from './guard';

@@ -6,13 +6,16 @@
     "format": "Format",
     "code": "Authenticator code",
     "codeHint": "Enter the current 6-digit code from your authenticator app, or a recovery code. It is needed every time you request an export.",
-    "submit": "Request export"
+    "submit": "Request export",
+    "contactId": "Contact (one person only)",
+    "contactIdHint": "For a data subject request (GDPR access or portability): the contact whose data you export. Leave empty for the other exports."
   },
   "kinds": {
     "CONTACTS": "Contacts",
     "LEADS": "Leads",
     "LISTINGS": "Listings",
-    "ACCOUNT": "Whole account (ZIP)"
+    "ACCOUNT": "Whole account (ZIP)",
+    "SUBJECT": "One person (ZIP, data subject request)"
   },
   "formats": {
     "csv": "CSV",
@@ -46,6 +49,7 @@
     "FORBIDDEN": "Only agency admins can export data.",
     "RATE_LIMITED": "Too many requests. Try again later.",
     "load": "The exports could not be loaded. Try again in a moment.",
-    "generic": "Something went wrong. Try again."
+    "generic": "Something went wrong. Try again.",
+    "DATA_SUBJECT_NOT_FOUND": "That contact does not exist or was erased."
   }
 }

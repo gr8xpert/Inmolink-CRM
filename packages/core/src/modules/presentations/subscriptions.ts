@@ -4,6 +4,7 @@ import { subscribe } from '@inmolink/platform/outbox';
 import * as crm from '../crm';
 import * as search from '../search';
 import { presentationsEvents } from './events';
+import { presentationsJobs } from './jobs';
 import * as repo from './repo';
 
 let unsubscribe: (() => void)[] | undefined;
@@ -56,6 +57,17 @@ export function registerPresentationsSubscriptions(): void {
         if (activity) await crm.crmJobs.recordActivity.enqueue(activity);
       },
       { name: 'presentations.selection.timeline' },
+    ),
+    // S16-04 review: an erased contact's selections lose the agent's text and the client's messages, and are revoked
+    subscribe(
+      crm.crmEvents.contactErased,
+      (payload, meta) =>
+        presentationsJobs.eraseContactSelections.enqueue({
+          eventId: meta.eventId,
+          agencyId: meta.agencyId,
+          contactId: payload.contactId,
+        }),
+      { name: 'presentations.contact.erased' },
     ),
   ];
 }

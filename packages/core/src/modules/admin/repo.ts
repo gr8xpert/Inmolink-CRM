@@ -7,7 +7,7 @@ import { staffOperations } from '@inmolink/db/schema/admin';
 import { and, eq, inArray, lt, sql } from 'drizzle-orm';
 import { type KeysetCursor, rowAfter, rowOrder } from '../../pagination';
 
-export type OperationKind = 'REINDEX' | 'REBUILD_READ_MODELS' | 'REIMPORT' | 'REPLAY_OUTBOX';
+export type OperationKind = 'REINDEX' | 'REBUILD_READ_MODELS' | 'REIMPORT' | 'REPLAY_OUTBOX' | 'ERASE_AGENCY';
 export type OperationState = 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED';
 
 export interface ReplayParams {

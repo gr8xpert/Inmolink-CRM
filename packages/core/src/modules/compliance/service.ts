@@ -123,6 +123,14 @@ export const AUDIT_TYPES = [
   'staff.support.triaged',
   'compliance.dataExport.requested',
   'compliance.dataExport.downloaded',
+  // S16-04: the agency's retention period changed (metadata: from, to — months or null).
+  'compliance.retention.changed',
+  // S16-04: an agency's personal data erased (ERASE_AGENCY, actor: system; metadata: counts per kind).
+  'compliance.agency.erased',
+  // S16-04: a contact anonymized by the retention job (actor: system; target: the tombstone; metadata: months).
+  'crm.contact.anonymized',
+  // S16-04: an agency's import connections removed by its erasure (actor: system; metadata: connections).
+  'imports.connections.erased',
   // S11-01: a client registration refused because another agency registered the client first (probe budget).
   'mls.registration.conflicted',
   // S11-02: one side accepted a viewing request's terms snapshot (the introducer by requesting, the owner by accepting).

@@ -100,7 +100,7 @@ export {
   READ_MODEL_LISTING_STATUSES,
   type ReadModelListing,
 } from './read-models';
-export { clearSellerContact, repointSellerContact } from './sellers';
+export { activeSellerContacts, clearSellerContact, repointSellerContact } from './sellers';
 export {
   assertListingReadable,
   createListing,

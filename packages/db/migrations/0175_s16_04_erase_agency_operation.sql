@@ -1,0 +1,2 @@
+ALTER TABLE "staff_operations" DROP CONSTRAINT "staff_operations_kind_ck";--> statement-breakpoint
+ALTER TABLE "staff_operations" ADD CONSTRAINT "staff_operations_kind_ck" CHECK ("staff_operations"."kind" in ('REINDEX', 'REBUILD_READ_MODELS', 'REIMPORT', 'REPLAY_OUTBOX', 'ERASE_AGENCY'));

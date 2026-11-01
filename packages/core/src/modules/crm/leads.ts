@@ -3,6 +3,7 @@ import {
   CONTACT_LIMITS,
   type CreateLeadBody,
   DEFAULT_PHONE_COUNTRY,
+  LEGAL_TEXT_VERSION,
   type LeadDto,
   type LeadIntroductionDto,
   type LeadIntroductionPage,
@@ -26,6 +27,7 @@ import { idempotencyOf, keyReusedOn, replayOf } from '../../idempotency';
 import { decodeCursor, toPage } from '../../pagination';
 import * as agencies from '../agencies';
 import * as billing from '../billing';
+import * as compliance from '../compliance';
 import * as developments from '../developments';
 import * as identity from '../identity';
 import * as properties from '../properties';
@@ -304,6 +306,14 @@ async function contactForVisitor(tx: Tx, agencyId: string, visitor: websites.Lea
     phone ? [{ contactId: id, value: phone, position: 0 }] : [],
   );
   await repo.syncFacets(tx, agencyId, [id]);
+  // S16-04: the form's marketing tick is the new contact's consent record (the form's text version is not known yet)
+  await compliance.recordConsents(
+    tx,
+    agencyId,
+    compliance.initialConsents(id, { consentMarketing: visitor.marketingConsent }),
+    // S16-04 review: the form showed the published privacy text of this version
+    { source, policyVersion: LEGAL_TEXT_VERSION },
+  );
   await emit(tx, crmEvents.contactCreated({ agencyId, contactId: id, source }));
   return id;
 }

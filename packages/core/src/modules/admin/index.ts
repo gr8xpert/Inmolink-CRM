@@ -3,7 +3,15 @@
 export { type AdminConfig, adminConfig, configureAdmin } from './config';
 export { adminErrors } from './errors';
 export { adminEvents } from './events';
-export { adminJobs, MAX_RECOVERIES, OPERATION_STALE_MS, type OperationRunResult, runStaffOperation } from './jobs';
+export {
+  type AgencyEraser,
+  adminJobs,
+  configureAgencyEraser,
+  MAX_RECOVERIES,
+  OPERATION_STALE_MS,
+  type OperationRunResult,
+  runStaffOperation,
+} from './jobs';
 export { type AdminAction, canStaff } from './policy';
 export {
   REPLAY_REFUSED_PREFIXES,

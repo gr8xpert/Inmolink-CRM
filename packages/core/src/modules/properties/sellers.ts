@@ -1,4 +1,6 @@
 import { withTenant } from '@inmolink/db';
+import { emit } from '@inmolink/platform/outbox';
+import { propertiesEvents } from './events';
 import * as repo from './repo';
 
 /**
@@ -20,12 +22,36 @@ export async function repointSellerContact(p: {
 /**
  * A crm contact erasure (S11-F12): the agency's listings whose seller was the erased contact (or a contact merged into it) name no seller (the
  * listing itself, its owner-side data and its history stay). Called by crm's `crm.eraseContactData` job for
- * `crm.contact.erased`. Idempotent: a redelivery finds nothing left to clear. Under the agency's RLS.
+ * `crm.contact.erased`. Idempotent: a redelivery finds nothing left to clear. Under the agency's RLS. S16-04 review:
+ * each cleared listing emits `properties.listing.updated` (`changed: ['seller']`) in the same transaction, so its read
+ * models and search document are rebuilt from the erased state.
  */
 export async function clearSellerContact(p: {
   agencyId: string;
   contactIds: readonly string[];
 }): Promise<{ rows: number }> {
-  const rows = await withTenant({ agencyId: p.agencyId }, (tx) => repo.clearSeller(tx, p.agencyId, p.contactIds));
+  const rows = await withTenant({ agencyId: p.agencyId }, async (tx) => {
+    const cleared = await repo.clearSeller(tx, p.agencyId, p.contactIds);
+    for (const l of cleared) {
+      await emit(
+        tx,
+        propertiesEvents.updated({
+          listingId: l.listingId,
+          agencyId: p.agencyId,
+          version: l.version,
+          changed: ['seller'],
+        }),
+      );
+    }
+    return cleared.length;
+  });
   return { rows };
+}
+
+/** S16-04 review, retention: which of these contacts sell a listing of the agency that is still on the market. */
+export async function activeSellerContacts(p: {
+  agencyId: string;
+  contactIds: readonly string[];
+}): Promise<Set<string>> {
+  return withTenant({ agencyId: p.agencyId }, (tx) => repo.activeSellers(tx, p.agencyId, p.contactIds));
 }

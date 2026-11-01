@@ -4,4 +4,6 @@ import type { ErrorCode } from '@inmolink/contracts';
 export const complianceErrors = [
   'DATA_EXPORT_NOT_FOUND',
   'DATA_EXPORT_IN_PROGRESS',
+  'DATA_SUBJECT_NOT_FOUND',
+  'VALIDATION_FAILED',
 ] as const satisfies readonly ErrorCode[];

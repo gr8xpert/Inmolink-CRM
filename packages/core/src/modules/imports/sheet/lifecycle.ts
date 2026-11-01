@@ -168,8 +168,8 @@ export async function sweepSheets(
  * Every uploaded sheet of an agency (`imports/sheets/<agency>/`), for offboarding and tenant erasure (S7-F1). Call it
  * after the transaction that removed the agency's connections committed (storage I/O, never inside one). Lists from
  * the start each page (what was deleted is not listed again); `more` says the bound was hit and the caller runs it
- * again. Idempotent. No caller yet: the agency offboarding / erasure use case (S16-04) must call it (S8-F4); until
- * then the daily sweep deletes an offboarded agency's unreferenced files 24 h after its connections are gone.
+ * again. Idempotent. Called by the agency erasure (`eraseAgencyImports`, S16-04 `ERASE_AGENCY`) after it removed the
+ * connections (S8-F4); the daily sweep stays the backstop (unreferenced files go 24 h after their connections).
  */
 export async function deleteAgencySheets(
   agencyId: string,

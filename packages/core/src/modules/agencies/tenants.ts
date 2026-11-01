@@ -80,6 +80,12 @@ export async function agencyNames(ctx: StaffCtx, ids: readonly string[]): Promis
  * S13-03: a page of every agency's id in id order (`withSystem`, a staff bulk operation's worker step). Ids only; the
  * caller's transaction decides what it may see.
  */
+/** S16-04 review: an agency's status for a worker (`app_system` tx); null when there is no such agency. */
+export async function agencyStatusOf(tx: Tx, agencyId: string): Promise<tenantsRepo.AgencyStatus | null> {
+  const row = await tenantsRepo.getTenant(tx, agencyId);
+  return row?.status ?? null;
+}
+
 export function agencyIdsPage(tx: Tx, after: string | null, limit: number): Promise<string[]> {
   return tenantsRepo.agencyIdsPage(tx, after, limit);
 }

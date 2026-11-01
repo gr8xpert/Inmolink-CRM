@@ -25,6 +25,17 @@ export function registerMlsSubscriptions(): void {
         }),
       { name: 'mls.registrations.contactMerged' },
     ),
+    // S16-04 review: an erased contact's registrations keep their evidence but lose the client's details
+    subscribe(
+      crm.crmEvents.contactErased,
+      (payload, meta) =>
+        mlsJobs.eraseContactRegistrations.enqueue({
+          eventId: meta.eventId,
+          agencyId: meta.agencyId,
+          contactId: payload.contactId,
+        }),
+      { name: 'mls.registrations.contactErased' },
+    ),
     // S11-02: each viewing request change notifies the other side (both on expiry)
     subscribe(
       mlsEvents.viewingChanged,

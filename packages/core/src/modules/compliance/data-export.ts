@@ -45,7 +45,7 @@ export const DATA_EXPORT_CONTENT_TYPES = {
 } as const;
 
 export const dataExportExtension = (kind: DataExportKind, format: DataExportFormat) =>
-  kind === 'ACCOUNT' ? 'zip' : format;
+  kind === 'ACCOUNT' || kind === 'SUBJECT' ? 'zip' : format;
 
 /** The download's file name: `inmolink-contacts-2026-10-24.csv`. */
 export function dataExportFileName(row: { kind: string; format: string; createdAt: Date }): string {
@@ -61,6 +61,7 @@ function toDto(row: repo.ExportRow, download: DataExportDto['download'] = null):
     id: row.id,
     kind: row.kind as DataExportKind,
     format: row.format as DataExportFormat,
+    subjectContactId: row.subjectContactId,
     status: row.status as DataExportStatus,
     counts: row.counts ?? {},
     fileBytes: row.fileBytes,
@@ -86,8 +87,13 @@ function toDto(row: repo.ExportRow, download: DataExportDto['download'] = null):
  */
 export async function createDataExport(
   ctx: Ctx,
-  input: Pick<CreateDataExportBody, 'kind' | 'format'>,
-  opts: { idempotencyKey?: string; verifyStepUp: () => Promise<void> },
+  input: Pick<CreateDataExportBody, 'kind' | 'format' | 'contactId'>,
+  opts: {
+    idempotencyKey?: string;
+    verifyStepUp: () => Promise<void>;
+    /** `SUBJECT` (S16-04): whether the contact is an open contact of the agency (crm's check, bound by the app). */
+    subjectExists?: (contactId: string) => Promise<boolean>;
+  },
 ): Promise<{ export: DataExportDto; replayed: boolean }> {
   assertCan(ctx, 'compliance.dataExport.create');
   if (ctx.actor.kind !== 'user') throw new AppError('FORBIDDEN');
@@ -95,6 +101,7 @@ export async function createDataExport(
   const idempotency = idempotencyOf('compliance.dataExport', ctx.actor.userId, opts.idempotencyKey, {
     kind: input.kind,
     format: input.format,
+    ...(input.contactId ? { contactId: input.contactId } : {}),
   });
   const replay = async (): Promise<{ export: DataExportDto; replayed: boolean } | null> => {
     const prior = await replayOf(
@@ -110,6 +117,15 @@ export async function createDataExport(
   };
   const replayed = await replay();
   if (replayed) return replayed;
+  if ((input.kind === 'SUBJECT') !== (input.contactId !== undefined)) {
+    throw new AppError('VALIDATION_FAILED', { field: 'contactId' });
+  }
+  const subjectContactId = input.kind === 'SUBJECT' ? (input.contactId ?? null) : null;
+  if (input.kind === 'SUBJECT') {
+    if (!subjectContactId || !opts.subjectExists || !(await opts.subjectExists(subjectContactId))) {
+      throw new AppError('DATA_SUBJECT_NOT_FOUND');
+    }
+  }
   if (await repo.hasActiveExport(ctx.tx, agencyId)) throw new AppError('DATA_EXPORT_IN_PROGRESS');
   await opts.verifyStepUp();
   const row = await repo.insertExport(ctx.tx, {
@@ -118,6 +134,7 @@ export async function createDataExport(
     createdBy: ctx.actor.userId,
     kind: input.kind,
     format: input.format,
+    subjectContactId,
     idempotencyHash: idempotency?.hash ?? null,
     requestHash: idempotency?.requestHash ?? null,
   });
@@ -138,6 +155,7 @@ export async function createDataExport(
     {
       kind: row.kind,
       format: row.format,
+      ...(row.subjectContactId ? { subjectContactId: row.subjectContactId } : {}),
     },
   );
   await emit(ctx.tx, complianceEvents.dataExportRequested({ agencyId: row.agencyId, exportId: row.id }));

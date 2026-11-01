@@ -56,14 +56,40 @@ export async function repointSeller(
  * the closed contacts merged into it) name no seller. One statement on `property_privates_seller_idx`; returns the
  * rows cleared.
  */
-export async function clearSeller(tx: Tx, agencyId: string, contactIds: readonly string[]): Promise<number> {
-  if (contactIds.length === 0) return 0;
-  const rows = await tx
-    .update(propertyPrivates)
-    .set({ sellerContactId: null, updatedAt: sql`now()` })
-    .where(and(eq(propertyPrivates.agencyId, agencyId), inArray(propertyPrivates.sellerContactId, [...contactIds])))
-    .returning({ id: propertyPrivates.propertyId });
-  return rows.length;
+export async function clearSeller(
+  tx: Tx,
+  agencyId: string,
+  contactIds: readonly string[],
+): Promise<{ listingId: string; version: number }[]> {
+  if (contactIds.length === 0) return [];
+  // S16-04 review: the listings' versions come back too — each cleared listing announces the change (read model, index)
+  const res = await tx.execute(sql`
+    with cleared as (
+      update ${propertyPrivates} set seller_contact_id = null, updated_at = now()
+       where agency_id = ${agencyId} and seller_contact_id in (${sql.join(
+         contactIds.map((id) => sql`${id}::uuid`),
+         sql`, `,
+       )})
+      returning property_id)
+    select p.id as "listingId", p.version from ${properties} p join cleared on cleared.property_id = p.id`);
+  return res.rows as { listingId: string; version: number }[];
+}
+
+/**
+ * S16-04 review, retention: which of these contacts are the seller of a listing of the agency that is not withdrawn or
+ * deleted (`property_privates_seller_idx`) — the retention job keeps them.
+ */
+export async function activeSellers(tx: Tx, agencyId: string, contactIds: readonly string[]): Promise<Set<string>> {
+  if (contactIds.length === 0) return new Set();
+  const res = await tx.execute(sql`
+    select distinct pp.seller_contact_id as id from ${propertyPrivates} pp
+      join ${properties} p on p.id = pp.property_id
+     where pp.agency_id = ${agencyId} and pp.seller_contact_id in (${sql.join(
+       contactIds.map((id) => sql`${id}::uuid`),
+       sql`, `,
+     )})
+       and p.deleted_at is null and p.status not in ('WITHDRAWN', 'SOLD', 'RENTED')`);
+  return new Set((res.rows as { id: string }[]).map((r) => r.id));
 }
 
 export async function insertPrivates(tx: Tx, row: typeof propertyPrivates.$inferInsert): Promise<PrivatesRow> {

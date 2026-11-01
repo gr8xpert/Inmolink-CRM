@@ -1,12 +1,15 @@
 import { AppError, type EraseContactBody } from '@inmolink/contracts';
-import { withTenant } from '@inmolink/db';
+import { type Tx, withTenant } from '@inmolink/db';
 import { emit } from '@inmolink/platform/outbox';
+import { storage } from '@inmolink/platform/storage';
 import type { Ctx } from '../../context';
 import * as compliance from '../compliance';
+import * as notifications from '../notifications';
 import * as properties from '../properties';
 import * as websites from '../websites';
 import * as activitiesRepo from './activities-repo';
 import { crmEvents } from './events';
+import { IMPORT_FINISHED_GRACE_MS, IMPORT_UPLOAD_TTL_MS, sweepContactImports } from './import';
 import { assertCan } from './policy';
 import * as repo from './repo';
 
@@ -72,9 +75,17 @@ export interface ErasureCounts {
  * of 1,000, a transaction each; the inbound website leads its leads came from, 500 at a time; then the listings that
  * named it (or a contact merged into it) as seller name none; last, `crm.contact.erasureCompleted` is audited with the
  * counts. Idempotent: a rerun finds nothing left (its audit row says 0, 0, 0). Under the agency's RLS: another agency's
- * id finds nothing.
+ * id finds nothing. S16-04: also expires the contact's data subject exports and deletes their files.
  */
-export async function eraseContactData(p: { agencyId: string; contactId: string }): Promise<ErasureCounts> {
+export async function eraseContactData(p: {
+  agencyId: string;
+  contactId: string;
+  /**
+   * S16-04 review: part of an agency erasure, which expires every export and deletes every contact import file of the
+   * agency once at its end — skip those agency-wide steps here.
+   */
+  agencyErasure?: boolean;
+}): Promise<ErasureCounts> {
   const tenant = { agencyId: p.agencyId };
   let activities = 0;
   for (;;) {
@@ -96,10 +107,21 @@ export async function eraseContactData(p: { agencyId: string; contactId: string 
     after = ids[ids.length - 1] ?? null;
   }
   const merged = await withTenant(tenant, (tx) => repo.mergedInto(tx, p.agencyId, p.contactId));
-  const { rows: listings } = await properties.clearSellerContact({
+  const erasedIds = [p.contactId, ...merged];
+  const { rows: listings } = await properties.clearSellerContact({ agencyId: p.agencyId, contactIds: erasedIds });
+  // S16-04 review: members' notifications naming the person (a lead's contact name, a task's title) lose their params
+  const targets = await withTenant(tenant, (tx) => repo.noticeTargetsOf(tx, p.agencyId, erasedIds));
+  await notifications.redactNotifications({
     agencyId: p.agencyId,
-    contactIds: [p.contactId, ...merged],
+    links: targets.leadIds.map((id) => `/inbox/${id}`),
+    sourceKeyPrefixes: targets.taskIds.map((id) => `crm.task:${id}:`),
   });
+  if (!p.agencyErasure) {
+    // S16-04: the exports that may hold the person — their data subject exports and the agency's contact / lead /
+    // account exports — expire, their files deleted; and the agency's contact import files (any may list the person)
+    await compliance.expireErasedExports({ agencyId: p.agencyId, scope: { subjectContactIds: erasedIds } });
+    await purgeContactImportFiles({ agencyId: p.agencyId });
+  }
   const counts = { activities, inboundLeads, listings };
   await withTenant(tenant, (tx) =>
     compliance.auditSystem(tx, {
@@ -111,3 +133,143 @@ export async function eraseContactData(p: { agencyId: string; contactId: string 
   );
   return counts;
 }
+
+/** Contacts erased per transaction by the system paths (retention, agency erasure). */
+export const SYSTEM_ERASE_BATCH = 100;
+
+/**
+ * S16-04: erases contacts without a member — the retention job (`RETENTION`, audited `crm.contact.anonymized` with the
+ * period) and the agency erasure (`AGENCY`, audited `crm.contact.erased`). The same erasure as `eraseContact` (one
+ * statement per contact, the merged ones following), actor `system`, in one transaction under the agency's RLS for at
+ * most `SYSTEM_ERASE_BATCH` contacts; each emits `crm.contact.erased`, so `crm.eraseContactData` clears the rest after
+ * the commit. A contact closed meanwhile (merged, erased) is skipped. Answers how many were erased.
+ */
+export async function eraseContactsBySystem(p: {
+  agencyId: string;
+  contactIds: readonly string[];
+  why: { kind: 'RETENTION'; months: number } | { kind: 'AGENCY' };
+}): Promise<number> {
+  const ids = p.contactIds.slice(0, SYSTEM_ERASE_BATCH);
+  if (ids.length === 0) return 0;
+  return withTenant({ agencyId: p.agencyId }, async (tx) => {
+    const open = await repo.lockAndLoad(tx, ids); // open contacts only, locked
+    for (const c of open) {
+      await repo.eraseContact(tx, p.agencyId, c.id);
+      await compliance.auditSystem(tx, {
+        type: p.why.kind === 'RETENTION' ? 'crm.contact.anonymized' : 'crm.contact.erased',
+        agencyId: p.agencyId,
+        target: { type: 'contact', id: c.id },
+        metadata: p.why.kind === 'RETENTION' ? { months: p.why.months } : { reason: 'agencyErasure' },
+      });
+      await emit(tx, crmEvents.contactErased({ agencyId: p.agencyId, contactId: c.id }));
+    }
+    return open.length;
+  });
+}
+
+/**
+ * S16-04, `crm.anonymizeInactiveContacts` for one agency: contacts untouched for `months` (no change, lead, task or
+ * activity — its leads' included — since the cutoff, no open lead, not the seller of a listing on the market) are erased, `SYSTEM_ERASE_BATCH` per transaction, at most `maxContacts` per run (the next
+ * daily run continues). Answers how many were erased.
+ */
+export async function anonymizeInactiveContacts(p: {
+  agencyId: string;
+  months: number;
+  now: Date;
+  maxContacts: number;
+  signal?: AbortSignal;
+}): Promise<number> {
+  const cutoff = new Date(p.now);
+  cutoff.setUTCMonth(cutoff.getUTCMonth() - p.months);
+  let erased = 0;
+  let after: string | null = null;
+  while (erased < p.maxContacts && !p.signal?.aborted) {
+    const cursor: string | null = after;
+    const limit = Math.min(SYSTEM_ERASE_BATCH, p.maxContacts - erased);
+    const ids: string[] = await withTenant({ agencyId: p.agencyId }, (tx) =>
+      repo.inactiveContactIds(tx, p.agencyId, cutoff, cursor, limit),
+    );
+    if (ids.length === 0) break;
+    // S16-04 review: the seller of a listing still on the market is not inactive
+    const sellers = await properties.activeSellerContacts({ agencyId: p.agencyId, contactIds: ids });
+    erased += await eraseContactsBySystem({
+      agencyId: p.agencyId,
+      contactIds: ids.filter((id) => !sellers.has(id)),
+      why: { kind: 'RETENTION', months: p.months },
+    });
+    if (ids.length < limit) break;
+    after = ids[ids.length - 1] ?? null;
+  }
+  return erased;
+}
+
+/**
+ * S16-04, agency erasure: one batch of the agency's open contacts erased (`SYSTEM_ERASE_BATCH`). `more`: call again.
+ */
+export async function eraseAgencyContacts(p: {
+  agencyId: string;
+}): Promise<{ erased: number; contactIds: string[]; more: boolean }> {
+  const ids = await withTenant({ agencyId: p.agencyId }, (tx) =>
+    repo.openContactIds(tx, p.agencyId, SYSTEM_ERASE_BATCH),
+  );
+  const erased = await eraseContactsBySystem({ agencyId: p.agencyId, contactIds: ids, why: { kind: 'AGENCY' } });
+  return { erased, contactIds: ids, more: ids.length === SYSTEM_ERASE_BATCH };
+}
+
+/** S16-04 review: the erased contact and the closed contacts merged into it (their data went with it). */
+export async function erasedContactIds(p: { agencyId: string; contactId: string }): Promise<string[]> {
+  const merged = await withTenant({ agencyId: p.agencyId }, (tx) => repo.mergedInto(tx, p.agencyId, p.contactId));
+  return [p.contactId, ...merged];
+}
+
+/**
+ * S16-04 review: every contact import file of the agency still in storage is deleted — uploads not started expire,
+ * finished ones lose their file now rather than after the grace hour (any CSV may list an erased person). Running
+ * imports keep theirs until they end (they delete it then). The daily sweep, scoped to the agency and to "now".
+ */
+export async function purgeContactImportFiles(p: { agencyId: string }): Promise<{ files: number }> {
+  const now = new Date(Date.now() + IMPORT_UPLOAD_TTL_MS + IMPORT_FINISHED_GRACE_MS + 60_000);
+  const { filesDeleted } = await sweepContactImports({ now, agencyIds: [p.agencyId] });
+  return { files: filesDeleted };
+}
+
+/** Objects listed per page of an agency's contact import prefix. */
+const IMPORT_PREFIX_PAGE = 500;
+
+/**
+ * S16-04 review, agency erasure: the agency's contact import files — the sweep's way (rows marked), then whatever is
+ * still under `crm/contact-imports/<agency>/` (a file whose row is gone), one listed page at a time. `more`: call again.
+ */
+export async function purgeAgencyContactImports(p: {
+  agencyId: string;
+  signal?: AbortSignal;
+}): Promise<{ files: number; more: boolean }> {
+  if (!/^[0-9a-f-]{36}$/i.test(p.agencyId)) throw new Error('purgeAgencyContactImports: not an agency id');
+  const { files } = await purgeContactImportFiles({ agencyId: p.agencyId });
+  const prefix = `crm/contact-imports/${p.agencyId.toLowerCase()}/`;
+  const listed = await storage().list('private', prefix, { limit: IMPORT_PREFIX_PAGE });
+  for (const o of listed.objects) {
+    if (p.signal?.aborted) return { files, more: true };
+    await storage().delete('private', o.key);
+  }
+  return { files: files + listed.objects.length, more: Boolean(listed.next) };
+}
+
+/** Rows per statement of the agency-wide text sweep. */
+const AGENCY_TEXT_BATCH = 1_000;
+
+/**
+ * S16-04 review, agency erasure: one batch of the free text crm holds outside contact rows — tasks, calendar events,
+ * seller prospects and activities with or without a contact (their titles `—`, descriptions, locations, confidential
+ * notes and bodies cleared), leads' messages and visitor details, and contact notes. `more`: call again.
+ */
+export async function eraseAgencyCrmText(p: { agencyId: string }): Promise<{ rows: number; more: boolean }> {
+  const rows = await withTenant({ agencyId: p.agencyId }, (tx) =>
+    repo.clearAgencyText(tx, p.agencyId, AGENCY_TEXT_BATCH),
+  );
+  return { rows, more: rows > 0 };
+}
+
+/** S16-04: whether `contactId` is an open contact of the agency (`SUBJECT` exports; under the caller's RLS). */
+export const openContactExists = (tx: Tx, agencyId: string, contactId: string) =>
+  repo.openContactExists(tx, agencyId, contactId);

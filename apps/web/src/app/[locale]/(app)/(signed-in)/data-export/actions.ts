@@ -33,6 +33,8 @@ export async function requestExportAction(form: FormData): Promise<void> {
   const parsed = CreateDataExportBody.safeParse({
     kind: text(form, 'kind'),
     format: text(form, 'format') || 'csv',
+    // S16-04: a data subject export names the contact
+    ...(text(form, 'contactId') ? { contactId: text(form, 'contactId') } : {}),
     twoFactorCode: text(form, 'twoFactorCode'),
   });
   // a malformed code is the same answer as a wrong one: the member re-enters it

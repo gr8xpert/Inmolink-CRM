@@ -10,6 +10,7 @@ const exportColumns = {
   agencyId: dataExportJobs.agencyId,
   createdBy: dataExportJobs.createdBy,
   kind: dataExportJobs.kind,
+  subjectContactId: dataExportJobs.subjectContactId,
   format: dataExportJobs.format,
   status: dataExportJobs.status,
   counts: dataExportJobs.counts,
@@ -27,6 +28,7 @@ export type ExportRow = {
   agencyId: string;
   createdBy: string;
   kind: string;
+  subjectContactId: string | null;
   format: string;
   status: string;
   counts: Record<string, number>;
@@ -52,6 +54,7 @@ export async function insertExport(
     createdBy: string;
     kind: string;
     format: string;
+    subjectContactId: string | null;
     idempotencyHash: string | null;
     requestHash: string | null;
   },

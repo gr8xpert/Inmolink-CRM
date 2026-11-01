@@ -18,6 +18,7 @@ export {
   type Transition,
   transitionOf,
 } from './alerts';
+export { deleteAgencySavedSearches } from './erasure';
 export { matchingErrors } from './errors';
 export { matchingEvents } from './events';
 export { matchingJobs, STALE_INSTANT_MS, SWEEP_SPREAD_MS, sweepDelayOf } from './jobs';

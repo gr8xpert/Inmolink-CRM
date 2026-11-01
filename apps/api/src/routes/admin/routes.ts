@@ -23,6 +23,7 @@ import {
   StartStaffOperationBody,
   TenantParams,
 } from '@inmolink/contracts';
+import { startStaffOperation } from '@inmolink/core';
 import * as admin from '@inmolink/core/modules/admin';
 import * as migration from '@inmolink/core/modules/migration';
 import type { RateLimitRule } from '@inmolink/platform/rate-limit';
@@ -79,7 +80,7 @@ export async function adminRoutes(app: FastifyZod): Promise<void> {
       onRequest: staff,
       config: { rateLimit: WRITE_LIMITS },
     },
-    (req) => app.withStaffCtx(req, 'admin.startStaffOperation', (ctx) => admin.startOperation(ctx, req.body)),
+    (req) => app.withStaffCtx(req, 'admin.startStaffOperation', (ctx) => startStaffOperation(ctx, req.body)),
   );
 
   app.get(

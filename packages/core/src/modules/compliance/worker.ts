@@ -8,6 +8,7 @@ import { subscribe } from '@inmolink/platform/outbox';
 import { dataExportJobs } from './data-export-jobs';
 import { complianceEvents } from './events';
 
+export { eraseAgencyData } from './agency-erasure';
 export { dataExportJobs } from './data-export-jobs';
 export { configureDataExportNotice, dataExportNoticeRecipients, renderDataExportNotice } from './data-export-notice';
 export {

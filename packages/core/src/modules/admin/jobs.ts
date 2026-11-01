@@ -29,6 +29,9 @@ import * as repo from './repo';
  *   pool has more than `poolBacklogLimit` jobs waiting, the step waits (`backoffMs`, a delayed continuation).
  * - `REIMPORT`: a run of each enabled, unpaused feed of one agency (`imports.queueAgencyReimport`, ≤ 200), the same
  *   wait on the imports pool.
+ * - `ERASE_AGENCY` (S16-04): one bounded step of the agency's erasure (`AgencyEraser`, the compliance worker's
+ *   `eraseAgencyData`): its contacts (crm erasure, batches), its import connections and sheets, its export files.
+ *   Every step is idempotent and re-reads what is left; the last one audits `compliance.agency.erased`.
  * - `REPLAY_OUTBOX`: `replayBatch` events (`replayOutboxBatch`), then `replayPaceMs` before the next — the dispatcher
  *   drains each batch first. The first step counts the window up to `replayMaxEvents` (a capped count) and refuses a
  *   bigger one (FAILED `REPLAY_TOO_LARGE`); a type the replay policy refuses fails too (the service refused it first).
@@ -75,9 +78,26 @@ function replayFilter(op: repo.OperationRow): ReplayFilter {
   };
 }
 
+/**
+ * S16-04, `ERASE_AGENCY`: one bounded step of an agency's erasure — the compliance worker's `eraseAgencyData`, bound at
+ * worker boot (`configureAgencyEraser`: a module's worker entry is for apps/worker only). `finished`: nothing is left.
+ */
+export type AgencyEraser = (
+  agencyId: string,
+  opts: { signal?: AbortSignal; state?: unknown },
+) => Promise<{ finished: boolean; state: unknown }>;
+
+/** S16-04 review: an `ERASE_AGENCY` step found the agency no longer suspended (it ends FAILED, nothing more erased). */
+class AgencyNotSuspended extends Error {}
+let agencyEraser: AgencyEraser | null = null;
+
+export function configureAgencyEraser(eraser: AgencyEraser | null): void {
+  agencyEraser = eraser;
+}
+
 /** The pool an agency step feeds, if it is too busy for another step now. */
 async function poolBusy(op: repo.OperationRow): Promise<boolean> {
-  if (op.kind === 'REPLAY_OUTBOX') return false;
+  if (op.kind === 'REPLAY_OUTBOX' || op.kind === 'ERASE_AGENCY') return false;
   const pool = op.kind === 'REIMPORT' ? 'imports' : 'indexing';
   const [health] = await queueHealth([pool]);
   return (health?.waiting ?? 0) > adminConfig().poolBacklogLimit;
@@ -91,7 +111,7 @@ async function nextAgency(op: repo.OperationRow, last: string | null): Promise<s
 }
 
 /** One bounded step (outside any transaction: the steps open their own, and queue jobs). */
-async function runStep(op: repo.OperationRow): Promise<Step> {
+async function runStep(op: repo.OperationRow, signal?: AbortSignal): Promise<Step> {
   const config = adminConfig();
   if (op.kind === 'REPLAY_OUTBOX') {
     const from = op.cursor ? (JSON.parse(op.cursor) as ReplayCursor).after : null;
@@ -102,6 +122,17 @@ async function runStep(op: repo.OperationRow): Promise<Step> {
     return { cursor: JSON.stringify(cursor), doneDelta: batch.replayed, finished: batch.replayed < config.replayBatch };
   }
 
+  if (op.kind === 'ERASE_AGENCY') {
+    if (!agencyEraser) throw new Error('admin.runStaffOperation: no agency eraser configured');
+    const agencyId = op.targetAgencyId;
+    if (!agencyId) throw new Error('admin.runStaffOperation: ERASE_AGENCY without an agency');
+    // S16-04 review: before every step, the agency must still be suspended (a reinstated agency is never erased)
+    const status = await withSystem(reason(op.id), (tx) => agencies.agencyStatusOf(tx, agencyId));
+    if (status !== 'SUSPENDED') throw new AgencyNotSuspended();
+    const state = op.cursor ? (JSON.parse(op.cursor) as { erasure?: unknown }).erasure : undefined;
+    const r = await agencyEraser(agencyId, { signal, state });
+    return { cursor: JSON.stringify({ erasure: r.state }), doneDelta: r.finished ? 1 : 0, finished: r.finished };
+  }
   const c = agencyCursor(op);
   let cur = c.cur;
   if (!cur) {
@@ -245,7 +276,15 @@ export async function runStaffOperation(
     }
     if (await poolBusy(op)) return { state: 'RUNNING', done: op.done, more: true, delayMs: config.backoffMs };
     if (steps > 0 && op.kind === 'REPLAY_OUTBOX') await sleep(config.replayPaceMs, options.signal);
-    const step = await runStep(op);
+    let step: Step;
+    try {
+      step = await runStep(op, options.signal);
+    } catch (err) {
+      if (err instanceof AgencyNotSuspended) {
+        return { ...(await finish(op, { state: 'FAILED', errorCode: 'AGENCY_ERASURE_REFUSED' })), more: false };
+      }
+      throw err;
+    }
     steps++;
     const done = op.done + step.doneDelta;
     if (step.finished) {

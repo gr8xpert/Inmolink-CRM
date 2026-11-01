@@ -6,6 +6,7 @@
 import { z } from 'zod';
 import { PlanGrantDto } from './billing';
 import { PageQuery, pageOf } from './common';
+import { TwoFactorCode } from './identity';
 import { StaffReason } from './staff';
 
 // ---- bulk operations ----
@@ -17,7 +18,17 @@ import { StaffReason } from './staff';
  * - `REIMPORT`: queue a run of each enabled, unpaused feed connection.
  * - `REPLAY_OUTBOX`: re-deliver the outbox events of a time window (consumers are idempotent).
  */
-export const StaffOperationKind = z.enum(['REINDEX', 'REBUILD_READ_MODELS', 'REIMPORT', 'REPLAY_OUTBOX']);
+/**
+ * `ERASE_AGENCY` (S16-04, offboarding): erases a suspended agency's personal data — its contacts (crm erasure), its import
+ * connections and uploaded sheets, its data export files. Super admins only, one agency (`agencyId` required).
+ */
+export const StaffOperationKind = z.enum([
+  'REINDEX',
+  'REBUILD_READ_MODELS',
+  'REIMPORT',
+  'REPLAY_OUTBOX',
+  'ERASE_AGENCY',
+]);
 export type StaffOperationKind = z.infer<typeof StaffOperationKind>;
 
 export const StaffOperationState = z.enum(['QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED', 'CANCELLED']);
@@ -57,11 +68,21 @@ export const StartStaffOperationBody = z
     agencyId: z.uuid().optional(),
     reason: StaffReason,
     replay: OutboxReplayParams.optional(),
+    /** `ERASE_AGENCY` (S16-04 review): a fresh code of the super admin's authenticator (or a recovery code). */
+    twoFactorCode: TwoFactorCode.optional(),
   })
   .strict()
   .refine((b) => (b.kind === 'REPLAY_OUTBOX') === (b.replay !== undefined), {
     message: 'replay is required for REPLAY_OUTBOX and only for it',
     path: ['replay'],
+  })
+  .refine((b) => b.kind !== 'ERASE_AGENCY' || b.agencyId !== undefined, {
+    message: 'ERASE_AGENCY needs the agency',
+    path: ['agencyId'],
+  })
+  .refine((b) => (b.kind === 'ERASE_AGENCY') === (b.twoFactorCode !== undefined), {
+    message: 'twoFactorCode is required for ERASE_AGENCY and only for it',
+    path: ['twoFactorCode'],
   });
 export type StartStaffOperationBody = z.infer<typeof StartStaffOperationBody>;
 

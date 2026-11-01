@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { enterClientModeAction, exitClientModeAction } from '@/app/[locale]/(app)/(signed-in)/client-mode/actions';
 import { CLIENT_MODE_ERRORS } from '@/app/[locale]/(app)/(signed-in)/client-mode/state';
 import { logoutAction } from '@/app/[locale]/(auth)/actions';
+import { CookieSettingsButton } from '@/components/legal/cookie-settings-button';
 import { Link } from '@/i18n/navigation';
 import { routing } from '@/i18n/routing';
 import { webConfig } from '@/server/env';
@@ -27,6 +28,7 @@ function nativeName(code: string): string {
  */
 export async function DashboardShell({ shell, children }: { shell: Shell; children: ReactNode }) {
   const t = await getTranslations('shell');
+  const legal = await getTranslations('legal');
   const locale = await getLocale();
   const realtimeUrl = shell.unread ? (await webConfig()).REALTIME_PUBLIC_URL : null;
   const caps = shell.identity.kind === 'member' ? shell.identity.caps : null;
@@ -109,6 +111,19 @@ export async function DashboardShell({ shell, children }: { shell: Shell; childr
             {caps && !caps.clientMode ? (
               <ClientModeStart action={enterClientModeAction} labels={clientModeLabels} />
             ) : null}
+            {/* S16-04 review: the legal pages and the cookie choice, from every dashboard page */}
+            <nav
+              aria-label={legal('nav.label')}
+              className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground"
+            >
+              <Link href="/legal/privacy" className="underline">
+                {legal('nav.privacy')}
+              </Link>
+              <Link href="/legal/terms" className="underline">
+                {legal('nav.terms')}
+              </Link>
+              <CookieSettingsButton label={legal('consent.settings')} />
+            </nav>
             {/* S12-06 review: no sign-out in Client Mode — the PIN ends it (and a new login resumes it anyway). */}
             {caps?.clientMode ? null : (
               <form action={logoutAction}>

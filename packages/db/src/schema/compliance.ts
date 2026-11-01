@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import {
   bigint,
+  boolean,
   check,
   index,
   integer,
@@ -87,8 +88,13 @@ export const dataExportJobs = pgTable(
       .references(() => agencies.id),
     /** The admin who asked (no FK: a removed member's exports stay until they expire). */
     createdBy: uuid('created_by').notNull(),
-    /** `CONTACTS`, `LEADS`, `LISTINGS` or `ACCOUNT` (the ZIP of all of them plus the media manifest). */
+    /**
+     * `CONTACTS`, `LEADS`, `LISTINGS` or `ACCOUNT` (the ZIP of all of them plus the media manifest); `SUBJECT` (S16-04):
+     * one data subject's ZIP — everything the agency holds about `subject_contact_id` (GDPR Art. 15 / 20).
+     */
     kind: text('kind').notNull(),
+    /** `SUBJECT` only: the contact whose data is exported (no FK: the export outlives an erasure, which expires it). */
+    subjectContactId: uuid('subject_contact_id'),
     /** `csv` or `xlsx` (for `ACCOUNT`: the format of the tables inside the ZIP). */
     format: text('format').notNull(),
     /** `QUEUED` → `RUNNING` → `SUCCEEDED` | `FAILED`; `EXPIRED` once the file is deleted after `expires_at`. */
@@ -128,12 +134,93 @@ export const dataExportJobs = pgTable(
     index('data_export_jobs_expiry_idx')
       .on(t.expiresAt)
       .where(sql`${t.fileDeletedAt} is null and ${t.expiresAt} is not null`),
+    // an erasure expires the subject's exports: where agency_id = ? and subject_contact_id = ?
+    index('data_export_jobs_subject_idx')
+      .on(t.agencyId, t.subjectContactId)
+      .where(sql`${t.subjectContactId} is not null`),
     index('data_export_jobs_stuck_idx').on(t.createdAt).where(sql`${t.status} in ('QUEUED', 'RUNNING')`),
-    check('data_export_jobs_kind_ck', sql`${t.kind} in ('CONTACTS', 'LEADS', 'LISTINGS', 'ACCOUNT')`),
+    check('data_export_jobs_kind_ck', sql`${t.kind} in ('CONTACTS', 'LEADS', 'LISTINGS', 'ACCOUNT', 'SUBJECT')`),
+    check('data_export_jobs_subject_ck', sql`(${t.kind} = 'SUBJECT') = (${t.subjectContactId} is not null)`),
     check('data_export_jobs_format_ck', sql`${t.format} in ('csv', 'xlsx')`),
     check('data_export_jobs_status_ck', sql`${t.status} in ('QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED', 'EXPIRED')`),
     check('data_export_jobs_error_ck', sql`${t.errorCode} is null or length(${t.errorCode}) <= 64`),
     check('data_export_jobs_idempotency_ck', sql`(${t.idempotencyHash} is null) = (${t.requestHash} is null)`),
     check('data_export_jobs_counts_ck', sql`jsonb_typeof(${t.counts}) = 'object'`),
+  ],
+);
+
+/**
+ * Consent records (S16-04, PLAN §13 "consent records"): the history of a contact's consents — one row per consent given
+ * or withdrawn, whoever recorded it (a member, a website form, an import). Append-only evidence (registry
+ * `userAppendRead`: members read and append their agency's rows, never change or remove one). Ids, purposes, sources
+ * and times only — never a name, an address or the form's text — so an erasure keeps them: they prove what the
+ * contact agreed to and when, and say nothing about who the contact was once the contact row is a tombstone.
+ * `contacts.consent_*` stays the current state; this is how it got there.
+ */
+export const consentRecords = pgTable(
+  'consent_records',
+  {
+    id: uuid('id').primaryKey(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agencies.id),
+    /** The data subject (crm contact; no FK: crm owns contacts, and the record outlives a merge). */
+    contactId: uuid('contact_id').notNull(),
+    /** `MARKETING` (newsletters, alerts) or `PROCESSING` (keeping and using the data). */
+    purpose: text('purpose').notNull(),
+    granted: boolean('granted').notNull(),
+    /** Where the choice was made: `DASHBOARD`, `WEBSITE`, `PORTAL`, `IMPORT`, `MERGE`. */
+    source: text('source').notNull(),
+    /** The privacy / consent text version shown (null: not known — a member's entry, an import). */
+    policyVersion: text('policy_version'),
+    /** The member who recorded it; null for a website form or a worker. */
+    actorUserId: uuid('actor_user_id'),
+    /** Staff impersonating that member, if any. */
+    impersonatedBy: uuid('impersonated_by'),
+    recordedAt: timestamp('recorded_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // a contact's history, newest first: where agency_id = ? and contact_id = ? order by recorded_at desc, id desc
+    index('consent_records_contact_idx').on(t.agencyId, t.contactId, t.recordedAt, t.id),
+    check('consent_records_purpose_ck', sql`${t.purpose} in ('MARKETING', 'PROCESSING')`),
+    check('consent_records_source_ck', sql`${t.source} in ('DASHBOARD', 'WEBSITE', 'PORTAL', 'IMPORT', 'MERGE')`),
+    check(
+      'consent_records_policy_version_ck',
+      sql`${t.policyVersion} is null or ${t.policyVersion} ~ '^[A-Za-z0-9._-]{1,32}$'`,
+    ),
+  ],
+);
+
+/**
+ * Retention settings (S16-04, PLAN §13 "inactive leads/contacts auto-anonymized after a configurable period"): one row
+ * per agency that chose a period; no row or a null period = off. The daily `crm.anonymizeInactiveContacts` job erases
+ * contacts with no change, lead, activity or task for that many months (crm's erasure, actor `system`).
+ */
+export const retentionSettings = pgTable(
+  'retention_settings',
+  {
+    agencyId: uuid('agency_id')
+      .primaryKey()
+      .references(() => agencies.id),
+    /** Months without activity after which a contact is anonymized; null = never. Applies from `effective_at`. */
+    inactiveContactMonths: integer('inactive_contact_months'),
+    /**
+     * S16-04 review: a shortened period (or one newly turned on) applies only after a grace window
+     * (`RETENTION_GRACE_DAYS`), so an admin's mistake can be undone before anyone is erased; until `effective_at` the
+     * period before the change (`previous_months`, null = never) still applies. A longer period or "never" applies at once.
+     */
+    previousMonths: integer('previous_months'),
+    effectiveAt: timestamp('effective_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedBy: uuid('updated_by'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // the daily job walks the primary key (one row per agency that ever chose; 5,000 at most)
+    check(
+      'retention_settings_months_ck',
+      sql`${t.inactiveContactMonths} is null or ${t.inactiveContactMonths} between 6 and 240`,
+    ),
+    check('retention_settings_previous_ck', sql`${t.previousMonths} is null or ${t.previousMonths} between 6 and 240`),
   ],
 );

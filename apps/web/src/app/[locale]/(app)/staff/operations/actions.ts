@@ -11,6 +11,8 @@ import { cancelStaffOperation, startStaffOperation } from '@/server/staff-ops-ap
 /** Staff bulk operations (S13-03, transport only): the API authorizes, audits and queues the job. */
 const KNOWN_ERRORS = [
   'FORBIDDEN',
+  'AGENCY_ERASURE_REFUSED',
+  'MFA_CODE_INVALID',
   'STAFF_OPERATION_ACTIVE',
   'STAFF_OPERATION_NOT_FOUND',
   'NOT_FOUND',
@@ -52,6 +54,8 @@ export async function startOperationAction(form: FormData): Promise<void> {
             deadOnly: form.get('deadOnly') === 'on',
           }
         : undefined,
+    // S16-04 review: an agency erasure carries the super admin's fresh authenticator code
+    twoFactorCode: kind === 'ERASE_AGENCY' ? text(form, 'twoFactorCode') || undefined : undefined,
   });
   if (!body.success) return back({ error: 'VALIDATION_FAILED' });
   const res = await startStaffOperation(await session(), body.data);

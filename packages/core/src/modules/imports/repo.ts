@@ -116,6 +116,15 @@ export async function deleteConnection(tx: Tx, id: string): Promise<boolean> {
   return rows.length > 0;
 }
 
+/** S16-04, agency erasure: every connection of the agency (their run history follows, like one delete). */
+export async function deleteAgencyConnections(tx: Tx, agencyId: string): Promise<number> {
+  const rows = await tx
+    .delete(feedConnections)
+    .where(eq(feedConnections.agencyId, agencyId))
+    .returning({ id: feedConnections.id });
+  return rows.length;
+}
+
 export async function listConnections(
   tx: Tx,
   agencyId: string,

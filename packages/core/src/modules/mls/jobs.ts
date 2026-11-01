@@ -1,6 +1,8 @@
 import { clock } from '@inmolink/platform/clock';
 import { defineJob } from '@inmolink/platform/queue';
 import { z } from 'zod';
+import * as crm from '../crm';
+import { eraseContactRegistrations } from './erasure';
 import { mlsEvents } from './events';
 import {
   agenciesToRehash,
@@ -19,6 +21,9 @@ const HOUR_MS = 3_600_000;
  * - `mls.repointRegistrations` (pool `maintenance`, one per `crm.contact.merged` event, job ID = the event's id,
  *   S11-01): the agency's client registrations of the closed contact name the survivor. Idempotent: a redelivery finds
  *   nothing left to move.
+ * - `mls.eraseContactRegistrations` (pool `maintenance`, one per `crm.contact.erased` event, S16-04 review): the
+ *   erased contact's (and merged contacts') registrations keep ids, target and validity; their encrypted client details
+ *   become an empty client and their fingerprints are deleted (`erasure.ts`). Idempotent.
  * - `mls.scheduleFingerprintRehash` (pool `maintenance`, hourly): during an HMAC rotation window (S11-F13), one
  *   `mls.rehashFingerprints` per agency with valid registrations (job ID = agency + hour); nothing otherwise.
  * - `mls.rehashFingerprints` (pool `maintenance`, group = the agency, one at a time per agency): adds the current key's
@@ -34,6 +39,21 @@ const HOUR_MS = 3_600_000;
  *   agency): the other side's members are notified (both sides on expiry). Idempotent (`sourceKey`).
  */
 export const mlsJobs = {
+  eraseContactRegistrations: defineJob({
+    name: 'mls.eraseContactRegistrations',
+    pool: 'maintenance',
+    payload: z.object({ eventId: z.uuid(), agencyId: z.uuid(), contactId: z.uuid() }),
+    jobId: (p) => `registrations-erase:${p.eventId}`,
+    group: (p) => p.agencyId,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 5_000 },
+    timeoutMs: 60_000,
+    async run(p) {
+      const contactIds = await crm.erasedContactIds({ agencyId: p.agencyId, contactId: p.contactId });
+      return eraseContactRegistrations({ agencyId: p.agencyId, contactIds });
+    },
+  }),
+
   repointRegistrations: defineJob({
     name: 'mls.repointRegistrations',
     pool: 'maintenance',

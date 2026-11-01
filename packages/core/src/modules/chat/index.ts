@@ -9,6 +9,7 @@
  * (`replyInNetworkThread`, called by the network module); S12-F12: they close with their post (`closeNetworkThreadsForWorker`).
  */
 export { closeViewingThread, deliverMessage, pushRead, seatViewingThread } from './delivery';
+export { eraseAgencyChat } from './erasure';
 export { chatErrors } from './errors';
 export { chatEvents } from './events';
 export { handoffLinks, WHATSAPP_SHARE_URL } from './handoff';

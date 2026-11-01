@@ -1,9 +1,13 @@
+import { RETENTION_MAX_MONTHS, RETENTION_MIN_MONTHS } from '@inmolink/contracts';
+import { withSystem } from '@inmolink/db';
+import { clock } from '@inmolink/platform/clock';
 import { isAppError } from '@inmolink/platform/errors';
 import { defineJob } from '@inmolink/platform/queue';
 import { z } from 'zod';
+import * as compliance from '../compliance';
 import { forgetListingActivities, recordActivity } from './activities';
 import { forgetListingEvents, sendEventReminder, sweepEventReminders } from './calendar';
-import { eraseContactData } from './erasure';
+import { anonymizeInactiveContacts, eraseContactData } from './erasure';
 import { runContactImport, sweepContactImports } from './import';
 import { notifyLeadAssigned } from './lead-notices';
 import { promoteInboundLead } from './leads';
@@ -48,6 +52,11 @@ const IMPORT_ATTEMPTS = 3;
  *   came from (websites, 500 at a time), then the agency's listings whose seller it (or a contact merged into it) was
  *   name none (`property_privates`, through properties); audits `crm.contact.erasureCompleted` with the counts.
  *   Idempotent: a rerun finds nothing left.
+ * - `crm.sweepRetention` (pool `maintenance`, daily, S16-04): queues one `crm.anonymizeInactiveContacts` per agency
+ *   with a retention period (`compliance.retentionAgenciesPage`, 500 per page; job ID per agency and UTC day, fair share
+ *   by agency). That job erases contacts untouched for the period (no change, lead, task or activity since), at most
+ *   `RETENTION_MAX_PER_RUN` a day per agency, 100 per transaction (`crm.eraseContactsBySystem`, audited
+ *   `crm.contact.anonymized`); each erasure's `crm.contact.erased` clears the rest after the commit. Idempotent.
  * - `crm.refreshStageCounts` (S12-F6): the agency's leads per stage by deltas — the stage moves since its last pass,
  *   up to the database clock − `STAGE_COUNTS_LAG_MS` (it waits for the agency's open moves first), one history row
  *   read per move, one rollup row written per stage touched; queues one more pass while newer moves wait.
@@ -73,6 +82,11 @@ const IMPORT_ATTEMPTS = 3;
  *   event naming an assignee, job ID = the event's id, S12-F2): the assignee's `LEAD_ASSIGNED` notification
  *   (`lead-notices.ts`). Idempotent (`sourceKey` = the event's id).
  */
+/** Agencies per page of the daily retention sweep. */
+const RETENTION_SWEEP_PAGE = 500;
+/** Contacts one agency's retention run erases at most (the next day's run continues). */
+export const RETENTION_MAX_PER_RUN = 5_000;
+
 export const crmJobs = {
   importContacts: defineJob({
     name: 'crm.importContacts',
@@ -255,6 +269,61 @@ export const crmJobs = {
     timeoutMs: 60_000,
     async run(p) {
       return repointSellerListings(p);
+    },
+  }),
+
+  sweepRetention: defineJob({
+    name: 'crm.sweepRetention',
+    pool: 'maintenance',
+    payload: z.object({}).strict(),
+    every: 24 * 3_600_000,
+    attempts: 3,
+    timeoutMs: 10 * 60_000,
+    async run(_p, { signal }) {
+      const day = clock.now().toISOString().slice(0, 10);
+      let after: string | null = null;
+      let queued = 0;
+      while (!signal.aborted) {
+        const cursor: string | null = after;
+        const page: { agencyId: string; months: number }[] = await withSystem('crm.sweepRetention', (tx) =>
+          compliance.retentionAgenciesPage(tx, cursor, RETENTION_SWEEP_PAGE),
+        );
+        if (page.length > 0) {
+          await crmJobs.anonymizeInactiveContacts.enqueueMany(
+            page.map((r) => ({ payload: { agencyId: r.agencyId, months: r.months, day } })),
+          );
+        }
+        queued += page.length;
+        if (page.length < RETENTION_SWEEP_PAGE) break;
+        after = page[page.length - 1]?.agencyId ?? null;
+      }
+      return { queued };
+    },
+  }),
+
+  anonymizeInactiveContacts: defineJob({
+    name: 'crm.anonymizeInactiveContacts',
+    pool: 'maintenance',
+    payload: z.object({
+      agencyId: z.uuid(),
+      months: z.number().int().min(RETENTION_MIN_MONTHS).max(RETENTION_MAX_MONTHS),
+      day: z.iso.date(),
+    }),
+    jobId: (p) => `retention:${p.agencyId}:${p.day}`,
+    group: (p) => p.agencyId,
+    attempts: 3,
+    backoff: { type: 'exponential', delay: 60_000 },
+    timeoutMs: 10 * 60_000,
+    async run(p, { signal, log }) {
+      const erased = await anonymizeInactiveContacts({
+        agencyId: p.agencyId,
+        months: p.months,
+        now: clock.now(),
+        maxContacts: RETENTION_MAX_PER_RUN,
+        signal,
+      });
+      if (erased > 0) log.info({ agencyId: p.agencyId, erased }, 'inactive contacts anonymized');
+      return { erased };
     },
   }),
 

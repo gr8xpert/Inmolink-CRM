@@ -55,7 +55,7 @@ export const staffOperations = pgTable(
       .where(sql`${t.state} in ('QUEUED', 'RUNNING')`),
     check(
       'staff_operations_kind_ck',
-      sql`${t.kind} in ('REINDEX', 'REBUILD_READ_MODELS', 'REIMPORT', 'REPLAY_OUTBOX')`,
+      sql`${t.kind} in ('REINDEX', 'REBUILD_READ_MODELS', 'REIMPORT', 'REPLAY_OUTBOX', 'ERASE_AGENCY')`,
     ),
     check('staff_operations_state_ck', sql`${t.state} in ('QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED', 'CANCELLED')`),
     check('staff_operations_done_ck', sql`${t.done} >= 0`),

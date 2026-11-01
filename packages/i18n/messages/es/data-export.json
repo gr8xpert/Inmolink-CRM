@@ -6,13 +6,16 @@
     "format": "Formato",
     "code": "Código del autenticador",
     "codeHint": "Introduce el código actual de 6 dígitos de tu app de autenticación, o un código de recuperación. Hace falta cada vez que pides una exportación.",
-    "submit": "Pedir exportación"
+    "submit": "Pedir exportación",
+    "contactId": "Contacto (solo una persona)",
+    "contactIdHint": "Para una solicitud del interesado (RGPD, acceso o portabilidad): el contacto cuyos datos exportas. Déjalo vacío para las demás exportaciones."
   },
   "kinds": {
     "CONTACTS": "Contactos",
     "LEADS": "Leads",
     "LISTINGS": "Inmuebles",
-    "ACCOUNT": "Toda la cuenta (ZIP)"
+    "ACCOUNT": "Toda la cuenta (ZIP)",
+    "SUBJECT": "Una persona (ZIP, solicitud del interesado)"
   },
   "formats": {
     "csv": "CSV",
@@ -46,6 +49,7 @@
     "FORBIDDEN": "Solo los administradores de la agencia pueden exportar datos.",
     "RATE_LIMITED": "Demasiadas solicitudes. Inténtalo más tarde.",
     "load": "No se pudieron cargar las exportaciones. Inténtalo de nuevo en un momento.",
-    "generic": "Algo ha salido mal. Inténtalo de nuevo."
+    "generic": "Algo ha salido mal. Inténtalo de nuevo.",
+    "DATA_SUBJECT_NOT_FOUND": "Ese contacto no existe o se ha suprimido."
   }
 }

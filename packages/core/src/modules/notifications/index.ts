@@ -24,6 +24,7 @@
  * the unread count and the 5-minute e-mail digest of what stays unread.
  */
 export { DIGEST_LISTED, renderDigest } from './digest-email';
+export { deleteAgencyNotifications, redactNotifications } from './erasure';
 export { notificationsErrors } from './errors';
 export { notificationsEvents } from './events';
 export { notificationsJobs } from './jobs';

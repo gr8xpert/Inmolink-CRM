@@ -121,6 +121,11 @@ export const ErrorCodes = {
   DATA_EXPORT_NOT_FOUND: 404,
   /** The agency already has an export queued or running: wait for it to finish. */
   DATA_EXPORT_IN_PROGRESS: 409,
+  // compliance: GDPR flows (S16-04)
+  /** A data subject export names no open contact of the agency. */
+  DATA_SUBJECT_NOT_FOUND: 404,
+  /** An agency is erased only once it is suspended (offboarding), and the confirmation must name it. */
+  AGENCY_ERASURE_REFUSED: 409,
   // staff console: impersonation (S1-09)
   /** The impersonation session ended, expired or was revoked: the staff member is no longer acting as the user. */
   IMPERSONATION_ENDED: 403,

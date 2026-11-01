@@ -290,7 +290,8 @@
         "REINDEX": "Re-index search",
         "REBUILD_READ_MODELS": "Rebuild read models",
         "REIMPORT": "Re-import feeds",
-        "REPLAY_OUTBOX": "Replay outbox events"
+        "REPLAY_OUTBOX": "Replay outbox events",
+        "ERASE_AGENCY": "Erase an agency's personal data (suspended agency, super admins; cannot be undone)"
       },
       "agencyId": "Agency ID",
       "agencyIdHint": "Leave empty to run it for every agency.",
@@ -328,8 +329,12 @@
         "STAFF_OPERATION_NOT_FOUND": "That operation no longer exists.",
         "NOT_FOUND": "No agency has that ID.",
         "VALIDATION_FAILED": "Check the fields: a reason of 10–500 characters, and a replay window of at most 7 days.",
-        "OUTBOX_REPLAY_TYPE_REFUSED": "This event type cannot be replayed: its subscribers send e-mail, notify, bill, call AI or start work — or your role may replay only projection events (read models, search index, caches)."
-      }
+        "OUTBOX_REPLAY_TYPE_REFUSED": "This event type cannot be replayed: its subscribers send e-mail, notify, bill, call AI or start work — or your role may replay only projection events (read models, search index, caches).",
+        "AGENCY_ERASURE_REFUSED": "Only a suspended agency can be erased: suspend it first.",
+        "MFA_CODE_INVALID": "That code is not valid or was already used. Enter the current code."
+      },
+      "twoFactorCode": "Authenticator code (agency erasure only)",
+      "twoFactorCodeHint": "An agency erasure needs a fresh code from your authenticator app (or a recovery code). Leave empty for the other operations."
     },
     "flags": {
       "title": "Feature flags",

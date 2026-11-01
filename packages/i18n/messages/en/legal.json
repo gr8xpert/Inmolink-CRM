@@ -1,0 +1,120 @@
+{
+  "meta": {
+    "title": "{doc} · Inmolink"
+  },
+  "nav": {
+    "label": "Legal",
+    "privacy": "Privacy notice",
+    "cookies": "Cookie policy",
+    "terms": "Terms of service",
+    "subProcessors": "Sub-processors"
+  },
+  "draftNotice": "Draft — placeholder text awaiting legal review. It describes how the platform works today but is not yet the binding text (version {version}).",
+  "updated": "Version {version}",
+  "privacy": {
+    "title": "Privacy notice",
+    "intro": "How Inmolink handles personal data. Inmolink is the controller for platform accounts (agency members, staff) and a processor for the client data agencies keep in their CRM, under the data processing agreement each agency signs.",
+    "sections": {
+      "controller": {
+        "title": "Who is responsible",
+        "body": "Controller for platform accounts: [company name, registered address, tax id — H7]. For client data in an agency's CRM, the agency is the controller; contact the agency first."
+      },
+      "data": {
+        "title": "What we process",
+        "body": "Account data (name, e-mail, role, sign-in and security events), what agencies enter about their clients (contacts, enquiries, viewings, notes), listings and their media, and technical logs with personal data redacted."
+      },
+      "purposes": {
+        "title": "Why, and on what basis",
+        "body": "To provide the service under the contract with your agency (Art. 6(1)(b) GDPR), to keep it secure and prevent abuse (legitimate interest, Art. 6(1)(f)), to meet legal duties such as invoicing (Art. 6(1)(c)), and for marketing only with consent, which can be withdrawn at any time. [Legal bases to be confirmed — H7]"
+      },
+      "retention": {
+        "title": "How long we keep it",
+        "body": "Account data while the account exists; client data for as long as the agency keeps it — agencies can set a period after which inactive contacts are anonymized automatically. Data exports expire after 7 days. Records needed for legal claims (client registrations) are kept for their validity plus the claim period. [Periods to be confirmed — H7]"
+      },
+      "rights": {
+        "title": "Your rights",
+        "body": "You can ask for access to your data and a copy of it, correction, erasure, restriction, portability and object to processing. Agencies answer client requests from the dashboard: one person's data export, and erasure, which removes names, contact details and free text everywhere and keeps only anonymous records (deals, audit trail). You may also complain to the Spanish data protection authority (AEPD)."
+      },
+      "transfers": {
+        "title": "Where the data is",
+        "body": "Primary data and backups are hosted in the EU. Some sub-processors may process data outside the EU under the European Commission's standard contractual clauses; see the sub-processor list."
+      },
+      "contact": {
+        "title": "Contact",
+        "body": "Data protection contact / DPO: [name and e-mail — H7]."
+      }
+    }
+  },
+  "cookies": {
+    "title": "Cookie policy",
+    "intro": "Which cookies the dashboard and the public pages use, and how to choose.",
+    "sections": {
+      "essential": {
+        "title": "Strictly necessary cookies",
+        "body": "Session and security cookies keep you signed in and protect forms (sign-in session, CSRF protection, bot protection on public forms, a one-time view mark on shared selections). They are needed for the service and need no consent."
+      },
+      "optional": {
+        "title": "Optional cookies",
+        "body": "The platform uses no analytics or advertising cookies today. If any are added, they stay off until you accept them in the cookie banner."
+      },
+      "choices": {
+        "title": "Your choice",
+        "body": "Your choice is stored for 12 months in a cookie named inl_consent. Clear it in your browser to choose again. [Text to be confirmed — H7]"
+      }
+    }
+  },
+  "terms": {
+    "title": "Terms of service",
+    "intro": "Placeholder terms for the Inmolink platform. The binding terms of service, the data processing agreement and the collaboration agreement template are being reviewed by counsel.",
+    "sections": {
+      "service": {
+        "title": "The service",
+        "body": "[Description of the service, plans and availability — H7]"
+      },
+      "accounts": {
+        "title": "Accounts and agencies",
+        "body": "[Who may sign up, agency verification, members' responsibilities — H7]"
+      },
+      "data": {
+        "title": "Your data",
+        "body": "Your agency's data stays yours: you can export it at any time and it is erased when the agency leaves. Inmolink processes client data only on the agency's instructions (data processing agreement). [Final wording — H7]"
+      },
+      "liability": {
+        "title": "Liability",
+        "body": "[Limitation of liability — H7]"
+      },
+      "law": {
+        "title": "Applicable law",
+        "body": "[Spanish law and jurisdiction — H7]"
+      }
+    }
+  },
+  "subProcessors": {
+    "title": "Sub-processors",
+    "intro": "Companies that process personal data on Inmolink's behalf. Primary data and backups stay in the EU.",
+    "columns": {
+      "name": "Company",
+      "purpose": "What for",
+      "location": "Where"
+    },
+    "unconfirmed": "to be confirmed",
+    "purposes": {
+      "hosting": "Servers and databases",
+      "cdn": "Content delivery",
+      "storage": "File storage",
+      "bot": "Bot protection on forms",
+      "payments": "Payments and invoicing",
+      "email": "Transactional e-mail",
+      "ai": "AI writing assistance",
+      "errors": "Error monitoring"
+    }
+  },
+  "consent": {
+    "text": "We use only the cookies the service needs. Optional cookies stay off unless you accept them.",
+    "essentialOnly": "Only necessary",
+    "acceptAll": "Accept all",
+    "policy": "Cookie policy",
+    "label": "Cookie choice",
+    "settings": "Cookie settings"
+  }
+}

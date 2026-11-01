@@ -8,7 +8,12 @@ import type { StaffCtx } from '../../context';
  * cancelled by data ops and super admins; feature flags and plan grants change only for super admins (billing checks
  * grants itself). RLS repeats each rule from the same contracts role set (registry `STAFF_OPERATOR`, `SUPER_ADMIN`).
  */
-export type AdminAction = 'staff.admin.read' | 'staff.admin.runOperation' | 'staff.admin.setFlag';
+export type AdminAction =
+  | 'staff.admin.read'
+  | 'staff.admin.runOperation'
+  | 'staff.admin.setFlag'
+  // S16-04: an agency's erasure (`ERASE_AGENCY`) cannot be undone — super admins only
+  | 'staff.admin.eraseAgency';
 
 const OPERATORS: ReadonlySet<StaffRole> = new Set(STAFF_OPERATION_ROLES);
 const FLAG_SETTERS: ReadonlySet<StaffRole> = new Set(SUPER_ADMIN_ROLES);
@@ -21,6 +26,7 @@ export function canStaff(ctx: StaffCtx, action: AdminAction): boolean {
     case 'staff.admin.runOperation':
       return OPERATORS.has(ctx.actor.role);
     case 'staff.admin.setFlag':
+    case 'staff.admin.eraseAgency':
       return FLAG_SETTERS.has(ctx.actor.role);
   }
 }

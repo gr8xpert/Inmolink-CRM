@@ -8,6 +8,9 @@ export const COMPLIANCE_ACTIONS = [
   'compliance.dataExport.create',
   'compliance.dataExport.read',
   'compliance.dataExport.download',
+  'compliance.consents.read',
+  'compliance.retention.read',
+  'compliance.retention.manage',
 ] as const;
 export type ComplianceAction = (typeof COMPLIANCE_ACTIONS)[number];
 
@@ -20,6 +23,10 @@ export const COMPLIANCE_IMPERSONATION: ImpersonationRules<ComplianceAction> = {
   'compliance.dataExport.create': 'forbidden',
   'compliance.dataExport.read': 'allowed',
   'compliance.dataExport.download': 'forbidden',
+  'compliance.consents.read': 'allowed',
+  'compliance.retention.read': 'allowed',
+  // S16-04: a retention period decides which clients are erased for good — the agency's own act.
+  'compliance.retention.manage': 'forbidden',
 };
 
 /** Roles that administer their agency (PLAN §3 #2). */
@@ -39,6 +46,14 @@ export function can(ctx: Ctx, action: ComplianceAction, resource?: { agencyId: s
     case 'compliance.dataExport.download':
       // S10-08: an export is every contact, lead and listing of the agency (client PII, commissions): its admins
       // only, never in Client Mode (a screen shown to a buyer).
+      return sameAgency && !ctx.clientMode && ADMIN_ROLES.has(ctx.actor.role);
+    case 'compliance.consents.read':
+      // S16-04: a contact's consent history (ids, purposes, times). The caller (crm) has already checked the member
+      // may read the contact; never in Client Mode.
+      return sameAgency && !ctx.clientMode;
+    case 'compliance.retention.read':
+    case 'compliance.retention.manage':
+      // S16-04: how long inactive clients are kept — the agency's admins.
       return sameAgency && !ctx.clientMode && ADMIN_ROLES.has(ctx.actor.role);
   }
 }

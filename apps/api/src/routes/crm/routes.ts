@@ -1,5 +1,6 @@
 import {
   AppError,
+  ConsentRecordList,
   ContactDto,
   ContactImportDto,
   ContactImportPage,
@@ -207,6 +208,23 @@ export async function crmRoutes(app: FastifyZod): Promise<void> {
       config: { rateLimit: READ_LIMITS },
     },
     (req) => app.withCtx(req, (ctx) => crm.listContactNotes(ctx, req.params.id, req.query)),
+  );
+
+  app.get(
+    '/v1/crm/contacts/:id/consents',
+    {
+      schema: {
+        tags,
+        operationId: 'crm.listContactConsents',
+        summary:
+          'A contact’s consent history (S16-04): each consent given or withdrawn, newest first, ids and times only',
+        params: ContactParams,
+        response: { 200: ConsentRecordList },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: READ_LIMITS },
+    },
+    (req) => app.withCtx(req, (ctx) => crm.listContactConsents(ctx, req.params.id)),
   );
 
   app.post(

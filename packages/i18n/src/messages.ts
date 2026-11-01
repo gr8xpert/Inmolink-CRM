@@ -12,6 +12,7 @@ import type documents from '../messages/en/documents.json'; // S12-05
 import type embed from '../messages/en/embed.json';
 import type imports from '../messages/en/imports.json';
 import type leads from '../messages/en/leads.json';
+import type legal from '../messages/en/legal.json'; // S16-04
 import type listings from '../messages/en/listings.json';
 import type network from '../messages/en/network.json';
 import type notifications from '../messages/en/notifications.json';
@@ -51,6 +52,7 @@ export interface Messages {
   embed: typeof embed;
   imports: typeof imports;
   leads: typeof leads;
+  legal: typeof legal; // S16-04
   listings: typeof listings;
   network: typeof network;
   notifications: typeof notifications;

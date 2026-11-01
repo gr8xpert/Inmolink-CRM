@@ -79,6 +79,7 @@ export { registerAgenciesSubscriptions, unregisterAgenciesSubscriptions } from '
 export {
   agencyIdsPage,
   agencyNames,
+  agencyStatusOf,
   countAgencies,
   getTenant,
   getTenantSummary,

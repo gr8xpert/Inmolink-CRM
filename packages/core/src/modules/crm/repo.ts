@@ -627,6 +627,127 @@ export async function inboundLeadsOf(
   return rows.map((r) => r.id).filter((id): id is string => id !== null);
 }
 
+/** S16-04: whether `contactId` is an open contact of the agency (a data subject export names one). */
+export async function openContactExists(tx: Tx, agencyId: string, contactId: string): Promise<boolean> {
+  const [row] = await tx
+    .select({ id: contacts.id })
+    .from(contacts)
+    .where(and(eq(contacts.agencyId, agencyId), eq(contacts.id, contactId), isNull(contacts.deletedAt)))
+    .limit(1);
+  return row !== undefined;
+}
+
+/**
+ * S16-04, agency erasure: up to `limit` open contacts of the agency (`contacts_agency_created_idx`). Each one erased
+ * closes it, so the next call answers the next ones; merged (closed) contacts follow their survivor's erasure.
+ */
+export async function openContactIds(tx: Tx, agencyId: string, limit: number): Promise<string[]> {
+  const rows = await tx
+    .select({ id: contacts.id })
+    .from(contacts)
+    .where(and(eq(contacts.agencyId, agencyId), isNull(contacts.deletedAt)))
+    .orderBy(contacts.createdMs, contacts.id)
+    .limit(limit);
+  return rows.map((r) => r.id);
+}
+
+/**
+ * S16-04, retention: up to `limit` open contacts after `afterId` (by id, `contacts_agency_id_uq`) untouched since
+ * `cutoff` — the contact unchanged, no open lead (`NEW`, `IN_PROGRESS`: a live deal is never erased), none of its leads,
+ * tasks or activities changed or logged since, its leads' activities included (`activities_lead_idx`). The caller also
+ * keeps sellers of active listings (properties). Each probe is an index lookup per candidate (`leads_contact_idx`,
+ * `tasks_contact_idx`, `activities_contact_idx` / `activities_lead_idx`); a daily, bounded worker batch.
+ */
+export async function inactiveContactIds(
+  tx: Tx,
+  agencyId: string,
+  cutoff: Date,
+  afterId: string | null,
+  limit: number,
+): Promise<string[]> {
+  const at = cutoff.toISOString();
+  const res = await tx.execute(sql`
+    select c.id from ${contacts} c
+     where c.agency_id = ${agencyId} and c.deleted_at is null and c.updated_at < ${at}::timestamptz
+       ${afterId ? sql`and c.id > ${afterId}::uuid` : sql``}
+       and not exists (select 1 from ${leads} l
+                        where l.agency_id = c.agency_id and l.contact_id = c.id
+                          and (l.updated_at >= ${at}::timestamptz or l.status in ('NEW', 'IN_PROGRESS')))
+       and not exists (select 1 from ${tasks} t
+                        where t.agency_id = c.agency_id and t.contact_id = c.id and t.updated_at >= ${at}::timestamptz)
+       and not exists (select 1 from ${activities} a
+                        where a.agency_id = c.agency_id and a.contact_id = c.id and a.occurred_at >= ${at}::timestamptz)
+       and not exists (select 1 from ${leads} l2 join ${activities} a2
+                          on a2.agency_id = l2.agency_id and a2.lead_id = l2.id and a2.occurred_at >= ${at}::timestamptz
+                        where l2.agency_id = c.agency_id and l2.contact_id = c.id)
+     order by c.id
+     limit ${limit}`);
+  return (res.rows as { id: string }[]).map((r) => r.id);
+}
+
+/**
+ * S16-04 review, agency erasure: at most `limit` rows per table of the agency's remaining free text — activity bodies,
+ * task titles / descriptions, calendar event titles / descriptions / locations, seller prospect titles, addresses and
+ * confidential notes, lead messages and visitor details, contact notes (deleted) — cleared in one statement. Answers the
+ * rows changed (0: nothing left).
+ */
+export async function clearAgencyText(tx: Tx, agencyId: string, limit: number): Promise<number> {
+  const res = await tx.execute(sql`
+    with a as (update ${activities} set body = null
+        where agency_id = ${agencyId} and (id, occurred_at) in (
+          select id, occurred_at from ${activities} where agency_id = ${agencyId} and body is not null limit ${limit})
+        returning 1),
+      t as (update ${tasks} set title = ${ERASED_TITLE}, description = null, version = version + 1, updated_at = now()
+        where agency_id = ${agencyId} and id in (
+          select id from ${tasks} where agency_id = ${agencyId}
+            and (title <> ${ERASED_TITLE} or description is not null) limit ${limit})
+        returning 1),
+      e as (update ${calendarEvents} set title = ${ERASED_TITLE}, description = null, location = null,
+          version = version + 1, updated_at = now()
+        where agency_id = ${agencyId} and id in (
+          select id from ${calendarEvents} where agency_id = ${agencyId}
+            and (title <> ${ERASED_TITLE} or description is not null or location is not null) limit ${limit})
+        returning 1),
+      s as (update ${sellerProspects} set title = ${ERASED_TITLE}, address = null, area = null, confidential_notes = null,
+          version = version + 1, updated_at = now()
+        where agency_id = ${agencyId} and id in (
+          select id from ${sellerProspects} where agency_id = ${agencyId}
+            and (title <> ${ERASED_TITLE} or address is not null or area is not null or confidential_notes is not null)
+          limit ${limit})
+        returning 1),
+      l as (update ${leads} set message = null, visitor_name = null, visitor_email = null, visitor_phone = null,
+          idempotency_hash = null, request_hash = null, version = version + 1, updated_at = now()
+        where agency_id = ${agencyId} and id in (
+          select id from ${leads} where agency_id = ${agencyId}
+            and (message is not null or visitor_name is not null or visitor_email is not null or visitor_phone is not null)
+          limit ${limit})
+        returning 1),
+      n as (delete from ${contactNotes} where agency_id = ${agencyId} and id in (
+          select id from ${contactNotes} where agency_id = ${agencyId} limit ${limit})
+        returning 1)
+    select ((select count(*) from a) + (select count(*) from t) + (select count(*) from e) + (select count(*) from s)
+      + (select count(*) from l) + (select count(*) from n))::int as rows`);
+  return (res.rows[0] as { rows: number }).rows;
+}
+
+/** S16-04: the ids of the contacts' leads and tasks (an erasure redacts their notifications). Bounded per person. */
+export async function noticeTargetsOf(
+  tx: Tx,
+  agencyId: string,
+  contactIds: readonly string[],
+): Promise<{ leadIds: string[]; taskIds: string[] }> {
+  if (contactIds.length === 0) return { leadIds: [], taskIds: [] };
+  const l = await tx
+    .select({ id: leads.id })
+    .from(leads)
+    .where(and(eq(leads.agencyId, agencyId), inArray(leads.contactId, [...contactIds])));
+  const t = await tx
+    .select({ id: tasks.id })
+    .from(tasks)
+    .where(and(eq(tasks.agencyId, agencyId), inArray(tasks.contactId, [...contactIds])));
+  return { leadIds: l.map((r) => r.id), taskIds: t.map((r) => r.id) };
+}
+
 // ---- notes --------------------------------------------------------------------------------------------------------
 
 const noteColumns = {

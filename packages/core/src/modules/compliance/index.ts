@@ -16,6 +16,17 @@ export {
 } from './data-export';
 export { complianceErrors } from './errors';
 export { complianceEvents } from './events';
+export {
+  type ConsentChange,
+  type ContactReadProof,
+  expireErasedExports,
+  getRetentionSettings,
+  initialConsents,
+  listConsents,
+  recordConsents,
+  retentionAgenciesPage,
+  setRetentionSettings,
+} from './gdpr';
 export { complianceJobs, PARTITION_MAINTENANCE_EVERY_MS } from './jobs';
 export { can } from './policy';
 export {

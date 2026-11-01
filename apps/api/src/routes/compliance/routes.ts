@@ -7,10 +7,12 @@ import {
   DataExportParams,
   GetDataExportQuery,
   PageQuery,
+  RetentionSettingsDto,
   StaffAuditPage,
   StaffAuditQuery,
+  UpdateRetentionSettingsBody,
 } from '@inmolink/contracts';
-import { listStaffAuditLog, requestDataExport } from '@inmolink/core';
+import { listStaffAuditLog, requestDataExport, updateRetentionSettings } from '@inmolink/core';
 import * as compliance from '@inmolink/core/modules/compliance';
 import type { RateLimitRule } from '@inmolink/platform/rate-limit';
 import type { FastifyZod } from '@inmolink/platform/server';
@@ -29,6 +31,11 @@ const EXPORT_GET_LIMITS: readonly RateLimitRule[] = [
   { name: 'compliance.export.get.ip', scope: 'ip', limit: 120, windowSeconds: 60 },
   { name: 'compliance.export.get.user', scope: 'user', limit: 30, windowSeconds: 60 },
 ];
+/** S16-04: the retention period is a rare admin setting. */
+const RETENTION_WRITE_LIMITS: readonly RateLimitRule[] = [
+  { name: 'compliance.retention.ip', scope: 'ip', limit: 60, windowSeconds: 3_600 },
+  { name: 'compliance.retention.user', scope: 'user', limit: 20, windowSeconds: 3_600 },
+];
 const STAFF_LIMITS: readonly RateLimitRule[] = [
   { name: 'staff.audit.ip', scope: 'ip', limit: 600, windowSeconds: 60 },
   { name: 'staff.audit.user', scope: 'user', limit: 120, windowSeconds: 60 },
@@ -36,9 +43,42 @@ const STAFF_LIMITS: readonly RateLimitRule[] = [
 
 /**
  * compliance dashboard routes (PATTERNS §10): the agency's audit log (S1-08), the staff viewer (S1-09) and the data
- * export (S10-08: create, list, get with a short signed download link — admins only, `no-store`).
+ * export (S10-08: create, list, get with a short signed download link — admins only, `no-store`; S16-04: `SUBJECT`
+ * exports of one contact) and the retention period of inactive contacts (S16-04, admins).
  */
 export async function complianceRoutes(app: FastifyZod): Promise<void> {
+  app.get(
+    '/v1/agency/retention',
+    {
+      schema: {
+        tags: ['compliance'],
+        operationId: 'compliance.getRetentionSettings',
+        summary: 'How long inactive contacts are kept before they are anonymized (months; null = never) — admins',
+        response: { 200: RetentionSettingsDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: READ_LIMITS },
+    },
+    (req) => app.withCtx(req, (ctx) => compliance.getRetentionSettings(ctx)),
+  );
+
+  app.put(
+    '/v1/agency/retention',
+    {
+      schema: {
+        tags: ['compliance'],
+        operationId: 'compliance.setRetentionSettings',
+        summary:
+          'Set how long inactive contacts are kept (6–240 months, or null for never; a fresh second-factor code): the daily job anonymizes contacts untouched that long; a shorter period applies after a 14-day grace window (effectiveAt) — admins, audited',
+        body: UpdateRetentionSettingsBody,
+        response: { 200: RetentionSettingsDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: RETENTION_WRITE_LIMITS },
+    },
+    (req) => app.withCtx(req, (ctx) => updateRetentionSettings(ctx, req.body)),
+  );
+
   app.get(
     '/v1/agency/audit-log',
     {
@@ -62,7 +102,7 @@ export async function complianceRoutes(app: FastifyZod): Promise<void> {
         tags: ['compliance'],
         operationId: 'compliance.createDataExport',
         summary:
-          'Export contacts, leads or listings as CSV / Excel, or the whole account as a ZIP (admins; runs as a job). With an Idempotency-Key, a retry within 24 h answers the first export (200)',
+          'Export contacts, leads or listings as CSV / Excel, the whole account as a ZIP, or one person’s data (SUBJECT + contactId, a ZIP — GDPR access / portability) (admins; runs as a job). With an Idempotency-Key, a retry within 24 h answers the first export (200)',
         headers: CreateDataExportHeaders,
         body: CreateDataExportBody,
         response: { 201: DataExportDto, 200: DataExportDto },

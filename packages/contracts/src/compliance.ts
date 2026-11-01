@@ -35,8 +35,11 @@ export type AuditLogPage = z.infer<typeof AuditLogPage>;
 
 // ---- data export (S10-08, PLAN §3 #59) -----------------------------------------------------------------------------
 
-/** What an export holds: one table, or the whole account (a ZIP of the tables plus the media manifest). */
-export const DataExportKind = z.enum(['CONTACTS', 'LEADS', 'LISTINGS', 'ACCOUNT']);
+/**
+ * What an export holds: one table, the whole account (a ZIP of the tables plus the media manifest), or `SUBJECT`
+ * (S16-04): one data subject's ZIP — everything the agency holds about one contact (GDPR Art. 15 / 20).
+ */
+export const DataExportKind = z.enum(['CONTACTS', 'LEADS', 'LISTINGS', 'ACCOUNT', 'SUBJECT']);
 export type DataExportKind = z.infer<typeof DataExportKind>;
 export const DataExportFormat = z.enum(['csv', 'xlsx']);
 export type DataExportFormat = z.infer<typeof DataExportFormat>;
@@ -55,6 +58,11 @@ export const DATA_EXPORT_TTL_DAYS = 7;
 export const CreateDataExportBody = z.strictObject({
   kind: DataExportKind,
   format: DataExportFormat.default('csv'),
+  /**
+   * `SUBJECT` only (S16-04): the contact whose data is exported. Required for `SUBJECT` and refused for the other kinds
+   * (the service answers `VALIDATION_FAILED`; no `.refine` here, so the schema stays `.omit`-able).
+   */
+  contactId: z.uuid().optional(),
   twoFactorCode: TwoFactorCode,
 });
 export type CreateDataExportBody = z.infer<typeof CreateDataExportBody>;
@@ -67,6 +75,8 @@ export const DataExportDto = z.strictObject({
   id: z.uuid(),
   kind: DataExportKind,
   format: DataExportFormat,
+  /** `SUBJECT` exports: the contact exported; null for the others. */
+  subjectContactId: z.uuid().nullable(),
   status: DataExportStatus,
   /** Rows written per table (`contacts`, `leads`, `listings`, `media`). */
   counts: z.record(z.string(), z.number().int().nonnegative()),
@@ -102,3 +112,61 @@ export const CreateDataExportHeaders = z.object({
     .optional(),
 });
 export type CreateDataExportHeaders = z.infer<typeof CreateDataExportHeaders>;
+
+// ---- GDPR: consent records, retention, agency erasure (S16-04, PLAN §13) --------------------------------------------
+
+/** What a consent covers: marketing (newsletters, alerts) or processing (keeping and using the data). */
+export const ConsentPurpose = z.enum(['MARKETING', 'PROCESSING']);
+export type ConsentPurpose = z.infer<typeof ConsentPurpose>;
+/** Where the choice was made. */
+export const ConsentSource = z.enum(['DASHBOARD', 'WEBSITE', 'PORTAL', 'IMPORT', 'MERGE']);
+export type ConsentSource = z.infer<typeof ConsentSource>;
+
+/** One consent given or withdrawn (`GET /v1/crm/contacts/:id/consents`): ids and times only. */
+export const ConsentRecordDto = z.strictObject({
+  id: z.uuid(),
+  purpose: ConsentPurpose,
+  granted: z.boolean(),
+  source: ConsentSource,
+  policyVersion: z.string().nullable(),
+  /** The member who recorded it; null for a website form or an import. */
+  actorUserId: z.uuid().nullable(),
+  /** A staff member recorded it while impersonating `actorUserId`. */
+  impersonated: z.boolean(),
+  recordedAt: z.iso.datetime(),
+});
+export type ConsentRecordDto = z.infer<typeof ConsentRecordDto>;
+
+/** A contact's consent history, newest first (at most `CONSENT_HISTORY_LIMIT`). */
+export const CONSENT_HISTORY_LIMIT = 100;
+export const ConsentRecordList = z.strictObject({ items: z.array(ConsentRecordDto) });
+export type ConsentRecordList = z.infer<typeof ConsentRecordList>;
+
+/** Shortest and longest retention period an agency may choose (months). */
+export const RETENTION_MIN_MONTHS = 6;
+export const RETENTION_MAX_MONTHS = 240;
+
+/** A shortened retention period (or one newly turned on) applies only this many days after the change. */
+export const RETENTION_GRACE_DAYS = 14;
+
+const RetentionMonths = z.number().int().min(RETENTION_MIN_MONTHS).max(RETENTION_MAX_MONTHS).nullable();
+
+/**
+ * `GET/PUT /v1/agency/retention` (admins): contacts with no change, lead, activity or task for `inactiveContactMonths`
+ * are anonymized by the daily retention job (crm's erasure); null = never. A shorter period than the one in force applies
+ * from `effectiveAt` (`RETENTION_GRACE_DAYS` later); until then `previousMonths` applies.
+ */
+export const RetentionSettingsDto = z.strictObject({
+  inactiveContactMonths: RetentionMonths,
+  /** When `inactiveContactMonths` applies (now, or the end of the grace window). */
+  effectiveAt: z.iso.datetime(),
+  /** The period in force until `effectiveAt` (null = never); null too once `effectiveAt` is past. */
+  previousMonths: RetentionMonths,
+});
+export type RetentionSettingsDto = z.infer<typeof RetentionSettingsDto>;
+/** `twoFactorCode`: a fresh code of the admin's authenticator — the period decides which clients are erased for good. */
+export const UpdateRetentionSettingsBody = z.strictObject({
+  inactiveContactMonths: RetentionMonths,
+  twoFactorCode: TwoFactorCode,
+});
+export type UpdateRetentionSettingsBody = z.infer<typeof UpdateRetentionSettingsBody>;

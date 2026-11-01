@@ -8,6 +8,7 @@ export {
   viewingCounterpart,
 } from './chat-context';
 export { configureMls, type MlsConfig, VIEWING_REQUEST_EXPIRY_DAYS } from './config';
+export { ERASED_CLIENT, eraseAgencyRegistrations, eraseContactRegistrations } from './erasure';
 export { mlsErrors } from './errors';
 export { mlsEvents } from './events';
 export { mlsJobs } from './jobs';

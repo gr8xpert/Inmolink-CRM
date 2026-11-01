@@ -245,3 +245,19 @@ export async function eraseLeads(tx: Tx, agencyId: string, ids: readonly string[
     .returning({ id: websiteLeads.id });
   return rows.length;
 }
+
+/** S16-04 review, agency erasure: up to `limit` of the agency's website leads still holding a visitor's details. */
+export async function unerasedLeadIds(tx: Tx, agencyId: string, limit: number): Promise<string[]> {
+  const rows = await tx
+    .select({ id: websiteLeads.id })
+    .from(websiteLeads)
+    .where(
+      and(
+        eq(websiteLeads.agencyId, agencyId),
+        sql`(${websiteLeads.email} <> '' or ${websiteLeads.name} <> '' or ${websiteLeads.phone} is not null
+          or ${websiteLeads.message} is not null or ${websiteLeads.pageUrl} is not null)`,
+      ),
+    )
+    .limit(limit);
+  return rows.map((r) => r.id);
+}

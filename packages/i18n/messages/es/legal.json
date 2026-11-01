@@ -1,0 +1,120 @@
+{
+  "meta": {
+    "title": "{doc} · Inmolink"
+  },
+  "nav": {
+    "label": "Legal",
+    "privacy": "Aviso de privacidad",
+    "cookies": "Política de cookies",
+    "terms": "Condiciones del servicio",
+    "subProcessors": "Subencargados"
+  },
+  "draftNotice": "Borrador: texto provisional pendiente de revisión legal. Describe cómo funciona hoy la plataforma, pero aún no es el texto vinculante (versión {version}).",
+  "updated": "Versión {version}",
+  "privacy": {
+    "title": "Aviso de privacidad",
+    "intro": "Cómo trata Inmolink los datos personales. Inmolink es responsable de las cuentas de la plataforma (miembros de agencias, personal) y encargado del tratamiento de los datos de clientes que las agencias guardan en su CRM, según el contrato de encargo que firma cada agencia.",
+    "sections": {
+      "controller": {
+        "title": "Quién es el responsable",
+        "body": "Responsable de las cuentas de la plataforma: [razón social, domicilio, NIF — H7]. Para los datos de clientes del CRM de una agencia, la responsable es la agencia; dirígete primero a ella."
+      },
+      "data": {
+        "title": "Qué datos tratamos",
+        "body": "Datos de cuenta (nombre, e-mail, rol, accesos y eventos de seguridad), lo que las agencias registran de sus clientes (contactos, consultas, visitas, notas), los inmuebles y sus fotos, y registros técnicos con los datos personales ocultos."
+      },
+      "purposes": {
+        "title": "Para qué y con qué base",
+        "body": "Para prestar el servicio según el contrato con tu agencia (art. 6.1.b RGPD), para mantenerlo seguro y evitar abusos (interés legítimo, art. 6.1.f), para cumplir obligaciones legales como la facturación (art. 6.1.c) y para marketing solo con consentimiento, que puedes retirar en cualquier momento. [Bases jurídicas por confirmar — H7]"
+      },
+      "retention": {
+        "title": "Cuánto tiempo los guardamos",
+        "body": "Los datos de cuenta mientras exista la cuenta; los datos de clientes mientras la agencia los conserve: cada agencia puede fijar un plazo tras el cual los contactos inactivos se anonimizan automáticamente. Las exportaciones caducan a los 7 días. Los registros necesarios para reclamaciones (registros de clientes) se guardan durante su validez más el plazo de reclamación. [Plazos por confirmar — H7]"
+      },
+      "rights": {
+        "title": "Tus derechos",
+        "body": "Puedes solicitar acceso a tus datos y una copia, rectificación, supresión, limitación, portabilidad y oponerte al tratamiento. Las agencias atienden las solicitudes de sus clientes desde el panel: exportación de los datos de una persona y supresión, que elimina nombres, datos de contacto y textos libres en todas partes y solo conserva registros anónimos (operaciones, registro de auditoría). También puedes reclamar ante la Agencia Española de Protección de Datos (AEPD)."
+      },
+      "transfers": {
+        "title": "Dónde están los datos",
+        "body": "Los datos principales y las copias de seguridad se alojan en la UE. Algunos subencargados pueden tratar datos fuera de la UE con las cláusulas contractuales tipo de la Comisión Europea; consulta la lista de subencargados."
+      },
+      "contact": {
+        "title": "Contacto",
+        "body": "Contacto de protección de datos / DPD: [nombre y e-mail — H7]."
+      }
+    }
+  },
+  "cookies": {
+    "title": "Política de cookies",
+    "intro": "Qué cookies usan el panel y las páginas públicas, y cómo elegir.",
+    "sections": {
+      "essential": {
+        "title": "Cookies estrictamente necesarias",
+        "body": "Las cookies de sesión y seguridad mantienen tu sesión iniciada y protegen los formularios (sesión, protección CSRF, protección contra bots en formularios públicos, una marca de visita en las selecciones compartidas). Son necesarias para el servicio y no requieren consentimiento."
+      },
+      "optional": {
+        "title": "Cookies opcionales",
+        "body": "Hoy la plataforma no usa cookies de analítica ni de publicidad. Si se añaden, permanecerán desactivadas hasta que las aceptes en el aviso de cookies."
+      },
+      "choices": {
+        "title": "Tu elección",
+        "body": "Tu elección se guarda durante 12 meses en una cookie llamada inl_consent. Bórrala en tu navegador para volver a elegir. [Texto por confirmar — H7]"
+      }
+    }
+  },
+  "terms": {
+    "title": "Condiciones del servicio",
+    "intro": "Condiciones provisionales de la plataforma Inmolink. Las condiciones vinculantes, el contrato de encargo del tratamiento y el modelo de acuerdo de colaboración están en revisión legal.",
+    "sections": {
+      "service": {
+        "title": "El servicio",
+        "body": "[Descripción del servicio, planes y disponibilidad — H7]"
+      },
+      "accounts": {
+        "title": "Cuentas y agencias",
+        "body": "[Quién puede registrarse, verificación de agencias, responsabilidades de los miembros — H7]"
+      },
+      "data": {
+        "title": "Tus datos",
+        "body": "Los datos de tu agencia son tuyos: puedes exportarlos cuando quieras y se suprimen cuando la agencia se va. Inmolink trata los datos de clientes solo por instrucción de la agencia (contrato de encargo). [Redacción final — H7]"
+      },
+      "liability": {
+        "title": "Responsabilidad",
+        "body": "[Limitación de responsabilidad — H7]"
+      },
+      "law": {
+        "title": "Ley aplicable",
+        "body": "[Ley y jurisdicción españolas — H7]"
+      }
+    }
+  },
+  "subProcessors": {
+    "title": "Subencargados",
+    "intro": "Empresas que tratan datos personales por cuenta de Inmolink. Los datos principales y las copias de seguridad permanecen en la UE.",
+    "columns": {
+      "name": "Empresa",
+      "purpose": "Para qué",
+      "location": "Dónde"
+    },
+    "unconfirmed": "por confirmar",
+    "purposes": {
+      "hosting": "Servidores y bases de datos",
+      "cdn": "Distribución de contenido",
+      "storage": "Almacenamiento de archivos",
+      "bot": "Protección contra bots en formularios",
+      "payments": "Pagos y facturación",
+      "email": "E-mail transaccional",
+      "ai": "Asistencia de redacción con IA",
+      "errors": "Monitorización de errores"
+    }
+  },
+  "consent": {
+    "text": "Solo usamos las cookies que el servicio necesita. Las opcionales siguen desactivadas salvo que las aceptes.",
+    "essentialOnly": "Solo necesarias",
+    "acceptAll": "Aceptar todas",
+    "policy": "Política de cookies",
+    "label": "Elección de cookies",
+    "settings": "Configuración de cookies"
+  }
+}

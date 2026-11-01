@@ -16,6 +16,7 @@ const ERRORS = [
   'VALIDATION_FAILED',
   'DATA_EXPORT_IN_PROGRESS',
   'DATA_EXPORT_NOT_FOUND',
+  'DATA_SUBJECT_NOT_FOUND',
   'FORBIDDEN',
   'RATE_LIMITED',
 ] as const;
@@ -43,6 +44,8 @@ export default async function DataExportPage({ searchParams }: { searchParams: P
     : null;
   const forbidden = !list.ok && list.status === 403;
   const field = 'h-9 rounded-md border bg-background px-2';
+  // S16-04: "export this person's data" from a contact opens the page with the contact chosen
+  const subject = params.contactId && /^[0-9a-f-]{36}$/i.test(params.contactId) ? params.contactId : null;
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-4 p-6">
@@ -64,7 +67,7 @@ export default async function DataExportPage({ searchParams }: { searchParams: P
           <input type="hidden" name="idempotencyKey" value={randomUUID()} />
           <label className="flex flex-col gap-1">
             <span>{t('form.kind')}</span>
-            <select name="kind" className={field}>
+            <select name="kind" className={field} defaultValue={subject ? 'SUBJECT' : undefined}>
               {DataExportKind.options.map((v) => (
                 <option key={v} value={v}>
                   {t(`kinds.${v}`)}
@@ -83,6 +86,17 @@ export default async function DataExportPage({ searchParams }: { searchParams: P
             </select>
           </label>
           <label className="flex flex-col gap-1">
+            <span>{t('form.contactId')}</span>
+            <input
+              name="contactId"
+              defaultValue={subject ?? ''}
+              inputMode="text"
+              maxLength={36}
+              aria-describedby="contact-hint"
+              className={field}
+            />
+          </label>
+          <label className="flex flex-col gap-1">
             <span>{t('form.code')}</span>
             <input
               name="twoFactorCode"
@@ -99,6 +113,9 @@ export default async function DataExportPage({ searchParams }: { searchParams: P
           </button>
           <p id="code-hint" className="basis-full text-xs text-muted-foreground">
             {t('form.codeHint')}
+          </p>
+          <p id="contact-hint" className="basis-full text-xs text-muted-foreground">
+            {t('form.contactIdHint')}
           </p>
         </form>
       )}

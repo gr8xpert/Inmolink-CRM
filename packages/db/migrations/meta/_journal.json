@@ -1219,6 +1219,27 @@
       "when": 1793017800291,
       "tag": "0173_s15_02_portal_leads",
       "breakpoints": true
+    },
+    {
+      "idx": 174,
+      "version": "7",
+      "when": 1793485126801,
+      "tag": "0174_s16_04_gdpr",
+      "breakpoints": true
+    },
+    {
+      "idx": 175,
+      "version": "7",
+      "when": 1793485423752,
+      "tag": "0175_s16_04_erase_agency_operation",
+      "breakpoints": true
+    },
+    {
+      "idx": 176,
+      "version": "7",
+      "when": 1793490924626,
+      "tag": "0176_s16_04_review_retention_grace",
+      "breakpoints": true
     }
   ]
 }
