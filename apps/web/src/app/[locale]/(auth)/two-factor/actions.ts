@@ -14,6 +14,7 @@ import {
   attemptChallenge,
   type CodeFailure,
   rememberedDeviceCookie,
+  sessionIdForCode,
   withCodeCheck,
   withPasswordCheck,
 } from '@/server/two-factor';
@@ -61,8 +62,11 @@ async function forwardedFor(): Promise<string | null> {
 export async function challengeAction(_prev: TwoFactorFormState, form: FormData): Promise<TwoFactorFormState> {
   const config = await webConfig();
   const user = await signedIn();
+  // S16-F10: a session without an id gets one first; the form comes back and the code is asked for again, unspent.
+  const sessionId = await sessionIdForCode(user, () => updateSession({}));
+  if (!sessionId) return redirect({ href: '/two-factor', locale: await getLocale() });
   const result = await attemptChallenge(
-    { userId: user.id, sessionVersion: user.sessionVersion },
+    { userId: user.id, sessionVersion: user.sessionVersion, sessionId },
     { code: text(form, 'code'), rememberDevice: form.get('remember') === 'on', forwardedFor: await forwardedFor() },
   );
   if (!result.ok) return { error: result.code };
@@ -112,6 +116,9 @@ export async function enrolAction(_prev: TwoFactorFormState, form: FormData): Pr
   const user = await signedIn();
   // S1-09: no 2FA changes (enrolment included) while acting as someone else.
   if (await readImpersonation(user.id)) return { error: 'forbidden' };
+  const sessionId = await sessionIdForCode(user, () => updateSession({}));
+  if (!sessionId)
+    return redirect({ href: { pathname: '/two-factor', query: { setup: '1' } }, locale: await getLocale() });
   try {
     const result = await withCodeCheck(
       { userId: user.id, code: text(form, 'code'), forwardedFor: await forwardedFor() },
@@ -119,6 +126,7 @@ export async function enrolAction(_prev: TwoFactorFormState, form: FormData): Pr
         identity.confirmEnrolment(await requestAuthCtx(), {
           userId: user.id,
           sessionVersion: user.sessionVersion,
+          sessionId,
           code,
         }),
     );

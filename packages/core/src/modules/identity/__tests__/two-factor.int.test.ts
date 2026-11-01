@@ -1,5 +1,5 @@
 import { closeDb, withSystem } from '@inmolink/db';
-import { setupTestDb } from '@inmolink/db/testing';
+import { loadStackEnv, setupTestDb } from '@inmolink/db/testing';
 import { restoreClock, useFakeClock } from '@inmolink/platform/clock';
 import {
   configureHmacRotation,
@@ -21,6 +21,7 @@ import {
 } from '@inmolink/platform/jwt';
 import { createLogger } from '@inmolink/platform/logger';
 import { PLATFORM_AGENCY_ID } from '@inmolink/platform/outbox';
+import { closeRateLimit, configureRateLimit } from '@inmolink/platform/rate-limit';
 import { sql } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { authCtx } from '../../../context';
@@ -32,6 +33,8 @@ import * as identity from '../index';
 const pair = generateAccessKeyPair();
 const verifier = createAccessTokenVerifier({ publicKeys: parsePublicKeys(`t1:${pair.publicKey}`) });
 const anon = () => authCtx(newId());
+/** The web session the proofs are minted for (Auth.js token `sid`, S16-F10). */
+const SID = 'test-web-session-0123456789';
 const PASSWORD = 'correct horse battery'; // createFounder's
 const log = createLogger({ service: 'identity-test', level: 'silent' });
 let mail: MemoryMailer;
@@ -49,6 +52,8 @@ const identityConfigWith = (hmacKey: string) => ({
 beforeAll(async () => {
   await setupTestDb('worker');
   identity.configureIdentity(identityConfigWith(HMAC_KEY));
+  loadStackEnv('test');
+  await configureRateLimit({ url: process.env.REDIS_LIMITS_URL, commandTimeoutMs: 2_000 });
 }, 120_000); // setupTestDb under a full parallel verify (S1-F1)
 
 beforeEach(async () => {
@@ -59,6 +64,7 @@ beforeEach(async () => {
 afterEach(() => restoreClock());
 
 afterAll(async () => {
+  await closeRateLimit();
   await closeEmail();
   await closeDb();
 });
@@ -95,8 +101,13 @@ async function staffUser(): Promise<string> {
 async function enrol(userId: string, clock: { now(): Date }) {
   const { secret, uri } = await identity.startEnrolment(anon(), { userId, password: PASSWORD });
   expect(uri).toMatch(/^otpauth:\/\/totp\/Inmolink:/);
-  const done = await identity.confirmEnrolment(anon(), { userId, sessionVersion: 1, code: codeAt(secret, clock) });
-  expect(identity.checkMfaProof({ userId, sessionVersion: 1, proof: done.proof })).toBe(true);
+  const done = await identity.confirmEnrolment(anon(), {
+    userId,
+    sessionVersion: 1,
+    sessionId: SID,
+    code: codeAt(secret, clock),
+  });
+  expect(await identity.consumeMfaProof({ userId, sessionVersion: 1, sessionId: SID, proof: done.proof })).toBe(true);
   return { secret, recoveryCodes: done.recoveryCodes };
 }
 
@@ -139,6 +150,7 @@ describe('two-factor authentication', () => {
     await identity.confirmEnrolment(anon(), {
       userId: optional.userId,
       sessionVersion: 1,
+      sessionId: SID,
       code: codeAt(secret, clock),
     });
     // Once a user opted in, their sessions need it too.
@@ -168,6 +180,7 @@ describe('two-factor authentication', () => {
       identity.verifySecondFactor(anon(), {
         userId: optional.userId,
         sessionVersion: 1,
+        sessionId: SID,
         code: own.recoveryCodes[0]?.replace('-', '') ?? '',
         rememberDevice: false,
       }),
@@ -180,7 +193,13 @@ describe('two-factor authentication', () => {
     const optional = await agent();
     const own = await enrol(optional.userId, clock);
     const challenge = (code: string) =>
-      identity.verifySecondFactor(anon(), { userId: optional.userId, sessionVersion: 1, code, rememberDevice: false });
+      identity.verifySecondFactor(anon(), {
+        userId: optional.userId,
+        sessionVersion: 1,
+        sessionId: SID,
+        code,
+        rememberDevice: false,
+      });
     await expect(challenge('000000')).rejects.toMatchObject({ code: 'MFA_CODE_INVALID' });
     clock.advance(30_000);
     await challenge(codeAt(own.secret, clock));
@@ -258,14 +277,22 @@ describe('two-factor authentication', () => {
     const admin = await createFounder();
     const { secret } = await enrol(admin.userId, clock);
     const challenge = (code: string) =>
-      identity.verifySecondFactor(anon(), { userId: admin.userId, sessionVersion: 1, code, rememberDevice: false });
+      identity.verifySecondFactor(anon(), {
+        userId: admin.userId,
+        sessionVersion: 1,
+        sessionId: SID,
+        code,
+        rememberDevice: false,
+      });
 
     // The enrolment code's step is used up; the next step works once.
     await expect(challenge(codeAt(secret, clock))).rejects.toMatchObject({ code: 'MFA_CODE_INVALID' });
     clock.advance(30_000);
     const passed = await challenge(codeAt(secret, clock));
     expect(passed.method).toBe('totp');
-    expect(identity.checkMfaProof({ userId: admin.userId, sessionVersion: 1, proof: passed.proof })).toBe(true);
+    expect(
+      await identity.consumeMfaProof({ userId: admin.userId, sessionVersion: 1, sessionId: SID, proof: passed.proof }),
+    ).toBe(true);
     await expect(challenge(codeAt(secret, clock))).rejects.toMatchObject({ code: 'MFA_CODE_INVALID' });
     // Too old, too new.
     clock.advance(90_000);
@@ -299,7 +326,13 @@ describe('two-factor authentication', () => {
     expect(stored.secret).toMatch(/^v1\.t1\./);
 
     const useCode = (code: string) =>
-      identity.verifySecondFactor(anon(), { userId: admin.userId, sessionVersion: 1, code, rememberDevice: false });
+      identity.verifySecondFactor(anon(), {
+        userId: admin.userId,
+        sessionVersion: 1,
+        sessionId: SID,
+        code,
+        rememberDevice: false,
+      });
     const first = (recoveryCodes[0] ?? '').replace('-', '');
     await expect(useCode(first)).resolves.toMatchObject({ method: 'recovery' });
     await expect(useCode(first)).rejects.toMatchObject({ code: 'MFA_CODE_INVALID' });
@@ -327,7 +360,13 @@ describe('two-factor authentication', () => {
       identity.configureIdentity(identityConfigWith(HMAC_KEY)),
     );
     const useCode = (code: string) =>
-      identity.verifySecondFactor(anon(), { userId: admin.userId, sessionVersion: 1, code, rememberDevice: false });
+      identity.verifySecondFactor(anon(), {
+        userId: admin.userId,
+        sessionVersion: 1,
+        sessionId: SID,
+        code,
+        rememberDevice: false,
+      });
     const code = (i: number) => (recoveryCodes[i] ?? '').replace('-', '');
     try {
       // No window: the previous key's codes are refused (and not used up).
@@ -353,6 +392,7 @@ describe('two-factor authentication', () => {
     const passed = await identity.verifySecondFactor(anon(), {
       userId: admin.userId,
       sessionVersion: 1,
+      sessionId: SID,
       code: codeAt(secret, clock),
       rememberDevice: true,
     });
@@ -371,6 +411,7 @@ describe('two-factor authentication', () => {
     const again = await identity.verifySecondFactor(anon(), {
       userId: admin.userId,
       sessionVersion: 1,
+      sessionId: SID,
       code: codeAt(secret, clock),
       rememberDevice: true,
     });
@@ -379,10 +420,91 @@ describe('two-factor authentication', () => {
     );
     expect((await login(again.device?.token)).mfaVerified).toBe(false);
     // Proofs are bound to the session version and expire within minutes.
-    expect(identity.checkMfaProof({ userId: admin.userId, sessionVersion: 2, proof: again.proof })).toBe(false);
-    expect(identity.checkMfaProof({ userId: newId(), sessionVersion: 1, proof: again.proof })).toBe(false);
+    expect(
+      await identity.consumeMfaProof({ userId: admin.userId, sessionVersion: 2, sessionId: SID, proof: again.proof }),
+    ).toBe(false);
+    expect(
+      await identity.consumeMfaProof({ userId: newId(), sessionVersion: 1, sessionId: SID, proof: again.proof }),
+    ).toBe(false);
     clock.advance(3 * 60_000);
-    expect(identity.checkMfaProof({ userId: admin.userId, sessionVersion: 1, proof: again.proof })).toBe(false);
+    expect(
+      await identity.consumeMfaProof({ userId: admin.userId, sessionVersion: 1, sessionId: SID, proof: again.proof }),
+    ).toBe(false);
+  });
+
+  it('[S16-F10] a 2FA proof is good for the web session it was minted for, once', async () => {
+    const clock = useFakeClock(T0);
+    const admin = await createFounder();
+    const { secret } = await enrol(admin.userId, clock);
+    clock.advance(30_000);
+    const passed = await identity.verifySecondFactor(anon(), {
+      userId: admin.userId,
+      sessionVersion: 1,
+      sessionId: SID,
+      code: codeAt(secret, clock),
+      rememberDevice: false,
+    });
+    const use = (sessionId: string) =>
+      identity.consumeMfaProof({ userId: admin.userId, sessionVersion: 1, sessionId, proof: passed.proof });
+    // Another browser's session (a captured proof) is refused — and does not spend it.
+    expect(await use('another-web-session-0123456789')).toBe(false);
+    expect(await use('')).toBe(false);
+    // Its own session passes once; a replay (same or another session) is refused.
+    expect(await use(SID)).toBe(true);
+    expect(await use(SID)).toBe(false);
+    // Two uses at once (a replay racing the real update): exactly one passes.
+    clock.advance(30_000);
+    const raced = await identity.verifySecondFactor(anon(), {
+      userId: admin.userId,
+      sessionVersion: 1,
+      sessionId: SID,
+      code: codeAt(secret, clock),
+      rememberDevice: false,
+    });
+    const race = () =>
+      identity.consumeMfaProof({ userId: admin.userId, sessionVersion: 1, sessionId: SID, proof: raced.proof });
+    const results = await Promise.all([race(), race(), race(), race()]);
+    expect(results.filter(Boolean)).toHaveLength(1);
+    expect(await use('another-web-session-0123456789')).toBe(false);
+    // A tampered nonce breaks the signature (it cannot be re-rolled to dodge the used mark).
+    const [exp, , mac] = passed.proof.split('.');
+    const forged = `${exp}.${'A'.repeat(22)}.${mac}`;
+    expect(
+      await identity.consumeMfaProof({ userId: admin.userId, sessionVersion: 1, sessionId: SID, proof: forged }),
+    ).toBe(false);
+    // The pre-S16-F10 format (no session, no nonce) is no longer accepted.
+    expect(
+      await identity.consumeMfaProof({
+        userId: admin.userId,
+        sessionVersion: 1,
+        sessionId: SID,
+        proof: `${exp}.${mac}`,
+      }),
+    ).toBe(false);
+  });
+
+  it('[S16-F10] a 2FA proof is refused while the limits Redis cannot take its nonce (fail closed)', async () => {
+    const clock = useFakeClock(T0);
+    const admin = await createFounder();
+    const { secret } = await enrol(admin.userId, clock);
+    clock.advance(30_000);
+    const passed = await identity.verifySecondFactor(anon(), {
+      userId: admin.userId,
+      sessionVersion: 1,
+      sessionId: SID,
+      code: codeAt(secret, clock),
+      rememberDevice: false,
+    });
+    const use = () =>
+      identity.consumeMfaProof({ userId: admin.userId, sessionVersion: 1, sessionId: SID, proof: passed.proof });
+    await configureRateLimit({ url: 'redis://127.0.0.1:1', commandTimeoutMs: 200 });
+    try {
+      expect(await use()).toBe(false);
+    } finally {
+      await configureRateLimit({ url: process.env.REDIS_LIMITS_URL, commandTimeoutMs: 2_000 });
+    }
+    // Nothing was taken: once Redis is back, the proof still works (within its two minutes).
+    expect(await use()).toBe(true);
   });
 });
 
@@ -427,7 +549,7 @@ describe('two-factor follow-ups (S1-F8)', () => {
     expect(await pendingRows(admin.userId)).toBe(0);
     // Without a secret there is nothing to confirm.
     await expect(
-      identity.confirmEnrolment(anon(), { userId: admin.userId, sessionVersion: 1, code: '123456' }),
+      identity.confirmEnrolment(anon(), { userId: admin.userId, sessionVersion: 1, sessionId: SID, code: '123456' }),
     ).rejects.toMatchObject({ code: 'MFA_CODE_INVALID' });
 
     const started = await identity.startEnrolment(anon(), { userId: admin.userId, password: PASSWORD });
@@ -435,6 +557,7 @@ describe('two-factor follow-ups (S1-F8)', () => {
     await identity.confirmEnrolment(anon(), {
       userId: admin.userId,
       sessionVersion: 1,
+      sessionId: SID,
       code: codeAt(started.secret, clock),
     });
     expect(await identity.getPendingEnrolment(anon(), { userId: admin.userId })).toBeNull();
@@ -453,6 +576,7 @@ describe('two-factor follow-ups (S1-F8)', () => {
     await identity.verifySecondFactor(anon(), {
       userId: optional.userId,
       sessionVersion: 1,
+      sessionId: SID,
       code: (own.recoveryCodes[0] ?? '').replace('-', ''),
       rememberDevice: true,
     });
@@ -467,6 +591,7 @@ describe('two-factor follow-ups (S1-F8)', () => {
     await identity.verifySecondFactor(anon(), {
       userId: optional.userId,
       sessionVersion: 1,
+      sessionId: SID,
       code: codeAt(own.secret, clock),
       rememberDevice: false,
     });
@@ -494,6 +619,7 @@ describe('two-factor follow-ups (S1-F8)', () => {
       const r = await identity.verifySecondFactor(anon(), {
         userId: admin.userId,
         sessionVersion: 1,
+        sessionId: SID,
         code: codeAt(secret, clock),
         rememberDevice: true,
       });

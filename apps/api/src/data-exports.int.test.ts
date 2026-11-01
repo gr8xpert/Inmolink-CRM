@@ -74,6 +74,7 @@ async function founderWithAuthenticator(role?: 'AGENT') {
   const done = await identity.confirmEnrolment(authCtx(newId()), {
     userId: f.userId,
     sessionVersion: 1,
+    sessionId: `web-session-${newId()}`,
     code: totpCode(secret, totpStep(new Date())),
   });
   const recovery = [...done.recoveryCodes];

@@ -10,7 +10,7 @@ import { closeRateLimit, configureRateLimit } from '@inmolink/platform/rate-limi
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { webConfig } from './env';
 import { LIMITS } from './limits';
-import { attemptChallenge, readCookie, withPasswordCheck } from './two-factor';
+import { attemptChallenge, readCookie, sessionIdForCode, withPasswordCheck } from './two-factor';
 
 /** Second-factor limits against the real test stack (Postgres via app_auth, redis-cache counters). */
 
@@ -28,6 +28,9 @@ afterAll(async () => {
   await closeDb();
 });
 
+/** A web session id (Auth.js token `sid`), which the proof is bound to (S16-F10). */
+const newSid = () => `web-session-${newId()}`;
+
 const randomIp = () => `10.${randomInt(256)}.${randomInt(256)}.${randomInt(1, 255)}`;
 
 /** An agency admin with 2FA enabled; returns the secret of their authenticator app. */
@@ -39,8 +42,13 @@ async function enrolledAdmin() {
   });
   // The step before now: the challenge below can still use the current one.
   const code = totpCode(secret, totpStep(new Date()) - 1);
-  await identity.confirmEnrolment(authCtx(newId()), { userId: founder.userId, sessionVersion: 1, code });
-  return { session: { userId: founder.userId, sessionVersion: 1 }, secret };
+  await identity.confirmEnrolment(authCtx(newId()), {
+    userId: founder.userId,
+    sessionVersion: 1,
+    sessionId: newSid(),
+    code,
+  });
+  return { session: { userId: founder.userId, sessionVersion: 1, sessionId: newSid() }, secret };
 }
 
 describe('two-factor rate limits', () => {
@@ -103,7 +111,7 @@ describe('two-factor rate limits', () => {
     let attempts = 0;
     for (const user of users) {
       for (let i = 0; i < LIMITS.mfaUserIp.limit && attempts < LIMITS.mfaIp.limit; i++, attempts++) {
-        const session = { userId: user.userId, sessionVersion: 1 };
+        const session = { userId: user.userId, sessionVersion: 1, sessionId: newSid() };
         // Not enrolled: every code is invalid, but each attempt still counts.
         const r = await attemptChallenge(session, { code: '123456', rememberDevice: false, forwardedFor: ip });
         expect(r).toEqual({ ok: false, code: 'invalid' });
@@ -112,13 +120,13 @@ describe('two-factor rate limits', () => {
     const fresh = await createFounder();
     expect(
       await attemptChallenge(
-        { userId: fresh.userId, sessionVersion: 1 },
+        { userId: fresh.userId, sessionVersion: 1, sessionId: newSid() },
         { code: '123456', rememberDevice: false, forwardedFor: ip },
       ),
     ).toEqual({ ok: false, code: 'rate_limited' });
   }, 120_000);
 
-  it('[S1-04] a correct code passes and can remember the browser; malformed codes are refused first', async () => {
+  it('[S1-04] [S16-F10] a correct code passes (its proof bound to this session, once) and can remember the browser; malformed codes are refused first', async () => {
     const { session, secret } = await enrolledAdmin();
     expect(await attemptChallenge(session, { code: 'nope', rememberDevice: false, forwardedFor: randomIp() })).toEqual({
       ok: false,
@@ -131,8 +139,31 @@ describe('two-factor rate limits', () => {
     });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(identity.checkMfaProof({ ...session, proof: r.value.proof })).toBe(true);
+    // S16-F10: good for this web session, once; never for another browser's session.
+    expect(await identity.consumeMfaProof({ ...session, sessionId: newSid(), proof: r.value.proof })).toBe(false);
+    expect(await identity.consumeMfaProof({ ...session, proof: r.value.proof })).toBe(true);
+    expect(await identity.consumeMfaProof({ ...session, proof: r.value.proof })).toBe(false);
     expect(r.value.device?.token).toMatch(/^\d{13}\.[A-Za-z0-9_-]{43}$/);
+  }, 60_000);
+
+  it('[S16-F10] a session without an id gets one before any code is checked; the code is not spent', async () => {
+    const { session, secret } = await enrolledAdmin();
+    const code = totpCode(secret, totpStep(new Date()));
+    let assigned = 0;
+    const assignId = async () => {
+      assigned++;
+    };
+    // Older session (no id) or a malformed one: the id is assigned and the caller sends the form back.
+    expect(await sessionIdForCode({}, assignId)).toBeNull();
+    expect(await sessionIdForCode({ sessionId: 'short' }, assignId)).toBeNull();
+    expect(assigned).toBe(2);
+    // A session with its id: used as is, nothing assigned.
+    expect(await sessionIdForCode({ sessionId: session.sessionId }, assignId)).toBe(session.sessionId);
+    expect(assigned).toBe(2);
+    // The code typed before the round trip still works on the retry, bound to the session's id.
+    const r = await attemptChallenge(session, { code, rememberDevice: false, forwardedFor: randomIp() });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(await identity.consumeMfaProof({ ...session, proof: r.value.proof })).toBe(true);
   }, 60_000);
 
   it('[S1-04] reads the remembered-browser cookie from a Cookie header', () => {

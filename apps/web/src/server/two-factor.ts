@@ -68,9 +68,12 @@ async function withinLimits(
   return wait === 0;
 }
 
-/** The login challenge: TOTP or recovery code, optionally remembering this browser for 30 days. */
+/**
+ * The login challenge: TOTP or recovery code, optionally remembering this browser for 30 days. The proof is minted for
+ * this web session (`sessionId`, S16-F10): the session callback refuses it from any other.
+ */
 export function attemptChallenge(
-  session: { userId: string; sessionVersion: number },
+  session: { userId: string; sessionVersion: number; sessionId: string },
   input: { code: unknown; rememberDevice: boolean; forwardedFor: string | null },
   limiter?: RateLimiter,
 ) {
@@ -80,6 +83,23 @@ export function attemptChallenge(
       identity.verifySecondFactor(await requestAuthCtx(), { ...session, code, rememberDevice: input.rememberDevice }),
     limiter,
   );
+}
+
+const SID_RE = /^[A-Za-z0-9_-]{16,64}$/;
+
+/**
+ * S16-F10: the web session id a code check binds its proof to. A session from before S12-06 has none: `assignId` (an
+ * empty session update) gives it one, and the caller must send the browser back to the form **before** a code is
+ * checked — Auth.js rebuilds each update from the request's cookies, so the id written now is only seen by the next
+ * request (a proof minted in this one would match no session, and the code would be spent). Null = assigned, retry.
+ */
+export async function sessionIdForCode(
+  user: { sessionId?: string },
+  assignId: () => Promise<unknown>,
+): Promise<string | null> {
+  if (typeof user.sessionId === 'string' && SID_RE.test(user.sessionId)) return user.sessionId;
+  await assignId();
+  return null;
 }
 
 /** "Remember this browser": httpOnly, Secure (`__Host-`) in production, sent only to this origin. */

@@ -104,8 +104,8 @@ export {
 } from './staff';
 export { registerIdentitySubscriptions, unregisterIdentitySubscriptions } from './subscriptions';
 export {
-  checkMfaProof,
   confirmEnrolment,
+  consumeMfaProof,
   disableTwoFactor,
   forgetRememberedBrowsers,
   getPendingEnrolment,

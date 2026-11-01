@@ -136,8 +136,18 @@ export const {
           // Sessions from before S12-06 get their id on an update (a write of the cookie), never on a read: a read's
           // fresh id would be lost with the response and match no server-side state.
           if (typeof token.sid !== 'string') token.sid = randomBytes(18).toString('base64url');
+          // S16-F10: the proof must be for this session (its id is signed in) and is good once (identity takes its
+          // nonce); a proof captured from another browser, or replayed, leaves the session unverified.
           const proof = (session as { mfaProof?: unknown } | undefined)?.mfaProof;
-          if (identity.checkMfaProof({ userId: String(token.sub), sessionVersion: Number(token.sv), proof })) {
+          if (
+            proof !== undefined &&
+            (await identity.consumeMfaProof({
+              userId: String(token.sub),
+              sessionVersion: Number(token.sv),
+              sessionId: String(token.sid),
+              proof,
+            }))
+          ) {
             token.mfa = true;
           }
           // S12-06: Client Mode starts only from identity's signed proof (once: a session in it ignores new ones) and

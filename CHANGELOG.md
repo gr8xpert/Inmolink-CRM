@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- feat(identity,web): 2FA proofs are bound to the web session and single-use; a captured, replayed or raced proof is refused, and so is every proof while the limits Redis is down [S16-F10]
 - fix(tests,ops): ops tests portable to Linux CI — dashboard promtool / amtool mounts world-readable (mkdtemp 0700 vs prom/* running as nobody); app-metrics scrapes each app through a forwarder container carrying its real Kamal alias, so the template's DNS discovery runs unchanged (Prometheus ignores /etc/hosts). New test image: alpine/socat:1.8.0.3 (pinned by digest) [S16 CI]
 - feat(security): S16-03 hardening — dashboard nonce CSP limited to configured hosts (new optional web env MEDIA_CDN_URL, S3_ENDPOINT, MAP_TILE_ORIGINS; Kamal web config sets them), security headers on all apps, login daily cap counts password checks only, rate-limit / CORS coverage tests (apiKeyLimited route tag), CI dependency audit + gitleaks; deps: zod 4.6.7, nodemailer 10.1.7, fastify 5.12.7 (scoped overrides); new CI tool: gitleaks 8.28.0 (Docker, pinned digest) [S16-03]
 - feat(compliance,crm,mls,properties,web,public): GDPR completeness and scale — set-based batch erasure, complete paged SUBJECT export, import/merge consent records, client registration retention, full tenant purge after agency erasure (lock-safe, suspension re-checked per batch), retention and consent UI, portal legal links (`WEB_URL` for the public app); migration 0177 [S16-F5]

@@ -2144,6 +2144,11 @@ Ref §12 · Mod identity · Dep S16-03 · 🔒
 **Build:** the step-up proof can be replayed by another browser within its 2 minutes; bind it to the session (session id / version in the proof, checked on use) and make it single-use.
 **Done when:** a proof used from another session or a second time is refused (tests)
 
+### S16-F11 · Client Mode works under the production limits ACL (S16-F10)
+Ref §5 §12 · Mod identity, ops · Dep S12-06 · 🔒
+**Build:** Client Mode (S12-06) keeps its state with `SET` / `GET` on `inl:cm:*` keys over the limits Redis connection, but the production `limits` ACL (Ansible `redis_limits_acl`) allows only `~inl:rl:*` and no `+set`: entering Client Mode fails with NOPERM in production (reproduced against the test redis-queue with the production ACL). Either widen the ACL to exactly the keys and commands Client Mode uses (`~inl:cm:*`, the commands of `enterClientMode` / `exitClientMode` / `checkClientModePin`) or move the keys under `inl:rl:` with allowed commands — prefer the narrowest. Add a test that runs every limits-connection operation of the code base (rate limits, MFA proof nonce, Client Mode) as a user with the production ACL.
+**Done when:** Client Mode enter / PIN check / exit pass against Redis with the production `limits` ACL (test); the ACL-coverage test fails when a new limits-connection command or key prefix is added without an ACL change
+
 ## S17 — Pilot
 
 ### S17-01 · Pilot cutover

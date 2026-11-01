@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import type { TwoFactorCode, TwoFactorStatusDto } from '@inmolink/contracts';
 import { setAuthScope, type Tx } from '@inmolink/db';
+import { whenReady } from '@inmolink/platform/cache';
 import { clock } from '@inmolink/platform/clock';
 import {
   aadFor,
@@ -16,6 +17,7 @@ import { dummyVerify, verifyPassword } from '@inmolink/platform/crypto/password'
 import { AppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { emit, PLATFORM_AGENCY_ID } from '@inmolink/platform/outbox';
+import { rateLimitConnection } from '@inmolink/platform/rate-limit';
 import type { AuthCtx } from '../../context';
 import * as compliance from '../compliance';
 import { identityConfig, TWO_FACTOR } from './config';
@@ -29,9 +31,11 @@ import * as repo from './repo';
  * `app_auth` scoped to the signed-in user; the web passes the user id from its session. Rate limits on
  * code checks are the caller's job and run first (like login).
  *
- * The session learns that the factor was passed through a short-lived **proof** (HMAC over user and
- * session version): Auth.js lets the browser send arbitrary data with a session update, so the session
- * callback trusts only a proof it can verify. "Remember this browser" is a signed cookie value bound to
+ * The session learns that the factor was passed through a short-lived **proof** (HMAC over user, session
+ * version, the web session's id and a nonce): Auth.js lets the browser send arbitrary data with a session
+ * update, so the session callback trusts only a proof it can verify — for the session it was minted for,
+ * once (S16-F10: the nonce is taken on the limits Redis; a replay from another browser or a second use is
+ * refused, and so is every proof while that Redis is down). "Remember this browser" is a signed cookie value bound to
  * the user, the session version and the enrolment, so a password reset or a new enrolment ends it.
  */
 
@@ -192,7 +196,7 @@ export async function getPendingEnrolment(
  */
 export async function confirmEnrolment(
   ctx: AuthCtx,
-  input: { userId: string; sessionVersion: number; code: TwoFactorCode },
+  input: { userId: string; sessionVersion: number; sessionId: string; code: TwoFactorCode },
 ): Promise<{ recoveryCodes: string[]; proof: string }> {
   const now = clock.now();
   const recoveryCodes = await asUser(ctx, input.userId, async (tx) => {
@@ -208,7 +212,7 @@ export async function confirmEnrolment(
     await auditTwoFactor(tx, ctx.requestId, input.userId, 'identity.twoFactor.enabled');
     return codes;
   });
-  return { recoveryCodes, proof: mfaProof(input.userId, input.sessionVersion, now) };
+  return { recoveryCodes, proof: mfaProof(input, now) };
 }
 
 /**
@@ -241,7 +245,7 @@ async function consumeCode(
  */
 export async function verifySecondFactor(
   ctx: AuthCtx,
-  input: { userId: string; sessionVersion: number; code: TwoFactorCode; rememberDevice: boolean },
+  input: { userId: string; sessionVersion: number; sessionId: string; code: TwoFactorCode; rememberDevice: boolean },
 ): Promise<{ proof: string; device?: { token: string; expiresAt: Date }; method: 'totp' | 'recovery' }> {
   const now = clock.now();
   const result = await asUser(ctx, input.userId, async (tx) => {
@@ -264,7 +268,7 @@ export async function verifySecondFactor(
     );
     throw new AppError('MFA_CODE_INVALID');
   }
-  const proof = mfaProof(input.userId, input.sessionVersion, now);
+  const proof = mfaProof(input, now);
   if (!input.rememberDevice) return { proof, method: result.method };
   return {
     proof,
@@ -362,10 +366,25 @@ function sign(purpose: string, parts: (string | number)[]): string {
   return hmacSha256(identityConfig().hmacKey, purpose, parts.join('.'));
 }
 
-/** `<expiresAtMs>.<mac>`: "this user passed the second factor for this session version". */
-function mfaProof(userId: string, sessionVersion: number, now: Date): string {
+/** The web session's id (Auth.js token `sid`, 18 random bytes). */
+const SID_RE = /^[A-Za-z0-9_-]{16,64}$/;
+/** The used-proof marks, on the limits Redis (never evicting) under the `limits` ACL user's `inl:rl:` keys. */
+const kProofNonce = (nonce: string) => `inl:rl:mfa-proof:${nonce}`;
+/**
+ * Takes a nonce once (atomic: INCRBY and PEXPIRE are what the `limits` ACL user may run). 1 = taken now; the mark's
+ * life is set only then, so replays cannot keep extending it.
+ */
+const TAKE_NONCE =
+  "local n = redis.call('INCRBY', KEYS[1], 1) if n == 1 then redis.call('PEXPIRE', KEYS[1], ARGV[1]) end return n";
+
+/**
+ * `<expiresAtMs>.<nonce>.<mac>`: "this user passed the second factor for this web session, at this session version"
+ * (S16-F10: the session id and a fresh nonce are signed in, so the proof is good for one session, once).
+ */
+function mfaProof(input: { userId: string; sessionVersion: number; sessionId: string }, now: Date): string {
   const exp = now.getTime() + TWO_FACTOR.PROOF_TTL_MS;
-  return `${exp}.${sign('mfa-proof', [userId, sessionVersion, exp])}`;
+  const nonce = randomBytes(16).toString('base64url');
+  return `${exp}.${nonce}.${sign('mfa-proof-sid', [input.userId, input.sessionVersion, input.sessionId, nonce, exp])}`;
 }
 
 function parseSigned(value: unknown): { exp: number; mac: string } | null {
@@ -374,12 +393,47 @@ function parseSigned(value: unknown): { exp: number; mac: string } | null {
   return match ? { exp: Number(match[1]), mac: match[2] as string } : null;
 }
 
-/** Checks a proof from `verifySecondFactor` / `confirmEnrolment` (the session callback calls this). */
-export function checkMfaProof(input: { userId: string; sessionVersion: number; proof: unknown }): boolean {
-  const parsed = parseSigned(input.proof);
+function parseProof(value: unknown): { exp: number; nonce: string; mac: string } | null {
+  if (typeof value !== 'string' || value.length > 200) return null;
+  const match = /^(\d{13})\.([A-Za-z0-9_-]{22})\.([A-Za-z0-9_-]{43})$/.exec(value);
+  return match ? { exp: Number(match[1]), nonce: match[2] as string, mac: match[3] as string } : null;
+}
+
+/**
+ * The session callback's check of a proof from `verifySecondFactor` / `confirmEnrolment`: genuine, unexpired, minted
+ * for this user, session version **and** web session — and not used before (its nonce is taken here, so a second use,
+ * from this browser or a copy, is refused). Fails closed: false when the limits Redis cannot take the nonce.
+ */
+export async function consumeMfaProof(input: {
+  userId: string;
+  sessionVersion: number;
+  sessionId: string;
+  proof: unknown;
+}): Promise<boolean> {
+  const parsed = parseProof(input.proof);
   const now = clock.now().getTime();
   if (!parsed || parsed.exp <= now || parsed.exp > now + TWO_FACTOR.PROOF_TTL_MS) return false;
-  return safeEqual(sign('mfa-proof', [input.userId, input.sessionVersion, parsed.exp]), parsed.mac);
+  if (typeof input.sessionId !== 'string' || !SID_RE.test(input.sessionId)) return false;
+  const expected = sign('mfa-proof-sid', [
+    input.userId,
+    input.sessionVersion,
+    input.sessionId,
+    parsed.nonce,
+    parsed.exp,
+  ]);
+  if (!safeEqual(expected, parsed.mac)) return false;
+  try {
+    const redis = rateLimitConnection();
+    await whenReady(redis);
+    // Kept a little longer than the proof can live, so the mark outlasts every copy of it.
+    const taken = await redis.eval(TAKE_NONCE, 1, kProofNonce(parsed.nonce), String(TWO_FACTOR.PROOF_TTL_MS + 60_000));
+    return Number(taken) === 1;
+  } catch (err) {
+    // Name and message only: an ioredis error can carry the command's arguments (the nonce key).
+    const e = err instanceof Error ? err : new Error(String(err));
+    identityLog().error({ errName: e.name, errMessage: e.message }, 'identity: 2FA proof nonce not taken (refused)');
+    return false;
+  }
 }
 
 function deviceToken(
