@@ -231,7 +231,8 @@ describe('Client Mode over every route (S12-06)', () => {
     expect(content.statusCode).toBe(200);
     expect(content.json().translations[0].description).toContain('Villa with a sea view.');
     expect(content.body).not.toContain(OWNER_MAIL);
-    expect(content.body).not.toContain('952');
+    // the phone in any spacing — not a bare '952', which random ids in the body can contain
+    expect(content.body).not.toMatch(/952[\s.-]?761[\s.-]?234/);
     const dev = (await app.inject({ method: 'GET', url: `/v1/developments/${ids.development}`, headers: cm })).json();
     expect(dev).toMatchObject({ id: ids.development, commission: null, access: null });
 
