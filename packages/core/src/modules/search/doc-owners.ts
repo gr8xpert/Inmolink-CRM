@@ -13,6 +13,9 @@
  * looking valid), or scanned before a new owner appeared. The read-model builds call `noteDocOwner` after writing an
  * agency's documents: an agency that owns a PUBLIC document but is not in the set marks it stale (a time stamp — a
  * scan that started before it is not used either), so a new owner never waits for the next scan to be hidden.
+ * S17-F3: the mark also releases the scan claim — the set it makes stale is the one the claim protects, so without the
+ * release every portal search would answer without the set (`null`) until the claim lapsed (up to `DOC_OWNERS_CLAIM_MS`)
+ * and the worker's next run would skip; with it the next reader scans at once. New owners are rare (one release each).
  *
  * The scan runs as `app_public` like the portal's own reads, so the set holds the owners of PUBLIC documents only.
  */
@@ -115,6 +118,17 @@ export async function sharedDocOwners(): Promise<DocOwners | null> {
 let known: { at: number; owners: Set<string>; until: number } | undefined;
 
 /**
+ * S17-F3 review: the stored set as written, whatever its age or stale mark (membership only: "is this owner new?"),
+ * and the latest stale mark. A set already marked stale still lists every owner it had.
+ */
+async function readRaw(): Promise<{ set: DocOwners | null; staleAt: number | null }> {
+  const [stored, staleAt] = await cache.peekMany([OWNERS_KEY, STALE_KEY]);
+  const v = stored as Partial<DocOwners> | null | undefined;
+  const set = v && Array.isArray(v.owners) && typeof v.at === 'number' ? { owners: v.owners, at: v.at } : null;
+  return { set, staleAt: typeof staleAt === 'number' ? staleAt : null };
+}
+
+/**
  * After a build wrote `agencyId`'s documents: if the agency owns a PUBLIC document the shared set does not list, mark
  * the set stale (the next read scans, under the claim). In the set (the usual case): no statement, at most one MGET
  * per `KNOWN_TTL_MS`. S16 review: throws (logged) when redis-cache or the probe fails, so the build job retries — a
@@ -125,12 +139,20 @@ export async function noteDocOwner(agencyId: string): Promise<boolean> {
   try {
     const now = clock.nowMs();
     if (!known || known.until <= now) {
-      const stored = await readStored();
-      known = stored ? { at: stored.at, owners: new Set(stored.owners), until: now + KNOWN_TTL_MS } : undefined;
+      // S17-F3 review: membership against the stored set even once it is marked stale — an owner it lists is never
+      // "new", so a burst of builds after one mark neither marks again nor releases the claim again
+      const { set } = await readRaw();
+      known = set ? { at: set.at, owners: new Set(set.owners), until: now + KNOWN_TTL_MS } : undefined;
     }
     if (known?.owners.has(agencyId)) return false;
     if (!(await withPublicRead((tx) => repo.ownsSearchDoc(tx, agencyId)))) return false;
+    const { set, staleAt } = await readRaw();
+    // a mark already newer than the stored scan: that mark released the claim, and the rescan it let in sees this owner
+    // too (or is dated before this mark and so not used) — mark again, never release twice per scan
+    const pending = set !== null && staleAt !== null && staleAt >= set.at;
     await cache.set(STALE_KEY, clock.nowMs(), { ttlSeconds: DOC_OWNERS_TTL_SECONDS });
+    // S17-F3: the claimed scan (if any) read the set this mark makes stale; the next reader rescans now
+    if (!pending) await cache.release(CLAIM_KEY);
     known = undefined;
     return true;
   } catch (err) {

@@ -38,6 +38,7 @@ import * as properties from '../../properties';
 import * as search from '../../search';
 import * as taxonomy from '../../taxonomy';
 import * as websiteApi from '../index';
+import { delistRequests } from '../jobs';
 import { OWNER_SCOPE_MAX_AGE_MS } from '../portal';
 
 /**
@@ -756,6 +757,8 @@ describe('portal sitemaps follow a delisting (S16-F3)', () => {
       await deliverStatus(d.agencyId, 'VERIFIED', 'SUSPENDED');
       await deliverStatus(c.agencyId, 'VERIFIED', 'SUSPENDED'); // a burst: same throttle key, one run per window
       await deliverStatus(a.agencyId, 'PENDING', 'VERIFIED'); // listed: no early run (the schedule adds it)
+      // S17-F3: the same agency delisted again (reinstated and suspended in between) asks for no second early run
+      await deliverStatus(d.agencyId, 'VERIFIED', 'SUSPENDED');
       expect(queued).toHaveLength(2);
       expect(new Set(queued.map((q) => q.debounceKey)).size).toBe(1);
       for (const q of queued) expect(q.throttleMs).toBe(websiteApi.PORTAL_SITEMAP_DELIST_THROTTLE_MS);
@@ -781,8 +784,9 @@ describe('portal sitemaps follow a delisting (S16-F3)', () => {
     await configureQueue({ prefix: `t-portal-sitemaps-${RUN}`, logger: log });
     websiteApi.registerWebsiteApiSubscriptions();
     try {
-      await deliverStatus(a.agencyId, 'VERIFIED', 'SUSPENDED');
-      await deliverStatus(c.agencyId, 'VERIFIED', 'SUSPENDED');
+      // fresh agencies: the test above already used this window's early run of its own (S17-F3, per agency)
+      await deliverStatus(newId().toLowerCase(), 'VERIFIED', 'SUSPENDED');
+      await deliverStatus(newId().toLowerCase(), 'VERIFIED', 'SUSPENDED');
       const delayed = (await queueFor('exports').getDelayed()).filter(
         (j) => j.name === 'websiteApi.generatePortalSitemaps',
       );
@@ -792,6 +796,37 @@ describe('portal sitemaps follow a delisting (S16-F3)', () => {
     } finally {
       websiteApi.unregisterWebsiteApiSubscriptions();
       await closeQueues();
+    }
+  });
+
+  it('[S17-F3] delisting runs are throttled per agency (6 hours) and counted; a failed enqueue gives the claim back', async () => {
+    const agencyId = newId().toLowerCase();
+    const outcomes: string[] = [];
+    const counted = vi.spyOn(delistRequests, 'add');
+    let fail = true;
+    const spy = vi.spyOn(websiteApi.websiteApiJobs.generatePortalSitemaps, 'enqueue').mockImplementation(async () => {
+      if (fail) throw new Error('queue down');
+      return { id: newId() };
+    });
+    try {
+      // the queue is down: the event's retry must ask again, not find its own claim
+      await expect(websiteApi.queuePortalSitemaps(agencyId)).rejects.toThrow('queue down');
+      fail = false;
+      outcomes.push(await websiteApi.queuePortalSitemaps(agencyId));
+      outcomes.push(await websiteApi.queuePortalSitemaps(agencyId));
+      outcomes.push(await websiteApi.queuePortalSitemaps(newId().toLowerCase()));
+      expect(outcomes).toEqual(['queued', 'throttled', 'queued']);
+      expect(spy).toHaveBeenCalledTimes(3);
+      // measured: one count per request, by outcome (the failed enqueue counts nothing)
+      expect(counted.mock.calls).toEqual([
+        [1, { outcome: 'queued' }],
+        [1, { outcome: 'throttled' }],
+        [1, { outcome: 'queued' }],
+      ]);
+      expect(websiteApi.PORTAL_SITEMAP_DELIST_AGENCY_MS).toBe(websiteApi.PORTAL_SITEMAP_EVERY_MS);
+    } finally {
+      spy.mockRestore();
+      counted.mockRestore();
     }
   });
 });

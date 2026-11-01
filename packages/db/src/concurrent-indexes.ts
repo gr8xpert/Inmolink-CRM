@@ -204,6 +204,23 @@ export const CONCURRENT_INDEXES: readonly ConcurrentIndex[] = [
     definition: `ON "saved_search_alerts" USING btree ("saved_search_id","created_at")`,
     declaredBy: '0163_s13_f9_retention_indexes',
   },
+  {
+    // S17-F3: the daily retention scan's keyset (contacts untouched since the cutoff, oldest first)
+    name: 'contacts_retention_idx',
+    table: 'contacts',
+    definition: `ON "contacts" USING btree ("agency_id","updated_at","id") WHERE "contacts"."deleted_at" is null`,
+  },
+  {
+    // S17-F3: agency erasure's text sweep over the deleted prospects and tasks
+    name: 'seller_prospects_agency_deleted_idx',
+    table: 'seller_prospects',
+    definition: `ON "seller_prospects" USING btree ("agency_id","id") WHERE "seller_prospects"."deleted_at" is not null`,
+  },
+  {
+    name: 'tasks_agency_deleted_idx',
+    table: 'tasks',
+    definition: `ON "tasks" USING btree ("agency_id","id") WHERE "tasks"."deleted_at" is not null`,
+  },
 ];
 
 /** Whether the migration `tag` of `folder` is applied (the drizzle migrator's journal time is in its table). */

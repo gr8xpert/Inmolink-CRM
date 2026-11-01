@@ -18,8 +18,13 @@
 #   slow   6x  over 6 h and 30 min — 5 % of the budget in 6 hours (gone in ~5 days)          → warning (e-mail)
 # Minimum traffic: more than 100 requests (10 probes) in the long window, so one error on a quiet staging or at night
 # does not page.
+#
+# S17-F3: the SLO groups evaluate every 30 s — the scrape interval of their slowest input (job `blackbox`,
+# prometheus.yml.j2; the app series arrive every 15 s). Evaluating faster re-reads the same samples (the 6 h windows
+# cost the most) and records nothing new; tests/workspace/monitoring.test.ts keeps the two equal.
 groups:
   - name: slo-objectives
+    interval: 30s
     rules:
       - record: slo:objective:ratio
         expr: vector(0.9995)
@@ -43,6 +48,7 @@ groups:
   # Per window: events, bad events, their ratio (in this order: a group evaluates its rules in sequence). `or … * 0`: a
   # service without a single bad event reads 0, not "no data".
   - name: slo-sli
+    interval: 30s
     rules:
       - record: slo:sli_total:increase5m
         labels: { slo: availability }
@@ -150,6 +156,7 @@ groups:
         expr: slo:sli_bad:increase6h / slo:sli_total:increase6h
 
   - name: slo-burn
+    interval: 30s
     rules:
       - alert: SloErrorBudgetBurnFast
         expr: >-

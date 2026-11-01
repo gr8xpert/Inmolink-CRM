@@ -624,3 +624,30 @@ describe('endpoint probes and the status page (S16-05)', () => {
       expect(c.name, c.service).not.toMatch(/api-|feed-api|realtime|worker|postgres|redis/i);
   });
 });
+
+describe('SLO evaluation (S17-F3)', () => {
+  /** A Prometheus duration (`15s`, `2m`) in seconds. */
+  const seconds = (d: string): number => {
+    const m = /^(\d+)(s|m)$/.exec(d);
+    if (!m) throw new Error(`unexpected duration ${d}`);
+    return Number(m[1]) * (m[2] === 'm' ? 60 : 1);
+  };
+
+  it('[S17-F3] the SLO recording rules evaluate at the scrape interval of their slowest input (blackbox)', () => {
+    const prom = read('infra', 'ansible', 'roles', 'monitoring', 'templates', 'prometheus.yml.j2');
+    const global = /^global:\n {2}scrape_interval: (\S+)/m.exec(prom)?.[1];
+    const blackbox = /- job_name: blackbox\n(?: {4}.*\n)*? {4}scrape_interval: (\S+)/.exec(prom)?.[1];
+    expect(global).toBeDefined();
+    expect(blackbox).toBeDefined();
+    const slo = parse(read('infra', 'monitoring', 'rules', 'slo.yml')) as {
+      groups: { name: string; interval?: string }[];
+    };
+    const groups = slo.groups.filter((g) => g.name.startsWith('slo-'));
+    expect(groups.map((g) => g.name)).toEqual(['slo-objectives', 'slo-sli', 'slo-burn']);
+    for (const g of groups) {
+      expect(g.interval, g.name).toBe(blackbox);
+      // never faster than the apps' own series arrive
+      expect(seconds(g.interval as string)).toBeGreaterThanOrEqual(seconds(global as string));
+    }
+  });
+});

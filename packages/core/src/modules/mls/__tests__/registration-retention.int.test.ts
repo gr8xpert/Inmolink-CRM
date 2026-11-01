@@ -166,4 +166,17 @@ describe('registration retention', () => {
     await mls.pruneExpiredRegistrations();
     expect(await left(recent.registration, recent.viewing)).toMatchObject(all);
   }, 120_000);
+
+  it('[S17-F3] with registrations kept for an open viewing ahead of them, the keyset prune (one row a batch) still deletes every one due', async () => {
+    // the kept ones are the oldest past retention; each batch starts after the last deleted row (the cost of re-reading
+    // kept rows is measured in tests/perf/gdpr-sweeps.int.test.ts)
+    const kept = [await registered('keptb1'), await registered('keptb2')];
+    const gone = [await registered('goneb1'), await registered('goneb2'), await registered('goneb3')];
+    for (const k of kept) await endedDaysAgo(k.registration, CLAIM_DAYS + 40, false);
+    for (const [i, g] of gone.entries()) await endedDaysAgo(g.registration, CLAIM_DAYS + 30 - i);
+    const pruned = await mls.pruneExpiredRegistrations({ batch: 1 });
+    expect(pruned.registrations).toBeGreaterThanOrEqual(gone.length);
+    for (const g of gone) expect((await left(g.registration, g.viewing))?.registrations).toBe(0);
+    for (const k of kept) expect((await left(k.registration, k.viewing))?.registrations).toBe(1);
+  }, 120_000);
 });

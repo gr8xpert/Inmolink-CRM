@@ -1247,6 +1247,13 @@
       "when": 1793494842410,
       "tag": "0177_s16_f5_registration_retention",
       "breakpoints": true
+    },
+    {
+      "idx": 178,
+      "version": "7",
+      "when": 1793527637374,
+      "tag": "0178_s17_f3_retention_erasure_indexes",
+      "breakpoints": true
     }
   ]
 }

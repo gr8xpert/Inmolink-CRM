@@ -67,8 +67,10 @@ export {
   configureFeedRunCaps,
   configureSiteFeedFanout,
   EXPORTS_FEED_CAP_GROUP,
+  PORTAL_SITEMAP_DELIST_AGENCY_MS,
   PORTAL_SITEMAP_DELIST_THROTTLE_MS,
   queueEdgePurge,
+  queuePortalSitemaps,
   websiteApiJobs,
 } from './jobs';
 export { LEAD_TURNSTILE_ACTION, type LeadRequestFacts, submitLead } from './leads';
@@ -158,6 +160,7 @@ export {
 export {
   configurePortalSitemaps,
   generatePortalSitemaps,
+  PORTAL_SITEMAP_EVERY_MS,
   PORTAL_SITEMAP_FILE,
   PORTAL_SITEMAP_INDEX,
   PORTAL_SITEMAP_URLS,

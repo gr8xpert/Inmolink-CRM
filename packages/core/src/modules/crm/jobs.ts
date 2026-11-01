@@ -54,7 +54,7 @@ const IMPORT_ATTEMPTS = 3;
  *   Idempotent: a rerun finds nothing left.
  * - `crm.sweepRetention` (pool `maintenance`, daily, S16-04): queues one `crm.anonymizeInactiveContacts` per agency
  *   with a retention period (`compliance.retentionAgenciesPage`, 500 per page; job ID per agency and UTC day, fair share
- *   by agency). That job erases contacts untouched for the period (no change, lead, task or activity since), at most
+ *   by agency), spread over `RETENTION_SWEEP_SPREAD_MS` (S17-F3: each agency at its own stable offset). That job erases contacts untouched for the period (no change, lead, task or activity since), at most
  *   `RETENTION_MAX_PER_RUN` a day per agency, 100 per transaction (`crm.eraseContactsBySystem`, audited
  *   `crm.contact.anonymized`); each erasure's `crm.contact.erased` clears the rest after the commit. Idempotent.
  * - `crm.refreshStageCounts` (S12-F6): the agency's leads per stage by deltas — the stage moves since its last pass,
@@ -289,8 +289,12 @@ export const crmJobs = {
           compliance.retentionAgenciesPage(tx, cursor, RETENTION_SWEEP_PAGE),
         );
         if (page.length > 0) {
+          // S17-F3: spread over RETENTION_SWEEP_SPREAD_MS by agency
           await crmJobs.anonymizeInactiveContacts.enqueueMany(
-            page.map((r) => ({ payload: { agencyId: r.agencyId, months: r.months, day } })),
+            page.map((r) => ({
+              payload: { agencyId: r.agencyId, months: r.months, day },
+              options: { delayMs: agencySpreadOf(r.agencyId, RETENTION_SWEEP_SPREAD_MS) },
+            })),
           );
         }
         queued += page.length;
@@ -462,10 +466,19 @@ export const crmJobs = {
 /** S12-F6: the nightly rebuilds are spread over this long (a stable offset per agency). */
 export const STAGE_COUNTS_SWEEP_SPREAD_MS = 4 * 3_600_000;
 
-/** An agency's offset in the nightly spread: its id's last 32 bits, scaled (stable, evenly spread for UUIDv7 tails). */
-export function sweepDelayOf(agencyId: string): number {
-  return Math.floor((Number.parseInt(agencyId.slice(-8), 16) / 0x1_0000_0000) * STAGE_COUNTS_SWEEP_SPREAD_MS);
+/** An agency's offset in a spread of `spreadMs`: its id's last 32 bits, scaled (stable, even for UUIDv7 tails). */
+export function agencySpreadOf(agencyId: string, spreadMs: number): number {
+  return Math.floor((Number.parseInt(agencyId.slice(-8), 16) / 0x1_0000_0000) * spreadMs);
 }
+
+/** An agency's offset in the nightly stage-count spread. */
+export const sweepDelayOf = (agencyId: string): number => agencySpreadOf(agencyId, STAGE_COUNTS_SWEEP_SPREAD_MS);
+
+/**
+ * S17-F3: the daily retention runs spread over this window by agency (stable per agency, so each agency's run keeps
+ * its hour): 5,000 agencies' scans and erasures never land on the maintenance pool and the database at once.
+ */
+export const RETENTION_SWEEP_SPREAD_MS = 6 * 3_600_000;
 
 /**
  * S11-F10: a burst of one agency's lead changes rebuilds its rollups once per window (`throttleMs`). S12-F6: the stage

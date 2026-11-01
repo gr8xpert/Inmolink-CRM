@@ -111,7 +111,7 @@ describe('portal owner scope shared and cheap (S16-F1)', () => {
     expect(cost).toBeLessThanOrEqual(5);
   });
 
-  it('[S16-F1] a stale set is never used: older than the max age (a stalled worker), or marked by a new PUBLIC owner', async () => {
+  it('[S16-F1] [S17-F3] a stale set is never used: older than the max age, or marked by a new PUBLIC owner (the mark releases the scan claim)', async () => {
     const ownersKey = `${PREFIX}:v2:search:doc-owners:g`;
     const fresh = await search.sharedDocOwners();
     expect(fresh).not.toBeNull();
@@ -127,6 +127,7 @@ describe('portal owner scope shared and cheap (S16-F1)', () => {
     }
     // A build wrote documents of an owner the set lists: nothing to mark, no statement.
     const [first, ...rest] = fresh?.owners ?? [];
+    expect(rest.length).toBeGreaterThan(0);
     search.resetDocOwnersCopy();
     expect(await countQueries(async () => expect(await search.noteDocOwner(first as string)).toBe(false))).toBe(0);
     // An agency without PUBLIC documents: one probe, no mark.
@@ -138,14 +139,28 @@ describe('portal owner scope shared and cheap (S16-F1)', () => {
     raw.v.owners = rest;
     await cacheConnection().set(ownersKey, JSON.stringify(raw), 'EX', 90);
     search.resetDocOwnersCopy();
+    const claimKey = `${PREFIX}:claim:${cacheKey({ v: 1, module: 'search', entity: 'doc-owners-scan', scope: 'global' })}`;
+    expect(await cacheConnection().exists(claimKey)).toBe(1); // the first test's claim, still held
     expect(await search.noteDocOwner(first as string)).toBe(true);
-    expect(await search.sharedDocOwners()).toBeNull();
-    // The next scan (here: the claim given up, as after a failed scan) includes the owner and is used again.
-    await cache.release(cacheKey({ v: 1, module: 'search', entity: 'doc-owners-scan', scope: 'global' }));
-    const rescanned = await search.refreshDocOwners();
-    expect('owners' in rescanned).toBe(true);
+    // S17-F3: the mark released the claim — the next reader rescans at once (not `null` until the claim lapses), and
+    // the rescan includes the owner
+    expect(await cacheConnection().exists(claimKey)).toBe(0);
+    // S17-F3 review: a second mark before the rescan (the same owner's next build; a scan holding the claim meanwhile)
+    // marks again but releases nothing — one release per scan, however many builds follow
+    expect(
+      await cache.claim(cacheKey({ v: 1, module: 'search', entity: 'doc-owners-scan', scope: 'global' }), 60_000),
+    ).toBe(true);
+    search.resetDocOwnersCopy();
+    expect(await search.noteDocOwner(first as string)).toBe(true);
+    expect(await cacheConnection().exists(claimKey)).toBe(1);
+    // an owner the (stale) stored set lists is never new: no probe, no mark
+    search.resetDocOwnersCopy();
+    expect(await countQueries(async () => expect(await search.noteDocOwner(rest[0] as string)).toBe(false))).toBe(0);
+    await cacheConnection().del(claimKey);
     const after = await search.sharedDocOwners();
     expect(after?.owners).toContain(first);
+    // and holds the claim again: the reader after it does not scan
+    expect(await cacheConnection().exists(claimKey)).toBe(1);
   });
 
   it('[S16 review] a failed owner mark throws so the build retries; the retry marks again with nothing left to write', async () => {

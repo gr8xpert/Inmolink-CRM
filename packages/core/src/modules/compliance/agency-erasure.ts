@@ -62,7 +62,7 @@ export type AgencyErasureCounts = Record<Phase, number>;
 
 export interface AgencyErasureState {
   phase: Phase | 'done';
-  /** The registrations phase's keyset position. */
+  /** The keyset position of the phase that walks one (`crmText`, `registrations`). */
   after: string | null;
   counts: AgencyErasureCounts;
 }
@@ -101,8 +101,12 @@ async function runPhase(
       }
       return { rows: r.erased, more: r.more };
     }
-    case 'crmText':
-      return crm.eraseAgencyCrmText({ agencyId });
+    case 'crmText': {
+      // S17-F3: a keyset walk per table; `after` keeps its position between calls and steps
+      const r = await crm.eraseAgencyCrmText({ agencyId, after: state.after });
+      state.after = r.next;
+      return { rows: r.rows, more: r.next !== null };
+    }
     case 'websiteLeads':
       return websites.eraseAgencyLeads({ agencyId });
     case 'registrations': {

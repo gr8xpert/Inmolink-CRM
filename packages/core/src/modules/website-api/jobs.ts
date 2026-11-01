@@ -30,10 +30,13 @@
  */
 import type { ListingCardDoc, UnitCardDoc, ViewingSlot, WebsiteCard, WebsiteListingsQuery } from '@inmolink/contracts';
 import { withPublicRead, withSystem } from '@inmolink/db';
+import { cache, cacheKey } from '@inmolink/platform/cache';
 import { cdnPurger } from '@inmolink/platform/cdn';
 import { clock } from '@inmolink/platform/clock';
 import { mailer } from '@inmolink/platform/email';
+import { createLogger } from '@inmolink/platform/logger';
 import { defineJob, UnrecoverableError } from '@inmolink/platform/queue';
+import { metrics } from '@opentelemetry/api';
 import { z } from 'zod';
 import * as billing from '../billing';
 import * as crm from '../crm';
@@ -659,18 +662,76 @@ export async function queueNetworkFeedSweep(): Promise<void> {
 export const PORTAL_SITEMAP_DELIST_THROTTLE_MS = 5 * 60_000;
 
 /**
+ * S17-F3: a delisting asks for an early run at most once per agency per `PORTAL_SITEMAP_EVERY_MS` (6 hours) — an agency
+ * whose status flaps (suspended, reinstated, suspended…) cannot keep the whole-portal regeneration (every listing of
+ * every agency) running every throttle window; its later delistings wait for the schedule (at most 6 hours, as before
+ * S16-F3: its pages are already hidden, only the sitemap still names them).
+ */
+export const PORTAL_SITEMAP_DELIST_AGENCY_MS = PORTAL_SITEMAP_EVERY_MS;
+
+/** S17-F3: exported for its test (not part of the module's public API). */
+export const delistRequests = metrics
+  .getMeter('@inmolink/core')
+  .createCounter('inmolink.portal.sitemap_delist.requests', {
+    description:
+      'Delisting-triggered portal sitemap runs asked for (S17-F3), by outcome: queued (into the shared throttle window) or throttled (the agency asked within 6 hours)',
+  });
+for (const outcome of ['queued', 'throttled']) delistRequests.add(0, { outcome });
+
+let jobsLog: ReturnType<typeof createLogger> | undefined;
+
+/**
  * S16-F3: one regeneration of the portal sitemaps per window however many agencies are delisted in it (stable throttle
  * key, no tenant group: the run is platform-wide, and staff decide delistings). A run already going (`globalConcurrency`
  * 1, the 6-hour schedule's or an earlier window's) finishes first; this run then publishes over it (newer manifest).
  * Idempotent: a run only replaces the manifest with a newer one. The bound on a delisted agency's URLs: the window
  * (5 minutes), plus waiting behind a run already going (at most its `PORTAL_SITEMAP_TIMEOUT_MS`, 60 minutes), plus this
  * run's own time, plus the serving manifest cache (1 minute) — well inside the 6-hour schedule, not "5 minutes" flat.
+ *
+ * S17-F3: per agency at most once per `PORTAL_SITEMAP_DELIST_AGENCY_MS` (a claim on redis-cache; released when the
+ * enqueue fails, so the event's retry asks again), counted by outcome. Redis-cache down: queued anyway (the shared
+ * window still bounds the runs).
  */
-export async function queuePortalSitemaps(): Promise<void> {
-  await websiteApiJobs.generatePortalSitemaps.enqueue(
-    {},
-    { throttleMs: PORTAL_SITEMAP_DELIST_THROTTLE_MS, debounceKey: 'portal-sitemaps-delist' },
-  );
+export async function queuePortalSitemaps(agencyId: string): Promise<'queued' | 'throttled'> {
+  const key = cacheKey({
+    v: 1,
+    module: 'website-api',
+    entity: 'portal-sitemap-delist',
+    scope: { agencyId: agencyId.toLowerCase() },
+  });
+  let claimed: boolean;
+  try {
+    claimed = await cache.claim(key, PORTAL_SITEMAP_DELIST_AGENCY_MS);
+  } catch (err) {
+    jobsLog ??= createLogger({ service: 'website-api' });
+    jobsLog.warn(
+      { err, agencyId },
+      'portal sitemaps: redis-cache unavailable; delisting run queued unthrottled per agency',
+    );
+    claimed = true;
+  }
+  if (!claimed) {
+    delistRequests.add(1, { outcome: 'throttled' });
+    return 'throttled';
+  }
+  try {
+    await websiteApiJobs.generatePortalSitemaps.enqueue(
+      {},
+      { throttleMs: PORTAL_SITEMAP_DELIST_THROTTLE_MS, debounceKey: 'portal-sitemaps-delist' },
+    );
+  } catch (err) {
+    await cache.release(key).catch((releaseErr) => {
+      // the claim stays: this agency's next early run waits for the claim to lapse (the schedule still covers it)
+      jobsLog ??= createLogger({ service: 'website-api' });
+      jobsLog.warn(
+        { err: releaseErr, agencyId },
+        'portal sitemaps: delisting claim not released after a failed enqueue',
+      );
+    });
+    throw err;
+  }
+  delistRequests.add(1, { outcome: 'queued' });
+  return 'queued';
 }
 
 /**

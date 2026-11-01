@@ -698,83 +698,233 @@ export async function openContactIds(tx: Tx, agencyId: string, limit: number): P
   return rows.map((r) => r.id);
 }
 
-/**
- * S16-04, retention: up to `limit` open contacts after `afterId` (by id, `contacts_agency_id_uq`) untouched since
- * `cutoff` — the contact unchanged, no open lead (`NEW`, `IN_PROGRESS`: a live deal is never erased), none of its leads,
- * tasks or activities changed or logged since, its leads' activities included (`activities_lead_idx`). The caller also
- * keeps sellers of active listings (properties). Each probe is an index lookup per candidate (`leads_contact_idx`,
- * `tasks_contact_idx`, `activities_contact_idx` / `activities_lead_idx`); a daily, bounded worker batch.
- */
-export async function inactiveContactIds(
-  tx: Tx,
-  agencyId: string,
-  cutoff: Date,
-  afterId: string | null,
-  limit: number,
-): Promise<string[]> {
-  const at = cutoff.toISOString();
-  const res = await tx.execute(sql`
-    select c.id from ${contacts} c
-     where c.agency_id = ${agencyId} and c.deleted_at is null and c.updated_at < ${at}::timestamptz
-       ${afterId ? sql`and c.id > ${afterId}::uuid` : sql``}
-       and not exists (select 1 from ${leads} l
-                        where l.agency_id = c.agency_id and l.contact_id = c.id
-                          and (l.updated_at >= ${at}::timestamptz or l.status in ('NEW', 'IN_PROGRESS')))
-       and not exists (select 1 from ${tasks} t
-                        where t.agency_id = c.agency_id and t.contact_id = c.id and t.updated_at >= ${at}::timestamptz)
-       and not exists (select 1 from ${activities} a
-                        where a.agency_id = c.agency_id and a.contact_id = c.id and a.occurred_at >= ${at}::timestamptz)
-       and not exists (select 1 from ${leads} l2 join ${activities} a2
-                          on a2.agency_id = l2.agency_id and a2.lead_id = l2.id and a2.occurred_at >= ${at}::timestamptz
-                        where l2.agency_id = c.agency_id and l2.contact_id = c.id)
-     order by c.id
-     limit ${limit}`);
-  return (res.rows as { id: string }[]).map((r) => r.id);
+/** S17-F3: the retention scan's keyset position — the last candidate's `updated_at` (database text, microseconds kept) and id. */
+export interface RetentionCursor {
+  at: string;
+  id: string;
 }
 
 /**
- * S16-04 review, agency erasure: at most `limit` rows per table of the agency's remaining free text — activity bodies,
- * task titles / descriptions, calendar event titles / descriptions / locations, seller prospect titles, addresses and
- * confidential notes, lead messages and visitor details, contact notes (deleted) — cleared in one statement. Answers the
- * rows changed (0: nothing left).
+ * S16-04, retention: one page of the agency's open contacts untouched since `cutoff`, after `after` — the candidates
+ * (`limit` at most, oldest `updated_at` first: S17-F3, `contacts_retention_idx` `(agency_id, updated_at, id)` where
+ * `deleted_at is null`, a range scan over exactly the contacts unchanged since the cutoff), and of those the inactive
+ * ones: no open lead (`NEW`, `IN_PROGRESS`: a live deal is never erased), none of its leads, tasks or activities changed
+ * or logged since, its leads' activities included (`activities_lead_idx`). The caller also keeps sellers of active
+ * listings (properties). Each probe is an index lookup per candidate (`leads_contact_idx`, `tasks_contact_all_idx`,
+ * `activities_contact_idx` / `activities_lead_idx`). `last` is the page's last candidate (null: no more) — a kept
+ * contact is never read twice in a run, so a page costs `limit` probes whatever the agency's size.
  */
-export async function clearAgencyText(tx: Tx, agencyId: string, limit: number): Promise<number> {
+export async function inactiveContactsPage(
+  tx: Tx,
+  agencyId: string,
+  cutoff: Date,
+  after: RetentionCursor | null,
+  limit: number,
+): Promise<{ ids: string[]; last: RetentionCursor | null }> {
+  const at = cutoff.toISOString();
   const res = await tx.execute(sql`
-    with a as (update ${activities} set body = null
-        where agency_id = ${agencyId} and (id, occurred_at) in (
-          select id, occurred_at from ${activities} where agency_id = ${agencyId} and body is not null limit ${limit})
-        returning 1),
-      t as (update ${tasks} set title = ${ERASED_TITLE}, description = null, version = version + 1, updated_at = now()
-        where agency_id = ${agencyId} and id in (
-          select id from ${tasks} where agency_id = ${agencyId}
-            and (title <> ${ERASED_TITLE} or description is not null) limit ${limit})
-        returning 1),
-      e as (update ${calendarEvents} set title = ${ERASED_TITLE}, description = null, location = null,
-          version = version + 1, updated_at = now()
-        where agency_id = ${agencyId} and id in (
-          select id from ${calendarEvents} where agency_id = ${agencyId}
-            and (title <> ${ERASED_TITLE} or description is not null or location is not null) limit ${limit})
-        returning 1),
-      s as (update ${sellerProspects} set title = ${ERASED_TITLE}, address = null, area = null, confidential_notes = null,
-          version = version + 1, updated_at = now()
-        where agency_id = ${agencyId} and id in (
-          select id from ${sellerProspects} where agency_id = ${agencyId}
-            and (title <> ${ERASED_TITLE} or address is not null or area is not null or confidential_notes is not null)
-          limit ${limit})
-        returning 1),
-      l as (update ${leads} set message = null, visitor_name = null, visitor_email = null, visitor_phone = null,
-          idempotency_hash = null, request_hash = null, version = version + 1, updated_at = now()
-        where agency_id = ${agencyId} and id in (
-          select id from ${leads} where agency_id = ${agencyId}
-            and (message is not null or visitor_name is not null or visitor_email is not null or visitor_phone is not null)
-          limit ${limit})
-        returning 1),
-      n as (delete from ${contactNotes} where agency_id = ${agencyId} and id in (
-          select id from ${contactNotes} where agency_id = ${agencyId} limit ${limit})
+    with cand as (
+      select c.id, c.updated_at from ${contacts} c
+       where c.agency_id = ${agencyId} and c.deleted_at is null and c.updated_at < ${at}::timestamptz
+         ${after ? sql`and (c.updated_at, c.id) > (${after.at}::timestamptz, ${after.id}::uuid)` : sql``}
+       order by c.updated_at, c.id
+       limit ${limit})
+    select c.id, c.updated_at::text as at,
+      (not exists (select 1 from ${leads} l
+                    where l.agency_id = ${agencyId} and l.contact_id = c.id
+                      and (l.updated_at >= ${at}::timestamptz or l.status in ('NEW', 'IN_PROGRESS')))
+       and not exists (select 1 from ${tasks} t
+                        where t.agency_id = ${agencyId} and t.contact_id = c.id and t.updated_at >= ${at}::timestamptz)
+       and not exists (select 1 from ${activities} a
+                        where a.agency_id = ${agencyId} and a.contact_id = c.id and a.occurred_at >= ${at}::timestamptz)
+       and not exists (select 1 from ${leads} l2 join ${activities} a2
+                          on a2.agency_id = l2.agency_id and a2.lead_id = l2.id and a2.occurred_at >= ${at}::timestamptz
+                        where l2.agency_id = ${agencyId} and l2.contact_id = c.id)) as inactive
+      from cand c
+     order by c.updated_at, c.id`);
+  const rows = res.rows as { id: string; at: string; inactive: boolean }[];
+  const tail = rows.length === limit ? rows[rows.length - 1] : undefined;
+  return {
+    ids: rows.filter((r) => r.inactive).map((r) => r.id),
+    last: tail ? { at: tail.at, id: tail.id } : null,
+  };
+}
+
+/**
+ * S17-F3: the agency text sweep's position — the step (table walk) and the last row's index key in it (database text:
+ * timestamps keep their microseconds). Stored in the erasure operation's cursor between calls.
+ */
+export interface AgencyTextCursor {
+  step: number;
+  key: string[] | null;
+}
+
+interface TextStep {
+  /** The table, as drizzle renders it. */
+  table: SQL;
+  /** The index walked (agency first): its columns after `agency_id` and their types, the last one `id`. */
+  keys: readonly (readonly [string, 'uuid' | 'text' | 'timestamptz'])[];
+  /** Rows of the walk (the walked index's partial predicate). */
+  rows: SQL;
+  /**
+   * S17-F3 review: the primary key the update matches on (never the walk's mutable keys: a task whose status changes
+   * between the read and the update is still cleared), and a bound on the updated side to the page's range (an
+   * immutable key: partitions pruned, no scan of the agency's other rows).
+   */
+  pk: readonly string[];
+  bound?: SQL;
+  /** The row's text still to clear, and how. */
+  pending: SQL;
+  set: SQL;
+}
+
+/**
+ * S16-04 review, agency erasure — the agency's free text outside contact rows, one table walk per step: activity
+ * bodies (`activities_agency_idx`), task titles / descriptions (live: `tasks_agency_idx`, deleted:
+ * `tasks_agency_deleted_idx`), calendar event titles / descriptions / locations (`calendar_events_agency_idx`), seller
+ * prospect titles, addresses and confidential notes (live: `seller_prospects_created_idx`, deleted:
+ * `seller_prospects_agency_deleted_idx`), lead messages and visitor details (`leads_agency_created_idx`), then contact
+ * notes (deleted). S17-F3: each step walks its index on a keyset from the cursor, `limit` rows a statement, and clears
+ * the ones still holding text — a cleared row is never read again, so no statement scans more than `limit` rows.
+ */
+function agencyTextSteps(): readonly TextStep[] {
+  const erased = sql`${ERASED_TITLE}`;
+  const stamp = sql.raw('version = version + 1, updated_at = now()');
+  return [
+    {
+      table: sql`${activities}`,
+      keys: [
+        ['occurred_at', 'timestamptz'],
+        ['id', 'uuid'],
+      ],
+      rows: sql`true`,
+      pk: ['id', 'occurred_at'],
+      bound: sql`and x.occurred_at >= (select min(p.occurred_at) from p) and x.occurred_at <= (select max(p.occurred_at) from p)`,
+      pending: sql`x.body is not null`,
+      set: sql`body = null`,
+    },
+    {
+      table: sql`${tasks}`,
+      keys: [
+        ['status', 'text'],
+        ['due_sort_ms', 'timestamptz'],
+        ['id', 'uuid'],
+      ],
+      rows: sql`deleted_at is null`,
+      pk: ['id'],
+      pending: sql`(x.title <> ${erased} or x.description is not null)`,
+      set: sql`title = ${erased}, description = null, ${stamp}`,
+    },
+    {
+      table: sql`${tasks}`,
+      keys: [['id', 'uuid']],
+      rows: sql`deleted_at is not null`,
+      pk: ['id'],
+      pending: sql`(x.title <> ${erased} or x.description is not null)`,
+      set: sql`title = ${erased}, description = null, ${stamp}`,
+    },
+    {
+      table: sql`${calendarEvents}`,
+      keys: [
+        ['starts_at', 'timestamptz'],
+        ['id', 'uuid'],
+      ],
+      rows: sql`true`,
+      pk: ['id'],
+      pending: sql`(x.title <> ${erased} or x.description is not null or x.location is not null)`,
+      set: sql`title = ${erased}, description = null, location = null, ${stamp}`,
+    },
+    {
+      table: sql`${sellerProspects}`,
+      keys: [
+        ['created_ms', 'timestamptz'],
+        ['id', 'uuid'],
+      ],
+      rows: sql`deleted_at is null`,
+      pk: ['id'],
+      pending: sql`(x.title <> ${erased} or x.address is not null or x.area is not null or x.confidential_notes is not null)`,
+      set: sql`title = ${erased}, address = null, area = null, confidential_notes = null, ${stamp}`,
+    },
+    {
+      table: sql`${sellerProspects}`,
+      keys: [['id', 'uuid']],
+      rows: sql`deleted_at is not null`,
+      pk: ['id'],
+      pending: sql`(x.title <> ${erased} or x.address is not null or x.area is not null or x.confidential_notes is not null)`,
+      set: sql`title = ${erased}, address = null, area = null, confidential_notes = null, ${stamp}`,
+    },
+    {
+      table: sql`${leads}`,
+      keys: [
+        ['created_ms', 'timestamptz'],
+        ['id', 'uuid'],
+      ],
+      rows: sql`true`,
+      pk: ['id'],
+      pending: sql`(x.message is not null or x.visitor_name is not null or x.visitor_email is not null or x.visitor_phone is not null)`,
+      set: sql`message = null, visitor_name = null, visitor_email = null, visitor_phone = null,
+        idempotency_hash = null, request_hash = null, ${stamp}`,
+    },
+  ];
+}
+
+/** Steps of the agency text sweep: the table walks, then the contact notes. */
+export const AGENCY_TEXT_STEPS = agencyTextSteps().length + 1;
+
+/**
+ * One statement of the agency text sweep (see `agencyTextSteps`): `limit` rows of the cursor's step read on its index
+ * keyset, those still holding text cleared. Answers the rows changed and the next cursor (null: every step done).
+ */
+export async function clearAgencyText(
+  tx: Tx,
+  agencyId: string,
+  cursor: AgencyTextCursor,
+  limit: number,
+): Promise<{ rows: number; next: AgencyTextCursor | null }> {
+  const steps = agencyTextSteps();
+  const nextStep = (step: number): AgencyTextCursor | null =>
+    step + 1 < AGENCY_TEXT_STEPS ? { step: step + 1, key: null } : null;
+  const s = steps[cursor.step];
+  if (!s) {
+    // the last step: the agency's contact notes, deleted (`contact_notes_contact_created_raw_idx`, agency first)
+    const res = await tx.execute(sql`
+      with n as (delete from ${contactNotes} where agency_id = ${agencyId} and id in (
+          select id from ${contactNotes} where agency_id = ${agencyId}
+           order by contact_id, created_at, id limit ${limit})
         returning 1)
-    select ((select count(*) from a) + (select count(*) from t) + (select count(*) from e) + (select count(*) from s)
-      + (select count(*) from l) + (select count(*) from n))::int as rows`);
-  return (res.rows[0] as { rows: number }).rows;
+      select count(*)::int as rows from n`);
+    const rows = (res.rows[0] as { rows: number }).rows;
+    return { rows, next: rows < limit ? nextStep(cursor.step) : cursor };
+  }
+  // column names and casts are constants of `agencyTextSteps`; only the cursor's values are parameters
+  const names = s.keys.map(([k]) => k);
+  const cols = sql.raw(names.join(', '));
+  const keyText = sql.raw(`array[${names.map((k) => `p.${k}::text`).join(', ')}]`);
+  const lastOrder = sql.raw(names.map((k) => `p.${k} desc`).join(', '));
+  const key = cursor.key;
+  const after =
+    key && key.length === s.keys.length
+      ? sql`and (${cols}) > (${sql.join(
+          s.keys.map(([, type], i) => sql`${key[i] ?? null}::${sql.raw(type)}`),
+          sql`, `,
+        )})`
+      : sql``;
+  const match = sql.raw(s.pk.map((k) => `x.${k} = p.${k}`).join(' and '));
+  const res = await tx.execute(sql`
+    with p as (
+        select ${cols} from ${s.table}
+         where agency_id = ${agencyId} and ${s.rows} ${after}
+         order by ${cols} limit ${limit}),
+      u as (update ${s.table} x set ${s.set}
+        from p where x.agency_id = ${agencyId} and ${match} ${s.bound ?? sql``} and ${s.pending}
+        returning 1)
+    select (select count(*) from u)::int as rows, (select count(*) from p)::int as walked,
+      (select ${keyText} from p order by ${lastOrder} limit 1) as key`);
+  const row = res.rows[0] as { rows: number; walked: number; key: string[] | null };
+  return {
+    rows: row.rows,
+    next: row.walked < limit || !row.key ? nextStep(cursor.step) : { step: cursor.step, key: row.key },
+  };
 }
 
 /** S16-04: the ids of the contacts' leads and tasks (an erasure redacts their notifications). Bounded per person. */

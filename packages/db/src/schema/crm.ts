@@ -105,6 +105,9 @@ export const contacts = pgTable(
       .where(sql`${t.idempotencyHash} is not null`),
     // the composite FKs of the identifier and note tables (a row never points at another agency's contact)
     uniqueIndex('contacts_agency_id_uq').on(t.agencyId, t.id),
+    // S17-F3, the daily retention scan: where agency_id = ? and deleted_at is null and updated_at < ?
+    // and (updated_at, id) > (?, ?) order by updated_at, id (keyset; CONCURRENT_INDEXES)
+    index('contacts_retention_idx').on(t.agencyId, t.updatedAt, t.id).where(sql`${t.deletedAt} is null`),
     check('contacts_types_ck', sql`${t.types} <@ array['BUYER', 'SELLER', 'TENANT', 'LANDLORD']::text[]`),
     check(
       'contacts_source_ck',
@@ -826,6 +829,9 @@ export const tasks = pgTable(
     index('tasks_listing_idx')
       .on(t.agencyId, t.listingId, t.status, t.dueSortMs, t.id)
       .where(sql`${t.listingId} is not null and ${t.deletedAt} is null`),
+    // S17-F3, agency erasure's text sweep: the deleted tasks, where agency_id = ? and id > ? order by id (keyset;
+    // the live ones walk tasks_agency_idx; CONCURRENT_INDEXES)
+    index('tasks_agency_deleted_idx').on(t.agencyId, t.id).where(sql`${t.deletedAt} is not null`),
     // a merge re-points every task of the closed contact (deleted ones included)
     index('tasks_contact_all_idx').on(t.agencyId, t.contactId).where(sql`${t.contactId} is not null`),
     // the reminder sweep (all agencies): the next due, armed, open tasks
@@ -1136,6 +1142,9 @@ export const sellerProspects = pgTable(
       .where(sql`${t.nextFollowUpAt} is not null and ${t.deletedAt} is null`),
     // the FK and a merge's re-pointing (deleted ones too)
     index('seller_prospects_contact_idx').on(t.agencyId, t.contactId).where(sql`${t.contactId} is not null`),
+    // S17-F3, agency erasure's text sweep: the deleted prospects, where agency_id = ? and id > ? order by id (keyset;
+    // the live ones walk seller_prospects_created_idx; CONCURRENT_INDEXES)
+    index('seller_prospects_agency_deleted_idx').on(t.agencyId, t.id).where(sql`${t.deletedAt} is not null`),
     // one prospect per listing; a purged listing's prospect: where agency_id = ? and listing_id = ?
     uniqueIndex('seller_prospects_listing_uq').on(t.agencyId, t.listingId).where(sql`${t.listingId} is not null`),
     // POST replay: where agency_id = ? and idempotency_hash = ?

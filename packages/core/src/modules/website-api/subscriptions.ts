@@ -188,11 +188,12 @@ export function registerWebsiteApiSubscriptions(): void {
       name: 'websiteApi.portal.agencyStatus',
     }),
     // S16-F3: a delisted agency's URLs leave the portal sitemaps within minutes (one coalesced run per window). Being
-    // listed again needs no early run: missing URLs hide nothing, the next scheduled run adds them.
+    // listed again needs no early run: missing URLs hide nothing, the next scheduled run adds them. S17-F3: one early
+    // run per agency per 6 hours (`queuePortalSitemaps`).
     subscribe(
       agencies.agenciesEvents.statusChanged,
       async (p) => {
-        if (p.from === 'VERIFIED' && p.to !== 'VERIFIED') await queuePortalSitemaps();
+        if (p.from === 'VERIFIED' && p.to !== 'VERIFIED') await queuePortalSitemaps(p.agencyId);
       },
       { name: 'websiteApi.portal.sitemapsDelisted' },
     ),

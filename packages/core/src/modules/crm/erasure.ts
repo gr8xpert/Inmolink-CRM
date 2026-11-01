@@ -210,6 +210,9 @@ export async function eraseContactsBySystem(p: {
   });
 }
 
+/** S17-F3 review: candidate pages one retention run reads at most (`SYSTEM_ERASE_BATCH` each: 50,000 contacts). */
+export const RETENTION_MAX_PAGES = 500;
+
 /**
  * S16-04, `crm.anonymizeInactiveContacts` for one agency: contacts untouched for `months` (no change, lead, task or
  * activity — its leads' included — since the cutoff, no open lead, not the seller of a listing on the market) are erased, `SYSTEM_ERASE_BATCH` per transaction, at most `maxContacts` per run (the next
@@ -235,23 +238,29 @@ export async function anonymizeInactiveContacts(p: {
   const cutoff = new Date(p.now);
   cutoff.setUTCMonth(cutoff.getUTCMonth() - months);
   let erased = 0;
-  let after: string | null = null;
-  while (erased < p.maxContacts && !p.signal?.aborted) {
-    const cursor: string | null = after;
+  let after: repo.RetentionCursor | null = null;
+  // S17-F3: pages of candidates on `contacts_retention_idx` (keyset on `updated_at, id`); a kept one is not re-read.
+  // S17-F3 review: at most `RETENTION_MAX_PAGES` pages a run, so an agency of old contacts all kept (open deals) is not
+  // read whole in one job — the next day's run reads the same oldest candidates again, which is the point: they stay
+  // kept until their deal closes
+  for (let pages = 0; erased < p.maxContacts && pages < RETENTION_MAX_PAGES && !p.signal?.aborted; pages++) {
+    const cursor: repo.RetentionCursor | null = after;
     const limit = Math.min(SYSTEM_ERASE_BATCH, p.maxContacts - erased);
-    const ids: string[] = await withTenant({ agencyId: p.agencyId }, (tx) =>
-      repo.inactiveContactIds(tx, p.agencyId, cutoff, cursor, limit),
+    const page: { ids: string[]; last: repo.RetentionCursor | null } = await withTenant(
+      { agencyId: p.agencyId },
+      (tx) => repo.inactiveContactsPage(tx, p.agencyId, cutoff, cursor, limit),
     );
-    if (ids.length === 0) break;
-    // S16-04 review: the seller of a listing still on the market is not inactive
-    const sellers = await properties.activeSellerContacts({ agencyId: p.agencyId, contactIds: ids });
-    erased += await eraseContactsBySystem({
-      agencyId: p.agencyId,
-      contactIds: ids.filter((id) => !sellers.has(id)),
-      why: { kind: 'RETENTION', months },
-    });
-    if (ids.length < limit) break;
-    after = ids[ids.length - 1] ?? null;
+    if (page.ids.length > 0) {
+      // S16-04 review: the seller of a listing still on the market is not inactive
+      const sellers = await properties.activeSellerContacts({ agencyId: p.agencyId, contactIds: page.ids });
+      erased += await eraseContactsBySystem({
+        agencyId: p.agencyId,
+        contactIds: page.ids.filter((id) => !sellers.has(id)),
+        why: { kind: 'RETENTION', months },
+      });
+    }
+    if (!page.last) break;
+    after = page.last;
   }
   return erased;
 }
@@ -311,19 +320,45 @@ export async function purgeAgencyContactImports(p: {
   return { files: files + listed.objects.length, more: Boolean(listed.next) };
 }
 
-/** Rows per statement of the agency-wide text sweep. */
-const AGENCY_TEXT_BATCH = 1_000;
+/**
+ * Rows per statement of the agency-wide text sweep (S17-F3: 250 — each cleared row updates every index of its table,
+ * ~0.05 ms a row, so a page stays well under 20 ms at scale).
+ */
+export const AGENCY_TEXT_BATCH = 250;
+
+/** S17-F3: the agency text sweep's cursor as the erasure operation stores it (text), or the start. */
+function textCursorOf(raw: string | null): repo.AgencyTextCursor {
+  if (!raw) return { step: 0, key: null };
+  try {
+    const c = JSON.parse(raw) as Partial<repo.AgencyTextCursor>;
+    // S17-F3 review: a step out of range restarts the walk (never skips straight to the end)
+    const step =
+      Number.isInteger(c.step) && (c.step as number) >= 0 && (c.step as number) < repo.AGENCY_TEXT_STEPS
+        ? (c.step as number)
+        : 0;
+    const key = Array.isArray(c.key) && c.key.every((v) => typeof v === 'string') ? c.key : null;
+    return { step, key };
+  } catch {
+    return { step: 0, key: null };
+  }
+}
 
 /**
  * S16-04 review, agency erasure: one batch of the free text crm holds outside contact rows — tasks, calendar events,
  * seller prospects and activities with or without a contact (their titles `—`, descriptions, locations, confidential
- * notes and bodies cleared), leads' messages and visitor details, and contact notes. `more`: call again.
+ * notes and bodies cleared), leads' messages and visitor details, and contact notes. S17-F3: one table walk at a time
+ * on its index keyset from `after` (the previous call's `next`; null to start), so every statement reads at most
+ * `AGENCY_TEXT_BATCH` rows. `next` null: done.
  */
-export async function eraseAgencyCrmText(p: { agencyId: string }): Promise<{ rows: number; more: boolean }> {
-  const rows = await withTenant({ agencyId: p.agencyId }, (tx) =>
-    repo.clearAgencyText(tx, p.agencyId, AGENCY_TEXT_BATCH),
+export async function eraseAgencyCrmText(p: {
+  agencyId: string;
+  after: string | null;
+}): Promise<{ rows: number; next: string | null }> {
+  const cursor = textCursorOf(p.after);
+  const r = await withTenant({ agencyId: p.agencyId }, (tx) =>
+    repo.clearAgencyText(tx, p.agencyId, cursor, AGENCY_TEXT_BATCH),
   );
-  return { rows, more: rows > 0 };
+  return { rows: r.rows, next: r.next ? JSON.stringify(r.next) : null };
 }
 
 /** S16-04: whether `contactId` is an open contact of the agency (`SUBJECT` exports; under the caller's RLS). */
