@@ -18,7 +18,7 @@ x-postgres: &postgres
   build: ./infra/docker/postgres
   image: inmolink/postgres:18-3.6-walg3.0.9
   cpus: 2
-  mem_limit: 2g
+  mem_limit: 4g # the page cache counts too: at 2g the S5-04 fallback scan timed out under the perf seeds (f70c4217)
   environment:
     POSTGRES_USER: postgres
     POSTGRES_PASSWORD: postgres
