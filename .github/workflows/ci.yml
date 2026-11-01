@@ -80,7 +80,8 @@ jobs:
   integration:
     name: Integration
     runs-on: ubuntu-24.04
-    timeout-minutes: 35 # ~22 min usual; a slow apt mirror for Chromium's deps once took 9 min (0d8e7a2)
+    # ~25–33 min since S16 (throughput checks 17–24 min); a slow apt mirror for Chromium's deps once took 9 min (0d8e7a2)
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { persist-credentials: false, fetch-depth: 0 }
