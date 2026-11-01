@@ -219,7 +219,7 @@ describe('SUBJECT export', () => {
     const { export: queued } = await as(a, (ctx) =>
       compliance.createDataExport(
         ctx,
-        { kind: 'SUBJECT', format: 'csv', contactId: id },
+        { kind: 'SUBJECT', format: 'csv', contactId: id, confirmContactId: id },
         {
           verifyStepUp: async () => {},
           subjectExists: (cid) => crm.openContactExists(ctx.tx, ctx.tenant.agencyId, cid),

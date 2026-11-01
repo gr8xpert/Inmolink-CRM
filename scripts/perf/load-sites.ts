@@ -13,6 +13,7 @@ import { type Tx, withSystem } from '@inmolink/db';
 import { newId } from '@inmolink/platform/ids';
 import { sql } from 'drizzle-orm';
 import type { KeyLimits } from '../../tests/load/lib/website-mix';
+import { dbHostOf, type HostClassifier, hostClassifier, isLoopback } from '../ops/target-hosts';
 
 export const LOAD_SITE_NAME = 'Load test (S7-08)';
 export const LOAD_KEY_NAME = 'load-test';
@@ -40,8 +41,16 @@ export function loadKeyLimits(): KeyLimits {
  * Load-test keys are made only where the environment says, explicitly, it is not production: `DEPLOY_ENV` (if set)
  * development, test or staging; `NODE_ENV` development or test — or production only with `DEPLOY_ENV=staging` and
  * `--staging` (like the scale seed). Neither set: refused. A staging target always needs `--staging`.
+ *
+ * S17-F2: the database is checked too, not only the environment's names — every `DATABASE_URL_*` must name a host,
+ * never a production one (the deploy config's, `scripts/ops/target-hosts.ts`); a local run's hosts are loopback (the
+ * docker stacks), a `--staging` run's loopback or the staging servers'.
  */
-export function assertLoadTarget(env: Record<string, string | undefined>, staging: boolean): void {
+export function assertLoadTarget(
+  env: Record<string, string | undefined>,
+  staging: boolean,
+  hosts: HostClassifier = hostClassifier(),
+): void {
   const deploy = env.DEPLOY_ENV?.trim() || undefined;
   const node = env.NODE_ENV?.trim() || undefined;
   if (!deploy && !node) throw new Error('refusing to create load-test keys: neither DEPLOY_ENV nor NODE_ENV is set');
@@ -54,6 +63,19 @@ export function assertLoadTarget(env: Record<string, string | undefined>, stagin
     );
   }
   if (deploy === 'staging' && !staging) throw new Error('a staging target needs --staging');
+  for (const key of Object.keys(env).sort()) {
+    const url = env[key];
+    if (!key.startsWith('DATABASE_URL_') || !url) continue;
+    const host = dbHostOf(url);
+    if (!host)
+      throw new Error(
+        `refusing the load test: ${key} names no database host (or overrides it with ?host= / a host list)`,
+      );
+    if (hosts.isProduction(host)) throw new Error(`refusing the load test: ${key} points at production (${host})`);
+    if (isLoopback(host)) continue;
+    if (!staging) throw new Error(`refusing the load test: ${key} points at ${host}, not this machine (local run)`);
+    if (!hosts.isStaging(host)) throw new Error(`refusing the load test: ${key} points at ${host}, not a staging host`);
+  }
 }
 
 /** Each site's inventory policy, in turn: the shapes PLAN §9 sites take, incl. a CUSTOM minimum commission. */

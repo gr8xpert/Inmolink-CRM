@@ -46,13 +46,23 @@ import * as repo from './repo';
  *
  * Agency admins only (`crm.contacts.erase`), never impersonating staff; `confirm: 'ERASE'`. Audited
  * (`crm.contact.erased`, ids only).
+ *
+ * S17-F2: a fresh second factor too (`verifyStepUp`, not optional — apps call `requestContactErasure`, which binds
+ * identity's check). The order: policy → the contact and its version → `verifyStepUp` (throws `MFA_CODE_INVALID`; a
+ * refused or stale request never spends a code) → erase. The route limits erasures per user and per agency.
  */
-export async function eraseContact(ctx: Ctx, contactId: string, input: EraseContactBody): Promise<void> {
+export async function eraseContact(
+  ctx: Ctx,
+  contactId: string,
+  input: Pick<EraseContactBody, 'version' | 'confirm'>,
+  opts: { verifyStepUp: () => Promise<void> },
+): Promise<void> {
   assertCan(ctx, 'crm.contacts.erase');
   const [contact] = await repo.lockAndLoad(ctx.tx, [contactId]);
   if (!contact) throw new AppError('CONTACT_NOT_FOUND');
   assertCan(ctx, 'crm.contacts.erase', contact);
   if (contact.version !== input.version) throw new AppError('VERSION_CONFLICT');
+  await opts.verifyStepUp();
   const agencyId = ctx.tenant.agencyId;
   await repo.eraseContact(ctx.tx, agencyId, contactId);
   await compliance.audit(ctx, 'crm.contact.erased', { type: 'contact', id: contactId });

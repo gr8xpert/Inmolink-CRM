@@ -5,7 +5,7 @@
     "kind": "What to export",
     "format": "Format",
     "code": "Authenticator code",
-    "codeHint": "Enter the current 6-digit code from your authenticator app, or a recovery code. It is needed every time you request an export.",
+    "codeHint": "Enter the current 6-digit code from your authenticator app, or a recovery code. It is needed every time you request an export. For one person's data, you enter it on the confirmation step.",
     "submit": "Request export",
     "contactId": "Contact (one person only)",
     "contactIdHint": "For a data subject request (GDPR access or portability): the contact whose data you export. Leave empty for the other exports."
@@ -51,5 +51,12 @@
     "load": "The exports could not be loaded. Try again in a moment.",
     "generic": "Something went wrong. Try again.",
     "DATA_SUBJECT_NOT_FOUND": "That contact does not exist or was erased."
+  },
+  "confirm": {
+    "title": "Confirm whose data you export",
+    "body": "This export holds everything the agency keeps about {name}: contact details, consents, enquiries, viewings and notes. Check that this is the person who asked before you continue.",
+    "submit": "Confirm and request export",
+    "cancel": "Cancel",
+    "noName": "this contact (no name)"
   }
 }

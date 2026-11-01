@@ -39,7 +39,9 @@ Tokens: `pnpm perf:load:tokens` mints access tokens (audiences `api` and `realti
 version checked) and writes `tests/load/.data/dashboard-users.json` (git-ignored; secrets — delete after the run).
 `--serve` keeps a small refresh service (`GET /tokens/<index>`, `Bearer <per-run secret>`, constant-time compare,
 127.0.0.1 unless `--host`) so 15-minute tokens last a 24-hour run; k6 refreshes 2–3 min before expiry and after a 401
-(refresh requests tagged `phase: auth`, never judged). Never in production (`assertLoadTarget`).
+(refresh requests tagged `phase: auth`, never judged). Never in production (`assertLoadTarget`: the environment's names and, since S17-F2,
+every `DATABASE_URL_*` host — never a production host of the deploy config; loopback for a local run; loopback or a
+staging server of `infra/ansible/inventories/staging` for `--staging`).
 The service binds 127.0.0.1; to serve a k6 on another host bind `--host 0.0.0.0` **behind a TLS proxy** and pass
 `--public-url https://…` (a plain-http public URL is refused: it would carry the refresh secret and live tokens in
 clear) — or keep 127.0.0.1 and use an SSH tunnel. Refresh mints run at most 16 at a time. `PROFILE=soak` takes no

@@ -2,6 +2,7 @@
 export const PACKAGE_NAME = '@inmolink/core';
 
 export * from './ai-runtime';
+export { requestContactErasure } from './contact-erasure-request';
 export * from './context';
 export { requestDataExport } from './data-export-request';
 export { startStaffOperation, updateRetentionSettings } from './gdpr-requests'; // S16-04

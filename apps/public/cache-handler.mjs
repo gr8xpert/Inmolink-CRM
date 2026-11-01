@@ -22,6 +22,11 @@ export default class PortalPageCacheHandler extends PageCacheHandler {
         'page cache: script hash cap reached; the rest of the page’s inline scripts are refused',
       );
     };
-    return super.set(key, withStoredPageScriptPolicy(data, { dev: DEV, onCapped }), ctx);
+    // S17-F2: flight pushes that are not the entry's own RSC payload get no hash (the browser refuses them)
+    const onUnmatched = (unmatched, noRscData) => {
+      log ??= createLogger({ service: 'public', level: process.env.LOG_LEVEL ?? 'info' });
+      log.warn({ key, unmatched, noRscData }, 'page cache: inline flight data not in the stored RSC payload; refused');
+    };
+    return super.set(key, withStoredPageScriptPolicy(data, { dev: DEV, onCapped, onUnmatched }), ctx);
   }
 }

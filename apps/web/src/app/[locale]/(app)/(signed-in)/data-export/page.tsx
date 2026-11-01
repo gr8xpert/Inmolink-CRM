@@ -6,7 +6,7 @@ import { getFormatter, getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
 import { redirect as localeRedirect } from '@/i18n/navigation';
 import { sessionRef } from '@/server/api';
-import { fetchDataExports } from '@/server/contacts-api';
+import { fetchContact, fetchDataExports } from '@/server/contacts-api';
 import { downloadExportAction, requestExportAction } from './actions';
 
 const FAILURES: readonly string[] = ['TOO_LARGE', 'TIMEOUT', 'INTERNAL'];
@@ -46,6 +46,13 @@ export default async function DataExportPage({ searchParams }: { searchParams: P
   const field = 'h-9 rounded-md border bg-background px-2';
   // S16-04: "export this person's data" from a contact opens the page with the contact chosen
   const subject = params.contactId && /^[0-9a-f-]{36}$/i.test(params.contactId) ? params.contactId : null;
+  // S17-F2: the confirmation step of a data subject export names the person before the request is sent
+  const confirming = subject && params.confirm === '1' && !forbidden ? await fetchContact(ref, subject) : null;
+  if (confirming === 'revoked') redirect('/session/expired');
+  const confirmed = confirming?.ok ? confirming.data : null;
+  const confirmName = confirmed
+    ? [confirmed.firstName, confirmed.lastName].filter(Boolean).join(' ') || confirmed.emails[0] || t('confirm.noName')
+    : null;
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-4 p-6">
@@ -62,7 +69,55 @@ export default async function DataExportPage({ searchParams }: { searchParams: P
         </p>
       ) : null}
 
-      {forbidden ? null : (
+      {confirming && !confirmed ? (
+        <p role="alert" className="text-sm text-destructive">
+          {t('errors.DATA_SUBJECT_NOT_FOUND')}
+        </p>
+      ) : null}
+
+      {confirmed && confirmName ? (
+        <form
+          action={requestExportAction}
+          className="flex flex-col gap-3 rounded-md border p-3 text-sm"
+          aria-labelledby="confirm-title"
+          data-testid="subject-confirm"
+        >
+          <h2 id="confirm-title" className="text-base font-semibold">
+            {t('confirm.title')}
+          </h2>
+          <p>{t('confirm.body', { name: confirmName })}</p>
+          <input type="hidden" name="idempotencyKey" value={randomUUID()} />
+          <input type="hidden" name="kind" value="SUBJECT" />
+          <input type="hidden" name="format" value={params.format === 'xlsx' ? 'xlsx' : 'csv'} />
+          <input type="hidden" name="contactId" value={confirmed.id} />
+          <input type="hidden" name="confirmContactId" value={confirmed.id} />
+          <label className="flex flex-col gap-1">
+            <span>{t('form.code')}</span>
+            <input
+              name="twoFactorCode"
+              required
+              autoComplete="one-time-code"
+              inputMode="text"
+              maxLength={16}
+              aria-describedby="confirm-code-hint"
+              className={`${field} max-w-48`}
+            />
+          </label>
+          <p id="confirm-code-hint" className="text-xs text-muted-foreground">
+            {t('form.codeHint')}
+          </p>
+          <div className="flex gap-3">
+            <button type="submit" className="h-9 rounded-md border px-3 font-medium">
+              {t('confirm.submit')}
+            </button>
+            <a href="?" className="inline-flex h-9 items-center rounded-md px-3 underline">
+              {t('confirm.cancel')}
+            </a>
+          </div>
+        </form>
+      ) : null}
+
+      {forbidden || confirmed ? null : (
         <form action={requestExportAction} className="flex flex-wrap items-end gap-3 rounded-md border p-3 text-sm">
           <input type="hidden" name="idempotencyKey" value={randomUUID()} />
           <label className="flex flex-col gap-1">
@@ -100,7 +155,6 @@ export default async function DataExportPage({ searchParams }: { searchParams: P
             <span>{t('form.code')}</span>
             <input
               name="twoFactorCode"
-              required
               autoComplete="one-time-code"
               inputMode="text"
               maxLength={16}

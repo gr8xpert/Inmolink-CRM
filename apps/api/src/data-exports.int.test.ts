@@ -1,9 +1,8 @@
-import { TwoFactorCode } from '@inmolink/contracts';
 import { authCtx, closeDb, pingDb } from '@inmolink/core';
 import * as identity from '@inmolink/core/modules/identity';
 import { createFounder } from '@inmolink/core/test';
-import { adminQuery, setupTestDb } from '@inmolink/db/testing';
-import { createKeyring, generateKey, totpCode, totpStep } from '@inmolink/platform/crypto';
+import { setupTestDb } from '@inmolink/db/testing';
+import { createKeyring, generateKey } from '@inmolink/platform/crypto';
 import { newId } from '@inmolink/platform/ids';
 import {
   createAccessTokenSigner,
@@ -15,6 +14,7 @@ import {
 import { createLogger } from '@inmolink/platform/logger';
 import type { RateLimiter } from '@inmolink/platform/rate-limit';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { founderWithAuthenticator } from './__tests__/authenticator';
 import { buildApp } from './app';
 
 /**
@@ -58,30 +58,6 @@ afterAll(async () => {
   await app?.close();
   await closeDb();
 });
-
-const PASSWORD = 'correct horse battery'; // createFounder's
-
-/**
- * A founder with an authenticator app. `codes()` yields one usable code per call: the current TOTP first, then the
- * recovery codes (a TOTP step is single-use, so several requests in one second need distinct codes).
- */
-async function founderWithAuthenticator(role?: 'AGENT') {
-  const f = await createFounder();
-  if (role) {
-    await adminQuery('update agency_members set role = $1 where user_id = $2', [role, f.userId]);
-  }
-  const { secret } = await identity.startEnrolment(authCtx(newId()), { userId: f.userId, password: PASSWORD });
-  const done = await identity.confirmEnrolment(authCtx(newId()), {
-    userId: f.userId,
-    sessionVersion: 1,
-    sessionId: `web-session-${newId()}`,
-    code: totpCode(secret, totpStep(new Date())),
-  });
-  const recovery = [...done.recoveryCodes];
-  // the enrolment consumed the current step: the next one is accepted within the drift window
-  const totp = [totpCode(secret, totpStep(new Date()) + 1)];
-  return { ...f, secret, code: () => TwoFactorCode.parse(totp.shift() ?? recovery.shift()) };
-}
 
 describe('data export routes', () => {
   it('[S11-F14] an export without a fresh second-factor code is refused, a wrong code too, nothing is queued; a created export spends the code', async () => {
@@ -261,8 +237,19 @@ describe('GDPR routes (S16-04)', () => {
     const contactId = contact.json().contact?.id ?? contact.json().id;
     const post = (payload: object) => app.inject({ method: 'POST', url: '/v1/agency/data-exports', headers, payload });
     expect((await post({ kind: 'SUBJECT', twoFactorCode: f.code() })).json().error.code).toBe('VALIDATION_FAILED');
-    expect((await post({ kind: 'SUBJECT', contactId: newId(), twoFactorCode: f.code() })).statusCode).toBe(404);
-    const subject = await post({ kind: 'SUBJECT', contactId, twoFactorCode: f.code() });
+    const unknown = newId();
+    expect(
+      (await post({ kind: 'SUBJECT', contactId: unknown, confirmContactId: unknown, twoFactorCode: f.code() }))
+        .statusCode,
+    ).toBe(404);
+    // S17-F2: without the confirmation step (the id again) the export is refused
+    const unconfirmed = await post({ kind: 'SUBJECT', contactId, twoFactorCode: f.code() });
+    expect(unconfirmed.statusCode).toBe(422);
+    expect(unconfirmed.json().error).toMatchObject({
+      code: 'VALIDATION_FAILED',
+      details: { field: 'confirmContactId' },
+    });
+    const subject = await post({ kind: 'SUBJECT', contactId, confirmContactId: contactId, twoFactorCode: f.code() });
     expect(subject.statusCode).toBe(201);
     expect(subject.json()).toMatchObject({ kind: 'SUBJECT', subjectContactId: contactId, status: 'QUEUED' });
 

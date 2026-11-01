@@ -16,6 +16,9 @@
 //   CHAOS_API_KEY; the redis-queue drill reaches the staging redis-queue through CHAOS_REDIS_QUEUE_URL (a tunnel).
 //   Runbooks: docs/runbooks/{search,cdn,failover,queues,pitr-restore}.md.
 //
+// Never production (S17-F2, `drill-guard.ts`): a production DEPLOY_ENV / NODE_ENV, or any host of the production deploy
+// config (`infra/ansible/inventories/production`, `infra/kamal/*.production.yml`), is refused, listed or not.
+//
 // Exit 0 = every drill matched the degradation matrix and its RTO/RPO targets. Results: docs/build/reviews/chaos-R1.md.
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -33,6 +36,7 @@ import {
   stagingRedisQueue,
   stagingSearch,
 } from './chaos-staging';
+import { assertDrillTargets } from './drill-guard';
 import { DrillError } from './pitr';
 
 const ROOT = join(import.meta.dirname, '..', '..');
@@ -138,17 +142,21 @@ async function runStaging(drill: DrillId): Promise<DrillResult> {
     outageSeconds: values['outage-seconds'] ? Number(values['outage-seconds']) : STAGING_DEFAULTS.outageSeconds,
     confirm: values.confirm,
   };
-  // Only hosts the operator listed for this run (CHAOS_STAGING_HOSTS, comma-separated ssh:// URLs) are touched.
-  const allowed = new Set(
-    (process.env.CHAOS_STAGING_HOSTS ?? '')
-      .split(',')
-      .map((h) => h.trim())
-      .filter(Boolean),
-  );
-  for (const h of [...Object.values(c.hosts), c.pitr?.dockerHost]) {
-    if (h && !/^ssh:\/\//.test(h)) throw new DrillError(`staging hosts are ssh:// URLs (got ${h})`);
-    if (h && !allowed.has(h)) throw new DrillError(`${h} is not in CHAOS_STAGING_HOSTS: refusing to touch it`);
-  }
+  // Only hosts the operator listed for this run (CHAOS_STAGING_HOSTS, comma-separated ssh:// URLs) are touched, and
+  // never a production host of the deploy config, listed or not (S17-F2, `drill-guard.ts`).
+  assertDrillTargets({
+    local: false,
+    env: process.env,
+    sshHosts: [...Object.values(c.hosts), c.pitr?.dockerHost],
+    urls: [
+      ...c.edgeUrls,
+      c.originListingsUrl,
+      c.originAiSearchUrl,
+      c.dashboardHealthUrl,
+      c.workerHealthUrl,
+      c.redisQueueUrl,
+    ],
+  });
   switch (drill) {
     case 'search':
       return stagingSearch(c);
@@ -173,8 +181,11 @@ try {
   if (values.local === values.staging) throw new DrillError('pass exactly one of --local or --staging');
   const drills = name === 'all' ? DRILL_IDS : [name as DrillId];
   let results: DrillResult[];
-  if (values.local) results = runLocal(drills);
-  else {
+  if (values.local) {
+    // S17-F2: the local drills run on the docker test stack only (never next to real credentials or a production env)
+    assertDrillTargets({ local: true, env: process.env });
+    results = runLocal(drills);
+  } else {
     if (name === 'all') throw new DrillError('staging drills run one at a time (each disrupts real hosts)');
     results = [await runStaging(drills[0] as DrillId)];
   }

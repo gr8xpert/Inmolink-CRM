@@ -17,12 +17,16 @@ import { newId } from '@inmolink/platform/ids';
 import { defaultSubscribers } from '@inmolink/platform/outbox';
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { requestContactErasure } from '../../../contact-erasure-request';
 import type { Ctx } from '../../../context';
 import { withMemberCtx } from '../../../member';
 import { createFounder, type Founder, impersonatedCtx } from '../../../testing/factories';
 import * as taxonomy from '../../taxonomy';
 import * as websites from '../../websites';
 import * as crm from '../index';
+
+/** S17-F2: the step-up is identity's (bound by `requestContactErasure`); these tests are about erasure itself. */
+const STEP_UP_OK = { verifyStepUp: async () => {} };
 
 /**
  * Contact erasure (S11-F12): the contact becomes a tombstone; its identifiers, notes, lead messages, task descriptions
@@ -167,6 +171,48 @@ afterAll(async () => {
 });
 
 describe('contact erasure', () => {
+  it('[S17-F2] erasing a contact needs a fresh second-factor code: without one (or a wrong one) nothing is erased', async () => {
+    const target = await contact(`Stella${RUN}`);
+    const { version } = await as(a, (ctx) => crm.getContact(ctx, target.id));
+    const erase = (input: { version: number; twoFactorCode?: string }) =>
+      refusal(
+        as(a, (ctx) =>
+          requestContactErasure(ctx, target.id, { confirm: 'ERASE', ...input } as Parameters<
+            typeof requestContactErasure
+          >[2]),
+        ),
+      );
+    expect(await erase({ version })).toBe('MFA_CODE_INVALID');
+    expect(await erase({ version, twoFactorCode: '000000' })).toBe('MFA_CODE_INVALID');
+    // a stale version is refused before any code is checked
+    expect(await erase({ version: version + 1, twoFactorCode: '000000' })).toBe('VERSION_CONFLICT');
+    let stepUps = 0;
+    const counted = {
+      verifyStepUp: async () => {
+        stepUps += 1;
+      },
+    };
+    expect(
+      await refusal(
+        as(a, (ctx) => crm.eraseContact(ctx, target.id, { version: version + 1, confirm: 'ERASE' }, counted)),
+      ),
+    ).toBe('VERSION_CONFLICT');
+    // a member without the right (an agent) is refused before any code is checked
+    const agent = await createFounder();
+    await system((tx) => tx.execute(sql`update agency_members set role = 'AGENT' where user_id = ${agent.userId}`));
+    expect(
+      await refusal(as(agent, (ctx) => crm.eraseContact(ctx, target.id, { version, confirm: 'ERASE' }, counted))),
+    ).toBe('FORBIDDEN');
+    expect(stepUps).toBe(0);
+    const [still] = await rows<{ first_name: string | null; deleted_at: string | null }>(
+      sql`select first_name, deleted_at from contacts where id = ${target.id}`,
+    );
+    expect(still).toEqual({ first_name: `Stella${RUN}`, deleted_at: null });
+    // the step-up passed: erased
+    await as(a, (ctx) => crm.eraseContact(ctx, target.id, { version, confirm: 'ERASE' }, counted));
+    expect(stepUps).toBe(1);
+  });
+
   it('[S11-F12] after erasure no listing names the contact as seller and no activity body of theirs remains', async () => {
     const target = await contact('sofia');
     const other = await contact('olga');
@@ -191,16 +237,18 @@ describe('contact erasure', () => {
 
     const { version } = await as(a, (ctx) => crm.getContact(ctx, target.id));
     expect(
-      await refusal(as(a, (ctx) => crm.eraseContact(ctx, target.id, { version: version + 1, confirm: 'ERASE' }))),
+      await refusal(
+        as(a, (ctx) => crm.eraseContact(ctx, target.id, { version: version + 1, confirm: 'ERASE' }, STEP_UP_OK)),
+      ),
     ).toBe('VERSION_CONFLICT');
     expect(
       await refusal(
         as(a, async (ctx) =>
-          crm.eraseContact(await impersonatedCtx(ctx, STAFF), target.id, { version, confirm: 'ERASE' }),
+          crm.eraseContact(await impersonatedCtx(ctx, STAFF), target.id, { version, confirm: 'ERASE' }, STEP_UP_OK),
         ),
       ),
     ).toBe('FORBIDDEN');
-    await as(a, (ctx) => crm.eraseContact(ctx, target.id, { version, confirm: 'ERASE' }));
+    await as(a, (ctx) => crm.eraseContact(ctx, target.id, { version, confirm: 'ERASE' }, STEP_UP_OK));
 
     // in the request: the tombstone (id, types, source, times kept) and crm's bounded free text
     const [tomb] = await rows<Record<string, unknown>>(
@@ -231,7 +279,9 @@ describe('contact erasure', () => {
     expect(left).toEqual({ emails: 0, phones: 0, facets: 0, notes: 0, leads: 1, tasks: 1, prospects: 1 });
     expect(await refusal(as(a, (ctx) => crm.getContact(ctx, target.id)))).toBe('CONTACT_NOT_FOUND');
     expect(
-      await refusal(as(a, (ctx) => crm.eraseContact(ctx, target.id, { version: version + 1, confirm: 'ERASE' }))),
+      await refusal(
+        as(a, (ctx) => crm.eraseContact(ctx, target.id, { version: version + 1, confirm: 'ERASE' }, STEP_UP_OK)),
+      ),
     ).toBe('CONTACT_NOT_FOUND');
     const audits = await rows<{ metadata: unknown }>(
       sql`select metadata from audit_logs where agency_id = ${a.agencyId} and type = 'crm.contact.erased'
@@ -279,7 +329,7 @@ describe('contact erasure', () => {
     const before = await as(a, (ctx) => crm.getContact(ctx, survivor.id));
     await as(a, (ctx) => crm.mergeContacts(ctx, survivor.id, { duplicateId: duplicate.id, version: before.version }));
     const { version } = await as(a, (ctx) => crm.getContact(ctx, survivor.id));
-    await as(a, (ctx) => crm.eraseContact(ctx, survivor.id, { version, confirm: 'ERASE' }));
+    await as(a, (ctx) => crm.eraseContact(ctx, survivor.id, { version, confirm: 'ERASE' }, STEP_UP_OK));
     const names = await rows<{ first_name: string | null }>(
       sql`select first_name from contacts where id in (${survivor.id}, ${duplicate.id})`,
     );
@@ -345,7 +395,7 @@ describe('contact erasure', () => {
     const shared = (await event([target.id, other.id], `Meet Otto ${RUN}`)).event;
 
     const { version } = await as(a, (ctx) => crm.getContact(ctx, target.id));
-    await as(a, (ctx) => crm.eraseContact(ctx, target.id, { version, confirm: 'ERASE' }));
+    await as(a, (ctx) => crm.eraseContact(ctx, target.id, { version, confirm: 'ERASE' }, STEP_UP_OK));
 
     const events = await rows<{
       id: string;

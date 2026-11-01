@@ -25,6 +25,9 @@ import * as crm from '../../crm';
 import * as compliance from '../index';
 import { runDataExport } from '../worker';
 
+/** S17-F2: the step-up is identity's (bound by `requestContactErasure`); these tests are about erasure itself. */
+const STEP_UP_OK = { verifyStepUp: async () => {} };
+
 /**
  * GDPR flows (S16-04): consent records, the data subject export (`SUBJECT`, a ZIP of one person's data), the retention
  * period and its anonymization job, and an erasure expiring the person's exports.
@@ -57,7 +60,12 @@ const subjectExport = (m: Founder, contactId: string | undefined, kind = 'SUBJEC
   as(m, (ctx) =>
     compliance.createDataExport(
       ctx,
-      { kind: kind as 'SUBJECT', format: 'csv', ...(contactId ? { contactId } : {}) },
+      {
+        kind: kind as 'SUBJECT',
+        format: 'csv',
+        // S17-F2: the confirmation step sends the id again
+        ...(contactId ? { contactId, ...(kind === 'SUBJECT' ? { confirmContactId: contactId } : {}) } : {}),
+      },
       {
         verifyStepUp: async () => {},
         subjectExists: (id) => crm.openContactExists(ctx.tx, ctx.tenant.agencyId, id),
@@ -155,6 +163,43 @@ describe('consent records', () => {
 });
 
 describe('data subject export', () => {
+  it('[S17-F2] a SUBJECT export without the confirmation step (the contact id again) is refused and never built', async () => {
+    const c = await person(a, `Imelda`);
+    const other = await person(a, `Bertrand`);
+    let stepUps = 0;
+    const attempt = (input: { kind?: 'SUBJECT' | 'CONTACTS'; contactId?: string; confirmContactId?: string }) =>
+      as(a, (ctx) =>
+        compliance.createDataExport(
+          ctx,
+          { kind: input.kind ?? 'SUBJECT', format: 'csv', ...input },
+          {
+            verifyStepUp: async () => {
+              stepUps += 1;
+            },
+            subjectExists: (id) => crm.openContactExists(ctx.tx, ctx.tenant.agencyId, id),
+          },
+        ),
+      );
+    const field = async (p: Promise<unknown>) =>
+      p.then(
+        () => 'created',
+        (e: { code?: string; details?: { field?: string } }) => `${e.code}:${e.details?.field}`,
+      );
+    expect(await field(attempt({ contactId: c.id }))).toBe('VALIDATION_FAILED:confirmContactId');
+    expect(await field(attempt({ contactId: c.id, confirmContactId: other.id }))).toBe(
+      'VALIDATION_FAILED:confirmContactId',
+    );
+    expect(await field(attempt({ kind: 'CONTACTS', confirmContactId: c.id }))).toBe(
+      'VALIDATION_FAILED:confirmContactId',
+    );
+    // refused before the second factor is spent, and nothing is queued for either person
+    expect(stepUps).toBe(0);
+    const queued = await rows<{ n: number }>(
+      sql`select count(*)::int as n from data_export_jobs where subject_contact_id in (${c.id}, ${other.id})`,
+    );
+    expect(queued[0]?.n).toBe(0);
+  });
+
   it('[S16-04] a SUBJECT export is one person’s ZIP — contact, notes, leads, tasks, activities and consents — and nobody else’s', async () => {
     const c = await person(a, `Sven${RUN}`, true);
     const other = await person(a, `Otto${RUN}`);
@@ -176,7 +221,7 @@ describe('data subject export', () => {
         as(a, async (ctx) =>
           compliance.createDataExport(
             await impersonatedCtx(ctx, STAFF),
-            { kind: 'SUBJECT', format: 'csv', contactId: c.id },
+            { kind: 'SUBJECT', format: 'csv', contactId: c.id, confirmContactId: c.id },
             {
               verifyStepUp: async () => {},
               subjectExists: async () => true,
@@ -231,7 +276,7 @@ describe('data subject export', () => {
 
     // the person's erasure expires the export and deletes its file
     const { version } = await as(a, (ctx) => crm.getContact(ctx, c.id));
-    await as(a, (ctx) => crm.eraseContact(ctx, c.id, { version, confirm: 'ERASE' }));
+    await as(a, (ctx) => crm.eraseContact(ctx, c.id, { version, confirm: 'ERASE' }, STEP_UP_OK));
     await crm.eraseContactData({ agencyId: a.agencyId, contactId: c.id });
     const [row] = await rows<{ status: string; file_deleted_at: string | null }>(
       sql`select status, file_deleted_at from data_export_jobs where id = ${queued.id}`,

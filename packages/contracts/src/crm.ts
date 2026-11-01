@@ -5,6 +5,7 @@
  */
 import { z } from 'zod';
 import { PageQuery, pageOf } from './common';
+import { TwoFactorCode } from './identity';
 
 export const CONTACT_TYPES = ['BUYER', 'SELLER', 'TENANT', 'LANDLORD'] as const;
 export const ContactType = z.enum(CONTACT_TYPES);
@@ -229,8 +230,14 @@ export type MergeContactsBody = z.infer<typeof MergeContactsBody>;
  * `version`. The row stays as a tombstone (id, agency, types, source, consent times, created / deleted times) so the
  * ids that point at it (leads, activities, tasks, registrations) keep their history; it answers `CONTACT_NOT_FOUND`
  * from then on. `confirm` must be `ERASE` (it cannot be undone). Answers 204.
+ * S17-F2: `twoFactorCode` — a fresh code of the admin's authenticator (or a recovery code), like a data export: an
+ * unattended session alone cannot erase a person.
  */
-export const EraseContactBody = z.strictObject({ version: z.number().int().min(1), confirm: z.literal('ERASE') });
+export const EraseContactBody = z.strictObject({
+  version: z.number().int().min(1),
+  confirm: z.literal('ERASE'),
+  twoFactorCode: TwoFactorCode,
+});
 export type EraseContactBody = z.infer<typeof EraseContactBody>;
 
 export const ContactNoteDto = z.strictObject({

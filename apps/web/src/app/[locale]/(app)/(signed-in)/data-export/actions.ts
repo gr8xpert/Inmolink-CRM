@@ -13,6 +13,8 @@ import { createDataExport, fetchDataExport } from '@/server/contacts-api';
  * Data export request (S11-F14, transport only). The member re-authenticates with a fresh second-factor code, which
  * travels to the API in the request body: the API verifies it and refuses the export without it (this action cannot
  * skip the check). Returns to the page with `done` or the error code (i18n keys under `data-export.errors`).
+ * S17-F2: a `SUBJECT` request without `confirmContactId` goes back to the page's confirmation step (`confirm=1`), which
+ * names the person and sends the id again; the API refuses a `SUBJECT` export without it.
  */
 
 const text = (form: FormData, name: string) => {
@@ -30,11 +32,20 @@ export async function requestExportAction(form: FormData): Promise<void> {
   const s = await auth();
   if (!s?.user?.id) redirect('/session/expired');
   const key = text(form, 'idempotencyKey');
+  // S17-F2: a data subject export first shows whose data it is; the API refuses it without the confirmed id
+  const contactId = text(form, 'contactId');
+  const confirmContactId = text(form, 'confirmContactId');
+  if (text(form, 'kind') === 'SUBJECT' && !confirmContactId) {
+    if (!z.uuid().safeParse(contactId).success) return back({ error: 'VALIDATION_FAILED' });
+    const format = text(form, 'format');
+    return back({ contactId, confirm: '1', ...(format === 'xlsx' ? { format } : {}) });
+  }
   const parsed = CreateDataExportBody.safeParse({
     kind: text(form, 'kind'),
     format: text(form, 'format') || 'csv',
     // S16-04: a data subject export names the contact
-    ...(text(form, 'contactId') ? { contactId: text(form, 'contactId') } : {}),
+    ...(contactId ? { contactId } : {}),
+    ...(confirmContactId ? { confirmContactId } : {}),
     twoFactorCode: text(form, 'twoFactorCode'),
   });
   // a malformed code is the same answer as a wrong one: the member re-enters it

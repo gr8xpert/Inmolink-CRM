@@ -1,7 +1,9 @@
 import { closeDb, pingDb } from '@inmolink/core';
 import * as crm from '@inmolink/core/modules/crm';
+import * as identity from '@inmolink/core/modules/identity';
 import { createFounder } from '@inmolink/core/test';
 import { setupTestDb } from '@inmolink/db/testing';
+import { createKeyring, generateKey } from '@inmolink/platform/crypto';
 import { newId } from '@inmolink/platform/ids';
 import {
   createAccessTokenSigner,
@@ -11,10 +13,12 @@ import {
   privateKeyFromBase64,
 } from '@inmolink/platform/jwt';
 import { createLogger } from '@inmolink/platform/logger';
-import type { RateLimiter } from '@inmolink/platform/rate-limit';
+import type { RateLimiter, RateLimitRule } from '@inmolink/platform/rate-limit';
 import { configureStorage, createMemoryStore } from '@inmolink/platform/storage';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { founderWithAuthenticator } from './__tests__/authenticator';
 import { buildApp } from './app';
+import { ERASE_LIMITS } from './routes/crm/routes';
 
 /** CRM contacts over HTTP (S10-01): duplicate → 409 with the matches → merge; CSV upload and start. */
 
@@ -28,12 +32,31 @@ const bearer = async (sub: string, agency: string) => ({
   authorization: `Bearer ${(await signer.sign({ sub, aud: 'api', sv: 1, agency })).token}`,
 });
 
-const build = () =>
+/** Counts per rule and identity and refuses past the rule's limit (the real limiter's answer, in memory). */
+const countingLimiter = () => {
+  const used = new Map<string, number>();
+  return {
+    async consume(rule: RateLimitRule, who: string) {
+      const key = `${rule.name}:${who}`;
+      const n = (used.get(key) ?? 0) + 1;
+      used.set(key, n);
+      const allowed = n <= rule.limit;
+      return {
+        allowed,
+        limit: rule.limit,
+        remaining: Math.max(0, rule.limit - n),
+        retryAfterSeconds: allowed ? 0 : 60,
+      };
+    },
+  } as unknown as RateLimiter;
+};
+
+const build = (limiter: RateLimiter = allowAll) =>
   buildApp({
     logger: createLogger({ level: 'silent' }),
     trustProxy: false,
     docsUi: false,
-    limiter: allowAll,
+    limiter,
     readinessCacheMs: 0,
     checks: { db: () => pingDb('app_user') },
     verifier: createAccessTokenVerifier({ publicKeys: parsePublicKeys(`t1:${pair.publicKey}`) }),
@@ -45,6 +68,11 @@ const RUN = newId().slice(-8).toLowerCase();
 beforeAll(async () => {
   await setupTestDb('http');
   configureStorage(createMemoryStore());
+  // S17-F2: erasure verifies a second factor (identity's TOTP secrets are encrypted with this keyring)
+  identity.configureIdentity({
+    hmacKey: 'test-hmac-key-0123456789abcdef0123456789',
+    keyring: createKeyring({ keys: { t1: generateKey() }, activeKeyId: 't1' }),
+  });
   app = await build();
 }, 120_000);
 
@@ -477,7 +505,7 @@ describe('crm calendar routes', () => {
   });
 
   it('[S11-F12] an admin erases a contact over HTTP (204); unconfirmed 422, a stale version 409; the contact is gone', async () => {
-    const f = await createFounder();
+    const f = await founderWithAuthenticator();
     const headers = await bearer(f.userId, f.agencyId);
     const created = await app.inject({
       method: 'POST',
@@ -493,18 +521,60 @@ describe('crm calendar routes', () => {
       method: 'POST',
       url,
       headers,
-      payload: { version: contact.version + 1, confirm: 'ERASE' },
+      payload: { version: contact.version + 1, confirm: 'ERASE', twoFactorCode: '000000' },
     });
     expect(stale.statusCode).toBe(409);
     const erased = await app.inject({
       method: 'POST',
       url,
       headers,
-      payload: { version: contact.version, confirm: 'ERASE' },
+      payload: { version: contact.version, confirm: 'ERASE', twoFactorCode: f.code() },
     });
     expect(erased.statusCode).toBe(204);
     expect(erased.headers['cache-control']).toBe('no-store');
     const gone = await app.inject({ method: 'GET', url: `/v1/crm/contacts/${contact.id}`, headers });
     expect(gone.statusCode).toBe(404);
+  });
+
+  it('[S17-F2] erasing a contact over HTTP needs a fresh second-factor code; per user it is rate-limited (429)', async () => {
+    const f = await founderWithAuthenticator();
+    const headers = await bearer(f.userId, f.agencyId);
+    const created = await app.inject({
+      method: 'POST',
+      url: '/v1/crm/contacts',
+      headers,
+      payload: { firstName: 'Ezra', emails: [`erase-2fa-${RUN}@example.com`] },
+    });
+    const contact = created.json() as { id: string; version: number };
+    const url = `/v1/crm/contacts/${contact.id}/erase`;
+    const erase = (payload: object, on = app) => on.inject({ method: 'POST', url, headers, payload });
+    // no code: the body is refused; a wrong code: MFA_CODE_INVALID — and the contact is still there
+    expect((await erase({ version: contact.version, confirm: 'ERASE' })).statusCode).toBe(422);
+    const wrong = await erase({ version: contact.version, confirm: 'ERASE', twoFactorCode: '000000' });
+    expect(wrong.statusCode).toBe(400);
+    expect(wrong.json().error.code).toBe('MFA_CODE_INVALID');
+    expect((await app.inject({ method: 'GET', url: `/v1/crm/contacts/${contact.id}`, headers })).statusCode).toBe(200);
+
+    // per user: past the hourly budget every further erasure attempt is 429, before the service runs
+    const userRule = ERASE_LIMITS.find((r) => r.name === 'crm.erase.user');
+    expect(userRule).toMatchObject({ scope: 'user' });
+    const limited = await build(countingLimiter());
+    try {
+      const codes: number[] = [];
+      for (let i = 0; i <= (userRule?.limit ?? 0); i++) {
+        codes.push(
+          (await erase({ version: contact.version + 1, confirm: 'ERASE', twoFactorCode: '000000' }, limited))
+            .statusCode,
+        );
+      }
+      expect(codes.slice(0, -1).every((c) => c === 409)).toBe(true);
+      const over = await erase({ version: contact.version, confirm: 'ERASE', twoFactorCode: f.code() }, limited);
+      expect(codes.at(-1)).toBe(429);
+      expect(over.statusCode).toBe(429);
+      expect(over.json().error.code).toBe('RATE_LIMITED');
+    } finally {
+      await limited.close();
+    }
+    expect((await app.inject({ method: 'GET', url: `/v1/crm/contacts/${contact.id}`, headers })).statusCode).toBe(200);
   });
 });

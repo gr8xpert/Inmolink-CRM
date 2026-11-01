@@ -87,7 +87,7 @@ function toDto(row: repo.ExportRow, download: DataExportDto['download'] = null):
  */
 export async function createDataExport(
   ctx: Ctx,
-  input: Pick<CreateDataExportBody, 'kind' | 'format' | 'contactId'>,
+  input: Pick<CreateDataExportBody, 'kind' | 'format' | 'contactId' | 'confirmContactId'>,
   opts: {
     idempotencyKey?: string;
     verifyStepUp: () => Promise<void>;
@@ -119,6 +119,14 @@ export async function createDataExport(
   if (replayed) return replayed;
   if ((input.kind === 'SUBJECT') !== (input.contactId !== undefined)) {
     throw new AppError('VALIDATION_FAILED', { field: 'contactId' });
+  }
+  // S17-F2: a data subject export is built only once the admin confirmed whose data it is (the id, sent again)
+  if (
+    input.kind === 'SUBJECT'
+      ? input.confirmContactId?.toLowerCase() !== input.contactId?.toLowerCase()
+      : input.confirmContactId !== undefined
+  ) {
+    throw new AppError('VALIDATION_FAILED', { field: 'confirmContactId' });
   }
   const subjectContactId = input.kind === 'SUBJECT' ? (input.contactId ?? null) : null;
   if (input.kind === 'SUBJECT') {

@@ -42,7 +42,16 @@ async function sha256(body: string): Promise<string> {
 }
 
 const REPORT = 'report-uri /api/csp-report';
-const stored = (html: string) => storedPageScriptPolicy(html).policy;
+/** The RSC payload Next stores next to a page (`rscData`): the data of its flight pushes, in order. */
+const rscOf = (...pushes: string[]) =>
+  Buffer.concat(
+    pushes.map((p) => {
+      const [kind, data] = JSON.parse(p.slice('self.__next_f.push('.length, -1)) as [number, string];
+      return Buffer.from(data, kind === 3 ? 'base64' : 'utf8');
+    }),
+  );
+const RSC = rscOf(FLIGHT_1, FLIGHT_2);
+const stored = (html: string, rsc: Uint8Array | undefined = RSC) => storedPageScriptPolicy(html, rsc).policy;
 
 describe('portal script policy (S16-F8)', () => {
   it('[S16-F8] a per-request page’s script-src runs only its nonced inline scripts: no unsafe-inline, strict-dynamic or eval', () => {
@@ -65,14 +74,14 @@ describe('portal script policy (S16-F8)', () => {
   });
 
   it('[S16-F8] a stored page’s script-src lists the SHA-256 of each of Next’s inline scripts, never unsafe-inline or strict-dynamic', async () => {
-    const { hashes, dropped } = inlineScriptHashes(isrPage());
+    const { hashes, dropped } = inlineScriptHashes(isrPage(), RSC);
     expect(dropped).toBe(0);
     expect(hashes).toEqual([await sha256(TURBO), await sha256(BOOT), await sha256(FLIGHT_1), await sha256(FLIGHT_2)]);
     const csp = stored(isrPage());
     expect(csp).toBe(`script-src 'self' ${TURNSTILE_ORIGIN} ${hashes.map((h) => `'${h}'`).join(' ')}; ${REPORT}`);
     expect(csp).not.toMatch(/unsafe-inline|strict-dynamic|unsafe-eval/);
     // A repeat is listed once; only well-formed hash sources ever reach the header.
-    expect(inlineScriptHashes(isrPage(`<script>${BOOT}</script>`)).hashes).toHaveLength(4);
+    expect(inlineScriptHashes(isrPage(`<script>${BOOT}</script>`), RSC).hashes).toHaveLength(4);
     expect(hashedScriptSrc(["sha256-x' 'unsafe-inline", 'nonce-abc'])).toBe(`script-src 'self' ${TURNSTILE_ORIGIN}`);
     // The same scripts carrying Next's nonce (a page rendered per request) hash the same.
     expect(
@@ -94,8 +103,8 @@ describe('portal script policy (S16-F8)', () => {
       '<script type="module">self.__next_f.push([1,"x"])</script>',
       '<script src="https://evil.example/x.js"></script>',
     ];
-    const base = inlineScriptHashes(isrPage()).hashes;
-    for (const extra of injected) expect(inlineScriptHashes(isrPage(extra)).hashes, extra).toEqual(base);
+    const base = inlineScriptHashes(isrPage(), RSC).hashes;
+    for (const extra of injected) expect(inlineScriptHashes(isrPage(extra), RSC).hashes, extra).toEqual(base);
     expect(isNextInlineScript('self.__next_f.push([2,"form"])', false)).toBe(false);
     expect(isNextInlineScript('self.__next_f.push([3,"AAEC"])', false)).toBe(true);
     expect(isNextInlineScript(TURBO, true)).toBe(true);
@@ -111,26 +120,31 @@ describe('portal script policy (S16-F8)', () => {
       { length: MAX_SCRIPT_HASHES + 5 },
       (_, i) => `<script>self.__next_f.push([1,"${i}"])</script>`,
     ).join('');
-    const { hashes, dropped } = inlineScriptHashes(many);
+    const manyRsc = Buffer.from(Array.from({ length: MAX_SCRIPT_HASHES + 5 }, (_, i) => `${i}`).join(''));
+    const { hashes, dropped } = inlineScriptHashes(many, manyRsc);
     expect(hashes).toHaveLength(MAX_SCRIPT_HASHES);
     expect(dropped).toBe(5);
-    expect(stored(many).length).toBeLessThan(4_000);
+    expect(stored(many, manyRsc).length).toBeLessThan(4_000);
     const capped: number[] = [];
-    withStoredPageScriptPolicy({ kind: 'APP_PAGE', html: many }, { onCapped: (n) => capped.push(n) });
-    withStoredPageScriptPolicy({ kind: 'APP_PAGE', html: isrPage() }, { onCapped: (n) => capped.push(n) });
+    withStoredPageScriptPolicy({ kind: 'APP_PAGE', html: many, rscData: manyRsc }, { onCapped: (n) => capped.push(n) });
+    withStoredPageScriptPolicy(
+      { kind: 'APP_PAGE', html: isrPage(), rscData: RSC },
+      { onCapped: (n) => capped.push(n) },
+    );
     expect(capped).toEqual([5]);
   });
 
   it('[S16-F8] an ISR entry keeps its page’s policy in the headers Next serves the first answer from; other entries are untouched', () => {
     const headers: Record<string, string> = { 'x-next-cache-tags': 'portal:t:1' };
-    const entry = { kind: 'APP_PAGE', html: isrPage(), headers, status: 200 };
+    const entry = { kind: 'APP_PAGE', html: isrPage(), rscData: RSC, headers, status: 200 };
     expect(withStoredPageScriptPolicy(entry)).toBe(entry);
     // In place: the same object Next's response for this render reads.
     expect(headers[CSP_HEADER]).toBe(stored(isrPage()));
     expect(headers['x-next-cache-tags']).toBe('portal:t:1');
-    const bare: { kind: string; html: string; headers?: Record<string, string> } = {
+    const bare: { kind: string; html: string; rscData: Buffer; headers?: Record<string, string> } = {
       kind: 'APP_PAGE',
       html: isrPage(),
+      rscData: RSC,
     };
     expect(withStoredPageScriptPolicy(bare).headers?.[CSP_HEADER]).toBe(stored(isrPage()));
     const fetchEntry = { kind: 'FETCH', data: { body: '<script>x</script>' } };
@@ -142,16 +156,72 @@ describe('portal script policy (S16-F8)', () => {
   it('[S16-F8] the page cache handler stores each page with its own script policy; a re-render replaces it', async () => {
     const handler = new PortalPageCacheHandler({ maxMemoryCacheSize: 1024 * 1024 });
     const key = `/en/property/s16-f8-${Date.now()}`;
-    const first = { kind: 'APP_PAGE', html: isrPage(), headers: {} as Record<string, string>, status: 200 };
+    const first = {
+      kind: 'APP_PAGE',
+      html: isrPage(),
+      rscData: RSC,
+      headers: {} as Record<string, string>,
+      status: 200,
+    };
     await handler.set(key, first, { tags: [] });
     expect(first.headers[CSP_HEADER]).toBe(stored(isrPage()));
     const hit = (await handler.get(key)) as { value: { headers: Record<string, string> } };
     expect(hit.value.headers[CSP_HEADER]).toBe(stored(isrPage()));
     // Revalidated: new HTML (a price change), its own hashes.
-    const changed = isrPage().replace(FLIGHT_2, FLIGHT_2.replace('Villa', 'Finca'));
-    await handler.set(key, { kind: 'APP_PAGE', html: changed, headers: {}, status: 200 }, { tags: [] });
+    const finca = FLIGHT_2.replace('Villa', 'Finca');
+    const changed = isrPage().replace(FLIGHT_2, finca);
+    const changedRsc = rscOf(FLIGHT_1, finca);
+    await handler.set(
+      key,
+      { kind: 'APP_PAGE', html: changed, rscData: changedRsc, headers: {}, status: 200 },
+      { tags: [] },
+    );
     const again = (await handler.get(key)) as { value: { headers: Record<string, string> } };
-    expect(again.value.headers[CSP_HEADER]).toBe(stored(changed));
+    expect(again.value.headers[CSP_HEADER]).toBe(stored(changed, changedRsc));
     expect(again.value.headers[CSP_HEADER]).not.toBe(hit.value.headers[CSP_HEADER]);
+  });
+  it('[S17-F2] a flight string not in the entry’s rscData gets no hash; the page’s own pushes keep theirs', async () => {
+    // Markup injected into the HTML with the exact shape of a flight push, but data React never rendered.
+    const forged =
+      'self.__next_f.push([1,"c:[\\"$\\",\\"script\\",null,{\\"src\\":\\"https://evil.example/x.js\\"}]\\n"])';
+    expect(isNextInlineScript(forged, false)).toBe(true); // the shape is Next's: only the data check refuses it
+    const page = isrPage(`<script>${forged}</script>`);
+    const { hashes } = inlineScriptHashes(page, RSC);
+    expect(hashes).not.toContain(await sha256(forged));
+    expect(hashes).toEqual([await sha256(TURBO), await sha256(BOOT), await sha256(FLIGHT_1), await sha256(FLIGHT_2)]);
+    // A substring of the payload is not enough: the pushes must be the payload cut in page order. A copy of a real
+    // row (security review: long text rows are written raw, so page text could carry one), or a slice out of order,
+    // gets no hash.
+    const slice = 'self.__next_f.push([1,"2:\\"/_next/static/chunks/1imq-rnzbv_qv.js\\"\\n"])';
+    expect(isNextInlineScript(slice, false)).toBe(true);
+    const sliced = inlineScriptHashes(
+      `<script>${BOOT}</script><script>${slice}</script><script>${FLIGHT_1}</script><script>${FLIGHT_2}</script>`,
+      RSC,
+    ).hashes;
+    expect(sliced).not.toContain(await sha256(slice));
+    expect(sliced).toEqual([await sha256(BOOT), await sha256(FLIGHT_1), await sha256(FLIGHT_2)]);
+    const replayed = inlineScriptHashes(
+      `<script>${FLIGHT_1}</script><script>${FLIGHT_2}</script><script>${FLIGHT_2.replace('push([1', 'push([1 ')}</script>`,
+      RSC,
+    ).hashes;
+    expect(replayed).toEqual([await sha256(FLIGHT_1), await sha256(FLIGHT_2)]);
+    // A binary push only when its decoded bytes are the next ones of the payload.
+    const bin = Buffer.from([0, 1, 2]);
+    const binPush = `self.__next_f.push([3,"${bin.toString('base64')}"])`;
+    expect(inlineScriptHashes(`<script>${binPush}</script>`, bin).hashes).toEqual([await sha256(binPush)]);
+    expect(inlineScriptHashes(`<script>${binPush}</script>`, RSC).hashes).toEqual([]);
+    // No rscData (a string-only entry, or none at all): no flight push is hashed — the bootstrap and chunks still are.
+    expect(inlineScriptHashes(isrPage()).hashes).toEqual([await sha256(TURBO), await sha256(BOOT)]);
+    const entry = { kind: 'APP_PAGE', html: page, rscData: RSC, headers: {} as Record<string, string> };
+    const unmatched: [number, boolean][] = [];
+    const onUnmatched = (n: number, none: boolean) => unmatched.push([n, none]);
+    expect(withStoredPageScriptPolicy(entry, { onUnmatched }).headers[CSP_HEADER]).toBe(stored(isrPage()));
+    withStoredPageScriptPolicy({ kind: 'APP_PAGE', html: isrPage(), headers: {} }, { onUnmatched });
+    withStoredPageScriptPolicy({ kind: 'APP_PAGE', html: isrPage(), rscData: RSC, headers: {} }, { onUnmatched });
+    // reported: the forged push; both pushes of an entry without rscData; nothing for a page that matches
+    expect(unmatched).toEqual([
+      [1, false],
+      [2, true],
+    ]);
   });
 });

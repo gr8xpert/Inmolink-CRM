@@ -63,6 +63,13 @@ export const CreateDataExportBody = z.strictObject({
    * (the service answers `VALIDATION_FAILED`; no `.refine` here, so the schema stays `.omit`-able).
    */
   contactId: z.uuid().optional(),
+  /**
+   * `SUBJECT` only (S17-F2): the confirmation step — the contact id again, sent once the admin was shown whose data it
+   * is. A `SUBJECT` export without it, or with another id, is `VALIDATION_FAILED` (field `confirmContactId`) and never
+   * built; refused for the other kinds. A guard against a mistyped or swapped id — the confirmation itself is the
+   * dashboard step that names the person.
+   */
+  confirmContactId: z.uuid().optional(),
   twoFactorCode: TwoFactorCode,
 });
 export type CreateDataExportBody = z.infer<typeof CreateDataExportBody>;

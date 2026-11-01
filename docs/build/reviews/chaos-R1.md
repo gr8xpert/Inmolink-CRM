@@ -59,7 +59,7 @@ suites loading Docker (timings 2–4× slower; same verdicts).
 
 ## Staging — BLOCKED-HUMAN H4
 
-Each drill is scripted (`--staging`) and reports through the same recorder. Every drill that stops, kills or restarts
+Each drill is scripted (`--staging`) and reports through the same recorder. S17-F2: a drill never touches a production host — every name, address and hostname of `infra/ansible/inventories/production` and `infra/kamal/*.production.yml` (and any name under a production hostname's domain, outside `staging.`) is refused even when listed in `CHAOS_STAGING_HOSTS`; the postgres-primary drill therefore needs a staging primary + standby pair (the staging inventory has no standby yet). Every drill that stops, kills or restarts
 something requires `--confirm`, and every host must be listed in `CHAOS_STAGING_HOSTS` (comma-separated `ssh://` URLs).
 The drill site's secret key comes from `CHAOS_API_KEY`. Only staging can show:
 
@@ -67,7 +67,7 @@ The drill site's secret key comes from `CHAOS_API_KEY`. Only staging can show:
 |---|---|---|
 | search | `ops:drill search --staging --confirm --search-host ssh://… --origin-listings-url https://…/v2/listings?…` + the k6 `degraded` profile (S7-F9) | breaker behaviour across real feed-api processes, `SearchFallbackActive`, p95 of the fallback at 1,000 rps on 2M rows |
 | feed-origin | `ops:drill feed-origin --staging --confirm --feed-api-host ssh://… --edge-url '<CDN URL with _k>' --outage-seconds 90` | Cloudflare itself answering `STALE`/`UPDATING` with every feed-api container stopped (cdn.md "Staging acceptance"); the WP plugin's local cache |
-| postgres-primary | `ops:drill postgres-primary --staging --confirm --db-primary-host ssh://db-1 --db-standby-host ssh://db-2 --dashboard-health-url https://…/readyz --edge-url …` | a write ticker on db-1 up to the kill: acknowledged writes lost and WAL bytes not received across datacenters (the real RPO); the full RTO through runbook steps 3–4 (the clock runs until the dashboard API is ready on db-2); the CDN probed continuously from the kill to the first write |
+| postgres-primary | `ops:drill postgres-primary --staging --confirm --db-primary-host ssh://<staging primary> --db-standby-host ssh://<staging standby> --dashboard-health-url https://…/readyz --edge-url …` | a write ticker on db-1 up to the kill: acknowledged writes lost and WAL bytes not received across datacenters (the real RPO); the full RTO through runbook steps 3–4 (the clock runs until the dashboard API is ready on db-2); the CDN probed continuously from the kill to the first write |
 | redis-queue | `CHAOS_REDIS_QUEUE_URL=<tunnel> ops:drill redis-queue --staging --confirm --redis-host ssh://… --db-primary-host ssh://… --worker-health-url https://…/readyz` | the Ansible `redis_queue` role (AOF everysec, noeviction) on the real host: 250 marker jobs (drill-only prefix `inl-chaos`, run by the drill process) queued before and after the restart all run; the real outbox backlog of the window drains, no dead letters |
 | ai-provider | set an invalid AI key on staging feed-api + worker, then `ops:drill ai-provider --staging --confirm --origin-listings-url … --origin-ai-search-url …/v2/search/ai?q=…` | the real provider SDK's retries and timeouts against a failing endpoint; the AI alerts |
 | pitr | `ops:drill pitr --staging --image <ref> --walg-env <file> --fresh-host ssh://fresh-1` (also weekly: `.github/workflows/restore-drill.yml`) | R2 over the internet, a production-sized base backup, a really fresh server: the R1 RTO number |

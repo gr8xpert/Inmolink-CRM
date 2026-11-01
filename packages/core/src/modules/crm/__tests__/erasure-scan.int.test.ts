@@ -40,6 +40,9 @@ import * as taxonomy from '../../taxonomy';
 import * as websites from '../../websites';
 import * as crm from '../index';
 
+/** S17-F2: the step-up is identity's (bound by `requestContactErasure`); these tests are about erasure itself. */
+const STEP_UP_OK = { verifyStepUp: async () => {} };
+
 /**
  * S16-04: erasure of a contact removes its personal data from every table, the stored files, the search index and the
  * read models — proved by a scan, not by a list of columns someone remembered.
@@ -417,7 +420,7 @@ ${id},${FIRST},${EMAIL}
     // the erasure, then the outbox as production drives it
     const since = new Date(Date.now() - 1_000);
     const { version } = await as(a, (ctx) => crm.getContact(ctx, id));
-    await as(a, (ctx) => crm.eraseContact(ctx, id, { version, confirm: 'ERASE' }));
+    await as(a, (ctx) => crm.eraseContact(ctx, id, { version, confirm: 'ERASE' }, STEP_UP_OK));
     crm.registerCrmSubscriptions();
     mls.registerMlsSubscriptions();
     presentations.registerPresentationsSubscriptions();

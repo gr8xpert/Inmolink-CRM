@@ -23,6 +23,7 @@ import {
   StartContactImportBody,
   UpdateContactBody,
 } from '@inmolink/contracts';
+import { requestContactErasure } from '@inmolink/core';
 import * as crm from '@inmolink/core/modules/crm';
 import { createUploadSlots, type RateLimitRule } from '@inmolink/platform/rate-limit';
 import type { FastifyZod } from '@inmolink/platform/server';
@@ -45,8 +46,11 @@ const WRITE_LIMITS: readonly RateLimitRule[] = [
   { name: 'crm.write.user', scope: 'user', limit: 120, windowSeconds: 60 },
   { name: 'crm.write.tenant', scope: 'tenant', limit: 2_000, windowSeconds: 3_600 },
 ];
-/** S11-F12: erasure is rare and irreversible — a small per-agency budget on top of the write limits. */
-const ERASE_LIMITS: readonly RateLimitRule[] = [
+/**
+ * S11-F12: erasure is rare and irreversible — a small per-user and per-agency budget on top of the write limits (S17-F2:
+ * with the second-factor step-up, wrong codes spend it too).
+ */
+export const ERASE_LIMITS: readonly RateLimitRule[] = [
   ...WRITE_LIMITS,
   { name: 'crm.erase.user', scope: 'user', limit: 10, windowSeconds: 3_600 },
   { name: 'crm.erase.tenant', scope: 'tenant', limit: 20, windowSeconds: 3_600 },
@@ -179,7 +183,7 @@ export async function crmRoutes(app: FastifyZod): Promise<void> {
         tags,
         operationId: 'crm.eraseContact',
         summary:
-          'Erase this contact’s personal data for good (agency admins; 204): names, e-mails, phones, notes and every free text about it go, ids and dates stay (crm.contact.erased clears activity bodies and listing sellers after the commit)',
+          'Erase this contact’s personal data for good (agency admins, a fresh second-factor code; 204): names, e-mails, phones, notes and every free text about it go, ids and dates stay (crm.contact.erased clears activity bodies and listing sellers after the commit)',
         params: ContactParams,
         body: EraseContactBody,
         response: { 204: z.null() },
@@ -188,7 +192,8 @@ export async function crmRoutes(app: FastifyZod): Promise<void> {
       config: { rateLimit: ERASE_LIMITS },
     },
     async (req, reply) => {
-      await app.withCtx(req, (ctx) => crm.eraseContact(ctx, req.params.id, req.body));
+      // S17-F2: the second-factor step-up is part of the core use case (policy, version, then the code)
+      await app.withCtx(req, (ctx) => requestContactErasure(ctx, req.params.id, req.body));
       return reply.code(204).send(null);
     },
   );

@@ -5,7 +5,7 @@
     "kind": "Qué exportar",
     "format": "Formato",
     "code": "Código del autenticador",
-    "codeHint": "Introduce el código actual de 6 dígitos de tu app de autenticación, o un código de recuperación. Hace falta cada vez que pides una exportación.",
+    "codeHint": "Introduce el código actual de 6 dígitos de tu app de autenticación, o un código de recuperación. Hace falta cada vez que pides una exportación. Para los datos de una persona, lo introduces en el paso de confirmación.",
     "submit": "Pedir exportación",
     "contactId": "Contacto (solo una persona)",
     "contactIdHint": "Para una solicitud del interesado (RGPD, acceso o portabilidad): el contacto cuyos datos exportas. Déjalo vacío para las demás exportaciones."
@@ -51,5 +51,12 @@
     "load": "No se pudieron cargar las exportaciones. Inténtalo de nuevo en un momento.",
     "generic": "Algo ha salido mal. Inténtalo de nuevo.",
     "DATA_SUBJECT_NOT_FOUND": "Ese contacto no existe o se ha suprimido."
+  },
+  "confirm": {
+    "title": "Confirma de quién exportas los datos",
+    "body": "Esta exportación contiene todo lo que la agencia guarda sobre {name}: datos de contacto, consentimientos, consultas, visitas y notas. Comprueba que es la persona que lo ha solicitado antes de continuar.",
+    "submit": "Confirmar y solicitar la exportación",
+    "cancel": "Cancelar",
+    "noName": "este contacto (sin nombre)"
   }
 }
