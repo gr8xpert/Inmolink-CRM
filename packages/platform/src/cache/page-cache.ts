@@ -213,6 +213,11 @@ export class PageCache {
     this.now = options.now ?? Date.now;
   }
 
+  /** S15-F11: the page budget in bytes (`PAGE_CACHE_MAX_BYTES` in the public app). */
+  get maxBytes(): number {
+    return this.options.maxBytes;
+  }
+
   /** Remembers that pages carrying `tag` are not worth storing until `until`. Bounded: the oldest settle goes first. */
   private remember(tag: string, until: number): void {
     if ((this.settles.get(tag) ?? 0) >= until) return;

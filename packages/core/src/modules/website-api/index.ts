@@ -48,6 +48,9 @@ export {
   edgeTag,
   edgeTagsConfigured,
   edgeTagsOf,
+  PORTAL_EDGE_TTL_MS,
+  portalEdgePurgeItem,
+  portalEdgeTag,
   WEBSITE_API_TTL,
 } from './edge';
 export {

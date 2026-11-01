@@ -21,6 +21,8 @@ vi.mock('./server/portal-limits', () => ({
   portalCodeGate: async () => 'known',
   portalPageGate: async () => ({ allowed: true, retryAfterSeconds: 0 }),
 }));
+// S15-F11: the default edge tag needs the configured HMAC key; none by default here (the checks pass their own).
+vi.mock('./server/portal-edge', () => ({ portalItemEdgeTag: async () => null }));
 // Redirects are built on the configured portal origin, never the request's Host (`portal.test` in these requests).
 vi.mock('./server/env', () => ({
   publicConfig: async () => ({}),
@@ -391,6 +393,51 @@ describe('listing and development page misses (S15 review)', () => {
       throw new Error('db down');
     });
     expect((await broken(request('/en/property/x-yyyyyyyy'))).status).toBe(200);
+  });
+});
+
+describe('portal page edge tags (S15-F11)', () => {
+  /** Like core's `portalEdgeTag(codeOfSlug(slug))`: one tag per public code (the slug's last part). */
+  const tagOf = vi.fn(async (slug: string) => {
+    const code = slug.split('-').pop()?.toUpperCase() ?? '';
+    return /^[0-9A-Z]{8}$/.test(code) ? `c${code.toLowerCase()}` : null;
+  });
+
+  it('[S15-F11] listing and development pages carry their code’s edge tag in every locale and under any slug, a 404 too; other pages none', async () => {
+    const madeUp: CodeGate = async ({ slug }, beforeProbe) =>
+      slug.endsWith('yyyyyyyy') ? ((await beforeProbe()) ? 'unknown' : 'limited') : 'known';
+    const run = createProxy(ok(), undefined, async () => null, undefined, madeUp, tagOf);
+    for (const locale of UI_LOCALES) {
+      for (const path of [
+        `/${locale}/property/villa-in-x-ab12cd34`,
+        `/${locale}/property/another-slug-AB12CD34/`,
+        `/${locale}/development/residencial-x-ab12cd34`,
+      ]) {
+        const res = await run(request(path));
+        expect(res.status, path).toBe(200);
+        expect(res.headers.get('cache-tag'), path).toBe('cab12cd34');
+      }
+    }
+    // A made-up code renders its 404 with the code's tag (restored or created later: purged like the page).
+    expect((await run(request('/en/property/x-yyyyyyyy'))).headers.get('cache-tag')).toBe('cyyyyyyyy');
+    // No code in the slug, or a page rendered per request: no tag.
+    for (const path of ['/en/property/no-code', '/en/properties', '/en/zone/costa-blanca', '/en']) {
+      expect((await run(request(path))).headers.get('cache-tag'), path).toBeNull();
+    }
+    // A tag outage never takes the page down.
+    const broken = createProxy(
+      ok(),
+      undefined,
+      async () => null,
+      undefined,
+      madeUp,
+      async () => {
+        throw new Error('config');
+      },
+    );
+    const res = await broken(request('/en/property/villa-in-x-ab12cd34'));
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-tag')).toBeNull();
   });
 });
 

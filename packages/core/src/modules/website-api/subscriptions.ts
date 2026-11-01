@@ -6,11 +6,13 @@ import * as crm from '../crm';
 import * as identity from '../identity';
 import * as search from '../search';
 import * as websites from '../websites';
+import { portalEdgePurgeItem } from './edge';
 import {
   LEAD_NOTIFY_FALLBACK_MS,
   queueEdgePurge,
   queueNetworkFeedSweep,
   queueNetworkFeeds,
+  queuePortalAgencyEdgePurge,
   queuePortalSitemaps,
   queueSiteFeed,
   queueSiteFeeds,
@@ -32,6 +34,12 @@ async function purgeAgencySites(agencyId: string, meta: EventMeta): Promise<void
     siteIds.map((id) => ({ kind: 's' as const, id })),
     meta.createdAt,
   );
+}
+
+/** S15-F7 / S15-F11: an agency's portal pages — dropped from the page caches now, purged at the edge once settled. */
+async function portalAgencyChanged(agencyId: string): Promise<void> {
+  await invalidatePortalAgency(agencyId);
+  await queuePortalAgencyEdgePurge(agencyId);
 }
 
 /**
@@ -58,7 +66,8 @@ async function purgeAgencySites(agencyId: string, meta: EventMeta): Promise<void
  * Outbox → portal page cache (S15-F7): a listing's or development's public documents changing, or an agency's
  * standing, name or contacts, mark the portal ISR pages' tags (`portal-cache.ts`) — every public instance drops those
  * pages on its next request. A redelivered event marks the tags again at its delivery time: harmless (the pages render
- * once more), and a mark never moves a tag's time back.
+ * once more), and a mark never moves a tag's time back. S15-F11: the same subscribers queue the pages' edge purge
+ * (`c` tags by public code; an agency's after it settled).
  *
  * Called once by the worker; idempotent.
  */
@@ -176,15 +185,17 @@ export function registerWebsiteApiSubscriptions(): void {
       },
       { name: 'websiteApi.feed.publicDocsChanged' },
     ),
-    // S15-F7: the portal's ISR pages (listing, development) show these.
+    // S15-F7: the portal's ISR pages (listing, development) show these. S15-F11: their edge copies (every locale, any
+    // slug, a cached 404) are purged by code after the origin mark.
     subscribe(
       search.searchEvents.publicDocsChanged,
-      async (payload) => {
-        await invalidatePortalDocs(payload);
+      async (payload, meta) => {
+        const codes = await invalidatePortalDocs(payload);
+        await queueEdgePurge(meta.agencyId, codes.map(portalEdgePurgeItem), meta.createdAt);
       },
       { name: 'websiteApi.portal.publicDocsChanged' },
     ),
-    subscribe(agencies.agenciesEvents.statusChanged, (p) => invalidatePortalAgency(p.agencyId), {
+    subscribe(agencies.agenciesEvents.statusChanged, (p) => portalAgencyChanged(p.agencyId), {
       name: 'websiteApi.portal.agencyStatus',
     }),
     // S16-F3: a delisted agency's URLs leave the portal sitemaps within minutes (one coalesced run per window). Being
@@ -197,10 +208,10 @@ export function registerWebsiteApiSubscriptions(): void {
       },
       { name: 'websiteApi.portal.sitemapsDelisted' },
     ),
-    subscribe(agencies.agenciesEvents.detailsUpdated, (p) => invalidatePortalAgency(p.agencyId), {
+    subscribe(agencies.agenciesEvents.detailsUpdated, (p) => portalAgencyChanged(p.agencyId), {
       name: 'websiteApi.portal.agencyDetails',
     }),
-    subscribe(agencies.agenciesEvents.profileUpdated, (p) => invalidatePortalAgency(p.agencyId), {
+    subscribe(agencies.agenciesEvents.profileUpdated, (p) => portalAgencyChanged(p.agencyId), {
       name: 'websiteApi.portal.agencyProfile',
     }),
     subscribe(identity.identityEvents.apiKeyRotated, keyChanged, { name: 'websiteApi.edge.apiKeyRotated' }),

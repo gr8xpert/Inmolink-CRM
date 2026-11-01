@@ -29,6 +29,12 @@ import type { PortalPage } from './portal-seo';
  * agency's pages stay uncached (and are not stored) until then plus the render margin, instead of a fresh render
  * keeping the old contacts for the page's ISR lifetime. The agency-contact cache is bounded (60 s), not cleared: the
  * worker cannot reach the public processes' memory.
+ *
+ * S15-F11 — the CDN in front: the public proxy tags every listing and development page answer (any locale, any slug,
+ * a 404 too) with the edge tag of the code its URL names (`portalEdgeTag`, `Cache-Tag`); the same subscribers queue
+ * the purge of those tags (`queueEdgePurge`, kind `c`: coalesced per agency, ≤ 100 tags per throttled request) — a
+ * document change at once (after its origin mark), an agency change once it settled (`queuePortalAgencyEdgePurge`:
+ * every PUBLIC code of the agency). Without a purge the edge keeps a page ≤ 90 s (`PORTAL_ISR_PAGE_CACHE`).
  */
 
 /** As long as the public processes may use a cached listed-agency set or agency contacts (60 s, `portal.ts`). */
@@ -69,12 +75,12 @@ export function portalPageTags(page: PortalPage): string[] {
 
 /**
  * Public documents changed: their listing and development pages (and cached 404s of their codes) drop their cached
- * copies. One statement (the codes).
+ * copies. One statement (the codes). Answers the codes (S15-F11: the subscriber purges their pages at the edge too).
  */
 export async function invalidatePortalDocs(input: {
   targetIds: readonly string[];
   developmentIds: readonly string[];
-}): Promise<void> {
+}): Promise<string[]> {
   const ids = [...input.targetIds, ...input.developmentIds];
   const codes = await withSystem('websiteApi.portal page codes', (tx) => search.publicCodes(tx, ids));
   const tags = [
@@ -83,6 +89,7 @@ export async function invalidatePortalDocs(input: {
     ...[...codes.values()].map(portalPageTag.code),
   ];
   await pageTags.markChanged(tags, clock.nowMs());
+  return [...new Set(codes.values())];
 }
 
 /** An agency's standing, name or contacts changed: its listing and development pages stay uncached until it shows. */

@@ -11,13 +11,15 @@ import { hmacSha256 } from '@inmolink/platform/crypto';
  * - `t` target — answers showing a listing or unit (its detail, first pages and unit tables listing it);
  * - `d` development — a development's card, detail and unit table;
  * - `f` feed (S7-07) — a site's XML feed files (regenerated, token rotated or revoked);
- * - `p` portal feed (S9-03) — a portal connection's feed file (regenerated, token rotated or revoked, turned off).
+ * - `p` portal feed (S9-03) — a portal connection's feed file (regenerated, token rotated or revoked, turned off);
+ * - `c` portal page (S15-F11) — the portal's listing or development pages of one public code, in every locale and
+ *   under any slug, their 404 included: the public proxy tags them by the code their URL names (`portalEdgeTag`).
  *
  * Lists are tagged with the targets on them, so a change purges every page showing the target on every site with one
  * tag — no fan-out over the sites a network listing is on. A target new to a list's results is not on its cached page
  * yet: that page follows within its TTL (60 s).
  */
-export type EdgeTagKind = 's' | 'k' | 't' | 'd' | 'f' | 'p';
+export type EdgeTagKind = 's' | 'k' | 't' | 'd' | 'f' | 'p' | 'c';
 
 /** Tags on one answer at most (Cloudflare: 16 KB of `Cache-Tag`, ~700 of ours); more → not edge-cached. */
 export const EDGE_MAX_TAGS = 300;
@@ -61,6 +63,29 @@ export function edgeTag(kind: EdgeTagKind, id: string): string {
     .toString('hex')
     .slice(0, 20)}`;
 }
+
+/**
+ * S15-F11: the edge tag of a portal listing or development page — by the public code its URL ends in (upper case), so
+ * every locale's URL, every slug spelling and a cached 404 of the code share it, and a withdrawn listing (whose
+ * document, title and slugs are gone) is still purged by the code alone. Null before `configureEdgeCache`.
+ */
+export function portalEdgeTag(code: string): string | null {
+  if (!tagKey) return null;
+  const item = portalEdgePurgeItem(code);
+  return edgeTag(item.kind, item.id);
+}
+
+/** S15-F11: the purge item of a portal page's code — the one spelling its tag is made from (upper case). */
+export function portalEdgePurgeItem(code: string): { kind: 'c'; id: string } {
+  return { kind: 'c', id: code.toUpperCase() };
+}
+
+/**
+ * S15-F11 review: how long the CDN keeps a portal listing or development page — `s-maxage` + `stale-while-revalidate`
+ * of `PORTAL_ISR_PAGE_CACHE` (apps/public, 60 + 30 s; its next-config test pins the two). A pending `c` purge older
+ * than this is dropped: every copy it could reach has expired.
+ */
+export const PORTAL_EDGE_TTL_MS = 90_000;
 
 /** What one request's answer showed (filled by the use cases), for its tags. Internal ids; never sent as they are. */
 export interface EdgeSeen {

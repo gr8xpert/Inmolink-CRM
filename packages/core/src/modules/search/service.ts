@@ -412,6 +412,26 @@ export function publicCodes(tx: Tx, ids: readonly string[]): Promise<Map<string,
   return repo.publicCodes(tx, ids);
 }
 
+/** S15-F11: one keyset page of an agency's PUBLIC listings' and units' codes (its portal pages: edge purge). */
+export function agencyPublicCodesPage(
+  tx: Tx,
+  agencyId: string,
+  after: { publishedAt: number; targetId: string } | null,
+  limit: number,
+): Promise<{ codes: string[]; next: { publishedAt: number; targetId: string } | null }> {
+  return repo.agencyPublicCodesPage(tx, agencyId, after, limit);
+}
+
+/** S15-F11 review: one keyset page of an agency's developments' codes (its portal development pages: edge purge). */
+export function agencyDevelopmentCodesPage(
+  tx: Tx,
+  agencyId: string,
+  after: string | null,
+  limit: number,
+): Promise<{ codes: string[]; next: string | null }> {
+  return repo.agencyDevelopmentCodesPage(tx, agencyId, after, limit);
+}
+
 /** Whether a public code is taken by a real target (S7-04: honeytoken hits are confirmed against it). */
 export function publicCodeInUse(tx: Tx, code: string): Promise<boolean> {
   return repo.publicCodeInUse(tx, code);

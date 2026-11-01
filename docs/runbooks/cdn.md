@@ -101,6 +101,21 @@ replaces the entry (to be confirmed on staging, below).
   that slot for `CDN_PURGE_MIN_INTERVAL_MS` (250 ms; set 12000 on Free) after each request. The pace therefore holds
   for any number of worker processes. A 429 fails the attempt and its tags go back to the set; BullMQ retries with
   backoff.
+- **Portal pages (S15-F11):** the public proxy tags listing and development pages with `c…` (one tag per public code:
+  every locale, every slug, the 404). A document change queues its codes in the agency's targeted set at once. An agency
+  change (status, name, contacts) queues every PUBLIC code of the agency 90 s later (`websiteApi.purgePortalAgencyPages`,
+  at most one run per agency per 90 s, plus one follow-up if it changed again inside that window). Those codes go to
+  a separate bulk set (`inl:edge-purge-bulk:{agency}`) that is drained only after the targeted one, so a backlog never
+  delays a withdrawal. `c` tags older than 90 s (`PORTAL_EDGE_TTL_MS`, the pages' `s-maxage` + `stale-while-revalidate`)
+  are dropped, so one agency's bulk purge sends at most ~1,800 tags (18 requests).
+- **Global purge volume (bulk status changes):** the per-agency throttle does not cap the account. Suspending or
+  reinstating many agencies at once (a billing run, a staff bulk action) queues one bulk purge per agency, and every
+  agency competes for the one global purge slot (`globalConcurrency: 1`, 250 ms per request: ~4 requests / s, 400 tags
+  / s). For example, 500 agencies × 18 requests would be 9,000 requests, about 40 minutes at that pace. In practice
+  the 90 s cutoff drops most bulk tags unsent, which is harmless (those copies expire anyway), but the runs still
+  occupy the slot and targeted purges of every agency queue alongside them (fair share per agency). Before a bulk action over more than ~50 agencies, expect delayed purges for its duration.
+  If an urgent purge must go out, purge by hostname or prefix from the Cloudflare dashboard. On Free (12 s per request)
+  avoid bulk status changes outside a maintenance window.
 
 ### Purge failing
 

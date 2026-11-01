@@ -182,6 +182,22 @@ async function itemPage(
 export type PortalOrigin = () => Promise<string>;
 
 /**
+ * S15-F11: the edge tag (`Cache-Tag`) of a listing or development page — core `portalEdgeTag` of the public code its
+ * slug ends in — or null (no code, edge tags not configured). Every locale's URL and every slug of one code, its 404
+ * included, carry the same tag, which the worker purges when the listing, development or its agency changes.
+ */
+export type ItemEdgeTag = (slug: string) => Promise<string | null>;
+
+/** Fails open: no tag (the edge keeps the page its `s-maxage`, ≤ 90 s) rather than no page. */
+async function itemEdgeTag(edgeTagOf: ItemEdgeTag, slug: string): Promise<string | null> {
+  try {
+    return await edgeTagOf(slug);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * A permanent redirect to a path on this site, on the configured origin — never one built from the request's `Host`
  * header, which the client controls (S15-02 review). (Next refuses a relative `Location` from the proxy.)
  */
@@ -198,6 +214,7 @@ export function createProxy(
   legacyGate: LegacyGate = defaultLegacyGate,
   portalOrigin: PortalOrigin = defaultPortalOrigin,
   codeGate: CodeGate = defaultCodeGate,
+  edgeTagOf: ItemEdgeTag = defaultItemEdgeTag,
 ) {
   return async function proxy(request: NextRequest): Promise<NextResponse> {
     const embed = embedPath(request.nextUrl.pathname);
@@ -227,6 +244,7 @@ export function createProxy(
       }
     }
     const item = PORTAL_ITEM_PATH.exec(pathname);
+    let edgeTag: string | null = null;
     if (item) {
       const page: ItemPage = {
         locale: item[1] as string,
@@ -236,6 +254,7 @@ export function createProxy(
       const answer = await itemPage(codeGate, legacyGate, portalGate, request, page);
       if (answer?.kind === 'limited') return refuse(429, answer.retryAfterSeconds);
       if (answer?.kind === 'redirect') return movedTo(await portalOrigin(), answer.targetPath, answer.status);
+      edgeTag = await itemEdgeTag(edgeTagOf, page.slug);
     }
     const legacy = await legacyTarget(legacyGate, portalGate, request);
     if (legacy?.kind === 'limited') return refuse(429, legacy.retryAfterSeconds);
@@ -252,6 +271,8 @@ export function createProxy(
     for (const [k, v] of Object.entries(DENY_FRAMING)) res.headers.set(k, v);
     res.headers.set('Content-Security-Policy', pageCsp(pathname, scriptSrc));
     if (notice === 'notice') res.headers.set('Cache-Control', ENQUIRY_NOTICE_CACHE);
+    // S15-F11: the page's edge tag (by code: every locale, any slug, a 404 too); Cloudflare strips it before the client.
+    if (edgeTag) res.headers.set('Cache-Tag', edgeTag);
     return res;
   };
 }
@@ -262,6 +283,10 @@ async function defaultLegacyGate(pathWithQuery: string, beforeProbe: () => Promi
 
 async function defaultCodeGate(page: ItemPage, beforeProbe: () => Promise<boolean>) {
   return (await import('./server/portal-limits')).portalCodeGate(page, beforeProbe);
+}
+
+async function defaultItemEdgeTag(slug: string) {
+  return (await import('./server/portal-edge')).portalItemEdgeTag(slug);
 }
 
 async function defaultPortalOrigin() {

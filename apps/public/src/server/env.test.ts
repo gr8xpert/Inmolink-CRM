@@ -39,4 +39,12 @@ describe('public pages config (S7-F8)', () => {
     expect(() => loadPublicConfig(noStorage)).toThrow(/S3_ENDPOINT/);
     expect(loadPublicConfig({ ...noStorage, NODE_ENV: 'development' }).S3_ENDPOINT).toBeUndefined();
   });
+
+  it('[S15-F11] the ISR page cache cap is PAGE_CACHE_MAX_BYTES: 256 MB by default, validated', () => {
+    const ok = { ...BASE, PUBLIC_URL: 'https://sites.inmolink.es' };
+    expect(loadPublicConfig(ok).PAGE_CACHE_MAX_BYTES).toBe(256 * 1024 * 1024);
+    expect(loadPublicConfig({ ...ok, PAGE_CACHE_MAX_BYTES: '536870912' }).PAGE_CACHE_MAX_BYTES).toBe(536_870_912);
+    expect(() => loadPublicConfig({ ...ok, PAGE_CACHE_MAX_BYTES: '1mb' })).toThrow(/PAGE_CACHE_MAX_BYTES/);
+    expect(() => loadPublicConfig({ ...ok, PAGE_CACHE_MAX_BYTES: '1024' })).toThrow(/PAGE_CACHE_MAX_BYTES/);
+  });
 });

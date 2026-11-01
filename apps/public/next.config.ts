@@ -50,15 +50,13 @@ export const PORTAL_ISR_SOURCES = [`/${LOCALE}/property/:slug`, `/${LOCALE}/deve
  * also write every rendered page to the server's disk — unbounded for ~2M listings × locales.
  */
 export const PAGE_CACHE_HANDLER = fileURLToPath(new URL('./cache-handler.mjs', import.meta.url));
-// The platform's `DEFAULT_PAGE_CACHE_BYTES` (256 MB), spelled out: `next typegen` loads this file before the platform
-// package is built, so it imports no workspace package (next-config.test.ts pins the two equal).
-export const PAGE_CACHE_MAX_BYTES = 256 * 1024 * 1024;
+// S15-F11: no `cacheMaxMemorySize` here (Next freezes it into the build): the handler reads its cap at run time from
+// `PAGE_CACHE_MAX_BYTES` (env, validated by platform `pageCacheEnv`, default 256 MB).
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   cacheHandler: PAGE_CACHE_HANDLER,
-  cacheMaxMemorySize: PAGE_CACHE_MAX_BYTES,
   // Server-only code loaded from node_modules at runtime, not bundled (S7-F8: the embeds read through core).
   serverExternalPackages: ['@inmolink/core', '@inmolink/db', '@inmolink/platform', 'pg', 'ioredis', 'bullmq'],
   async headers() {

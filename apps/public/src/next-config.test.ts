@@ -1,17 +1,14 @@
-import { DEFAULT_PAGE_CACHE_BYTES } from '@inmolink/platform/cache';
+import { PORTAL_EDGE_TTL_MS } from '@inmolink/core/modules/website-api';
+import { pageCacheMaxBytes } from '@inmolink/platform/cache';
 import { unstable_getResponseFromNextConfig } from 'next/experimental/testing/server';
 import { NextRequest } from 'next/server';
 import { describe, expect, it, vi } from 'vitest';
-import nextConfig, {
-  ENQUIRY_NOTICE_CACHE,
-  PAGE_CACHE_MAX_BYTES,
-  PORTAL_ISR_PAGE_CACHE,
-  PORTAL_PAGE_CACHE,
-} from '../next.config';
+import nextConfig, { ENQUIRY_NOTICE_CACHE, PORTAL_ISR_PAGE_CACHE, PORTAL_PAGE_CACHE } from '../next.config';
 import { type CodeGate, createProxy, type EmbedGate, type PortalGate } from './proxy';
 
 vi.mock('./server/legacy-redirects', () => ({ legacyRedirect: async () => null }));
 vi.mock('./server/env', () => ({ publicConfig: async () => ({}), portalOriginOf: () => 'https://inmolink.test' }));
+vi.mock('./server/portal-edge', () => ({ portalItemEdgeTag: async () => null }));
 
 /** The `Cache-Control` the next.config `headers()` rules give a URL. */
 async function configCache(path: string): Promise<string | null> {
@@ -28,8 +25,39 @@ async function effectiveCache(path: string, proxyRes: Response): Promise<string 
 }
 
 describe('next.config page cache (S15 review)', () => {
-  it('[S15-F7] the page cache size equals the platform default (no workspace import in next.config)', () => {
-    expect(PAGE_CACHE_MAX_BYTES).toBe(DEFAULT_PAGE_CACHE_BYTES);
+  it('[S15-F11] the page cache cap is not frozen into the build: the handler reads PAGE_CACHE_MAX_BYTES at run time', () => {
+    expect(nextConfig.cacheHandler).toBeTruthy();
+    expect(nextConfig.cacheMaxMemorySize).toBeUndefined();
+  });
+
+  it('[S15-F11] the cache handler Next loads sizes its page cache from PAGE_CACHE_MAX_BYTES', async () => {
+    const key = Symbol.for('@inmolink/platform/page-cache');
+    const g = globalThis as { [key]?: { maxBytes: number } };
+    const before = process.env.PAGE_CACHE_MAX_BYTES;
+    const held = g[key];
+    try {
+      delete g[key];
+      process.env.PAGE_CACHE_MAX_BYTES = String(pageCacheMaxBytes({}) * 2);
+      const { default: Handler } = await import('../cache-handler.mjs');
+      new Handler({ maxMemoryCacheSize: 50 * 1024 * 1024 });
+      expect(g[key]?.maxBytes).toBe(pageCacheMaxBytes());
+      expect(g[key]?.maxBytes).toBe(512 * 1024 * 1024);
+    } finally {
+      if (before === undefined) delete process.env.PAGE_CACHE_MAX_BYTES;
+      else process.env.PAGE_CACHE_MAX_BYTES = before;
+      if (held) g[key] = held;
+      else delete g[key];
+    }
+  });
+
+  it('[S15-F11] core drops pending page purges after the CDN lifetime of a listing or development page', () => {
+    const seconds = (name: 's-maxage' | 'stale-while-revalidate') =>
+      Number(
+        PORTAL_ISR_PAGE_CACHE.split(', ')
+          .find((d) => d.startsWith(`${name}=`))
+          ?.split('=')[1],
+      );
+    expect((seconds('s-maxage') + seconds('stale-while-revalidate')) * 1_000).toBe(PORTAL_EDGE_TTL_MS);
   });
 });
 

@@ -30,7 +30,7 @@
  */
 import type { ListingCardDoc, UnitCardDoc, ViewingSlot, WebsiteCard, WebsiteListingsQuery } from '@inmolink/contracts';
 import { withPublicRead, withSystem } from '@inmolink/db';
-import { cache, cacheKey } from '@inmolink/platform/cache';
+import { cache, cacheKey, RENDER_MARGIN_MS } from '@inmolink/platform/cache';
 import { cdnPurger } from '@inmolink/platform/cdn';
 import { clock } from '@inmolink/platform/clock';
 import { mailer } from '@inmolink/platform/email';
@@ -44,15 +44,25 @@ import * as identity from '../identity';
 import * as search from '../search';
 import * as websites from '../websites';
 import { raiseWebsiteAlert } from './alerts';
-import { EDGE_PURGE_HORIZON_MS, type EdgeTagKind, edgeTag, edgeTagsConfigured } from './edge';
+import {
+  EDGE_PURGE_HORIZON_MS,
+  type EdgeTagKind,
+  edgeTag,
+  edgeTagsConfigured,
+  PORTAL_EDGE_TTL_MS,
+  portalEdgePurgeItem,
+} from './edge';
 import {
   addPendingPurges,
   clearPendingPurges,
   EDGE_PURGE_THROTTLE_MS,
+  markPortalAgencyChange,
+  portalAgencyChangeAt,
   returnPendingPurges,
   takePendingPurges,
 } from './edge-purge';
 import { notifyLocale, renderLeadAck, renderLeadNotification } from './emails';
+import { PORTAL_AGENCY_SETTLE_MS } from './portal-cache';
 import { generatePortalSitemaps, PORTAL_SITEMAP_EVERY_MS, PORTAL_SITEMAP_TIMEOUT_MS } from './portal-sitemaps';
 import { type ApiSite, searchListings, siteForKey } from './service';
 import { websiteLimits } from './settings';
@@ -235,9 +245,11 @@ export const websiteApiJobs = {
         await clearPendingPurges(p.agencyId);
         return { purged: 0, skipped: 'no-edge-cache' };
       }
+      const now = clock.now().getTime();
       const { tags, dropped, more } = await takePendingPurges(
         p.agencyId,
-        clock.now().getTime() - EDGE_PURGE_HORIZON_MS,
+        now - EDGE_PURGE_HORIZON_MS,
+        now - PORTAL_EDGE_TTL_MS,
       );
       if (tags.length > 0) {
         try {
@@ -281,6 +293,59 @@ export const websiteApiJobs = {
     async run(p) {
       await queueEdgePurge(p.agencyId, [{ kind: 's', id: p.siteId }], clock.now());
       return { queued: true };
+    },
+  }),
+
+  /**
+   * S15-F11: an agency's standing, name or contacts changed — once every cache shows it (`queuePortalAgencyEdgePurge`:
+   * after `PORTAL_AGENCY_SETTLE_MS` + the render margin), its portal listing and development pages are purged at the
+   * edge: their `c` tags (one per public code: every locale, every slug), a page of `PORTAL_AGENCY_PURGE_PAGE` codes
+   * at a time (listings and units, then developments) into the agency's **bulk** pending set — drained only after its
+   * targeted purges (a withdrawal is never queued behind a backlog), ≤ 100 tags per throttled run (`purgeEdgeCache`);
+   * what is not sent within `PORTAL_EDGE_TTL_MS` is dropped (those copies expired anyway): a large stock is purged
+   * only in part, never late. A change after the one that queued this run (inside its throttle window, so its enqueue
+   * was dropped) and not yet settled gets one follow-up run, a window later. A retry queues the same tags again.
+   */
+  purgePortalAgencyPages: defineJob({
+    name: 'websiteApi.purgePortalAgencyPages',
+    pool: 'indexing',
+    payload: z.object({ agencyId: z.uuid() }).strict(),
+    group: (p) => p.agencyId,
+    attempts: 3,
+    backoff: { type: 'exponential', delay: 5_000 },
+    timeoutMs: 120_000,
+    async run(p, { log, signal }) {
+      if (!edgeTagsConfigured() || !cdnPurger()) return { queued: 0, skipped: 'no-edge-cache' };
+      const changedAt = await portalAgencyChangeAt(p.agencyId);
+      const startedAt = clock.now();
+      const bulk = async (codes: readonly string[]) => {
+        await queueEdgePurge(p.agencyId, codes.map(portalEdgePurgeItem), startedAt, { bulk: true });
+        return codes.length;
+      };
+      let queued = 0;
+      let afterDoc: { publishedAt: number; targetId: string } | null = null;
+      do {
+        signal.throwIfAborted();
+        const page = await withSystem('websiteApi.portal agency codes', (tx) =>
+          search.agencyPublicCodesPage(tx, p.agencyId, afterDoc, PORTAL_AGENCY_PURGE_PAGE),
+        );
+        queued += await bulk(page.codes);
+        afterDoc = page.next;
+      } while (afterDoc);
+      let afterDev: string | null = null;
+      do {
+        signal.throwIfAborted();
+        const page = await withSystem('websiteApi.portal agency development codes', (tx) =>
+          search.agencyDevelopmentCodesPage(tx, p.agencyId, afterDev, PORTAL_AGENCY_PURGE_PAGE),
+        );
+        queued += await bulk(page.codes);
+        afterDev = page.next;
+      } while (afterDev);
+      // A later change, not settled yet: its own enqueue fell inside this run's window.
+      const followUp = changedAt !== null && startedAt.getTime() - changedAt < PORTAL_AGENCY_EDGE_PURGE_DELAY_MS;
+      if (followUp) await enqueuePortalAgencyEdgePurge(p.agencyId);
+      if (queued > 0) log.info({ agencyId: p.agencyId, queued, followUp }, 'portal agency pages queued for edge purge');
+      return { queued, followUp };
     },
   }),
 
@@ -779,14 +844,44 @@ export async function queueEdgePurge(
   agencyId: string,
   items: readonly { kind: EdgeTagKind; id: string }[],
   changedAt: Date,
+  options: { bulk?: boolean } = {},
 ): Promise<void> {
   if (items.length === 0 || !edgeTagsConfigured()) return;
   const at = changedAt.getTime();
   await addPendingPurges(
     agencyId,
     items.map((i) => ({ tag: edgeTag(i.kind, i.id), at })),
+    options,
   );
   await queueEdgePurgeRun(agencyId);
+}
+
+/** S15-F11: codes read per statement when an agency's portal pages are purged (`purgePortalAgencyPages`). */
+export const PORTAL_AGENCY_PURGE_PAGE = 1_000;
+
+/**
+ * S15-F11: when an agency's change shows on every public instance — the public processes' agency caches turned over
+ * (`PORTAL_AGENCY_SETTLE_MS`) plus the page cache's render margin — so the edge refetches a page with the change.
+ */
+export const PORTAL_AGENCY_EDGE_PURGE_DELAY_MS = PORTAL_AGENCY_SETTLE_MS + RENDER_MARGIN_MS;
+
+/**
+ * S15-F11: queues the edge purge of an agency's portal listing and development pages, after its change settled
+ * (`PORTAL_AGENCY_EDGE_PURGE_DELAY_MS`): at most one run per agency per window (throttle), so a flapping status
+ * cannot multiply the work; the change's time is noted first, so a change inside the window gets one follow-up run
+ * after it (`purgePortalAgencyPages`). No edge cache: nothing queued.
+ */
+export async function queuePortalAgencyEdgePurge(agencyId: string): Promise<void> {
+  if (!edgeTagsConfigured()) return;
+  await markPortalAgencyChange(agencyId, clock.nowMs());
+  await enqueuePortalAgencyEdgePurge(agencyId);
+}
+
+function enqueuePortalAgencyEdgePurge(agencyId: string) {
+  return websiteApiJobs.purgePortalAgencyPages.enqueue(
+    { agencyId },
+    { throttleMs: PORTAL_AGENCY_EDGE_PURGE_DELAY_MS, debounceKey: `portal-agency-edge:${agencyId}` },
+  );
 }
 
 /** The agency's next purge run, at most one per throttle window (S7-06: per-tenant purge budget). */

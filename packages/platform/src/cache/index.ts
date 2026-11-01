@@ -1,10 +1,10 @@
 import { Redis, type RedisOptions } from 'ioredis';
-import { loadConfig, realtimeEventsEnv, redisEnv } from '../config';
+import { loadConfig, pageCacheEnv, realtimeEventsEnv, redisEnv } from '../config';
 import { createLogger, type Logger } from '../logger';
 import { Cache, type CacheGetOptions } from './cache';
 import { Counters, type TakenCounts } from './counts';
 import type { CacheKey } from './key';
-import { DEFAULT_PAGE_CACHE_BYTES, markPageTagsChanged, PageCache, type PageTagStore } from './page-cache';
+import { markPageTagsChanged, PageCache, type PageTagStore } from './page-cache';
 import { whenReady } from './ready';
 import { SeenTimes } from './seen';
 import { encodeUserEvent, USER_EVENTS_CHANNEL, type UserEvent } from './user-events';
@@ -227,20 +227,27 @@ export const pageTags = {
 const PAGE_CACHE = Symbol.for('@inmolink/platform/page-cache');
 
 /**
+ * S15-F11: the page cache's byte cap — `PAGE_CACHE_MAX_BYTES` (`pageCacheEnv`, default 256 MB). A bad value throws
+ * `ConfigError` (the public app also refuses it at boot: its env schema includes `pageCacheEnv`).
+ */
+export function pageCacheMaxBytes(env: Record<string, string | undefined> = process.env): number {
+  return loadConfig(pageCacheEnv, env).PAGE_CACHE_MAX_BYTES;
+}
+
+/**
  * S15-F7: Next.js's `cacheHandler` for the public app (`apps/public/cache-handler.mjs`): ISR pages in a byte-capped
- * in-process LRU (`cacheMaxMemorySize`), invalidated by shared tag times on redis-cache (`page-cache.ts`). Next builds
- * one handler per request: they share the process's cache.
+ * in-process LRU, invalidated by shared tag times on redis-cache (`page-cache.ts`). Next builds one handler per
+ * request: they share the process's cache. S15-F11: the cap is `PAGE_CACHE_MAX_BYTES` (env, validated —
+ * `pageCacheMaxBytes`), read at run time; Next's `cacheMaxMemorySize` (frozen into the build) is not used.
  */
 export class PageCacheHandler {
   private readonly pages: PageCache;
 
-  constructor(ctx: { maxMemoryCacheSize?: number } = {}) {
+  constructor(_ctx?: unknown) {
     const g = globalThis as { [PAGE_CACHE]?: PageCache };
-    const maxBytes =
-      ctx.maxMemoryCacheSize && ctx.maxMemoryCacheSize > 0 ? ctx.maxMemoryCacheSize : DEFAULT_PAGE_CACHE_BYTES;
     g[PAGE_CACHE] ??= new PageCache({
       store: pageTagStore,
-      maxBytes,
+      maxBytes: pageCacheMaxBytes(),
       onError: (err) => current().logger.warn({ err }, 'page cache: tag lookup failed; serving the cached page'),
     });
     this.pages = g[PAGE_CACHE];

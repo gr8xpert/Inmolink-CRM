@@ -13,6 +13,7 @@ import {
   loadConfig,
   mediaCdnEnv,
   networkEnv,
+  pageCacheEnv,
   planEnv,
   rateLimitEnv,
   redisEnv,
@@ -56,6 +57,8 @@ export const publicEnv = {
   NETWORK_GIVE_TO_GET_MIN_SHARED: networkEnv.NETWORK_GIVE_TO_GET_MIN_SHARED,
   NETWORK_GIVE_TO_GET_GRACE_DAYS: networkEnv.NETWORK_GIVE_TO_GET_GRACE_DAYS,
   HMAC_KEY: cryptoEnv.HMAC_KEY,
+  /** S15-F11: the ISR page cache's byte cap per instance (read by `cache-handler.mjs`; checked here at boot too). */
+  ...pageCacheEnv,
   /**
    * This app's public origin (`https://sites.inmolink.es`): embed forms solve Turnstile on its host. Required in
    * production; the local default elsewhere.

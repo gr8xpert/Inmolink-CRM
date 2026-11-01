@@ -723,35 +723,48 @@ Maps, charts and editors: `const ListingMap = dynamic(() => import('./listing-ma
 ## §19 Public page (apps/public)
 
 ```tsx
-// apps/public/app/[locale]/property/[slug]/page.tsx
+// apps/public/src/app/[locale]/property/[slug]/page.tsx
 import { notFound, permanentRedirect } from 'next/navigation';
-import * as portal from '@inmolink/core/modules/websites/portal';   // read services only
-import { serializeJsonLd } from '@/lib/seo';                          // escapes </script>
+import {
+  codeOfSlug, portalJsonLd, portalMetadataFor, portalPageTag, portalPageTags, serializeJsonLd,
+} from '@inmolink/core/modules/website-api';                         // read services only
+import { tagPage } from '@/portal/cache-tags';
 
 export const revalidate = 300;
 
 export async function generateMetadata({ params }: Props) {
   const { locale, slug } = await params;
-  const l = await portal.getListingBySlug({ locale, slug });
-  return l ? portal.metadataFor(l, locale) : {};                       // title, description, canonical, hreflang, OG
+  const listing = await load(locale, slug);
+  return listing ? portalMetadataFor({ kind: 'listing', locale, origin, listing }) : {}; // canonical, hreflang, OG
 }
 
-export default async function PropertyPage({ params }: Props) {
+export default async function ListingPage({ params }: Props) {
   const { locale, slug } = await params;
-  const listing = await portal.getListingBySlug({ locale, slug });
+  const listing = await load(locale, slug);                            // by codeOfSlug(slug)
   if (!listing) {
-    const to = await portal.resolveRedirect({ locale, path: `/property/${slug}` });
-    if (to) permanentRedirect(to);                                     // 301, never 404 for known URLs
-    notFound();
+    const code = codeOfSlug(slug);
+    if (code) await tagPage([portalPageTag.code(code)]);               // the cached 404 carries its code tag
+    notFound();                                                         // legacy 301s: answered by the proxy first
   }
+  if (listing.paths[locale] !== `/${locale}/property/${slug}`) permanentRedirect(listing.paths[locale]); // 301
+  const page = { kind: 'listing', locale, origin, listing } as const;
+  await tagPage(portalPageTags(page));                                  // listing id, code, agency (S15-F7)
   return (
     <>
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: serializeJsonLd(portal.jsonLd(listing)) }} />
-      <ListingDetail listing={listing} />
+      {portalJsonLd(page).map((ld) => <JsonLd key={ld['@type']} json={serializeJsonLd(ld)} />)}
+      <ListingView listing={listing} />
     </>
   );
 }
 ```
+
+- **Invalidation (S15-F7, ADR 0019 A):** the page's tags (`portalPageTags`, the 404's `portalPageTag.code`) are marked
+  changed by the worker's outbox subscribers (`website-api/portal-cache.ts`); every instance's page cache drops them.
+- **CDN (S15-F11):** the proxy sets `Cache-Tag: portalEdgeTag(code)` on every listing / development answer (every
+  locale, any slug, the 404), and the same subscribers purge it (`queueEdgePurge`, kind `c`; an agency's codes after it
+  settled). A new ISR page kind adds its tags in `portalPageTags`, its URL shape in the proxy's item path, and its
+  invalidation in those subscribers — never a revalidation endpoint.
+- Page cache cap: `PAGE_CACHE_MAX_BYTES` (env, default 256 MB), read by the cache handler at run time.
 
 ---
 

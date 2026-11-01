@@ -207,6 +207,71 @@ export async function publicCodes(tx: Tx, ids: readonly string[]): Promise<Map<s
   return new Map(rows.map((r) => [r.targetId, r.code]));
 }
 
+/**
+ * S15-F11: one page of an agency's PUBLIC listings' and units' codes (the portal listing pages it may have; its
+ * developments: `agencyDevelopmentCodesPage`), keyset over `listing_search_docs_owner_idx` (published, target);
+ * `next`: the cursor of the next page, null at the end. Bounded: `limit` rows.
+ */
+export async function agencyPublicCodesPage(
+  tx: Tx,
+  agencyId: string,
+  after: { publishedAt: number; targetId: string } | null,
+  limit: number,
+): Promise<{ codes: string[]; next: { publishedAt: number; targetId: string } | null }> {
+  const rows = await tx
+    .select({
+      targetId: listingSearchDocs.targetId,
+      publishedAt: listingSearchDocs.publishedAt,
+      code: listingSearchDocs.publicCode,
+    })
+    .from(listingSearchDocs)
+    .where(
+      and(
+        eq(listingSearchDocs.ownerAgencyId, agencyId),
+        after
+          ? sql`(${listingSearchDocs.publishedAt}, ${listingSearchDocs.targetId}) > (${after.publishedAt}, ${after.targetId}::uuid)`
+          : undefined,
+      ),
+    )
+    .orderBy(listingSearchDocs.publishedAt, listingSearchDocs.targetId)
+    .limit(limit);
+  const last = rows.at(-1);
+  return {
+    codes: rows.flatMap((r) => (r.code ? [r.code] : [])),
+    next: rows.length === limit && last ? { publishedAt: last.publishedAt, targetId: last.targetId } : null,
+  };
+}
+
+/**
+ * S15-F11 review: one page of an agency's developments' codes (its portal development pages), keyset over
+ * `listing_search_developments_owner_idx` (owner, development), each joined to its code by key
+ * (`listing_public_codes` primary key). `next`: the last development id when the page is full, else null.
+ */
+export async function agencyDevelopmentCodesPage(
+  tx: Tx,
+  agencyId: string,
+  after: string | null,
+  limit: number,
+): Promise<{ codes: string[]; next: string | null }> {
+  const rows = await tx
+    .select({ developmentId: listingSearchDevelopments.developmentId, code: listingPublicCodes.code })
+    .from(listingSearchDevelopments)
+    .leftJoin(listingPublicCodes, eq(listingPublicCodes.targetId, listingSearchDevelopments.developmentId))
+    .where(
+      and(
+        eq(listingSearchDevelopments.ownerAgencyId, agencyId),
+        after ? sql`${listingSearchDevelopments.developmentId} > ${after}::uuid` : undefined,
+      ),
+    )
+    .orderBy(listingSearchDevelopments.developmentId)
+    .limit(limit);
+  const last = rows.at(-1);
+  return {
+    codes: rows.flatMap((r) => (r.code ? [r.code] : [])),
+    next: rows.length === limit && last ? last.developmentId : null,
+  };
+}
+
 /** Whether a public code belongs to any target (S7-04: a honeytoken-looking code is real). One unique-index probe. */
 export async function publicCodeInUse(tx: Tx, code: string): Promise<boolean> {
   const rows = await tx

@@ -219,6 +219,20 @@ export const edgeCacheEnv = {
 };
 
 /**
+ * S15-F11: the public app's ISR page cache (listing and development pages, S15-F7 `PageCacheHandler`): bytes of
+ * rendered pages each public instance keeps in memory. A miss only renders the page again (≤ 3 statements); the CDN
+ * holds the long tail. 256 MB by default (the cache's `DEFAULT_PAGE_CACHE_BYTES`); 16 MB to 8 GB.
+ */
+export const pageCacheEnv = {
+  PAGE_CACHE_MAX_BYTES: z.coerce
+    .number()
+    .int()
+    .min(16 * 1024 * 1024)
+    .max(8 * 1024 * 1024 * 1024)
+    .default(256 * 1024 * 1024),
+};
+
+/**
  * Per-site XML feeds (S8-F1): a listing that leaves the network (made private, shared more narrowly) while it was shared
  * with every agency marks every network site's feed stale; one sweep per `SITE_FEED_NETWORK_WINDOW_MINUTES` queues
  * them all (however many listings left meanwhile) — the exports-pool load is at most one run per network feed per

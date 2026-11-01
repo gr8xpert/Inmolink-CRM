@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- feat(website-api,public,platform): portal listing / development pages purged at the CDN by public-code Cache-Tags; agency changes purge their pages in a bulk set drained after targeted purges; ISR pages s-maxage 60; `PAGE_CACHE_MAX_BYTES` [S15-F11]
 - perf(crm,mls,search,website-api,ops): S16 perf should-fixes — owner-set scan claim released on a stale mark (once per scan); delisting sitemap runs once per agency per 6 h + `inmolink.portal.sitemap_delist.requests`; agency text sweep and retention scan on index keysets (migration 0178: `contacts_retention_idx`, deleted tasks / prospects indexes, built concurrently); retention runs spread over 6 h by agency; MLS prune keyset, 100 a batch; SLO rule groups every 30 s (blackbox scrape) [S17-F3]
 - refactor(platform,core,web,public,feed-api): one home per S16 security helper — platform `web-security` subpath (plain ESM, unbuilt: Turnstile origin, base page CSP, nonce), core `stepUpCheck`, exported `consentValue`; keyed feed-api routes declare `apiKeyLimited` via `KEYED_ROUTE_CONFIG` (startup refuses a tag without `requireApiKey`); dashboard e2e fails on a CSP violation [S17-F1]
 - docs: sprint S16 review (`docs/build/reviews/S16.md`); follow-ups S17-F1 … S17-F3; CI integration job limit 35 → 45 min (throughput checks grew to 17–24 min); Client Mode test no longer matches `952` inside random ids [S16 review]

@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import { ConfigError } from '../config';
+import { pageCacheMaxBytes } from './index';
 import {
   BREAKER_FAILURES,
   BREAKER_OPEN_MS,
+  DEFAULT_PAGE_CACHE_BYTES,
   markPageTagsChanged,
   PAGE_TAG_TTL_SECONDS,
   PageCache,
@@ -205,5 +208,17 @@ describe('ISR page cache (S15-F7)', () => {
     // Only the portal's own tags are written to redis-cache.
     await markPageTagsChanged(store, ['_N_T_/en', 'not a tag'], now);
     expect([...values.keys()]).toEqual(['portal:d:D1']);
+  });
+});
+
+describe('page cache size (S15-F11)', () => {
+  it('[S15-F11] the page cache cap is an env setting: PAGE_CACHE_MAX_BYTES, validated, 256 MB by default', () => {
+    expect(pageCacheMaxBytes({})).toBe(DEFAULT_PAGE_CACHE_BYTES);
+    expect(DEFAULT_PAGE_CACHE_BYTES).toBe(256 * 1024 * 1024);
+    expect(pageCacheMaxBytes({ PAGE_CACHE_MAX_BYTES: '' })).toBe(DEFAULT_PAGE_CACHE_BYTES);
+    expect(pageCacheMaxBytes({ PAGE_CACHE_MAX_BYTES: String(512 * 1024 * 1024) })).toBe(512 * 1024 * 1024);
+    for (const bad of ['abc', '1.5', '1024', String(16 * 1024 ** 3), '-1']) {
+      expect(() => pageCacheMaxBytes({ PAGE_CACHE_MAX_BYTES: bad }), bad).toThrow(ConfigError);
+    }
   });
 });
