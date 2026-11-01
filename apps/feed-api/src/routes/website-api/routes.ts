@@ -22,7 +22,7 @@ import { AppError } from '@inmolink/platform/errors';
 import { ipBucket } from '@inmolink/platform/rate-limit';
 import type { FastifyZod } from '@inmolink/platform/server';
 import type { FastifyRequest } from 'fastify';
-import { KEYED_ROUTE_LIMITS } from '../../plugins/api-key';
+import { KEYED_ROUTE_CONFIG } from '../../plugins/api-key';
 import { sendSiteJson } from '../../plugins/site-response';
 
 /**
@@ -69,7 +69,7 @@ export async function websiteApiRoutes(app: FastifyZod): Promise<void> {
         querystring: WebsiteListingsQuery,
         response: { 200: WebsiteListingPage },
       },
-      config: { rateLimit: KEYED_ROUTE_LIMITS },
+      config: KEYED_ROUTE_CONFIG,
       onRequest: [app.requireApiKey('listings:read', LISTINGS)],
     },
     async (req, reply) => {
@@ -96,7 +96,7 @@ export async function websiteApiRoutes(app: FastifyZod): Promise<void> {
         querystring: WebsiteAiSearchQuery,
         response: { 200: WebsiteAiSearchPage },
       },
-      config: { rateLimit: KEYED_ROUTE_LIMITS },
+      config: KEYED_ROUTE_CONFIG,
       onRequest: [app.requireApiKey('listings:read', AI_SEARCH)],
     },
     async (req, reply) => {
@@ -129,7 +129,7 @@ export async function websiteApiRoutes(app: FastifyZod): Promise<void> {
         querystring: WebsiteLangQuery,
         response: { 200: WebsiteDetail },
       },
-      config: { rateLimit: KEYED_ROUTE_LIMITS },
+      config: KEYED_ROUTE_CONFIG,
       onRequest: [app.requireApiKey('listings:read', DETAIL)],
     },
     async (req, reply) => {
@@ -154,7 +154,7 @@ export async function websiteApiRoutes(app: FastifyZod): Promise<void> {
         querystring: WebsiteChangesQuery,
         response: { 200: WebsiteChangesPage },
       },
-      config: { rateLimit: KEYED_ROUTE_LIMITS },
+      config: KEYED_ROUTE_CONFIG,
       onRequest: [app.requireApiKey('listings:read', PAGED)],
     },
     async (req, reply) => {
@@ -175,7 +175,7 @@ export async function websiteApiRoutes(app: FastifyZod): Promise<void> {
         querystring: WebsiteSitemapQuery,
         response: { 200: WebsiteSitemapPage },
       },
-      config: { rateLimit: KEYED_ROUTE_LIMITS },
+      config: KEYED_ROUTE_CONFIG,
       onRequest: [app.requireApiKey('listings:read', SITEMAP)],
     },
     async (req, reply) => {
@@ -194,7 +194,7 @@ export async function websiteApiRoutes(app: FastifyZod): Promise<void> {
         querystring: WebsiteDevelopmentsQuery,
         response: { 200: WebsiteDevelopmentPage },
       },
-      config: { rateLimit: KEYED_ROUTE_LIMITS },
+      config: KEYED_ROUTE_CONFIG,
       onRequest: [app.requireApiKey('listings:read', DEVELOPMENTS)],
     },
     async (req, reply) => {
@@ -214,7 +214,7 @@ export async function websiteApiRoutes(app: FastifyZod): Promise<void> {
         querystring: WebsiteLangQuery,
         response: { 200: WebsiteDevelopmentDetail },
       },
-      config: { rateLimit: KEYED_ROUTE_LIMITS },
+      config: KEYED_ROUTE_CONFIG,
       onRequest: [app.requireApiKey('listings:read', DETAIL)],
     },
     async (req, reply) => {
@@ -240,7 +240,7 @@ export async function websiteApiRoutes(app: FastifyZod): Promise<void> {
         querystring: WebsiteUnitsQuery,
         response: { 200: WebsiteUnitPage },
       },
-      config: { rateLimit: KEYED_ROUTE_LIMITS },
+      config: KEYED_ROUTE_CONFIG,
       onRequest: [app.requireApiKey('listings:read', PAGED)],
     },
     async (req, reply) => {

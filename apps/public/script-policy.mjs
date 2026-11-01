@@ -15,8 +15,11 @@
 // - Any HTML answer that still has no `script-src` (an error page, a render Next did not store): the server adds
 //   `FALLBACK_PAGE_CSP` (no inline script at all) just before the headers go out.
 
-/** Cloudflare Turnstile (enquiry forms). */
-export const TURNSTILE_ORIGIN = 'https://challenges.cloudflare.com';
+// S17-F1: Turnstile's origin (enquiry forms), the page base directives and the nonce are platform's, shared with the
+// dashboard.
+import { newNonce, PAGE_BASE_CSP, TURNSTILE_ORIGIN } from '@inmolink/platform/web-security';
+
+export { newNonce, PAGE_BASE_CSP, TURNSTILE_ORIGIN };
 
 /** Where browsers send violation reports (`app/api/csp-report`). */
 export const CSP_REPORT_PATH = '/api/csp-report';
@@ -31,12 +34,6 @@ export function portalScriptSrc(nonce, dev = false) {
   return `script-src 'self' 'nonce-${nonce}' ${TURNSTILE_ORIGIN}${dev ? " 'unsafe-eval'" : ''}`;
 }
 
-/** 16 random bytes, base64. */
-export function newNonce() {
-  const bytes = crypto.getRandomValues(new Uint8Array(16));
-  return btoa(String.fromCharCode(...bytes));
-}
-
 /** A CSP hash source (`sha256-<base64 of 32 bytes>`). */
 export const SHA256_SOURCE = /^sha256-[A-Za-z0-9+/]{43}=$/;
 
@@ -45,9 +42,6 @@ export function hashedScriptSrc(hashes, dev = false) {
   const sources = hashes.filter((h) => SHA256_SOURCE.test(h)).map((h) => ` '${h}'`);
   return `script-src 'self' ${TURNSTILE_ORIGIN}${sources.join('')}${dev ? " 'unsafe-eval'" : ''}`;
 }
-
-/** The directives every page answer carries besides its scripts' (next.config `FRAME_DENY_HEADERS` has the same). */
-export const PAGE_BASE_CSP = "frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'";
 
 /** An HTML answer without any `script-src` of its own: no inline script runs (the page shows, unhydrated). */
 export const FALLBACK_PAGE_CSP = `${PAGE_BASE_CSP}; script-src 'self' ${TURNSTILE_ORIGIN}; ${CSP_REPORT_DIRECTIVE}`;

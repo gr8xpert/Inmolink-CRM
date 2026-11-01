@@ -37,7 +37,7 @@ export interface RequireApiKeyOptions {
 
 declare module 'fastify' {
   interface FastifyContextConfig {
-    /** S16-03: set on keyed routes (`requireApiKey` in `onRequest`, `KEYED_ROUTE_LIMITS`): their limits live there. */
+    /** S16-03 / S17-F1: declared by keyed routes (`KEYED_ROUTE_CONFIG`, `requireApiKey` in `onRequest`): their limits live there. */
     apiKeyLimited?: boolean;
   }
   interface FastifyRequest {
@@ -104,6 +104,13 @@ function keyOf(request: FastifyRequest, keyParam?: string): { key: string | unde
  * `API_KEY_FAILURE_RULE` per client IP (429 past 60 / min) before any other work; browsers stay limited per browser.
  */
 export const KEYED_ROUTE_LIMITS = false as const;
+
+/**
+ * S17-F1: the route config of every keyed route — off the plugin rules (`KEYED_ROUTE_LIMITS`) and tagged
+ * `apiKeyLimited` explicitly; the rate-limit coverage report reads the tag. Registering a tagged route without a
+ * `requireApiKey` hook in its `onRequest` fails at startup.
+ */
+export const KEYED_ROUTE_CONFIG = { rateLimit: KEYED_ROUTE_LIMITS, apiKeyLimited: true } as const;
 
 /** The client IP's failed key checks are in the penalty box (S7-F9): 429 without a database lookup. */
 class FailedChecksPenalty extends Error {
@@ -264,8 +271,8 @@ export function apiKeyPlugin(
         return undefined;
       },
   );
-  // S16-03: a route whose `onRequest` runs a `requireApiKey` hook and opts out of the plugin rules
-  // (`KEYED_ROUTE_LIMITS`) is tagged `apiKeyLimited` — the rate-limit coverage report reads the tag.
+  // S17-F1: a route tagged `apiKeyLimited` (`KEYED_ROUTE_CONFIG`) must run a `requireApiKey` hook in its `onRequest`
+  // and opt out of the plugin rules — else the app refuses to start (a tag with no key check would go unlimited).
   const keyedHooks = new WeakSet<object>();
   const buildHook = app.requireApiKey;
   app.requireApiKey = (scope, options) => {
@@ -276,7 +283,12 @@ export function apiKeyPlugin(
   app.addHook('onRoute', (route) => {
     const hooks =
       route.onRequest === undefined ? [] : Array.isArray(route.onRequest) ? route.onRequest : [route.onRequest];
-    if (route.config?.rateLimit === false && hooks.some((h) => keyedHooks.has(h))) route.config.apiKeyLimited = true;
+    if (route.config?.apiKeyLimited !== true) return;
+    if (route.config.rateLimit !== false || !hooks.some((h) => keyedHooks.has(h))) {
+      throw new Error(
+        `api-key: ${String(route.method)} ${route.url} is tagged apiKeyLimited without a requireApiKey hook`,
+      );
+    }
   });
   app.decorate(
     'creditChangeFeed',

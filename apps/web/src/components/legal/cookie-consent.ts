@@ -25,9 +25,14 @@ export function readConsent(cookieHeader: string | null | undefined): ConsentCho
   return null;
 }
 
+/** The stored value of a choice (`v1.essential`): what `readConsent` accepts. */
+export function consentValue(choice: ConsentChoice): string {
+  return `v${CONSENT_VERSION}.${choice}`;
+}
+
 /** The `document.cookie` assignment that records a choice (site-wide, Lax, Secure on https). */
 export function consentCookie(choice: ConsentChoice, secure: boolean): string {
-  return `${CONSENT_COOKIE}=v${CONSENT_VERSION}.${choice}; Path=/; Max-Age=${CONSENT_MAX_AGE}; SameSite=Lax${secure ? '; Secure' : ''}`;
+  return `${CONSENT_COOKIE}=${consentValue(choice)}; Path=/; Max-Age=${CONSENT_MAX_AGE}; SameSite=Lax${secure ? '; Secure' : ''}`;
 }
 
 /** The `document.cookie` assignment that forgets the choice (the banner asks again). */

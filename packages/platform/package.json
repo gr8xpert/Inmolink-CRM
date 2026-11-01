@@ -163,6 +163,10 @@
       "types": "./dist/sheet/index.d.ts",
       "default": "./dist/sheet/index.js"
     },
+    "./web-security": {
+      "types": "./src/web-security/index.d.mts",
+      "default": "./src/web-security/index.mjs"
+    },
     "./xml": {
       "@inmolink/source": "./src/xml/index.ts",
       "types": "./dist/xml/index.d.ts",

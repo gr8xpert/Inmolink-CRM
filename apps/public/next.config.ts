@@ -1,4 +1,5 @@
 import { fileURLToPath } from 'node:url';
+import { PAGE_BASE_CSP } from '@inmolink/platform/web-security';
 import type { NextConfig } from 'next';
 import createNextIntlPlugin from 'next-intl/plugin';
 import { ENQUIRY_NOTICE_CACHE, PORTAL_ISR_PAGE_CACHE, PORTAL_PAGE_CACHE } from './src/portal/cache-control';
@@ -12,10 +13,8 @@ import { ENQUIRY_NOTICE_CACHE, PORTAL_ISR_PAGE_CACHE, PORTAL_PAGE_CACHE } from '
 export const NOT_EMBED_SOURCE = '/:path((?!embed/|embed$|s/[^/]+/?$).*)';
 export const FRAME_DENY_HEADERS = [
   { key: 'X-Frame-Options', value: 'DENY' },
-  {
-    key: 'Content-Security-Policy',
-    value: "frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'",
-  },
+  // S17-F1: platform's plain-ESM `web-security` (unbuilt, so `next typegen` can load it before the packages build).
+  { key: 'Content-Security-Policy', value: PAGE_BASE_CSP },
 ];
 
 /**

@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- refactor(platform,core,web,public,feed-api): one home per S16 security helper — platform `web-security` subpath (plain ESM, unbuilt: Turnstile origin, base page CSP, nonce), core `stepUpCheck`, exported `consentValue`; keyed feed-api routes declare `apiKeyLimited` via `KEYED_ROUTE_CONFIG` (startup refuses a tag without `requireApiKey`); dashboard e2e fails on a CSP violation [S17-F1]
 - docs: sprint S16 review (`docs/build/reviews/S16.md`); follow-ups S17-F1 … S17-F3; CI integration job limit 35 → 45 min (throughput checks grew to 17–24 min); Client Mode test no longer matches `952` inside random ids [S16 review]
 - fix(crm,search,security): S16 review — retention job re-reads the period in force (off / lengthened since queued → erases nothing); noteDocOwner fails closed (build jobs retry and re-mark on every retry); storm journals written 0600; gitleaks no longer skips tests/load/.data (workspace test fails if anything there is tracked) [S16 review]
 - feat(public): enforced script CSP on portal pages — proxy nonce for per-request pages, SHA-256 hashes of Next inline scripts stored with ISR copies, write-time no-inline fallback for any other HTML answer, rate-limited /api/csp-report endpoint; selection pages keep their CSP on every answer; e2e CSP-violation listener [S16-F8]

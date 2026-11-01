@@ -12,7 +12,7 @@ import * as taxonomy from '@inmolink/core/modules/taxonomy';
 import { cacheControl } from '@inmolink/platform/http';
 import type { FastifyZod } from '@inmolink/platform/server';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { KEYED_ROUTE_LIMITS } from '../../plugins/api-key';
+import { KEYED_ROUTE_CONFIG } from '../../plugins/api-key';
 import { edgePublic, publicCacheControl, ruleOf } from '../../plugins/edge-cache';
 import { sendConditional } from '../../plugins/site-response';
 
@@ -50,7 +50,7 @@ export async function taxonomyRoutes(app: FastifyZod): Promise<void> {
         querystring: TaxonomyLangQuery,
         response: { 200: WebsiteLocationsDto },
       },
-      config: { rateLimit: KEYED_ROUTE_LIMITS },
+      config: KEYED_ROUTE_CONFIG,
       onRequest: [app.requireApiKey('taxonomy:read')],
     },
     async (req, reply) => send(req, reply, await taxonomy.getWebsiteLocations(req.query.lang)),
@@ -67,7 +67,7 @@ export async function taxonomyRoutes(app: FastifyZod): Promise<void> {
         querystring: TaxonomyChildrenQuery,
         response: { 200: WebsiteLocationChildrenDto },
       },
-      config: { rateLimit: KEYED_ROUTE_LIMITS },
+      config: KEYED_ROUTE_CONFIG,
       onRequest: [app.requireApiKey('taxonomy:read')],
     },
     async (req, reply) =>
@@ -84,7 +84,7 @@ export async function taxonomyRoutes(app: FastifyZod): Promise<void> {
         querystring: TaxonomyLangQuery,
         response: { 200: TaxonomyCatalogDto },
       },
-      config: { rateLimit: KEYED_ROUTE_LIMITS },
+      config: KEYED_ROUTE_CONFIG,
       onRequest: [app.requireApiKey('taxonomy:read')],
     },
     async (req, reply) => send(req, reply, await taxonomy.getWebsiteCatalog(req.query.lang)),
@@ -102,7 +102,7 @@ export async function taxonomyRoutes(app: FastifyZod): Promise<void> {
         querystring: TaxonomyLangQuery,
         response: { 200: WebsiteTypesDto },
       },
-      config: { rateLimit: KEYED_ROUTE_LIMITS },
+      config: KEYED_ROUTE_CONFIG,
       onRequest: [app.requireApiKey('taxonomy:read')],
     },
     async (req, reply) => send(req, reply, await taxonomy.getWebsiteTypes(req.query.lang)),
@@ -118,7 +118,7 @@ export async function taxonomyRoutes(app: FastifyZod): Promise<void> {
         querystring: TaxonomyLangQuery,
         response: { 200: WebsiteFeaturesDto },
       },
-      config: { rateLimit: KEYED_ROUTE_LIMITS },
+      config: KEYED_ROUTE_CONFIG,
       onRequest: [app.requireApiKey('taxonomy:read')],
     },
     async (req, reply) => send(req, reply, await taxonomy.getWebsiteFeatures(req.query.lang)),

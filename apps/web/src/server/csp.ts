@@ -14,8 +14,10 @@
  * - MapLibre's worker is a same-origin file (`/maplibre/…`); nothing may frame the dashboard.
  */
 
-/** Cloudflare Turnstile (login, sign-up): its script, challenge frame and calls. */
-export const TURNSTILE_ORIGIN = 'https://challenges.cloudflare.com';
+import { newNonce, TURNSTILE_ORIGIN } from '@inmolink/platform/web-security';
+
+// S17-F1: Turnstile (login, sign-up) and the nonce are platform's, shared with the public site.
+export { newNonce, TURNSTILE_ORIGIN };
 
 /** The browser-reachable hosts of the dashboard, as CSP source expressions (origins). */
 export interface CspSources {
@@ -86,10 +88,4 @@ export function dashboardCsp(nonce: string, dev: boolean, sources: CspSources): 
     "frame-ancestors 'none'",
     ...(dev ? [] : ['upgrade-insecure-requests']),
   ].join('; ');
-}
-
-/** 16 random bytes, base64: a CSP nonce. */
-export function newNonce(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(16));
-  return btoa(String.fromCharCode(...bytes));
 }

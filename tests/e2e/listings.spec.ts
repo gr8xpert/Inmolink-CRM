@@ -1,4 +1,5 @@
 import type { Page } from '@playwright/test';
+import { watchCsp } from './csp';
 import { expect, test } from './fixtures';
 import { SEED_PASSWORD as password, seedListingAgent } from './seed';
 
@@ -31,7 +32,7 @@ async function autosaved(page: Page, edit: () => Promise<void>): Promise<void> {
   await expect(page.getByTestId('editor-error')).toHaveCount(0);
 }
 
-test('[S3-05] create → add translations → publish SHARED → appears in own list; field lock toggles persist', async ({
+test('[S3-05] create → add translations → publish SHARED → appears in own list; field lock toggles persist · [S17-F1] no CSP violation on the dashboard', async ({
   page,
 }) => {
   // The map needs a style but not tiles: an empty one keeps the test off the network.
@@ -44,6 +45,8 @@ test('[S3-05] create → add translations → publish SHARED → appears in own 
       },
     }),
   );
+  // S17-F1: the dashboard's nonce policy (login, the editor with its map worker, autosave, the list) reports nothing.
+  const csp = await watchCsp(page.context());
   const seeded = await seedListingAgent();
   await login(page, seeded.email);
 
@@ -128,4 +131,5 @@ test('[S3-05] create → add translations → publish SHARED → appears in own 
   await page.getByTestId('listing-filters').getByRole('button', { name: 'Apply filters' }).click();
   await expect(page).toHaveURL(/mine/);
   await expect(page.getByTestId('listings-table')).toContainText(ref);
+  csp.expectNone();
 });

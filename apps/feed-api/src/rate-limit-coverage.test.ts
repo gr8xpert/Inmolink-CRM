@@ -2,6 +2,7 @@ import { createLogger } from '@inmolink/platform/logger';
 import { type RateLimiter, rateLimitCoverage } from '@inmolink/platform/rate-limit';
 import { afterAll, describe, expect, it } from 'vitest';
 import { buildApp } from './app';
+import { KEYED_ROUTE_CONFIG } from './plugins/api-key';
 
 /**
  * S16-03 rate-limit coverage: every feed-api route is limited — by its own rules or the app's per-IP default, or, on
@@ -52,6 +53,32 @@ describe('feed-api rate-limit coverage (S16-03)', () => {
     expect([...tagged].filter((r) => !off.includes(r))).toEqual([]);
     // No stale exemptions.
     expect(Object.keys(RATE_LIMIT_EXEMPT).filter((r) => !off.includes(r))).toEqual([]);
+  });
+
+  it('[S17-F1] the rate-limit coverage reads the explicit apiKeyLimited route config (KEYED_ROUTE_CONFIG)', async () => {
+    const keyed = app.routeTable.filter(
+      (r) => (r.config as { apiKeyLimited?: boolean } | undefined)?.apiKeyLimited === true,
+    );
+    expect(keyed.length).toBeGreaterThan(10);
+    for (const r of keyed) expect(r.config, `${r.method} ${r.url}`).toMatchObject(KEYED_ROUTE_CONFIG);
+    // The tag is declared, never inferred: a tagged route without a requireApiKey hook refuses to start.
+    const probe = await buildApp({
+      logger: createLogger({ level: 'silent' }),
+      trustProxy: 1,
+      docsUi: false,
+      limiter: allowAll,
+      checks: {},
+    });
+    try {
+      await expect(
+        (async () => {
+          probe.get('/v2/untagged-probe', { config: KEYED_ROUTE_CONFIG }, async () => ({}));
+          await probe.ready();
+        })(),
+      ).rejects.toThrow(/apiKeyLimited without a requireApiKey hook/);
+    } finally {
+      await probe.close().catch(() => undefined);
+    }
   });
 
   it('[S16-03] keyed routes refuse a keyless call before any work (401; failed checks are limited per IP)', async () => {

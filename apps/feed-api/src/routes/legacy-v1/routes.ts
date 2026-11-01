@@ -13,7 +13,7 @@ import { AppError } from '@inmolink/platform/errors';
 import { etagFor } from '@inmolink/platform/http';
 import type { FastifyZod } from '@inmolink/platform/server';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { KEYED_ROUTE_LIMITS } from '../../plugins/api-key';
+import { KEYED_ROUTE_CONFIG } from '../../plugins/api-key';
 import { sendConditional, sendSiteJson } from '../../plugins/site-response';
 
 /**
@@ -105,7 +105,7 @@ export async function legacyV1Routes(app: FastifyZod): Promise<void> {
         querystring: LegacyPropertiesQuery,
         response: { 200: LegacyPropertyList },
       },
-      config: { rateLimit: KEYED_ROUTE_LIMITS },
+      config: KEYED_ROUTE_CONFIG,
       onRequest: [app.requireApiKey('listings:read', LEGACY_LIST)],
     },
     async (req, reply) => {
@@ -132,7 +132,7 @@ export async function legacyV1Routes(app: FastifyZod): Promise<void> {
         querystring: LegacyLangQuery,
         response: { 200: LegacyPropertyResponse },
       },
-      config: { rateLimit: KEYED_ROUTE_LIMITS },
+      config: KEYED_ROUTE_CONFIG,
       onRequest: [app.requireApiKey('listings:read', LEGACY_DETAIL)],
     },
     async (req, reply) => {
@@ -157,7 +157,7 @@ export async function legacyV1Routes(app: FastifyZod): Promise<void> {
         querystring: LegacyLangQuery,
         response: { 200: LegacyTypesResponse },
       },
-      config: { rateLimit: KEYED_ROUTE_LIMITS },
+      config: KEYED_ROUTE_CONFIG,
       onRequest: [app.requireApiKey('taxonomy:read', LEGACY)],
     },
     async (req, reply) => sendShared(req, reply, await websiteApi.legacyTypes(req.query.lang)),

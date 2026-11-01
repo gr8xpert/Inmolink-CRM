@@ -9,7 +9,9 @@
  * - Every other page: `X-Frame-Options: DENY` and `frame-ancestors 'none'` — nothing may frame them.
  */
 
-export const TURNSTILE_ORIGIN = 'https://challenges.cloudflare.com';
+import { PAGE_BASE_CSP, TURNSTILE_ORIGIN } from '@inmolink/platform/web-security';
+
+export { TURNSTILE_ORIGIN };
 
 /**
  * Set by the proxy on embed requests it checked (a keyed MAC of the site id), read by the embed routes: an embed
@@ -20,7 +22,7 @@ export const EMBED_GATE_HEADER = 'x-inmolink-embed-gate';
 export const DENY_FRAMING: Readonly<Record<string, string>> = {
   'X-Frame-Options': 'DENY',
   // S16-03: no plugins, no <base> rewrites, forms post to this site only (script-src: see security-R1.md M-3).
-  'Content-Security-Policy': "frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'",
+  'Content-Security-Policy': PAGE_BASE_CSP,
 };
 
 /** The origin of a URL (`https://media.example`), or null when it is not an http(s) URL. */

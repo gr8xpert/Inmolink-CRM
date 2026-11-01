@@ -3,7 +3,7 @@
 // test the product as a returning visitor would use it — choice already made ("essential") — and the banner itself is
 // covered by apps/web's legal tests. Every context gets it: the `page` fixture through playwright.config's
 // `storageState`, hand-made contexts by passing `storageState: consentState(url)`.
-import { CONSENT_COOKIE, CONSENT_MAX_AGE, CONSENT_VERSION } from '../../apps/web/src/components/legal/cookie-consent';
+import { CONSENT_COOKIE, CONSENT_MAX_AGE, consentValue } from '../../apps/web/src/components/legal/cookie-consent';
 
 type StorageState = {
   cookies: {
@@ -26,7 +26,7 @@ export function consentState(...urls: string[]): StorageState {
   return {
     cookies: hosts.map((domain) => ({
       name: CONSENT_COOKIE,
-      value: `v${CONSENT_VERSION}.essential`,
+      value: consentValue('essential'),
       domain,
       path: '/',
       expires,
