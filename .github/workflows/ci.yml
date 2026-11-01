@@ -87,6 +87,12 @@ jobs:
         with: { persist-credentials: false, fetch-depth: 0 }
       - uses: ./.github/actions/setup
         with: { cache-key: integration }
+      - name: Free runner disk
+        # the throughput seeds (scale rows, Meili documents, WAL) filled the runner twice (cba07d1d, 08633d67:
+        # "No space left on device"); drop the preinstalled toolchains this job never uses (~20 GB)
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
       - name: Ephemeral ports above the stack's
         # the apps and fixture servers listen on 541xx-59000, inside Linux's default ephemeral range (32768-60999): an
         # outgoing socket took the web server's port once (EADDRINUSE :54110, b0a7ab52)
@@ -110,7 +116,10 @@ jobs:
         env: { MALLOC_ARENA_MAX: '2' }
       - name: Stack logs on failure
         if: failure()
-        run: docker compose --profile test logs --tail=200
+        run: |
+          df -h /
+          docker system df
+          docker compose --profile test logs --tail=200
 
   migrations:
     name: Migrations
