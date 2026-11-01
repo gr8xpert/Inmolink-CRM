@@ -11,6 +11,12 @@
  * The response shapes are ASSUMED (contracts `legacy-v1.ts`) until the recorded golden files (S8-01, H2) exist; the
  * golden-parity suite (`tests/golden/legacy-v1.golden.int.test.ts`) is the judge. White-labelling is the v2
  * serializer's: the shim only renames and drops fields of what a v2 answer already shows.
+ *
+ * S16-F9 (security review M-4; behind `legacyV1HideNetworkOwner`, off until decided): legacy property ids are the
+ * owner's, so on another agency's site they name the owner. With the flag on, only the site agency's own listings
+ * carry their legacy id (a network listing's `id` is its site reference, `<prefix>-<public code>`, which the detail
+ * route resolves on this site only), and a legacy id resolves only among the site agency's own listings: any other is
+ * the same 404, through the same statements, as a legacy id of a listing the site does not show.
  */
 import type {
   LegacyPropertiesQuery,
@@ -36,6 +42,7 @@ import * as taxonomy from '../taxonomy';
 import * as websites from '../websites';
 import { wrapSearchCursor } from './cursor';
 import { type ApiSite, listingNotFound, owned, searchPage, viewWith } from './service';
+import { legacyV1HidesNetworkOwner } from './settings';
 
 /** A legacy `lang` this site does not speak falls back to its default (legacy sites send their own UI language). */
 function legacyLocale(site: ApiSite, lang: string | undefined): string {
@@ -63,6 +70,27 @@ const TRANSACTION_FILTER: Record<LegacyPropertySummary['transaction'], Transacti
   rent: 'RENT_LONG_TERM',
   holiday: 'RENT_SHORT_TERM',
 };
+
+/**
+ * S16-F9: the documents whose legacy ids a page may name — all of them (the frozen legacy output), or with the flag
+ * on only the site agency's own.
+ */
+function nameable<T extends { ownerAgencyId: string }>(site: ApiSite, rows: readonly T[]): readonly T[] {
+  return legacyV1HidesNetworkOwner() ? rows.filter((r) => r.ownerAgencyId === site.scope.agencyId) : rows;
+}
+
+/**
+ * S16-F9: the inventory a legacy property id is resolved in — the site's, or with the flag on its own agency's part
+ * of it (null: the site shows none of its own, so no legacy id resolves). A network listing's owner id then misses
+ * exactly as a listing the site does not show; its reference form still finds it.
+ */
+function legacyIdInventory(site: ApiSite, inventory: search.PublicSearchSite): search.PublicSearchSite | null {
+  if (!legacyV1HidesNetworkOwner()) return inventory;
+  const own = site.scope.agencyId;
+  const owners = inventory.ownerAgencyIds === null ? [own] : inventory.ownerAgencyIds.filter((id) => id === own);
+  if (owners.length === 0) return null;
+  return { ...inventory, ownerAgencyIds: owners, networkOf: undefined };
+}
 
 const wholeEuros = (cents: number | null, onRequest: boolean) =>
   cents === null || onRequest ? null : Math.round(cents / 100);
@@ -171,7 +199,7 @@ export async function legacyProperties(
     ...opts,
     // The fallback restarted an offset page at its first keyset page: that is not page `q.page` (no document read).
     dropRestarted: q.page > 1,
-    extra: (rows) => migration.legacyIdsQuery(rows.map((r) => r.targetId)).sql,
+    extra: (rows) => migration.legacyIdsQuery(nameable(site, rows).map((r) => r.targetId)).sql,
   });
   const { page } = found;
   if (page.resultsChanged) return emptyList(q, page.total);
@@ -204,12 +232,13 @@ export async function legacyProperty(site: ApiSite, id: string, lang?: string): 
   ]);
   return search.withSiteRead(inventory, async (tx) => {
     const fallback = site.scope.defaultLocale;
+    const byId = target ? legacyIdInventory(site, inventory) : null;
     const row =
-      (target ? await search.publicDetailById(tx, inventory, target.newId, locale, fallback) : null) ??
+      (target && byId ? await search.publicDetailById(tx, byId, target.newId, locale, fallback) : null) ??
       (await search.publicDetailByRef(tx, inventory, id, locale, fallback));
     if (!row) throw await listingNotFound(tx, site, id);
     site.edge.targets.add(row.targetId);
-    const named = migration.legacyIdsQuery([row.targetId]);
+    const named = migration.legacyIdsQuery(nameable(site, [row]).map((r) => r.targetId));
     const shown = await viewWith(tx, site, locale, [row], named.sql);
     const detail = websites.serializeDetail(shown.view, owned<ListingDetailDoc | UnitDetailDoc>(row));
     return { status: 'ok', property: detailOf(detail, named.read(shown.extra), names, row.targetId) };

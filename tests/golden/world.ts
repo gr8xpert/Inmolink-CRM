@@ -130,10 +130,14 @@ export interface World {
 }
 
 /**
- * Loads a fixture's rows for a new agency with one OWN_ONLY site. Target ids are the fixture's own (a re-run replaces
- * its rows); legacy maps are upserted (the last load wins).
+ * Loads a fixture's rows for a new agency with one OWN_ONLY site (S16-F9: or OWN_PLUS_NETWORK — the other agencies'
+ * rows, all shared with everyone, then show on it). Target ids are the fixture's own (a re-run replaces its rows);
+ * legacy maps are upserted (the last load wins).
  */
-export async function loadWorld(fixture: Fixture): Promise<World> {
+export async function loadWorld(
+  fixture: Fixture,
+  opts: { inventoryPolicy?: 'OWN_ONLY' | 'OWN_PLUS_NETWORK' } = {},
+): Promise<World> {
   const founder = await createFounder();
   await setAgencyStatus(founder.agencyId, 'VERIFIED');
   const ids = fixture.listings.map((l) => l.card.id);
@@ -184,7 +188,7 @@ export async function loadWorld(fixture: Fixture): Promise<World> {
       name: `Golden ${RUN}`,
       domains: [`www.golden-${RUN}-${loaded.length}.example`],
       mode: 'WP_PLUGIN',
-      inventoryPolicy: 'OWN_ONLY',
+      inventoryPolicy: opts.inventoryPolicy ?? 'OWN_ONLY',
       inventoryFilters: null,
       referencePrefix: fixture.site.referencePrefix,
       locales: fixture.site.locales,

@@ -69,6 +69,12 @@ export interface WebsiteApiSettings {
    * the end of the notice after its agency's plan lost the website API) answer `PLAN_REQUIRED` (402). Off by default.
    */
   enforcePlans?: boolean;
+  /**
+   * S16-F9 (security review M-4, decision pending): the `/v1` shim names a network listing by the site's network
+   * reference (`<prefix>-<public code>`) instead of its owner's legacy id, and resolves a legacy property id only to
+   * one of the site agency's own listings (`LEGACY_V1_HIDE_NETWORK_OWNER`). Off by default: the frozen legacy output.
+   */
+  legacyV1HideNetworkOwner?: boolean;
 }
 
 let settings: WebsiteApiSettings | undefined;
@@ -101,6 +107,11 @@ export function configured(): WebsiteApiSettings {
 export function leadSecret(): Buffer {
   if (!leadKey) throw new Error('website-api: configureWebsiteApi() was not called');
   return leadKey;
+}
+
+/** S16-F9: whether `/v1` hides network listings' owners (off until the M-4 decision). */
+export function legacyV1HidesNetworkOwner(): boolean {
+  return settings?.legacyV1HideNetworkOwner === true;
 }
 
 /** The thresholds in force (defaults until configured). */

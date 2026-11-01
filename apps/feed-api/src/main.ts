@@ -59,6 +59,8 @@ try {
       : null,
     // S13-F21: the website API cut-off of a site whose plan lost it applies only while plans are enforced.
     enforcePlans: config.BILLING_ENFORCE_PLANS === 'true',
+    // S16-F9: /v1 hides network listings' owners only once the M-4 decision turns it on (off: frozen legacy output).
+    legacyV1HideNetworkOwner: config.LEGACY_V1_HIDE_NETWORK_OWNER === 'true',
   });
   // S12-08: AI search — the request-safe AI gateway (budget from the cached month spend, usage recorded by queued
   // jobs: no `withSystem` here), after the cache and the queue. Without AI (`AI_PROVIDER=none`, the default) or a

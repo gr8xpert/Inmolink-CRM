@@ -566,14 +566,44 @@ it('[S7-F10] a sitemap page is 250 entries by default (white-labelling 500 per r
   expect(report.sitemapDeep?.items).toBe(250);
 });
 
-/**
- * S8-02: the v1 shim (legacy `/api/*` as `/v1/*`) on the same seed, in the feed-api budget: ≤ 3 queries warm and with
- * compiled owner identities dropped, p95 < 150 ms at origin. Legacy ids for every seventh listing (> 10k rows in
- * `legacy_id_maps`, so a sequential scan would show) and every listing of the sites' agency; the key sent as the legacy
- * `api_key` parameter. The legacy-id statements are EXPLAINed as `app_public`: index scans only.
- */
-it('[S8-02] each v1 shim endpoint answers within 3 queries and p95 < 150 ms at origin (scale seed)', async () => {
-  const legacy = (g: number) => `pw${RUN}-${g}`;
+/** S8-02 / S16-F9: the v1 shim's endpoints on the scale seed (sites `own`, `network`, `narrow`). */
+const v1Legacy = (g: number) => `pw${RUN}-${g}`;
+const v1NetworkRow = (i: number) => {
+  const g = 7 * (1 + ((i * 7_919) % (Math.floor(ROWS / 7) - 1)));
+  return g % AGENCIES === 0 ? g + 7 : g;
+};
+const v1OwnRow = (i: number) => AGENCIES * (1 + ((i * 104_729) % (Math.floor(ROWS / AGENCIES) - 1)));
+const v1Endpoints: Record<string, { key: SiteName; url: (i: number) => string }> = {
+  v1ListOwn: { key: 'own', url: (i) => `/v1/properties?min_price=${(i % 50) * 10_000}&sort=price_asc` },
+  v1ListNetwork: { key: 'network', url: (i) => `/v1/properties?beds=${i % 4}&min_price=${(i % 50) * 10_000}` },
+  v1ListNarrow: { key: 'narrow', url: (i) => `/v1/properties?beds=${i % 3}` },
+  // Legacy filter ids (engine down: the Postgres fallback answers), resolved from the in-process taxonomy maps.
+  v1ListFiltered: {
+    key: 'network',
+    url: (i) => `/v1/properties?type=pw${RUN}-t&location=pw${RUN}-c&beds=${i % 4}&min_price=${(i % 50) * 10_000}`,
+  },
+  v1ListFeature: {
+    key: 'network',
+    url: (i) => `/v1/properties?feature=pw${RUN}-f&location=pw${RUN}-c&beds=${i % 4}`,
+  },
+  v1ListNarrowFiltered: {
+    key: 'narrow',
+    url: (i) => `/v1/properties?location=pw${RUN}-city&type=pw${RUN}-t&beds=${i % 3}`,
+  },
+  v1DetailOwn: { key: 'own', url: (i) => `/v1/properties/${v1Legacy(v1OwnRow(i))}` },
+  v1DetailNetwork: { key: 'network', url: (i) => `/v1/properties/${v1Legacy(v1NetworkRow(i))}` },
+  v1DetailRef: { key: 'network', url: (i) => `/v1/properties/PS-${code(v1NetworkRow(i))}` },
+};
+const v1Get = (key: SiteName, url: string) =>
+  app.inject({
+    method: 'GET',
+    url: `${url}${url.includes('?') ? '&' : '?'}api_key=${encodeURIComponent(keys[key])}`,
+  });
+
+let v1Seeded = false;
+/** The v1 shim's data on the scale seed (once per file): legacy ids, taxonomy maps, the keys as legacy keys. */
+async function seedV1(): Promise<void> {
+  if (v1Seeded) return;
   await runSql(`insert into legacy_id_maps (id, entity, legacy_id, new_id, method)
     select gen_random_uuid(), 'listing', 'pw${RUN}-' || g, ${idSql('g')}, 'perf'
       from generate_series(1, ${ROWS}) g where g % 7 = 0 or g % ${AGENCIES} = 0
@@ -608,59 +638,50 @@ it('[S8-02] each v1 shim endpoint answers within 3 queries and p95 < 150 ms at o
       );
     }
   });
-  const networkRow = (i: number) => {
-    const g = 7 * (1 + ((i * 7_919) % (Math.floor(ROWS / 7) - 1)));
-    return g % AGENCIES === 0 ? g + 7 : g;
-  };
-  const ownRow = (i: number) => AGENCIES * (1 + ((i * 104_729) % (Math.floor(ROWS / AGENCIES) - 1)));
-  const endpoints: Record<string, { key: SiteName; url: (i: number) => string }> = {
-    v1ListOwn: { key: 'own', url: (i) => `/v1/properties?min_price=${(i % 50) * 10_000}&sort=price_asc` },
-    v1ListNetwork: { key: 'network', url: (i) => `/v1/properties?beds=${i % 4}&min_price=${(i % 50) * 10_000}` },
-    v1ListNarrow: { key: 'narrow', url: (i) => `/v1/properties?beds=${i % 3}` },
-    // Legacy filter ids (engine down: the Postgres fallback answers), resolved from the in-process taxonomy maps.
-    v1ListFiltered: {
-      key: 'network',
-      url: (i) => `/v1/properties?type=pw${RUN}-t&location=pw${RUN}-c&beds=${i % 4}&min_price=${(i % 50) * 10_000}`,
-    },
-    v1ListFeature: {
-      key: 'network',
-      url: (i) => `/v1/properties?feature=pw${RUN}-f&location=pw${RUN}-c&beds=${i % 4}`,
-    },
-    v1ListNarrowFiltered: {
-      key: 'narrow',
-      url: (i) => `/v1/properties?location=pw${RUN}-city&type=pw${RUN}-t&beds=${i % 3}`,
-    },
-    v1DetailOwn: { key: 'own', url: (i) => `/v1/properties/${legacy(ownRow(i))}` },
-    v1DetailNetwork: { key: 'network', url: (i) => `/v1/properties/${legacy(networkRow(i))}` },
-    v1DetailRef: { key: 'network', url: (i) => `/v1/properties/PS-${code(networkRow(i))}` },
-  };
-  const get = (key: SiteName, url: string) =>
-    app.inject({
-      method: 'GET',
-      url: `${url}${url.includes('?') ? '&' : '?'}api_key=${encodeURIComponent(keys[key])}`,
-    });
-  for (const { key, url } of Object.values(endpoints)) for (let i = 0; i < 3; i++) await get(key, url(i));
-  const v1: Record<string, { p95Ms: number; queries: number; coldQueries: number; items: number }> = {};
-  for (const [name, { key, url }] of Object.entries(endpoints)) {
+  v1Seeded = true;
+}
+
+type V1Report = Record<string, { p95Ms: number; queries: number; coldQueries: number; items: number }>;
+/** Each v1 endpoint: p95 over REQUESTS answers (each with its expected status), queries warm and cold. */
+async function measureV1(statusOf: (name: string) => number): Promise<V1Report> {
+  for (const { key, url } of Object.values(v1Endpoints)) for (let i = 0; i < 3; i++) await v1Get(key, url(i));
+  const v1: V1Report = {};
+  for (const [name, { key, url }] of Object.entries(v1Endpoints)) {
     const times: number[] = [];
     let items = 0;
     for (let i = 0; i < REQUESTS; i++) {
       const started = performance.now();
-      const res = await get(key, url(100 + i));
+      const res = await v1Get(key, url(100 + i));
       times.push(performance.now() - started);
-      expect(res.statusCode, `${name} ${url(100 + i)}: ${res.body.slice(0, 200)}`).toBe(200);
+      expect(res.statusCode, `${name} ${url(100 + i)}: ${res.body.slice(0, 200)}`).toBe(statusOf(name));
       const body = res.json() as { properties?: unknown[] };
       items = Math.max(items, (body.properties ?? [1]).length);
     }
-    await get(key, url(7));
-    const queries = await countQueries(() => get(key, url(7)));
+    await v1Get(key, url(7));
+    const queries = await countQueries(() => v1Get(key, url(7)));
     // Cold: compiled owner identities and resolved listing legacy ids dropped (the taxonomy maps stay loaded: feed-api
     // loads them at boot and refreshes them in the background).
     websiteApi.resetWebsiteApiCaches();
     migration.resetLegacyIdCache();
-    const coldQueries = await countQueries(() => get(key, url(8)));
+    const coldQueries = await countQueries(() => v1Get(key, url(8)));
     v1[name] = { p95Ms: Math.round(p95(times) * 10) / 10, queries, coldQueries, items };
   }
+  return v1;
+}
+
+/**
+ * S8-02: the v1 shim (legacy `/api/*` as `/v1/*`) on the same seed, in the feed-api budget: ≤ 3 queries warm and with
+ * compiled owner identities dropped, p95 < 150 ms at origin. Legacy ids for every seventh listing (> 10k rows in
+ * `legacy_id_maps`, so a sequential scan would show) and every listing of the sites' agency; the key sent as the legacy
+ * `api_key` parameter. The legacy-id statements are EXPLAINed as `app_public`: index scans only.
+ */
+it('[S8-02] each v1 shim endpoint answers within 3 queries and p95 < 150 ms at origin (scale seed)', async () => {
+  await seedV1();
+  const legacy = v1Legacy;
+  const networkRow = v1NetworkRow;
+  const endpoints = v1Endpoints;
+  const get = v1Get;
+  const v1 = await measureV1(() => 200);
   // The legacy-id statements (a page's names in the presentation statement, a detail's resolution) as app_public.
   migration.resetLegacyIdCache();
   const captured: { query: string; params: unknown[] }[] = [];
@@ -705,5 +726,39 @@ it('[S8-02] each v1 shim endpoint answers within 3 queries and p95 < 150 ms at o
     expect(r.coldQueries, name).toBeLessThanOrEqual(3);
     expect(r.items, name).toBeGreaterThan(0);
     expect(r.p95Ms, name).toBeLessThan(P95_BUDGET_MS);
+  }
+}, 600_000);
+
+/**
+ * S16-F9 (security review M-4, decision pending): the same v1 endpoints with `legacyV1HideNetworkOwner` on, in the same
+ * budget (≤ 3 queries warm and cold, p95 < 150 ms). A network listing's owner legacy id on the network site
+ * (`v1DetailNetwork`) is now the legacy 404 of a listing the site does not show; the network pages name no owner.
+ */
+it('[S16-F9] with the flag on, every v1 endpoint stays within 3 queries and p95 < 150 ms; no network item names its owner', async () => {
+  await seedV1();
+  const base = { mediaBaseUrl: 'https://media.example', cursorKey: 'test-cursor-key-0123456789abcdef0123' };
+  websiteApi.configureWebsiteApi({ ...base, legacyV1HideNetworkOwner: true });
+  try {
+    const v1 = await measureV1((name) => (name === 'v1DetailNetwork' ? 404 : 200));
+    // The network pages: own rows (g a multiple of AGENCIES) keep their legacy id, no other row is named by one.
+    const owners = new Set<string>();
+    for (let i = 0; i < 20; i++) {
+      const res = await v1Get('network', v1Endpoints.v1ListNetwork?.url(i) as string);
+      for (const p of (res.json() as { properties: { id: string; ref: string }[] }).properties) {
+        const g = p.id.startsWith(`pw${RUN}-`) ? Number(p.id.slice(`pw${RUN}-`.length)) : null;
+        if (g !== null && g % AGENCIES !== 0) owners.add(p.id);
+        if (g === null) expect(p.id).toBe(p.ref);
+      }
+    }
+    log.info({ rows: ROWS, report: v1 }, 'website API v1 shim at scale, network owners hidden (S16-F9)');
+    expect([...owners]).toEqual([]);
+    for (const [name, r] of Object.entries(v1)) {
+      expect(r.queries, name).toBeLessThanOrEqual(3);
+      expect(r.coldQueries, name).toBeLessThanOrEqual(3);
+      expect(r.items, name).toBeGreaterThan(0);
+      expect(r.p95Ms, name).toBeLessThan(P95_BUDGET_MS);
+    }
+  } finally {
+    websiteApi.configureWebsiteApi(base);
   }
 }, 600_000);

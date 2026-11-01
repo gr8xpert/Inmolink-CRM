@@ -239,6 +239,11 @@ are `{ "status": "error", "message": … }`.
   and reloaded in the background every 5 min: a new migration batch's filter ids work within 5 min, no restart.
   Listing and unit ids go through the SECURITY DEFINER lookups `legacy_target_ids` / `legacy_ids_of`; `app_public`
   cannot read those maps.
+- **Network owners (S16-F9, security review M-4, decision pending).** By default `/v1` names a network listing by its
+  owner's legacy id and resolves that id on any site showing it (the frozen legacy output). `LEGACY_V1_HIDE_NETWORK_OWNER=true`
+  (feed-api) names network listings by the site reference (`<prefix>-<public code>`) instead and resolves legacy ids
+  among the site agency's own listings only (any other: the usual 404). Turning it on changes `/v1` output for sites
+  with network listings: legacy plugins that cached an owner id get a 404 for it and find the listing by its reference.
 - **Shapes are assumed** until H2: `tests/golden/synthetic/` holds hand-derived golden files for the assumed contract
   (contracts `legacy-v1.ts`). Recorded files (`pnpm legacy:record`) go to `tests/golden/<endpoint>/` with
   `tests/golden/fixture.json` (the test account's read-path rows after its migration); `pnpm test:golden` replays all
