@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- feat(wp-plugin): legacy plugin settings migration on activation (assumed option map, off by default until H15) + real-install checklist [S8-F11]
 - feat(website-api,feed-api): legacy `/v1` hides network owners behind `LEGACY_V1_HIDE_NETWORK_OWNER` (off by default; decision pending) [S16-F9]
 - feat(website-api,public,platform): portal listing / development pages purged at the CDN by public-code Cache-Tags; agency changes purge their pages in a bulk set drained after targeted purges; ISR pages s-maxage 60; `PAGE_CACHE_MAX_BYTES` [S15-F11]
 - perf(crm,mls,search,website-api,ops): S16 perf should-fixes — owner-set scan claim released on a stale mark (once per scan); delisting sitemap runs once per agency per 6 h + `inmolink.portal.sitemap_delist.requests`; agency text sweep and retention scan on index keysets (migration 0178: `contacts_retention_idx`, deleted tasks / prospects indexes, built concurrently); retention runs spread over 6 h by agency; MLS prune keyset, 100 a batch; SLO rule groups every 30 s (blackbox scrape) [S17-F3]

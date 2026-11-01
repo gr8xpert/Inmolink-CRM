@@ -1,0 +1,14 @@
+{
+  "_comment": "S8-F11 ASSUMED fixture (pending H15): the legacy plugin's options as option name => stored value, shaped after src/Migration/legacy-map.php. Not a real export; replace with an anonymised export of a real legacy site once H15 arrives. The key is a well-formed test key, never a real one.",
+  "options": {
+    "inmolink_options": {
+      "api_url": "https://api.inmolink.es/v1",
+      "api_key": "inl_test_skzyxwvutsrq_zyxwvutsrqponmlkjihgfedcba765432zyxwvutsrqponmlkjihg",
+      "languages": "en,es_ES",
+      "default_language": "es_ES",
+      "cache_minutes": "10",
+      "results_per_page": "12"
+    },
+    "inmolink_property_slug": "propiedad"
+  }
+}
