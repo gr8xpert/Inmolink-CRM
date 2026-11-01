@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- fix(ci): GDPR sweeps perf seed keeps its 50k activities inside the partitions a fresh database has (2 min apart, ~69 days; was ~139 days → "no partition of relation activities") [S17-F3 CI]
 - fix(wp-plugin): Polylang / WPML adapters — no double prefix in directory mode, static front pages and `lang=` query vars no longer leak into routing or URLs [S8-F21]
 - feat(wp-plugin): legacy plugin settings migration on activation (assumed option map, off by default until H15) + real-install checklist [S8-F11]
 - feat(website-api,feed-api): legacy `/v1` hides network owners behind `LEGACY_V1_HIDE_NETWORK_OWNER` (off by default; decision pending) [S16-F9]

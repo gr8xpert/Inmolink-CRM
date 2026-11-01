@@ -88,7 +88,7 @@ beforeAll(async () => {
     insert into activities (id, agency_id, contact_id, type, body, occurred_at)
       select gen_random_uuid(), '${A}', c.id, 'CALL',
              case when g % 2 = 0 then null else 'call ' || g end,
-             date_trunc('milliseconds', now() - g * interval '4 minutes', 'UTC')
+             date_trunc('milliseconds', now() - g * interval '2 minutes', 'UTC')
         from generate_series(1, ${ACTIVITIES}) g
         -- the agency's active contacts (logged on recently, as in real data), one call each
         join (select id, row_number() over (order by id) as n from contacts
