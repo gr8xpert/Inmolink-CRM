@@ -87,6 +87,10 @@ jobs:
         with: { persist-credentials: false, fetch-depth: 0 }
       - uses: ./.github/actions/setup
         with: { cache-key: integration }
+      - name: Ephemeral ports above the stack's
+        # the apps and fixture servers listen on 541xx-59000, inside Linux's default ephemeral range (32768-60999): an
+        # outgoing socket took the web server's port once (EADDRINUSE :54110, b0a7ab52)
+        run: sudo sysctl -w net.ipv4.ip_local_port_range="60000 65535"
       - name: Test stack
         run: docker compose --profile test up -d --wait
       # One step at a time: the root suites share the stack with the package suites.
@@ -141,6 +145,10 @@ jobs:
         with: { persist-credentials: false }
       - uses: ./.github/actions/setup
         with: { cache-key: e2e }
+      - name: Ephemeral ports above the stack's
+        # the apps and fixture servers listen on 541xx-59000, inside Linux's default ephemeral range (32768-60999): an
+        # outgoing socket took the web server's port once (EADDRINUSE :54110, b0a7ab52)
+        run: sudo sysctl -w net.ipv4.ip_local_port_range="60000 65535"
       - name: Browser (Chromium)
         run: pnpm exec playwright install --with-deps chromium
       - name: Build web, run flows

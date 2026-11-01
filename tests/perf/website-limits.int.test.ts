@@ -127,50 +127,56 @@ it('[S7-04] quota and anti-scraping checks add one Redis round trip, no database
 });
 
 /**
- * Successful executions of each Redis command so far (`INFO commandstats`: calls − failed_calls). A script call that
- * misses the script cache is an EVALSHA failing with NOSCRIPT plus ioredis's EVAL retry — one execution, not two
- * (CI counted 401 for 400 once, e3bf24e4).
+ * The limits connection, counting the limiter's script commands (each one round trip: an EVALSHA, or EVAL on a
+ * script-cache miss). Counted on the client, not with `INFO commandstats`: that counter is server-wide, and any other
+ * client of the limits Redis (a readiness probe's `selfTest`) made CI count one call too many (e3bf24e4, b0a7ab52).
  */
-async function commandCalls(): Promise<Record<string, number>> {
-  const info = (await rateLimitConnection().info('commandstats')) as string;
-  const out: Record<string, number> = {};
-  for (const m of info.matchAll(/^cmdstat_([^:]+):calls=(\d+)(?:.*?failed_calls=(\d+))?/gm)) {
-    out[m[1] as string] = Number(m[2]) - Number(m[3] ?? 0);
-  }
-  return out;
+function countingConnection(): { redis: ReturnType<typeof rateLimitConnection>; scriptCalls: () => number } {
+  const target = rateLimitConnection();
+  let calls = 0;
+  const redis = new Proxy(target, {
+    get(t, name, receiver) {
+      const value = Reflect.get(t, name, receiver);
+      if (typeof name === 'string' && name.startsWith('inlRate') && typeof value === 'function') {
+        return (...args: unknown[]) => {
+          calls++;
+          return (value as (...a: unknown[]) => unknown).apply(t, args);
+        };
+      }
+      return value;
+    },
+  });
+  return { redis, scriptCalls: () => calls };
 }
 
 it('[S7-04] one Redis call per limit slot and no database statement per request (publishable: two, the per-IP rule in its own slot since S7-F9; secret: one); Redis memory per browser', async () => {
   const N = 200;
   const widget = key('PUBLISHABLE', 7);
   // Its own key prefix, so only this test's browsers are counted.
+  const counted = countingConnection();
   const own = new RateLimiter({
-    redis: rateLimitConnection(),
+    redis: counted.redis,
     prefix: `${prefix}:mem`,
     logger: createLogger({ level: 'silent' }),
     hmacKey: 'perf-rate-limit-hmac-key-0123456789abcdef',
   });
   const facts = (i: number) => ({ ip: `203.0.113.${i}`, paged: true, requestId: 'perf' });
   await websiteApi.checkWebsiteLimits(own, widget, facts(0)); // the script is loaded
-  const before = await commandCalls();
+  const before = counted.scriptCalls();
   let statements = 0;
   for (let i = 1; i <= N; i++) {
     statements += await countQueries(() => websiteApi.checkWebsiteLimits(own, widget, facts(i)));
   }
-  const after = await commandCalls();
-  const scriptCalls = (after.evalsha ?? 0) - (before.evalsha ?? 0) + ((after.eval ?? 0) - (before.eval ?? 0));
+  const scriptCalls = counted.scriptCalls() - before;
   expect(statements).toBe(0);
   // Publishable keys: the key/browser rules and the `feed.pk.ip` rule (its own slot) are two script calls.
   expect(scriptCalls).toBe(2 * N);
   // A secret key has no per-IP slot: exactly one call.
   const secret = key('SECRET', 7);
   await websiteApi.checkWebsiteLimits(own, secret, facts(0));
-  const beforeSecret = await commandCalls();
+  const beforeSecret = counted.scriptCalls();
   await websiteApi.checkWebsiteLimits(own, secret, facts(1));
-  const afterSecret = await commandCalls();
-  expect(
-    (afterSecret.evalsha ?? 0) - (beforeSecret.evalsha ?? 0) + ((afterSecret.eval ?? 0) - (beforeSecret.eval ?? 0)),
-  ).toBe(1);
+  expect(counted.scriptCalls() - beforeSecret).toBe(1);
   // What one browser (key × IP) leaves in the limits Redis: its per-browser rules' keys.
   const redis = rateLimitConnection();
   const browserKeys = (await redis.keys(`${prefix}:mem:*`)).filter((k) =>
@@ -194,8 +200,9 @@ it('[S7-04] one Redis call per limit slot and no database statement per request 
 
 it('[S7-F7] extraction budgets add no call (two per publishable request, one per limit slot): filtered first pages and details, no statement; memory per browser and key', async () => {
   const N = 200;
+  const counted = countingConnection();
   const own = new RateLimiter({
-    redis: rateLimitConnection(),
+    redis: counted.redis,
     prefix: `${prefix}:f7`,
     logger: createLogger({ level: 'silent' }),
     hmacKey: 'perf-rate-limit-hmac-key-0123456789abcdef',
@@ -245,11 +252,10 @@ it('[S7-F7] extraction budgets add no call (two per publishable request, one per
     }
   };
   await visitor('192.0.2.250', 0); // the script is loaded
-  const before = await commandCalls();
+  const before = counted.scriptCalls();
   let statements = 0;
   for (let i = 0; i < N; i++) statements += await countQueries(() => visitor(`192.0.2.${i}`, i));
-  const after = await commandCalls();
-  const scriptCalls = (after.evalsha ?? 0) - (before.evalsha ?? 0) + ((after.eval ?? 0) - (before.eval ?? 0));
+  const scriptCalls = counted.scriptCalls() - before;
   expect(statements).toBe(0);
   expect(scriptCalls).toBe(N * 30 * 2); // two slots per publishable request
 

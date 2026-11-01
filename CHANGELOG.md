@@ -6,7 +6,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 
 ### Added
 - feat(developments,search,mls,contracts,web): per-development commission split `commission_split_bp` (default 5000 = 50/50, owner admins set 0–10000; network search and new viewing terms use it, viewing requests keep their snapshot); migration 0180; replaces `UNIT_SPLIT_BP` [S17-F5]
-- fix(ci): rate-limit perf test counts EVALSHA NOSCRIPT retries once [S7-04 CI]
+- fix(ci): rate-limit perf tests count the limiter's own script calls (client-side; server-wide commandstats also saw probe calls); Redis containers capped at 1 CPU (0.5 tailed the limiter p95); CI e2e + integration keep ephemeral ports above the stack's (EADDRINUSE :54110) [S7-04 CI]
 - feat(identity,agencies,media,website-api,public,web): opt-in member public profiles on the portal (`/{locale}/agent/{id}/{name}`, listed on the agency profile) and agency logos / member photos copied to public WebP variants; migration 0179 [S15-F10]
 - fix(worker): register `websiteApi.purgePortalAgencyPages` in the indexing pool (was never processed) [S15-F11 CI]
 - fix(ci): GDPR sweeps perf seed keeps its 50k activities inside the partitions a fresh database has (2 min apart, ~69 days; was ~139 days → "no partition of relation activities") [S17-F3 CI]
