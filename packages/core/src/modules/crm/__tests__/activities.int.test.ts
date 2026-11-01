@@ -272,11 +272,17 @@ describe('timeline', () => {
     const contactId = newId();
     const leadId = newId();
     const listingId = newId();
+    // S16 CI fix: seeded and paged at a mid-month anchor (the 16th of the current UTC month), not `now()`. From `now()`
+    // the months the seed fills moved with the date: on 2026-11-01 the other agencies' newest day filled p20261101 while
+    // the deep cursor (12 days back) lay wholly in October, so the deep lists pruned a "filled" month. Anchored, the seed
+    // spans the anchor's month and the one before, and the deep pages reach into both, on any date.
+    const today = new Date();
+    const anchor = `'${new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 16)).toISOString()}'::timestamptz`;
     const plans = await withAdminRollback(['activities'], async (q) => {
       await q('set local session_replication_role = replica');
       await q(
         `insert into activities (id, agency_id, occurred_at, type, contact_id, lead_id, listing_id)
-         select gen_random_uuid(), $1, date_trunc('milliseconds', now() - g * interval '7 minutes', 'UTC'),
+         select gen_random_uuid(), $1, date_trunc('milliseconds', ${anchor} - g * interval '7 minutes', 'UTC'),
                 case when g % 10 = 0 then 'LEAD_UPDATED' else 'CALL' end, $2,
                 case when g % 4 = 0 then $3::uuid end, case when g % 7 = 0 then $4::uuid end
          from generate_series(1, 5000) g`,
@@ -284,7 +290,7 @@ describe('timeline', () => {
       );
       await q(
         `insert into activities (id, agency_id, occurred_at, type, contact_id)
-         select gen_random_uuid(), ag.id, date_trunc('milliseconds', now() - (g * 37 % 25) * interval '1 day', 'UTC'),
+         select gen_random_uuid(), ag.id, date_trunc('milliseconds', ${anchor} - (g * 37 % 25) * interval '1 day', 'UTC'),
                 'CALL', gen_random_uuid()
          from (select gen_random_uuid() as id from generate_series(1, 200)) ag, generate_series(1, 275) g`,
       );
@@ -300,8 +306,8 @@ describe('timeline', () => {
         const out = await q(`explain ${text}`, values);
         return out.map((r) => String(Object.values(r)[0])).join('\n');
       };
-      const deep = `and occurred_at <= now() - interval '17500 minutes'
-        and (occurred_at, id) < (now() - interval '17500 minutes', 'ffffffff-ffff-7fff-bfff-ffffffffffff'::uuid)`;
+      const deep = `and occurred_at <= ${anchor} - interval '17500 minutes'
+        and (occurred_at, id) < (${anchor} - interval '17500 minutes', 'ffffffff-ffff-7fff-bfff-ffffffffffff'::uuid)`;
       const order = 'order by occurred_at desc, id desc limit 51';
       const of = (extra: string, cursor = '') =>
         `select id, type, occurred_at from activities where agency_id = $1 ${extra} ${cursor} ${order}`;
@@ -331,7 +337,8 @@ describe('timeline', () => {
       feedType: /activities_p\w+_agency_id_type_occurred_at_id_idx/,
     } as const;
     const { filled, ...lists } = plans;
-    expect(filled.length).toBeGreaterThanOrEqual(1);
+    // the anchor's month and the one before it, both reached by every list (the deep cursor sits on the anchor's 4th)
+    expect(filled.length).toBeGreaterThanOrEqual(2);
     for (const [name, text] of Object.entries(lists)) {
       expect(text, name).toMatch(index[name as keyof typeof index]);
       const lines = text.split('\n');

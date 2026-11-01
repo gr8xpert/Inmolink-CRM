@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- fix(tests): S16-F3 sitemap-delisting test builds through the worker's path (noteDocOwner marks the shared owner set stale; a set scanned before the agency's first document left its listing in the sitemap on CI); activities plan test seeded and paged at a mid-month anchor (Nov 1: the deep cursor pruned a "filled" p20261101) [S16 CI]
 - feat(ops): operations readiness — SLO burn-rate (min-traffic guarded), endpoint/origin-certificate, disk and AI alerts with clickable runbook links and Alertmanager inhibitions; per-service Grafana dashboards; blackbox_exporter (prom/blackbox-exporter v0.28.0, new image); Prometheus retention 35 d; 0.3 s request-duration bucket; hosted status page config; complete runbooks; pnpm ops:alerts staged-firing plan [S16-05]
 - feat(compliance,crm,mls,presentations,notifications,chat,matching,websites,imports,admin,web): GDPR flows — consent records, data subject export, retention anonymization with grace window, agency erasure (ERASE_AGENCY, step-up), erasure reaches MLS registrations, selections, notifications, exports and import files; legal pages and cookie consent (placeholder texts, H7) [S16-04]
 - feat(seed): scale seed writes feed connections (5,074, off), client profiles, contacts/leads/tasks/activities/calendar/notifications with e-mail-off preferences; storms reuse them, no provisioning; dashboard smoke checks CRM pages have items in the seeded calendar span [S16-F4]

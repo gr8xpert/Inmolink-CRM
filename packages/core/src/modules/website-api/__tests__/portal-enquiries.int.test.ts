@@ -720,8 +720,14 @@ describe('portal sitemaps follow a delisting (S16-F3)', () => {
   it("[S16-F3] a delisted agency's URLs leave the sitemaps within minutes: one coalesced run on the event", async () => {
     const d = await createFounder({ companyName: `Delisted Homes ${RUN}` });
     await setAgencyStatus(d.agencyId, 'VERIFIED');
+    // S16 CI fix: the worker's build path, owner mark included. A shared owner set scanned before the agency's first
+    // document (here, or by any suite within `search.DOC_OWNERS_MAX_AGE_MS`) does not hold it; the build job marks the
+    // set stale (`search.noteDocOwner`), so the run after the delisting hides the agency. Rebuilt without the mark, the
+    // stale set left the agency out of the hide list and its listing in the sitemap (CI, 934bd2fb/13938604).
+    await search.sharedDocOwners();
     const own = await listing(d);
     await withSystem('portal-enquiries.test', (tx) => search.rebuildReadModels(tx, 'LISTING', [own]));
+    expect(await search.noteDocOwner(d.agencyId)).toBe(true);
     websiteApi.resetPortalCaches();
     websiteApi.resetPortalSitemapCache();
     await websiteApi.generatePortalSitemaps({ log });
