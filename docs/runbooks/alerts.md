@@ -42,6 +42,7 @@ alert is missing here, has no runbook heading, never fires in its promtool test,
 | `SloErrorBudgetBurnFast` | critical | 2m | `slo.yml` | [observability.md#slo-error-budget-burn](observability.md#slo-error-budget-burn) |
 | `SloErrorBudgetBurnSlow` | warning | 15m | `slo.yml` | [observability.md#slo-error-budget-burn](observability.md#slo-error-budget-burn) |
 | `AppMetricsDown` | critical | 10m | `slo.yml` | [observability.md#app-metrics-down](observability.md#app-metrics-down) |
+| `AppMetricsScraperDown` | warning | 5m | `slo.yml` | [observability.md#app-metrics-scraper-down](observability.md#app-metrics-scraper-down) |
 | `WebsiteScrapingDetected` | warning | at once | `website.yml` | [website-api.md#scraping-detected](website-api.md#scraping-detected) |
 | `WebsiteHoneytokenHit` | warning | at once | `website.yml` | [website-api.md#honeytoken-hit](website-api.md#honeytoken-hit) |
 | `WebsiteEdgePurgeFailing` | warning | at once | `website.yml` | [cdn.md#purge-failing](cdn.md#purge-failing) |

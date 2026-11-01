@@ -17,6 +17,10 @@ ssh:
 servers:
   web:
     hosts: [] # per destination
+    # S16-F6: the host's app-metrics scraper (infra/ansible/roles/app_metrics) finds every running container of this role
+    # by this alias on the `kamal` network: the old and the new one during a rolling deploy, each its own target.
+    options:
+      network-alias: inmolink-realtime-metrics
 proxy:
   app_port: 4002
   # Cloudflare (Full strict) in front: kamal-proxy serves the Cloudflare origin certificate.
@@ -55,7 +59,11 @@ env:
     EDGE_REQUEST_ID_HEADER: "cf-ray"
     APP_ROLE: "http"
     REALTIME_PORT: "4002"
-    REALTIME_METRICS_PORT: "0"
+    # S16-F6: /metrics inside the container only, never published (two containers of the role run during a deploy):
+    # reached over the `kamal` network by the app-metrics scraper, not from outside the host.
+    REALTIME_METRICS_PORT: "9466"
+    METRICS_HOST: "0.0.0.0"
+    METRICS_ALLOW_WILDCARD: "true"
   secret:
     - RELEASE
     - SENTRY_DSN

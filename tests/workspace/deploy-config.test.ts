@@ -513,7 +513,12 @@ describe('Redis memory monitoring (S7-F7)', () => {
     expect(prometheus).toContain('labels: { instance: redis-queue, host: {{ h }} }');
     expect(prometheus).toContain('{{ hostvars[redis_cache_host].wg_ip }}:{{ redis_cache_exporter_port }}');
     expect(prometheus).toContain('labels: { instance: redis-cache, host: {{ redis_cache_host }} }');
-    expect(prometheus).not.toContain("{% for h in groups['app'] %}");
+    // Only the host running the accessory, not every app host (the app-metrics job below iterates app hosts: S16-F6).
+    const redisJob = prometheus.slice(
+      prometheus.indexOf('- job_name: redis'),
+      prometheus.indexOf('- job_name: app-metrics'),
+    );
+    expect(redisJob).not.toMatch(/groups\['app'\]/);
     // The rules the series feed, and the alert when there are none.
     const rules = read('infra', 'monitoring', 'rules', 'redis.yml');
     expect(rules).toContain('redis_memory_used_bytes / (redis_memory_max_bytes > 0)');
@@ -535,5 +540,82 @@ describe('Redis memory monitoring (S7-F7)', () => {
     expect(lock).toContain('--ctorigdstport {{ redis_cache_exporter_port }} --ctdir ORIGINAL -j INMOLINK-METRICS');
     expect(lock).toContain("metrics iptables {{ (groups['monitoring'] | map('extract', hostvars, 'wg_ip')");
     expect(lock).toContain('$ipt -A INMOLINK-METRICS -j DROP');
+  });
+});
+
+describe('app metrics scrape path (S16-F6)', () => {
+  const vars = yaml<Record<string, unknown>>('infra', 'ansible', 'group_vars', 'all.yml');
+  const scraper = read('infra', 'ansible', 'roles', 'app_metrics', 'templates', 'app-metrics.yml.j2');
+  const scraperConfig = parse(scraper) as {
+    scrape_configs: { job_name: string; dns_sd_configs: { names: string[]; type: string; port: number }[] }[];
+  };
+  // Kamal role → the alias its containers carry and the job they are scraped as.
+  const ROLES = [
+    { app: 'api', role: 'web', job: 'api', portVar: 'API_METRICS_PORT' },
+    { app: 'feed-api', role: 'web', job: 'feed-api', portVar: 'FEED_API_METRICS_PORT' },
+    { app: 'realtime', role: 'web', job: 'realtime', portVar: 'REALTIME_METRICS_PORT' },
+    { app: 'worker', role: 'workers', job: 'worker', portVar: 'WORKER_METRICS_PORT' },
+    { app: 'worker', role: 'media', job: 'worker', portVar: 'WORKER_METRICS_PORT' },
+  ] as const;
+
+  it('[S16-F6] every app container serves /metrics on its own port, unpublished, and carries the alias its job discovers', () => {
+    for (const r of ROLES) {
+      const k = kamal(r.app);
+      const port = Number(k.env.clear[r.portVar]);
+      expect(port, r.app).toBeGreaterThan(0);
+      // Inside the container on every interface (production config check: METRICS_ALLOW_WILDCARD), never published.
+      expect(k.env.clear.METRICS_HOST, r.app).toBe('0.0.0.0');
+      expect(k.env.clear.METRICS_ALLOW_WILDCARD, r.app).toBe('true');
+      const role = k.servers[r.role];
+      expect(role, `${r.app}.${r.role}`).toBeDefined();
+      const alias = role?.options?.['network-alias'];
+      expect(typeof alias, `${r.app}.${r.role}`).toBe('string');
+      expect(JSON.stringify(k)).not.toMatch(new RegExp(`:${port}["']`));
+      for (const d of DESTS) {
+        expect(dest(r.app, d).env?.clear?.[r.portVar], `${r.app}.${d}`).toBeUndefined();
+        expect(JSON.stringify(dest(r.app, d))).not.toContain(`:${port}`);
+      }
+      const job = scraperConfig.scrape_configs.find((j) => j.job_name === r.job);
+      expect(job?.dns_sd_configs, r.job).toContainEqual(expect.objectContaining({ names: [alias], type: 'A', port }));
+      expect(read('apps', r.app, 'src', 'config.ts')).toContain(`${r.portVar}: portVar(${port})`);
+    }
+    // Every job the scraper has is one AppMetricsDown and the federation match name.
+    expect(scraperConfig.scrape_configs.map((j) => j.job_name).sort()).toEqual([
+      'api',
+      'feed-api',
+      'realtime',
+      'worker',
+    ]);
+    const slo = read('infra', 'monitoring', 'rules', 'slo.yml');
+    for (const j of ['api', 'feed-api', 'realtime', 'worker']) expect(slo).toContain(`"job", "${j}", "", ""`);
+    // Identity: the host; the worker roles apart. Never a tenant (the apps record none: tests/ops/app-metrics.int.test.ts).
+    expect(scraper).toContain('replacement: "{{ inventory_hostname }}"');
+    expect(scraper).toContain('target_label: kamal_role');
+    expect(scraper.replace(/^\s*#.*$/gm, '')).not.toMatch(/agency|tenant/);
+  });
+
+  it('[S16-F6] one scraper per app host on the kamal network, no Docker socket; federated over WireGuard, monitoring host(s) only', () => {
+    const tasks = read('infra', 'ansible', 'roles', 'app_metrics', 'tasks', 'main.yml');
+    expect(tasks).toContain('image: "{{ prometheus_image }}"');
+    expect(tasks).toContain('- name: kamal');
+    expect(tasks).toContain('- "{{ wg_ip }}:{{ app_metrics_port }}:9090"');
+    expect(tasks).not.toContain('docker.sock');
+    expect(vars.app_metrics_port).toBe(9095);
+    const site = parse(read('infra', 'ansible', 'site.yml')) as { hosts: string; roles: string[] }[];
+    const play = site.findIndex((p) => p.roles.includes('app_metrics'));
+    expect(site[play]?.hosts).toBe('app');
+    expect(play).toBeGreaterThan(site.findIndex((p) => p.roles.includes('docker')));
+    expect(play).toBeLessThan(site.findIndex((p) => p.roles.includes('monitoring')));
+    const prometheus = read('infra', 'ansible', 'roles', 'monitoring', 'templates', 'prometheus.yml.j2');
+    const job = prometheus.slice(prometheus.indexOf('- job_name: app-metrics'));
+    expect(job).toMatch(/^- job_name: app-metrics\n\s+honor_labels: true\n/);
+    expect(job).toMatch(/^\s+metrics_path: \/federate$/m);
+    expect(job).toContain(`"match[]": ['{job=~"api|feed-api|realtime|worker"}']`);
+    // Federated samples carry the scraper's timestamps: without this a container gone in a deploy stays 5 min.
+    expect(job).toContain('track_timestamps_staleness: true');
+    expect(job).toContain("{% for a in groups['app'] | unique %}");
+    expect(job).toContain('- targets: ["{{ hostvars[a].wg_ip }}:{{ app_metrics_port }}"]');
+    const lock = read('infra', 'ansible', 'roles', 'docker', 'templates', 'inmolink-origin-lock.j2');
+    expect(lock).toContain('--ctorigdstport {{ app_metrics_port }} --ctdir ORIGINAL -j INMOLINK-METRICS');
   });
 });

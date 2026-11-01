@@ -1,0 +1,46 @@
+# S16-F6: app metrics into Prometheus across Kamal's rolling deploys. A small Prometheus per app host, on the `kamal`
+# Docker network, scrapes every app container by its Kamal network alias (templates/app-metrics.yml.j2); the monitoring
+# host's Prometheus federates it over WireGuard (roles/monitoring prometheus.yml.j2, job `app-metrics`). No Docker
+# socket: discovery is Docker's DNS. Published on the WireGuard address only, reachable there from the monitoring host(s)
+# only (roles/docker origin lock, INMOLINK-METRICS). Same pinned image as the monitoring host's Prometheus.
+- name: Directories (Prometheus runs as nobody)
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    mode: "0755"
+  loop:
+    - { path: /etc/inmolink/app-metrics, owner: root }
+    - { path: /srv/app-metrics, owner: "65534" }
+
+- name: Scraper config
+  ansible.builtin.template:
+    src: app-metrics.yml.j2
+    dest: /etc/inmolink/app-metrics/prometheus.yml
+    mode: "0644"
+  register: app_metrics_config
+
+- name: app-metrics scraper
+  community.docker.docker_container:
+    name: app-metrics
+    image: "{{ prometheus_image }}"
+    restart_policy: unless-stopped
+    user: "65534"
+    # The `kamal` network (roles/docker) — where the app containers and their aliases live. Only it: community.docker
+    # 2.0+ defaults networks_cli_compatible to true, so the default bridge is not attached as well.
+    networks:
+      - name: kamal
+    published_ports:
+      - "{{ wg_ip }}:{{ app_metrics_port }}:9090"
+    memory: 256m
+    read_only: true
+    volumes:
+      - /etc/inmolink/app-metrics/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - /srv/app-metrics:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # Only a buffer for the federating Prometheus (it keeps the 35 days).
+      - --storage.tsdb.retention.time=6h
+      - --web.listen-address=:9090
+    restart: "{{ app_metrics_config.changed }}"

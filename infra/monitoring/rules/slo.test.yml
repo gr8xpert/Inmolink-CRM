@@ -167,3 +167,23 @@ tests:
               summary: "No realtime process is scraped: its alerts and SLOs are blind"
               runbook: docs/runbooks/observability.md#app-metrics-down
               runbook_url: https://runbooks.example/docs/runbooks/observability.md#app-metrics-down
+  # S16-F6: app-1's scraper stops answering at minute 3, app-2's keeps answering: only app-1 warns, 5 minutes later.
+  - interval: 1m
+    external_labels: { runbook_base: "https://runbooks.example" }
+    input_series:
+      - series: 'up{job="app-metrics", instance="10.10.0.11:9095", host="app-1"}'
+        values: "1 1 1 0x20"
+      - series: 'up{job="app-metrics", instance="10.10.0.12:9095", host="app-2"}'
+        values: "1x23"
+    alert_rule_test:
+      - eval_time: 7m
+        alertname: AppMetricsScraperDown
+        exp_alerts: []
+      - eval_time: 9m
+        alertname: AppMetricsScraperDown
+        exp_alerts:
+          - exp_labels: { severity: warning, job: app-metrics, instance: "10.10.0.11:9095", host: app-1 }
+            exp_annotations:
+              summary: "The app-metrics scraper on app-1 does not answer: that host's app containers are not scraped"
+              runbook: docs/runbooks/observability.md#app-metrics-scraper-down
+              runbook_url: https://runbooks.example/docs/runbooks/observability.md#app-metrics-scraper-down

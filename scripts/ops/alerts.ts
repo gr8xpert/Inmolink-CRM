@@ -318,8 +318,13 @@ export const STAGED_ALERTS: Record<string, StagedTrigger> = {
   },
   AppMetricsDown: {
     kind: 'inject',
-    how: '`kamal app stop -c infra/kamal/realtime.yml -d staging` for 12 min (or deploy with REALTIME_METRICS_PORT 0)',
-    clear: '`kamal app boot -c infra/kamal/realtime.yml -d staging`',
+    how: '`kamal app stop -c infra/kamal/realtime.yml -d staging` for 12 min (or deploy with REALTIME_METRICS_PORT 0; or `docker stop app-metrics` on the app host: every app at once)',
+    clear: '`kamal app boot -c infra/kamal/realtime.yml -d staging` (or `docker start app-metrics`)',
+  },
+  AppMetricsScraperDown: {
+    kind: 'inject',
+    how: '`docker stop app-metrics` on the app host for 7 min (S16-F6; AppMetricsDown follows at 10 min on single-host staging)',
+    clear: '`docker start app-metrics`',
   },
   EndpointDown: {
     kind: 'drill',

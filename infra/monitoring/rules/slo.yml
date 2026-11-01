@@ -180,9 +180,10 @@ groups:
           runbook: docs/runbooks/observability.md#slo-error-budget-burn
           runbook_url: "{{ $externalLabels.runbook_base }}/docs/runbooks/observability.md#slo-error-budget-burn"
 
-  # Every inmolink_* alert (and the SLOs above) reads metrics scraped from the apps' private /metrics ports. No target of
-  # a job up — exporter off (`*_METRICS_PORT: "0"`), scrape path missing (S16-F6), every container down — makes them
-  # blind. `service` = job, so EndpointDown of the same service inhibits it (alertmanager.yml.j2).
+  # Every inmolink_* alert (and the SLOs above) reads metrics scraped from the apps' private /metrics ports (S16-F6: each
+  # app host's app-metrics scraper, federated — job `app-metrics` in prometheus.yml.j2, `up` included). No target of a job
+  # up — exporter off (`*_METRICS_PORT: "0"`), a container without its network alias, the scraper down, every container
+  # down — makes them blind. `service` = job, so EndpointDown of the same service inhibits it (alertmanager.yml.j2).
   - name: app-metrics
     rules:
       - alert: AppMetricsDown
@@ -203,3 +204,15 @@ groups:
           summary: "No {{ $labels.job }} process is scraped: its alerts and SLOs are blind"
           runbook: docs/runbooks/observability.md#app-metrics-down
           runbook_url: "{{ $externalLabels.runbook_base }}/docs/runbooks/observability.md#app-metrics-down"
+      # S16-F6: an app host's app-metrics scraper (federated, job `app-metrics`, `host` per app host) not answering. With
+      # one app host AppMetricsDown follows (every app's series go stale) and pages; with several the other hosts keep each
+      # job up, so this is the only signal that one host's containers are unscraped.
+      - alert: AppMetricsScraperDown
+        expr: up{job="app-metrics"} == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "The app-metrics scraper on {{ $labels.host }} does not answer: that host's app containers are not scraped"
+          runbook: docs/runbooks/observability.md#app-metrics-scraper-down
+          runbook_url: "{{ $externalLabels.runbook_base }}/docs/runbooks/observability.md#app-metrics-scraper-down"

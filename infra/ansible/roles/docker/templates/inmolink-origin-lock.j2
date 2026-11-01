@@ -17,8 +17,9 @@ apply() {
   done
 }
 
-# S7-F7: the redis-cache exporter's published port (Kamal accessory, `<wg_ip>:redis_cache_exporter_port`): the
-# monitoring host(s) only — every private host reaches the WireGuard address.
+# S7-F7: the redis-cache exporter's published port (Kamal accessory, `<wg_ip>:redis_cache_exporter_port`) and S16-F6: the
+# app-metrics scraper's (roles/app_metrics, `<wg_ip>:app_metrics_port`): the monitoring host(s) only — every private host
+# reaches the WireGuard address.
 metrics() {
   local ipt="$1"; shift
   $ipt -N INMOLINK-METRICS 2>/dev/null || $ipt -F INMOLINK-METRICS
@@ -26,6 +27,8 @@ metrics() {
   $ipt -A INMOLINK-METRICS -j DROP
   $ipt -C DOCKER-USER -p tcp -m conntrack --ctorigdstport {{ redis_cache_exporter_port }} --ctdir ORIGINAL -j INMOLINK-METRICS 2>/dev/null ||
     $ipt -I DOCKER-USER -p tcp -m conntrack --ctorigdstport {{ redis_cache_exporter_port }} --ctdir ORIGINAL -j INMOLINK-METRICS
+  $ipt -C DOCKER-USER -p tcp -m conntrack --ctorigdstport {{ app_metrics_port }} --ctdir ORIGINAL -j INMOLINK-METRICS 2>/dev/null ||
+    $ipt -I DOCKER-USER -p tcp -m conntrack --ctorigdstport {{ app_metrics_port }} --ctdir ORIGINAL -j INMOLINK-METRICS
 }
 
 apply iptables {{ (cloudflare_ips | select('search', '\.') | list + [wg_network, kamal_network_subnet, '127.0.0.0/8']) | join(' ') }}

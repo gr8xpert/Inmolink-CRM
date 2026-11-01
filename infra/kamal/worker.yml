@@ -24,6 +24,8 @@ servers:
     # Container cap like the media role's (S6 review sizing, approved 2026-10-25): V8 below is sized for it.
     options:
       memory: 768m
+      # S16-F6: found by the host's app-metrics scraper on the `kamal` network (job `worker`, kamal_role `workers`).
+      network-alias: inmolink-worker-metrics
     env:
       clear:
         # Every pool but `media` (its own role below). S11 review: `realtime` (live socket pushes) and `digest`
@@ -80,6 +82,8 @@ servers:
       memory: 768m
       read-only: true
       tmpfs: /tmp
+      # S16-F6: job `worker`, kamal_role `media` (infra/ansible/roles/app_metrics).
+      network-alias: inmolink-worker-media-metrics
     env:
       clear:
         WORKER_POOLS: "media"
@@ -103,7 +107,11 @@ env:
     HOST: "0.0.0.0"
     APP_ROLE: "worker"
     WORKER_HEALTH_PORT: "4003"
-    WORKER_METRICS_PORT: "0"
+    # S16-F6: /metrics inside the container only, never published (two containers of a role run during a deploy):
+    # reached over the `kamal` network by the app-metrics scraper, not from outside the host.
+    WORKER_METRICS_PORT: "9467"
+    METRICS_HOST: "0.0.0.0"
+    METRICS_ALLOW_WILDCARD: "true"
     # Cloudflare R2 (S1-03): media processing and the orphan sweeps (S3-04, S1-F7).
     S3_REGION: "auto"
     S3_BUCKET_MEDIA: "inmolink-media"

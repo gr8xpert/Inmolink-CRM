@@ -49,6 +49,25 @@ scrape_configs:
       - targets: ["{{ hostvars[redis_cache_host].wg_ip }}:{{ redis_cache_exporter_port }}"]
         labels: { instance: redis-cache, host: {{ redis_cache_host }} }
 
+  # S16-F6: the apps (api, feed-api, realtime, worker), federated from each app host's app-metrics scraper
+  # (roles/app_metrics: every Kamal container of a role by its network alias, so both containers of a rolling deploy).
+  # The scraper's labels are kept (honor_labels): job = app, instance = container, host, kamal_role; `up` included, which
+  # AppMetricsDown reads (infra/monitoring/rules/slo.yml). A scraper down: AppMetricsScraperDown (`host`); its containers'
+  # series go stale, so AppMetricsDown follows only once no host's scraper sees a job (always, with one app host).
+  - job_name: app-metrics
+    honor_labels: true
+    # Federated samples carry the scraper's timestamps, which Prometheus otherwise never marks stale: a container a
+    # deploy stopped would stay in `up` and the dashboards for the 5-minute lookback.
+    track_timestamps_staleness: true
+    metrics_path: /federate
+    params:
+      "match[]": ['{job=~"api|feed-api|realtime|worker"}']
+    static_configs:
+{% for a in groups['app'] | unique %}
+      - targets: ["{{ hostvars[a].wg_ip }}:{{ app_metrics_port }}"]
+        labels: { host: {{ a }} }
+{% endfor %}
+
   # S16-05: public health probes through Cloudflare (`endpoint_probes` per environment: every Kamal app's proxy host and
   # healthcheck path — tests/workspace/monitoring.test.ts keeps them in sync). `service` drives EndpointDown and the
   # uptime SLOs (infra/monitoring/rules/endpoints.yml, slo.yml); `instance` is the probed URL.

@@ -24,6 +24,13 @@
   roles:
     - postgres
 
+# S16-F6: after Docker (the `kamal` network), before monitoring federates it.
+- name: App metrics scraper (Kamal app containers by network alias)
+  hosts: app
+  become: true
+  roles:
+    - app_metrics
+
 - name: Prometheus, Alertmanager, Grafana
   hosts: monitoring
   become: true

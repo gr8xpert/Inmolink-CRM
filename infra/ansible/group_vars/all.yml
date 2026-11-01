@@ -49,6 +49,8 @@ redis_queue_port: 6379
 # (the api's Kamal accessory `redis-cache-exporter`, published on the app host's WireGuard address).
 redis_exporter_port: 9121
 redis_cache_exporter_port: 9122
+# S16-F6: each app host's app-metrics scraper (roles/app_metrics) on its WireGuard address, federated by Prometheus.
+app_metrics_port: 9095
 # ACL of redis-queue's `exporter` user (S7-F7): server state only (INFO, SLOWLOG, LATENCY), no key, no CONFIG (CONFIG GET
 # would show the default user's requirepass), no CLIENT KILL. `maxmemory` comes from INFO memory.
 redis_exporter_acl: "resetkeys resetchannels -@all +ping +auth +hello +select +client|setname +client|getname +client|info +info +slowlog|get +slowlog|len +latency|latest +latency|histogram +command|info +cluster|info"

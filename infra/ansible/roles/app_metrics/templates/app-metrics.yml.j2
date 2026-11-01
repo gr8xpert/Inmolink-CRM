@@ -1,0 +1,50 @@
+# {{ ansible_managed }}
+# S16-F6: the app host's scraper. Kamal's containers publish no metrics port (two containers of a role run at once during
+# a rolling deploy, a fixed host port would collide): each serves /metrics inside the container on its *_METRICS_PORT
+# (infra/kamal/<app>.yml), and joins the `kamal` network under its role's alias (`options.network-alias`). Docker's DNS
+# answers an alias with every running container that carries it, so every container — old and new mid-deploy — is its
+# own target (`instance` = container address). The monitoring host's Prometheus federates these jobs (prometheus.yml.j2,
+# job `app-metrics`); `up` is federated too, so AppMetricsDown sees each app (infra/monitoring/rules/slo.yml).
+# Identity: job = app, host = this host, kamal_role on the worker; the version is on `target_info` (service_version)
+# from the app's own OpenTelemetry resource. Never a tenant label: the apps record none (tests/ops/app-metrics.int.test.ts).
+# A one-off container of a role (`kamal app exec` without --reuse) may carry the alias too: DNS cannot tell it apart, so
+# it is a target that is down (`up` 0) while it runs and gone after. Harmless — AppMetricsDown and the dashboards count
+# `up == 1` / `sum(up)` — and checked on staging (docs/runbooks/deploy.md › Metrics continuity check).
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+
+scrape_configs:
+  - job_name: api
+    dns_sd_configs:
+      - { names: [inmolink-api-metrics], type: A, port: 9464, refresh_interval: 15s }
+    relabel_configs: &identity
+      - target_label: host
+        replacement: "{{ inventory_hostname }}"
+
+  - job_name: feed-api
+    dns_sd_configs:
+      - { names: [inmolink-feed-api-metrics], type: A, port: 9465, refresh_interval: 15s }
+    relabel_configs: *identity
+
+  - job_name: realtime
+    dns_sd_configs:
+      - { names: [inmolink-realtime-metrics], type: A, port: 9466, refresh_interval: 15s }
+    relabel_configs: *identity
+
+  # Both worker roles (infra/kamal/worker.yml): `workers` (every pool but media) and `media`, one job.
+  - job_name: worker
+    dns_sd_configs:
+      - { names: [inmolink-worker-metrics], type: A, port: 9467, refresh_interval: 15s }
+      - { names: [inmolink-worker-media-metrics], type: A, port: 9467, refresh_interval: 15s }
+    relabel_configs:
+      - target_label: host
+        replacement: "{{ inventory_hostname }}"
+      - source_labels: [__meta_dns_name]
+        regex: inmolink-worker-media-metrics
+        target_label: kamal_role
+        replacement: media
+      - source_labels: [__meta_dns_name]
+        regex: inmolink-worker-metrics
+        target_label: kamal_role
+        replacement: workers

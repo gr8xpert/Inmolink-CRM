@@ -77,9 +77,30 @@ not page. The 30-day budget on *Inmolink · SLO error budgets* is traffic-weight
 request SLOs of that service are blind.
 
 1. The app is down → it is an outage: EndpointDown fires too; deploy.md, `kamal app details -c infra/kamal/<app>.yml`.
-2. The app is up → the scrape path is broken: the app's `*_METRICS_PORT` is `0` or unreachable from the monitoring
-   host. **Open (S16-05):** production apps still run with `*_METRICS_PORT: "0"` (deploy.md › Not yet covered): until a
-   scrape path into Kamal's containers exists (S16-F6) this alert fires on purpose.
+2. The app is up → the scrape path is broken (deploy.md › Metrics continuity check describes it). On the monitoring
+   host `up{job="app-metrics"}`: `0` → the app host's scraper is down or unreachable over WireGuard (`docker ps -a
+   --filter name=app-metrics` on the app host, `docker start app-metrics`; `sudo wg show`; the INMOLINK-METRICS chain).
+   `1` → the scraper's own targets, on the app host: `curl -s http://<wg_ip>:9095/api/v1/targets | jq
+   '.data.activeTargets[] | {job: .labels.job, health, lastError}'`. No target for the job → the container lacks its network alias (the
+   Kamal role's `options.network-alias`) or is not on the `kamal` network; `lastError` → the app's `*_METRICS_PORT`
+   is `0` or `METRICS_HOST` is loopback (infra/kamal/<app>.yml).
+
+Exposure (S16-F6, accepted): any container on an app host's `kamal` network (apps, accessories, kamal-proxy) can read
+every app's `/metrics` and the scraper's HTTP API (`app-metrics:9090`). It is operational data: no tenant labels, no
+secrets, no PII. From outside the host only the monitoring host(s) reach the scraper (`<wg_ip>:9095`, INMOLINK-METRICS).
+
+## App metrics scraper down
+
+`AppMetricsScraperDown` (warning): the monitoring host's Prometheus has not reached an app host's `app-metrics` scraper
+(job `app-metrics`, `host`) for 5 minutes, so that host's app containers are not scraped. With one app host
+`AppMetricsDown` follows at 10 minutes and pages.
+
+1. Host down → NodeDown fires too: see Node down.
+2. On the app host: `docker ps -a --filter name=app-metrics` — stopped or restarting → `docker logs --tail 50
+   app-metrics` (bad config after a template change, `/srv/app-metrics` not writable by uid 65534), `docker start
+   app-metrics`, or re-run the play (`ansible-playbook site.yml --limit app`).
+3. Running → the path: `sudo wg show` on both hosts; `sudo iptables -L INMOLINK-METRICS -n` must list the monitoring
+   host's WireGuard address; `curl -m 3 http://<app wg_ip>:9095/-/ready` from the monitoring host.
 
 ## Endpoint down
 

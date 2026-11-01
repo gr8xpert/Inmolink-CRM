@@ -146,6 +146,28 @@ done
 
 No line may be printed during `scripts/ops/deploy.sh staging --only api`. Record the result in STATUS.
 
+### Metrics continuity check (S16-F6, acceptance, manual — needs staging, H4)
+
+App metrics path: each app container serves `/metrics` inside the container on its `*_METRICS_PORT` (never published —
+two containers of a role run during a deploy) and joins the `kamal` network under its role's alias
+(`inmolink-<app>-metrics`, `inmolink-worker-media-metrics`; Kamal `servers.<role>.options.network-alias`). The host's
+`app-metrics` container (Ansible role `app_metrics`, a Prometheus on the `kamal` network) finds every container by its
+alias in Docker's DNS; the monitoring host's Prometheus federates it over WireGuard (job `app-metrics`). No Docker socket.
+
+1. Once after `ansible-playbook site.yml`: on the monitoring host, `curl -s http://<wg_ip>:9090/api/v1/query --data-urlencode
+   'query=up{job=~"api|feed-api|realtime|worker"}'` lists one series per running container, each `1`, with `host` and
+   (worker) `kamal_role`; `ALERTS{alertname="AppMetricsDown"}` is empty after 10 minutes.
+2. During `scripts/ops/deploy.sh staging --only api`, in Grafana (*Inmolink · Service · api*): *Scraped targets up* goes
+   1 → 2 → 1 (old and new container), never 0; the request-rate panel has no gap. Or poll
+   `min_over_time(max by (job) (up{job="api"})[15m:15s])` after the deploy: it must be `1`.
+3. While `kamal app exec -c infra/kamal/api.yml -d staging 'sleep 120'` runs: if the one-off carries the alias
+   (`docker inspect` → `NetworkSettings.Networks.kamal.Aliases`), it shows as an extra `up{job="api"} == 0` target and is
+   gone after; `ALERTS{alertname="AppMetricsDown"}` stays empty and *Scraped targets up* stays 1. Record which.
+4. `sudo iptables -L INMOLINK-METRICS -n` on the app host lists the monitoring host(s) and loopback only, and
+   `curl -m 3 http://<app wg_ip>:9095/federate` from another private host (not monitoring) times out.
+
+Record the result in STATUS.
+
 ## Edge
 
 Cloudflare (proxied, Full strict) → kamal-proxy on app-1. App hosts accept 80/443 **only** from
@@ -182,6 +204,5 @@ containers). Migrations are not rolled back: ship a new forward migration instea
 
 ## Not yet covered
 
-- App `/metrics` scraping (ports are off in production; needs a scrape path into Kamal's containers).
 - Trace export backend (Tempo or Better Stack): `OTEL_EXPORTER_OTLP_ENDPOINT` is unset in production.
 - Automated failover (Patroni) is Stage C; see `failover.md` for the manual procedure.
