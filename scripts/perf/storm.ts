@@ -44,7 +44,7 @@
 // Never in production (`assertLoadTarget`). Runbook: docs/runbooks/load-suite.md › Import and matching storms.
 import { type ChildProcess, spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { dirname, join } from 'node:path';
@@ -286,8 +286,7 @@ async function importStorm(staging: boolean): Promise<boolean> {
     // Their seeded URLs, journalled first: `storm cleanup` puts them back after an interrupted run.
     if (reused.length > 0) {
       feedJournal = join(DATA_DIR, `storm-feeds-${run}.json`);
-      mkdirSync(DATA_DIR, { recursive: true });
-      writeFileSync(feedJournal, JSON.stringify({ entries: reused.map((c) => ({ id: c.id, url: c.seededUrl })) }));
+      writePrivate(feedJournal, { entries: reused.map((c) => ({ id: c.id, url: c.seededUrl })) });
     }
     // The seeded ones point at this run's feeds and are turned on — a guard pause an earlier run left lifted and the
     // next run's anomaly check waived once (a reused connection's feed may differ from its last one); `finally` turns
@@ -656,9 +655,16 @@ interface PriceJournalEntry {
   droppedCents: number;
 }
 
-function writeJournal(path: string, entries: readonly PriceJournalEntry[]): void {
+/** A journal (feed URLs, prices) readable by its owner only, like `writeUsersFile` (S16 review). */
+function writePrivate(path: string, value: unknown): void {
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify({ entries }));
+  writeFileSync(path, JSON.stringify(value), { mode: 0o600 });
+  // `mode` applies only when the file is created: one left by an earlier run keeps its mode without this.
+  chmodSync(path, 0o600);
+}
+
+function writeJournal(path: string, entries: readonly PriceJournalEntry[]): void {
+  writePrivate(path, { entries });
 }
 
 /** `fn` over `xs`, `limit` at a time. */

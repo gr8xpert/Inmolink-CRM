@@ -70,7 +70,9 @@ export const searchJobs = {
     attempts: 5,
     backoff: { type: 'exponential', delay: 2_000 },
     timeoutMs: READ_MODEL_LEASE_MS,
-    async run(p, { log, signal }) {
+    async run(p, { log, signal, attempt }) {
+      // S16 review: a retry may follow a failed mark after a batch was written (nothing left to drain): mark first
+      if (attempt > 1) await noteDocOwner(p.agencyId);
       const result = await drainReadModelQueue(p.agencyId, {
         recheckMs: PENDING_RECHECK_MS,
         maxRechecks: READ_MODEL_PENDING_RECHECKS,
@@ -118,9 +120,10 @@ export const searchJobs = {
     attempts: 5,
     backoff: { type: 'exponential', delay: 2_000 },
     timeoutMs: 300_000,
-    async run(p, { log }) {
+    async run(p, { log, attempt }) {
       const result = await rebuildDevelopmentReadModels(p.developmentId);
-      if (result.written > 0) await noteDocOwner(p.agencyId);
+      // S16 review: on a retry the documents may be written already (nothing changes): mark anyway
+      if (result.written > 0 || attempt > 1) await noteDocOwner(p.agencyId);
       if (result.written + result.deleted > 0) await requestIndexSync();
       log.info({ developmentId: p.developmentId, ...result, pendingMedia: undefined }, 'development read models built');
       return { built: result.built, written: result.written, deleted: result.deleted };

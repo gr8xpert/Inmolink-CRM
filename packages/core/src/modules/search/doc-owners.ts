@@ -117,7 +117,9 @@ let known: { at: number; owners: Set<string>; until: number } | undefined;
 /**
  * After a build wrote `agencyId`'s documents: if the agency owns a PUBLIC document the shared set does not list, mark
  * the set stale (the next read scans, under the claim). In the set (the usual case): no statement, at most one MGET
- * per `KNOWN_TTL_MS`. Never throws (logged): a missed mark leaves the owner to the next scan.
+ * per `KNOWN_TTL_MS`. S16 review: throws (logged) when redis-cache or the probe fails, so the build job retries — a
+ * missed mark would leave the new owner unhidden until the next scan. The caller's documents are already written: the
+ * retry only marks again (the jobs call it on every retry, even with nothing new to write).
  */
 export async function noteDocOwner(agencyId: string): Promise<boolean> {
   try {
@@ -132,8 +134,9 @@ export async function noteDocOwner(agencyId: string): Promise<boolean> {
     known = undefined;
     return true;
   } catch (err) {
-    logger().warn({ err, agencyId }, 'search: checking a new document owner failed');
-    return false;
+    known = undefined;
+    logger().warn({ err, agencyId }, 'search: checking a new document owner failed; the build retries');
+    throw err;
   }
 }
 

@@ -204,6 +204,11 @@ export async function eraseContactsBySystem(p: {
  * S16-04, `crm.anonymizeInactiveContacts` for one agency: contacts untouched for `months` (no change, lead, task or
  * activity — its leads' included — since the cutoff, no open lead, not the seller of a listing on the market) are erased, `SYSTEM_ERASE_BATCH` per transaction, at most `maxContacts` per run (the next
  * daily run continues). Answers how many were erased.
+ *
+ * S16 review: `months` is the period the daily sweep saw when it queued the run — a delayed run or a retry may come
+ * after the admin lengthened the period or turned it off. The period in force now (`compliance.retentionMonthsInForce`,
+ * the grace window included) is read first: off, or longer than `months`, and nothing is erased (the next sweep queues
+ * the new period); otherwise the longer of the two — `months` — applies (erasure is irreversible: never the shorter).
  */
 export async function anonymizeInactiveContacts(p: {
   agencyId: string;
@@ -212,8 +217,13 @@ export async function anonymizeInactiveContacts(p: {
   maxContacts: number;
   signal?: AbortSignal;
 }): Promise<number> {
+  const current = await withTenant({ agencyId: p.agencyId }, (tx) =>
+    compliance.retentionMonthsInForce(tx, p.agencyId, p.now),
+  );
+  if (current === null || current > p.months) return 0;
+  const months = Math.max(current, p.months);
   const cutoff = new Date(p.now);
-  cutoff.setUTCMonth(cutoff.getUTCMonth() - p.months);
+  cutoff.setUTCMonth(cutoff.getUTCMonth() - months);
   let erased = 0;
   let after: string | null = null;
   while (erased < p.maxContacts && !p.signal?.aborted) {
@@ -228,7 +238,7 @@ export async function anonymizeInactiveContacts(p: {
     erased += await eraseContactsBySystem({
       agencyId: p.agencyId,
       contactIds: ids.filter((id) => !sellers.has(id)),
-      why: { kind: 'RETENTION', months: p.months },
+      why: { kind: 'RETENTION', months },
     });
     if (ids.length < limit) break;
     after = ids[ids.length - 1] ?? null;

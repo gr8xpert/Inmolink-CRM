@@ -73,14 +73,14 @@ export const publicEnv = {
     .optional()
     .transform((v) => v?.replace(/\/+$/, '')),
   /**
-   * S15-01: the map tiles the portal's maps load (`https://…/{z}/{x}/{y}.png`, a provider whose terms allow it) and
-   * the attribution it requires. Unset: no map is offered.
-   */
-  /**
    * S16-F5: the dashboard's origin (`https://app.inmolink.es`), which publishes the legal pages (privacy, cookies,
    * terms, sub-processors) the portal's footer links to. Unset: the footer shows no legal links.
    */
   WEB_URL: webUrlEnv.WEB_URL.optional(),
+  /**
+   * S15-01: the map tiles the portal's maps load (`https://…/{z}/{x}/{y}.png`, a provider whose terms allow it) and
+   * the attribution it requires. Unset: no map is offered.
+   */
   PORTAL_MAP_TILE_URL: z
     .string()
     .regex(/^https:\/\/[^\s"'<>]+\{z\}[^\s"'<>]*\{x\}[^\s"'<>]*\{y\}[^\s"'<>]*$/)

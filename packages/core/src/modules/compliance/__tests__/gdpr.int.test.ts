@@ -329,6 +329,11 @@ describe('retention', () => {
     const effective = new Date(Date.now() + (RETENTION_GRACE_DAYS + 1) * 86_400_000);
     const pages = await system((tx) => compliance.retentionAgenciesPage(tx, null, 10_000, effective));
     expect(pages).toContainEqual({ agencyId: a.agencyId, months: 24 });
+    // its grace window over (the job reads the period in force before erasing anyone)
+    await system((tx) =>
+      tx.execute(sql`update retention_settings set effective_at = now() - interval '1 day', previous_months = null
+        where agency_id = ${a.agencyId}`),
+    );
 
     const old = await person(a, `Olda${RUN}`);
     const busy = await person(a, `Busy${RUN}`);
@@ -400,5 +405,51 @@ describe('retention', () => {
       sql`select count(*)::int as n from audit_logs where type = 'crm.contact.anonymized' and target_id = ${old.id}`,
     );
     expect(again?.n).toBe(1);
+  });
+
+  it('[S16 review] a retention job queued before the period was lengthened or turned off erases nothing', async () => {
+    const set = (months: number | null) =>
+      as(b, (ctx) =>
+        compliance.setRetentionSettings(ctx, { inactiveContactMonths: months }, { verifyStepUp: async () => {} }),
+      );
+    const inForce = (months: number) =>
+      system((tx) =>
+        tx.execute(sql`update retention_settings set inactive_contact_months = ${months}, previous_months = null,
+          effective_at = now() - interval '1 day' where agency_id = ${b.agencyId}`),
+      );
+    const stale = await person(b, `Stal${RUN}`);
+    await system((tx) =>
+      tx.execute(sql`update contacts set updated_at = now() - interval '36 months', created_at = now() - interval '36 months'
+        where id = ${stale.id}`),
+    );
+    const name = async () =>
+      (await rows<{ first_name: string | null }>(sql`select first_name from contacts where id = ${stale.id}`))[0]
+        ?.first_name;
+    // the sweep queued 24 months; the admin then turned retention off (at once): the run erases nothing
+    await inForce(24);
+    await set(null);
+    const run = (months: number) =>
+      crm.anonymizeInactiveContacts({ agencyId: b.agencyId, months, now: new Date(), maxContacts: 5_000 });
+    expect(await run(24)).toBe(0);
+    expect(await name()).toBe(`Stal${RUN}`);
+    // … or lengthened it to 48 months (at once): nothing either (the next sweep queues 48)
+    await inForce(24);
+    await set(48);
+    expect(await run(24)).toBe(0);
+    expect(await name()).toBe(`Stal${RUN}`);
+    // a shorter period still in its grace window: the one in force (48) stays — a 24-month run erases nothing
+    await set(12);
+    expect(await run(24)).toBe(0);
+    expect(await name()).toBe(`Stal${RUN}`);
+    // never configured at all: nothing
+    await system((tx) => tx.execute(sql`delete from retention_settings where agency_id = ${b.agencyId}`));
+    expect(await run(24)).toBe(0);
+    expect(await name()).toBe(`Stal${RUN}`);
+    // the period in force is the queued one: the run erases (the control)
+    await set(null);
+    await inForce(24);
+    expect(await run(24)).toBeGreaterThanOrEqual(1);
+    expect(await name()).toBeNull();
+    await set(null);
   });
 });

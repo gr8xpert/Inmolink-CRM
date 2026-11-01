@@ -48,10 +48,10 @@ regexes = [
 ]
 
 [[allowlists]]
-description = "Never scanned: dependencies, build output, the lockfile, local load-test keys (gitignored or generated)"
+description = "Never scanned: dependencies, build output, the lockfile (gitignored or generated)"
+# Not tests/load/.data (the local stack's load-test keys, gitignored): tests/workspace/security-coverage.test.ts fails
+# when anything there is tracked, and a committed one is scanned like any other file.
 paths = [
-  # Load-test API keys and tokens of the local test stack (S7-08): gitignored, never committed.
-  '''(^|/)tests/load/\.data/''',
   '''(^|/)node_modules/''',
   '''(^|/)(dist|dist-widget|\.next|\.turbo|coverage|graphify-out)/''',
   '''pnpm-lock\.yaml$''',

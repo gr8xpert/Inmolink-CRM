@@ -165,6 +165,18 @@ export async function setRetentionSettings(
   return retentionDto(next, now);
 }
 
+/**
+ * S16 review: the agency's period in force at `now` (null = never: nobody is erased), read afresh — the retention job
+ * checks it before erasing anyone (its payload's period may be stale: lengthened or turned off since it was queued).
+ */
+export async function retentionMonthsInForce(
+  tx: Tx,
+  agencyId: string,
+  now: Date = clock.now(),
+): Promise<number | null> {
+  return inForce(await repo.getRetention(tx, agencyId), now);
+}
+
 /** Agencies with a period in force, a page at a time in id order (the daily job; worker `tx` as `app_system`). */
 export const retentionAgenciesPage = (tx: Tx, after: string | null, limit: number, now: Date = clock.now()) =>
   repo.retentionPage(tx, now, after, limit);

@@ -3,8 +3,9 @@ import { setupTestDb } from '@inmolink/db/testing';
 import { cache, cacheConnection, cacheKey, closeCache, configureCache } from '@inmolink/platform/cache';
 import { restoreClock, useFakeClock } from '@inmolink/platform/clock';
 import { newId } from '@inmolink/platform/ids';
+import { createLogger } from '@inmolink/platform/logger';
 import { sql } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import * as agencies from '../../agencies';
 import * as search from '../../search';
 import * as websiteApi from '../index';
@@ -145,6 +146,34 @@ describe('portal owner scope shared and cheap (S16-F1)', () => {
     expect('owners' in rescanned).toBe(true);
     const after = await search.sharedDocOwners();
     expect(after?.owners).toContain(first);
+  });
+
+  it('[S16 review] a failed owner mark throws so the build retries; the retry marks again with nothing left to write', async () => {
+    const down = vi.spyOn(cache, 'peekMany').mockRejectedValue(new Error('redis down'));
+    const ctx = (attempt: number) => ({
+      log: createLogger({ service: 'doc-owners-test', level: 'silent' }),
+      jobId: 'doc-owners-retry',
+      attempt,
+      progress: async () => {},
+      signal: new AbortController().signal,
+    });
+    const agencyId = newId();
+    try {
+      search.resetDocOwnersCopy();
+      // fails closed: the build job sees the error (it used to be logged and dropped)
+      await expect(search.noteDocOwner(agencyId)).rejects.toThrow('redis down');
+      // a first run with nothing written does not mark (no redis call), a retry marks before draining — and fails again
+      await expect(search.searchJobs.buildReadModels.spec.run({ agencyId }, ctx(1))).resolves.toMatchObject({
+        written: 0,
+      });
+      await expect(search.searchJobs.buildReadModels.spec.run({ agencyId }, ctx(2))).rejects.toThrow('redis down');
+    } finally {
+      down.mockRestore();
+    }
+    // redis back: the retry goes through (idempotent: nothing is rebuilt twice, the agency owns no PUBLIC document)
+    await expect(search.searchJobs.buildReadModels.spec.run({ agencyId }, ctx(3))).resolves.toMatchObject({
+      written: 0,
+    });
   });
 
   it('[S16-F1] a released claim lets the next caller in at once; a held one keeps every other caller out', async () => {

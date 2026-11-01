@@ -25,6 +25,7 @@ export {
   listConsents,
   recordConsents,
   retentionAgenciesPage,
+  retentionMonthsInForce,
   setRetentionSettings,
 } from './gdpr';
 export { complianceJobs, PARTITION_MAINTENANCE_EVERY_MS } from './jobs';

@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -138,5 +139,16 @@ describe('Next route handlers: rate limits and CORS (S16-03)', () => {
     for (const file of files) {
       expect(readFileSync(join(ROOT, file), 'utf8'), file).not.toMatch(/access-control-allow/i);
     }
+  });
+});
+
+describe('local load-test secrets never committed (S16 review)', () => {
+  it('[S16 review] nothing under tests/load/.data is tracked (gitleaks scans it: no path allowlist)', () => {
+    // The local stack's API keys, tokens and storm journals live there (gitignored). gitleaks no longer skips the
+    // path, so a committed file is scanned too — this fails first, naming the file.
+    const tracked = execFileSync('git', ['ls-files', '--', 'tests/load/.data'], { cwd: ROOT, encoding: 'utf8' }).trim();
+    expect(tracked).toBe('');
+    expect(readFileSync(join(ROOT, '.gitignore'), 'utf8')).toMatch(/^tests\/load\/\.data\/\r?$/m);
+    expect(readFileSync(join(ROOT, '.gitleaks.toml'), 'utf8')).not.toMatch(/'''[^'\n]*tests\/load/);
   });
 });
