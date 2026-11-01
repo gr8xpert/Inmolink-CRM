@@ -6,9 +6,19 @@
 # Every port binds to 127.0.0.1 so these defaults are never reachable from the LAN.
 name: inmolink
 
+# Probe every 1s while starting (keeps `up --wait` fast), then every 30s once healthy (idle CPU stays low).
+x-healthcheck-timing: &healthcheck-timing
+  interval: 30s
+  timeout: 3s
+  retries: 3
+  start_period: 60s
+  start_interval: 1s
+
 x-postgres: &postgres
   build: ./infra/docker/postgres
   image: inmolink/postgres:18-3.6-walg3.0.9
+  cpus: 2
+  mem_limit: 2g
   environment:
     POSTGRES_USER: postgres
     POSTGRES_PASSWORD: postgres
@@ -21,62 +31,62 @@ x-postgres: &postgres
     -c max_connections=200
   healthcheck:
     test: ["CMD-SHELL", "pg_isready -U postgres -d inmolink"]
-    interval: 2s
-    timeout: 3s
-    retries: 30
+    <<: *healthcheck-timing
 
 x-pgbouncer: &pgbouncer
   image: edoburu/pgbouncer:v1.26.0-p0
+  cpus: 0.5
+  mem_limit: 128m
   command: ["pgbouncer", "/etc/pgbouncer/pgbouncer.ini"]
   healthcheck:
     test: ["CMD-SHELL", "nc -z 127.0.0.1 6432"]
-    interval: 2s
-    timeout: 3s
-    retries: 30
+    <<: *healthcheck-timing
 
 x-redis: &redis
   image: redis:7.4.11-alpine
+  cpus: 0.5
+  mem_limit: 512m
   healthcheck:
     test: ["CMD", "redis-cli", "ping"]
-    interval: 2s
-    timeout: 3s
-    retries: 30
+    <<: *healthcheck-timing
 
 # BullMQ: never evict, persist every second.
 x-redis-queue-command: &redis-queue-command
   ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec", "--maxmemory-policy", "noeviction"]
 # Cache: bounded, evicts least-recently-used keys, no persistence.
 x-redis-cache-command: &redis-cache-command
-  ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru", "--save", "", "--appendonly", "no"]
+  ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru", "--save", "", "--appendonly", "no", "--client-output-buffer-limit", "pubsub 64mb 16mb 60"]
 
 x-meilisearch: &meilisearch
   image: getmeili/meilisearch:v1.54.3
+  cpus: 1
+  mem_limit: 1g
   environment:
     MEILI_ENV: development
     MEILI_MASTER_KEY: local-dev-master-key
     MEILI_NO_ANALYTICS: "true"
   healthcheck:
     test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:7700/health || exit 1"]
-    interval: 2s
-    timeout: 3s
-    retries: 30
+    <<: *healthcheck-timing
 
 # R2 stand-in. Upstream MinIO no longer publishes images; pgsty/minio is the community build of the same server.
 x-minio: &minio
   image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z
+  cpus: 1
+  mem_limit: 512m
   command: ["server", "/data", "--console-address", ":9001"]
   environment:
     MINIO_ROOT_USER: inmolink
     MINIO_ROOT_PASSWORD: inmolink-local-secret
   healthcheck:
     test: ["CMD", "mc", "ready", "local"]
-    interval: 2s
-    timeout: 3s
-    retries: 30
+    <<: *healthcheck-timing
 
 # Creates the buckets, then idles so `up --wait` can treat it as healthy (it fails on exited one-shot containers).
 x-minio-init: &minio-init
   image: pgsty/mc:RELEASE.2026-09-16T00-00-00Z
+  cpus: 0.25
+  mem_limit: 128m
   entrypoint: ["/bin/sh", "-c"]
   # The media bucket's public read: variant keys `v<n>/<32 hex>/…` only (S3-F4; production: the R2 rule in
   # docs/runbooks/media-public-host.md). The media container's own user (S3-F7, S3-F9): the media and work buckets
@@ -84,20 +94,18 @@ x-minio-init: &minio-init
   volumes: ["./infra/storage:/policies:ro"]
   healthcheck:
     test: ["CMD", "mc", "ls", "local/inmolink-media-work"]
-    interval: 2s
-    timeout: 3s
-    retries: 30
+    <<: *healthcheck-timing
 
 x-mailpit: &mailpit
   image: axllent/mailpit:v1.31.4
+  cpus: 0.25
+  mem_limit: 128m
   environment:
     MP_SMTP_AUTH_ACCEPT_ANY: "true"
     MP_SMTP_AUTH_ALLOW_INSECURE: "true"
   healthcheck:
     test: ["CMD", "/mailpit", "readyz"]
-    interval: 2s
-    timeout: 3s
-    retries: 30
+    <<: *healthcheck-timing
 
 services:
   # ── dev ──────────────────────────────────────────────────────────────────
@@ -166,6 +174,8 @@ services:
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.162.0
     profiles: [dev]
+    cpus: 0.5
+    mem_limit: 256m
     command: ["--config=/etc/otelcol/config.yaml"]
     volumes: ["./infra/docker/otel/collector.yaml:/etc/otelcol/config.yaml:ro"]
     ports: ["127.0.0.1:4317:4317", "127.0.0.1:4318:4318", "127.0.0.1:13133:13133"]
@@ -174,6 +184,8 @@ services:
   jaeger:
     image: jaegertracing/jaeger:2.22.0
     profiles: [dev]
+    cpus: 0.5
+    mem_limit: 512m
     ports: ["127.0.0.1:16686:16686"]
 
   # ── test: same images, own ports and volumes ─────────────────────────────
