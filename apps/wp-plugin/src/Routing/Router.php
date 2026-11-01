@@ -10,6 +10,7 @@ namespace Inmolink\Plugin\Routing;
 use Inmolink\Plugin\Cache\Result;
 use Inmolink\Plugin\Developments;
 use Inmolink\Plugin\I18n\Locale;
+use Inmolink\Plugin\I18n\PathAliases;
 use Inmolink\Plugin\Listings;
 use Inmolink\Plugin\Renderer;
 use Inmolink\Plugin\Settings;
@@ -39,6 +40,13 @@ final class Router {
 	private static $route = null;
 
 	/**
+	 * Whether this request's query string tried to override the language its path sets ({@see request()}).
+	 *
+	 * @var bool
+	 */
+	private static bool $overridden = false;
+
+	/**
 	 * Hooks the router in.
 	 */
 	public static function register(): void {
@@ -49,6 +57,8 @@ final class Router {
 		add_filter( 'document_title_parts', array( self::class, 'document_title_parts' ) );
 		add_filter( 'posts_pre_query', array( self::class, 'posts_pre_query' ), 10, 2 );
 		add_action( 'parse_query', array( self::class, 'parse_query' ) );
+		add_filter( 'rewrite_rules_array', array( self::class, 'guard_rules' ), PHP_INT_MAX );
+		add_filter( 'request', array( self::class, 'request' ), 99 );
 	}
 
 	/**
@@ -70,26 +80,90 @@ final class Router {
 	 * @return array<string,string>
 	 */
 	public static function rules(): array {
-		$rules = array();
+		$rules   = array();
+		$owner   = array();
+		$adapter = Locale::adapter();
 		foreach ( Locale::routable() as $lang => $locale ) {
-			$prefix = Urls::language_prefix( $lang );
-			$extra  = '';
-			foreach ( Locale::adapter()->query_vars( $lang ) as $name => $value ) {
+			$prefix   = Urls::language_prefix( $lang );
+			$prefixes = $adapter instanceof PathAliases ? $adapter->request_prefixes( $lang, $prefix ) : array( $prefix );
+			$extra    = '';
+			foreach ( $adapter->query_vars( $lang ) as $name => $value ) {
 				$extra .= '&' . rawurlencode( $name ) . '=' . rawurlencode( $value );
 			}
 			foreach ( self::KINDS as $kind ) {
-				$base  = Settings::base_for( $kind, $locale );
-				$regex = '^' . preg_quote( $prefix . $base, '#' ) . '/' . self::SEGMENT . '(?:/' . self::SEGMENT . ')?/?$';
-				if ( isset( $rules[ $regex ] ) ) {
-					// Two languages share this path (domain / subdomain language modes): the language is not in the
-					// URL path, so the rule leaves it to the multilingual plugin's detection.
-					$rules[ $regex ] = (string) preg_replace( '/&(inmolink_lang|lang)=[^&]*/', '', $rules[ $regex ] );
-					continue;
+				$base = Settings::base_for( $kind, $locale );
+				foreach ( array_unique( $prefixes ) as $path_prefix ) {
+					$regex = '^' . preg_quote( $path_prefix . $base, '#' ) . '/' . self::SEGMENT . '(?:/' . self::SEGMENT . ')?/?$';
+					if ( isset( $rules[ $regex ] ) ) {
+						if ( $owner[ $regex ] !== $lang ) {
+							// Two languages share this path (domain / subdomain / parameter language modes, or WPML's
+							// stripped directory): the language is not in the URL path, so the rule leaves it to the
+							// multilingual plugin's detection.
+							$rules[ $regex ] = (string) preg_replace( '/&(inmolink_lang|lang)=[^&]*/', '', $rules[ $regex ] );
+						}
+						continue;
+					}
+					$owner[ $regex ] = $lang;
+					$rules[ $regex ] = 'index.php?inmolink_' . $kind . '=$matches[1]&inmolink_slug=$matches[2]&inmolink_lang=' . rawurlencode( $lang ) . $extra;
 				}
-				$rules[ $regex ] = 'index.php?inmolink_' . $kind . '=$matches[1]&inmolink_slug=$matches[2]&inmolink_lang=' . rawurlencode( $lang ) . $extra;
 			}
 		}
 		return $rules;
+	}
+
+	/**
+	 * `rewrite_rules_array` (last): our rules exactly as {@see rules()} built them, on top. A multilingual plugin that
+	 * rewrites every rule (Polylang's directory mode prefixes `(en|es)/` and shifts `$matches[n]` to add
+	 * `lang=$matches[1]`) would otherwise produce a double language prefix, or a rule whose `$matches[1]` is the
+	 * language instead of the reference. Any other rule that sets our query vars is dropped.
+	 *
+	 * @param array<string,string> $rules All rules.
+	 * @return array<string,string>
+	 */
+	public static function guard_rules( $rules ): array {
+		$rules = is_array( $rules ) ? $rules : array();
+		$ours  = self::rules();
+		foreach ( $rules as $regex => $query ) {
+			if ( ! isset( $ours[ $regex ] ) && is_string( $query ) && preg_match( '/[?&]inmolink_(listing|development)=/', $query ) ) {
+				unset( $rules[ $regex ] );
+			}
+		}
+		return array_merge( $ours, array_diff_key( $rules, $ours ) );
+	}
+
+	/**
+	 * `request`: on a pretty URL the path decides the language. A query string can override public query vars in
+	 * WordPress (`?inmolink_lang=fr`, or Polylang's `?lang=fr` on `/es/propiedad/…`); the path's values are put back and
+	 * the request is redirected to the canonical URL ({@see redirect_target()}) so one URL never serves two languages.
+	 *
+	 * @param array<string,mixed> $vars Query vars.
+	 * @return array<string,mixed>
+	 */
+	public static function request( $vars ): array {
+		$vars             = is_array( $vars ) ? $vars : array();
+		self::$overridden = false;
+		global $wp;
+		$matched = $wp instanceof \WP && is_string( $wp->matched_query ) ? $wp->matched_query : '';
+		if ( '' === $matched || ! preg_match( '/(^|&)inmolink_(listing|development)=/', $matched ) ) {
+			return $vars;
+		}
+		$from_path = array();
+		wp_parse_str( $matched, $from_path );
+		if ( ! isset( $from_path['inmolink_lang'] ) || '' === $from_path['inmolink_lang'] ) {
+			return $vars; // A shared path: the multilingual plugin's detection decides.
+		}
+		$lang  = (string) $from_path['inmolink_lang'];
+		$names = array_merge( array( 'inmolink_lang' ), array_keys( Locale::adapter()->query_vars( $lang ) ) );
+		foreach ( $names as $name ) {
+			if ( ! isset( $from_path[ $name ] ) ) {
+				continue;
+			}
+			if ( isset( $vars[ $name ] ) && (string) $vars[ $name ] !== (string) $from_path[ $name ] ) {
+				self::$overridden = true;
+			}
+			$vars[ $name ] = (string) $from_path[ $name ];
+		}
+		return $vars;
 	}
 
 	/**
@@ -198,7 +272,8 @@ final class Router {
 	 * Forgets the resolved route (tests).
 	 */
 	public static function reset(): void {
-		self::$route = null;
+		self::$route      = null;
+		self::$overridden = false;
 	}
 
 	/**
@@ -242,6 +317,9 @@ final class Router {
 		}
 		$slug = isset( $route['result']->body['slug'] ) && is_string( $route['result']->body['slug'] ) ? $route['result']->body['slug'] : '';
 		$slug = Urls::slug( $slug );
+		if ( self::$overridden ) {
+			return self::canonical();
+		}
 		return ( '' !== $slug && $slug !== $route['slug'] ) ? self::canonical() : null;
 	}
 

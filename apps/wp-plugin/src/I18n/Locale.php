@@ -84,6 +84,17 @@ final class Locale {
 	}
 
 	/**
+	 * A language home URL with a trailing slash on its path, keeping a query string (WPML's "language as a parameter"
+	 * mode: `https://example.com/?lang=es`, never `…?lang=es/`).
+	 *
+	 * @param string $url Home URL.
+	 */
+	public static function slash_home( string $url ): string {
+		$cut = strcspn( $url, '?#' );
+		return trailingslashit( substr( $url, 0, $cut ) ) . substr( $url, $cut );
+	}
+
+	/**
 	 * The site's languages as language code => API locale.
 	 *
 	 * @return array<string,string>

@@ -16,8 +16,15 @@ if ( ! defined( 'ABSPATH' ) ) {
 /**
  * WPML through its documented filter API (`wpml_active_languages`, `wpml_current_language`, `wpml_default_language`,
  * `wpml_permalink`).
+ *
+ * Documented behaviours handled (S8-F21):
+ * - Language URL format "language name added as a parameter" (`https://example.com/about/?lang=es`): the home URL
+ *   keeps `?lang=es` after the path, and listing URLs put the path before it ({@see Locale::slash_home()}).
+ * - Directories: WPML filters `home_url()` to the language directory; WordPress strips that path from the request
+ *   before matching rewrite rules, so rules are also registered without the directory ({@see request_prefixes()}).
+ * - WPML detects the language from the URL itself: no `lang` query var in our rules.
  */
-final class Wpml implements Languages {
+final class Wpml implements Languages, PathAliases {
 
 	/**
 	 * Whether WPML is active.
@@ -53,7 +60,20 @@ final class Wpml implements Languages {
 	 * @param string $lang Language code.
 	 */
 	public function home_url( string $lang ): string {
-		return trailingslashit( (string) apply_filters( 'wpml_permalink', home_url( '/' ), $lang, true ) );
+		return Locale::slash_home( (string) apply_filters( 'wpml_permalink', home_url( '/' ), $lang, true ) );
+	}
+
+	/**
+	 * The language directory and, for a directory language, the bare path WordPress sees once WPML's filtered home has
+	 * been stripped from the request.
+	 *
+	 * @param string $lang   Language code.
+	 * @param string $prefix The language's directory (`es/`), or ''.
+	 * @return string[]
+	 */
+	public function request_prefixes( string $lang, string $prefix ): array {
+		unset( $lang );
+		return array_values( array_unique( array( $prefix, '' ) ) );
 	}
 
 	/**

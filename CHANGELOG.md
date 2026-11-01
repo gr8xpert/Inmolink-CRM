@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- fix(wp-plugin): Polylang / WPML adapters — no double prefix in directory mode, static front pages and `lang=` query vars no longer leak into routing or URLs [S8-F21]
 - feat(wp-plugin): legacy plugin settings migration on activation (assumed option map, off by default until H15) + real-install checklist [S8-F11]
 - feat(website-api,feed-api): legacy `/v1` hides network owners behind `LEGACY_V1_HIDE_NETWORK_OWNER` (off by default; decision pending) [S16-F9]
 - feat(website-api,public,platform): portal listing / development pages purged at the CDN by public-code Cache-Tags; agency changes purge their pages in a bulk set drained after targeted purges; ISR pages s-maxage 60; `PAGE_CACHE_MAX_BYTES` [S15-F11]

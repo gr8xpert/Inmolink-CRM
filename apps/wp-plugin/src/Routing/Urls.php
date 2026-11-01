@@ -107,6 +107,18 @@ final class Urls {
 		if ( '' !== $slug ) {
 			$path .= $slug . '/';
 		}
-		return Locale::adapter()->home_url( $lang ) . $path;
+		return self::join( Locale::adapter()->home_url( $lang ), $path );
+	}
+
+	/**
+	 * Appends a path to a language home URL before its query string (WPML's `?lang=es` stays last).
+	 *
+	 * @param string $home Language home URL (path ends with `/`).
+	 * @param string $path Relative path.
+	 */
+	public static function join( string $home, string $path ): string {
+		$home = Locale::slash_home( $home );
+		$cut  = strcspn( $home, '?#' );
+		return substr( $home, 0, $cut ) . $path . substr( $home, $cut );
 	}
 }
