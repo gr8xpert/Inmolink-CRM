@@ -51,9 +51,15 @@ describe('widget CDN publish (S8-F8)', () => {
     const rule = runbook.split('\n').find((l) => l.includes('http.host eq "media.inmolink.es"')) ?? '';
     // The WAF rule's allowed paths, as written in the runbook.
     const allowed = [...rule.matchAll(/matches "([^"]+)"/g)].map((m) => new RegExp(m[1] ?? '$^'));
-    expect(allowed).toHaveLength(2);
+    // v<n>/ media, vwidget/ script, and (S15-F10) the portal's public logo / member photo copies.
+    expect(allowed).toHaveLength(3);
     const script = new TextEncoder().encode('(()=>{})();');
     const ok = (path: string) => allowed.some((r) => r.test(path));
+    const uuid = '0d4c1b6e-8f3a-4b2d-9c1e-5a6b7c8d9e0f';
+    expect(ok(`/portal/agency-logos/${uuid}/${uuid}.webp`)).toBe(true);
+    expect(ok(`/portal/member-photos/${uuid}/${uuid}.webp`)).toBe(true);
+    expect(ok(`/portal/other/${uuid}/${uuid}.webp`)).toBe(false);
+    expect(ok(`/portal/agency-logos/${uuid}/${uuid}.js`)).toBe(false);
     expect(ok(`/${widgetObjectKey(script)}`)).toBe(true);
     expect(ok(`/v1/${'a'.repeat(32)}/card.webp`)).toBe(true);
     expect(ok(`/vwidget/${'a'.repeat(32)}/other.js`)).toBe(false);
