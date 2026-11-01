@@ -372,7 +372,11 @@ describe('agency erasure', () => {
     expect(stay?.first_name).toBe(`Stay${RUN}`);
 
     // idempotent: a fresh erasure finds nothing left
-    const again = await eraseAgencyData(leaving.agencyId);
+    // (S15-F10: 14 phases — even an empty pass can need more than one step's call budget, as the worker runs it)
+    let again = await eraseAgencyData(leaving.agencyId);
+    for (let step = 0; !again.finished && step < 5; step++) {
+      again = await eraseAgencyData(leaving.agencyId, { state: again.state });
+    }
     expect(again.finished).toBe(true);
     expect(Object.values(again.state.counts).every((n) => n === 0)).toBe(true);
   }, 180_000);

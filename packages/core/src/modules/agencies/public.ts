@@ -9,6 +9,15 @@ import type { SQL } from 'drizzle-orm';
 import type { OwnerIdentity } from '../../white-label';
 import * as repo from './preferred-repo';
 
+declare const teamColumnBrand: unique symbol;
+
+/**
+ * S15-F10 review: the one foreign column `publicAgencyProfile` selects — identity's published-team scalar subquery
+ * (`identity.publicMembersQuery`, the only producer: it alone casts to this type). Branded so no caller can hand this
+ * module arbitrary SQL by accident; the column must be a scalar subquery over the profile's agency (`$id`).
+ */
+export type AgencyTeamColumn = SQL & { readonly [teamColumnBrand]: 'identity.publicMembers' };
+
 export type PublicAgency = repo.PublicAgencyRow;
 export type PublicAgencyProfile = repo.PublicAgencyProfileRow;
 
@@ -26,8 +35,10 @@ export function publicAgencyProfile(
   tx: Tx,
   id: string,
   locales: readonly string[],
+  /** S15-F10: the agency's published team, selected in the same statement (its value is the row's `extra`). */
+  extra?: AgencyTeamColumn,
 ): Promise<PublicAgencyProfile | null> {
-  return repo.publicAgencyProfile(tx, id, locales);
+  return repo.publicAgencyProfile(tx, id, locales, extra);
 }
 
 /** The agencies listed in the directory now (S15-01, the portal's stock). One statement. */

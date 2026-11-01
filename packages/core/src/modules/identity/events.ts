@@ -64,6 +64,16 @@ export const identityEvents = {
   ),
   /** The member can no longer log in or reach the agency. */
   memberDeactivated: defineEvent('identity.member.deactivated', 1, z.object({ agencyId: z.uuid(), userId: z.uuid() })),
+  /**
+   * S15-F10: a member's published portal profile changed (saved, published, unpublished, photo replaced or removed).
+   * The portal-images job (media) publishes or removes the photo's public variant; the portal's caches settle within
+   * a minute. `version` is the row's.
+   */
+  publicProfileUpdated: defineEvent(
+    'identity.publicProfile.updated',
+    1,
+    z.object({ agencyId: z.uuid(), userId: z.uuid(), version: z.number().int(), photoChanged: z.boolean() }),
+  ),
   /** The user's sessions were revoked (`session_version` moved on, e.g. a password reset): realtime closes them (S12-F10). */
   sessionsRevoked: defineEvent('identity.sessions.revoked', 1, UserRef),
 };

@@ -26,8 +26,24 @@ export {
   importFeedImages,
   queueFeedImages,
 } from './feed-images';
-export { MEDIA_DELETE_GRACE_DAYS, mediaJobs, requestFeedImages, requestVariants } from './jobs';
+export {
+  MEDIA_DELETE_GRACE_DAYS,
+  mediaJobs,
+  PORTAL_IMAGES_DEBOUNCE_MS,
+  requestFeedImages,
+  requestPortalImages,
+  requestVariants,
+} from './jobs';
 export { CLIENT_MODE_ALLOWED, can, MEDIA_ACTIONS, MEDIA_IMPERSONATION } from './policy';
+export {
+  PORTAL_IMAGE_CACHE,
+  PORTAL_LOGO_PX,
+  PORTAL_PHOTO_PAGE,
+  PORTAL_PHOTO_PX,
+  type PortalImagesResult,
+  portalImageKey,
+  publishPortalImages,
+} from './portal-images';
 export { hammingDistance } from './processing';
 export {
   listingSocialImages,

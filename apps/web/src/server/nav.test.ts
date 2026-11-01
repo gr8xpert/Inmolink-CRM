@@ -34,6 +34,7 @@ describe('dashboard navigation', () => {
       'apiKeys',
       'staffAccess',
       'support',
+      'publicProfile',
       'security',
     ]);
     expect(keys(member({ sections: ['team', 'settings', 'preferredAgencies'] }))).toEqual([
@@ -42,6 +43,7 @@ describe('dashboard navigation', () => {
       'preferredAgencies',
       'settings',
       'support',
+      'publicProfile',
       'security',
     ]);
     expect(buildNav(admin).find((i) => i.key === 'apiKeys')?.href).toBe('/api-keys');
@@ -66,6 +68,7 @@ describe('dashboard navigation', () => {
       ['networkBoard', '/network/board'],
       ['chat', '/chat'],
       ['support', '/support'],
+      ['publicProfile', '/account/public-profile'],
       ['security', '/account/security'],
     ]);
   });
@@ -86,7 +89,18 @@ describe('dashboard navigation', () => {
   });
 
   it('[S13-05] every member gets the support link, except in Client Mode', () => {
-    expect(keys(member({ sections: [] }))).toEqual(['home', 'support', 'security']);
+    expect(keys(member({ sections: [] }))).toEqual(['home', 'support', 'publicProfile', 'security']);
     expect(keys(member({ clientMode: true, sections: [] }))).not.toContain('support');
+  });
+});
+
+describe('portal profile link (S15-F10)', () => {
+  it('[S15-F10] members get their portal profile page, never in Client Mode or while staff act as them', () => {
+    expect(buildNav(member({ sections: [] })).find((i) => i.key === 'publicProfile')?.href).toBe(
+      '/account/public-profile',
+    );
+    expect(keys(member({ clientMode: true, sections: [] }))).not.toContain('publicProfile');
+    expect(keys(member({ impersonating: true, sections: [] }))).not.toContain('publicProfile');
+    expect(keys({ kind: 'staff', role: 'STAFF_SUPPORT' })).not.toContain('publicProfile');
   });
 });

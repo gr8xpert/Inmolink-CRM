@@ -61,3 +61,23 @@ it('[S8-F8] the JS widget key is public on the media host, nothing else under vw
   expect(res.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
   for (const key of outside) expect(await anonymous(key), key).toBe(403);
 });
+
+it('[S15-F10] portal logo and member photo copies are public on the media host, nothing else under portal/', async () => {
+  const agencyId = newId();
+  const logo = media.portalImageKey('agency-logos', agencyId, `agency-logos/${agencyId}/${newId()}`);
+  const photo = media.portalImageKey('member-photos', agencyId, `member-photos/${agencyId}/${newId()}`);
+  expect(logo).toMatch(/^portal\/agency-logos\/[0-9a-f-]{36}\/[0-9a-f-]{36}\.webp$/);
+  const outside = [
+    `portal/other/${agencyId}/${newId()}.webp`,
+    `portal/agency-logos/${agencyId}/${newId()}.png`,
+    `portal/member-photos/${agencyId.slice(1)}/${newId()}.webp`,
+    `xportal/agency-logos/${agencyId}/${newId()}.webp`,
+  ];
+  for (const key of [logo, photo, ...outside]) {
+    await storage().put('media', key, new Uint8Array([1, 2, 3]), { contentType: 'image/webp' });
+    keys.push(key);
+  }
+  expect(await anonymous(logo)).toBe(200);
+  expect(await anonymous(photo)).toBe(200);
+  for (const key of outside) expect(await anonymous(key), key).toBe(403);
+});

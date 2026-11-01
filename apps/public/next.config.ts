@@ -2,7 +2,12 @@ import { fileURLToPath } from 'node:url';
 import { PAGE_BASE_CSP } from '@inmolink/platform/web-security';
 import type { NextConfig } from 'next';
 import createNextIntlPlugin from 'next-intl/plugin';
-import { ENQUIRY_NOTICE_CACHE, PORTAL_ISR_PAGE_CACHE, PORTAL_PAGE_CACHE } from './src/portal/cache-control';
+import {
+  ENQUIRY_NOTICE_CACHE,
+  PORTAL_ISR_PAGE_CACHE,
+  PORTAL_MEMBER_PAGE_CACHE,
+  PORTAL_PAGE_CACHE,
+} from './src/portal/cache-control';
 
 /**
  * Every path but the iFrame embeds (S7-F8) may never be framed. The proxy sets the same on the pages it runs for; this
@@ -27,7 +32,12 @@ export const PUBLIC_SECURITY_HEADERS = [
 ];
 
 // S15-01 / S15 review: the portal pages' CDN headers (shared with the proxy).
-export { ENQUIRY_NOTICE_CACHE, PORTAL_ISR_PAGE_CACHE, PORTAL_PAGE_CACHE } from './src/portal/cache-control';
+export {
+  ENQUIRY_NOTICE_CACHE,
+  PORTAL_ISR_PAGE_CACHE,
+  PORTAL_MEMBER_PAGE_CACHE,
+  PORTAL_PAGE_CACHE,
+} from './src/portal/cache-control';
 
 const LOCALE = ':locale([a-z]{2})';
 export const PORTAL_CACHED_SOURCES = [
@@ -38,6 +48,8 @@ export const PORTAL_CACHED_SOURCES = [
   // S15-03: agency profile pages (their listings page like a search).
   `/${LOCALE}/agency/:id/:name`,
 ];
+/** S15-F10: members' published profiles — like the pages above, but never served stale on an origin error. */
+export const PORTAL_MEMBER_SOURCES = [`/${LOCALE}/agent/:id/:name`];
 /**
  * S15 review: the ISR pages (listing, development). Their `Cache-Control` comes from this rule, not from Next's
  * `revalidate`-based header (which only applies when none is set): the CDN keeps them a minute, never ~a year stale.
@@ -72,9 +84,13 @@ const nextConfig: NextConfig = {
         source,
         headers: [{ key: 'Cache-Control', value: PORTAL_ISR_PAGE_CACHE }],
       })),
+      ...PORTAL_MEMBER_SOURCES.map((source) => ({
+        source,
+        headers: [{ key: 'Cache-Control', value: PORTAL_MEMBER_PAGE_CACHE }],
+      })),
       // S15-03 review: a page carrying an enquiry form's answer (`?enquiry=`) is the visitor's own: never cached
       // publicly (the proxy sets the same; this rule comes last, so it wins over the one above).
-      ...[...PORTAL_CACHED_SOURCES, ...PORTAL_ISR_SOURCES].map((source) => ({
+      ...[...PORTAL_CACHED_SOURCES, ...PORTAL_ISR_SOURCES, ...PORTAL_MEMBER_SOURCES].map((source) => ({
         source,
         has: [{ type: 'query' as const, key: 'enquiry' }],
         headers: [{ key: 'Cache-Control', value: ENQUIRY_NOTICE_CACHE }],

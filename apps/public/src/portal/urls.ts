@@ -1,4 +1,4 @@
-import { agencyPath as coreAgencyPath } from '@inmolink/core/modules/website-api';
+import { agencyPath as coreAgencyPath, memberPath as coreMemberPath } from '@inmolink/core/modules/website-api';
 
 // S15-02: the page shapes live in core (the sitemaps job builds the same URLs); re-exported for the pages.
 export {
@@ -29,6 +29,11 @@ export { hasFilters, queryString } from './query';
  */
 export function agencyPath(locale: string, agency: { id: string; name: string }): string {
   return coreAgencyPath(locale, agency.id, agency.name);
+}
+
+/** S15-F10: a member's published profile page (core's `memberPath`; its id is the profile's, never the user's). */
+export function memberPath(locale: string, member: { id: string; name: string }): string {
+  return coreMemberPath(locale, member.id, member.name);
 }
 
 /** `rel` for links to sites the portal does not vouch for. */

@@ -6,6 +6,7 @@ import { apiKeyCacheKey, isApiKeyPrefix } from './api-keys';
 import type { AuthEmailKind, TwoFactorNoticeKind } from './emails';
 import { identityEvents } from './events';
 import { identityJobs } from './jobs';
+import { unpublishDeactivatedMember } from './public-profile';
 import * as repo from './repo';
 import { disconnectDeactivatedMember, disconnectRevokedSessions } from './sessions';
 
@@ -112,6 +113,12 @@ export function registerIdentitySubscriptions(): void {
       {
         name: 'identity.realtime.memberDeactivated',
       },
+    ),
+    // S15-F10 review: a deactivated member's portal profile is unpublished (reactivation needs a fresh opt-in).
+    subscribe(
+      identityEvents.memberDeactivated,
+      (payload) => unpublishDeactivatedMember(payload).then(() => undefined),
+      { name: 'identity.publicProfile.memberDeactivated' },
     ),
     subscribe(identityEvents.sessionsRevoked, (payload) => disconnectRevokedSessions(payload).then(() => undefined), {
       name: 'identity.realtime.sessionsRevoked',

@@ -14,7 +14,8 @@ import type { PortalPage } from './portal-seo';
  * - `portal:c:<public code>` — the same event, by code: a listing's or development's cached 404 (withdrawn, then
  *   restored) carries only the code its URL names;
  * - `portal:a:<agency id>` — the listing agency's standing (`agencies.status.changed`), name or kind
- *   (`agencies.details.updated`) or published contacts (`agencies.profile.updated`) changed.
+ *   (`agencies.details.updated`) or published contacts (`agencies.profile.updated`) changed, or (S15-F10) the public
+ *   copy of its logo or of a member's photo was published or removed (`media.portalImages.changed`).
  *
  * Why shared tag times and not an HTTP revalidation endpoint: a worker calling `revalidateTag` through one public
  * instance's endpoint reaches only the instance the load balancer picks; the tag times reach every instance on its

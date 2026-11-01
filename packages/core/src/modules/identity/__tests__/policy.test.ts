@@ -148,3 +148,20 @@ describe('identity policy', () => {
     }
   });
 });
+
+describe('portal profile policy (S15-F10)', () => {
+  it('[S15-F10] every member reads and changes only their own portal profile, never in Client Mode; staff acting as them only look', () => {
+    for (const role of ['AGENCY_ADMIN', 'AGENT', 'DEVELOPER_ADMIN', 'DEVELOPER_AGENT', 'PARTNER']) {
+      for (const action of ['identity.publicProfile.read', 'identity.publicProfile.update'] as const) {
+        expect(can(ctxAs(role), action, { userId: SELF }), `${role} ${action}`).toBe(true);
+        // Not even an admin edits a colleague's: what a member publishes about themselves is theirs.
+        expect(can(ctxAs(role), action, { userId: COLLEAGUE }), `${role} ${action} colleague`).toBe(false);
+        expect(can(ctxAs(role, { clientMode: true }), action, { userId: SELF })).toBe(false);
+        expect(can(ctxAs(role), action, { userId: SELF, agencyId: OTHER_AGENCY })).toBe(false);
+      }
+    }
+    expect(IDENTITY_IMPERSONATION['identity.publicProfile.read']).toBe('allowed');
+    expect(IDENTITY_IMPERSONATION['identity.publicProfile.update']).toBe('forbidden');
+    expect(CLIENT_MODE_ALLOWED.has('identity.publicProfile.update')).toBe(false);
+  });
+});

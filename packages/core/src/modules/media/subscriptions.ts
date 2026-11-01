@@ -1,7 +1,9 @@
 import { subscribe } from '@inmolink/platform/outbox';
+import { agenciesEvents } from '../agencies';
+import { identityEvents } from '../identity';
 import { enqueueDocumentDelete } from './document-jobs';
 import { mediaEvents } from './events';
-import { mediaJobs, requestFeedImages } from './jobs';
+import { mediaJobs, requestFeedImages, requestPortalImages } from './jobs';
 
 let unsubscribe: (() => void)[] | undefined;
 
@@ -49,6 +51,23 @@ export function registerMediaSubscriptions(): void {
     // S3-F8: a deleted document's object, retried by its job until it is gone.
     subscribe(mediaEvents.documentDeleted, (payload, meta) => enqueueDocumentDelete(payload, meta), {
       name: 'media.documents.delete',
+    }),
+    // S15-F10: the portal's public copies of the logo and members' photos follow the uploads, the profiles and the
+    // agency's listing (status) — one debounced, idempotent run per agency.
+    subscribe(
+      agenciesEvents.profileUpdated,
+      (payload, meta) => (payload.logoChanged ? requestPortalImages(meta.agencyId) : undefined),
+      { name: 'media.portalImages.logo' },
+    ),
+    subscribe(agenciesEvents.statusChanged, (_payload, meta) => requestPortalImages(meta.agencyId), {
+      name: 'media.portalImages.status',
+    }),
+    subscribe(identityEvents.publicProfileUpdated, (_payload, meta) => requestPortalImages(meta.agencyId), {
+      name: 'media.portalImages.profile',
+    }),
+    // A deactivated member's profile is no longer shown (the lookups check the membership): its photo copy goes.
+    subscribe(identityEvents.memberDeactivated, (_payload, meta) => requestPortalImages(meta.agencyId), {
+      name: 'media.portalImages.member',
     }),
   ];
 }

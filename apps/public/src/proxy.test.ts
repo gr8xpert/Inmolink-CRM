@@ -313,6 +313,23 @@ describe('legacy inmolink.es URLs (S15-02)', () => {
     expect(counted).toHaveBeenCalledWith('/en/old-page', expect.any(Function));
   });
 
+  it('[S15-F10] member pages (`/<l>/agent/<profile uuid>/…`) are not looked up; legacy `/agent/<id>` URLs keep their 301', async () => {
+    const counted: LegacyGate = vi.fn(async (path) =>
+      path.startsWith('/en/agent/42') ? (known['/agent/42/jane-doe'] ?? null) : null,
+    );
+    const run = createProxy(ok(), allow, counted);
+    await run(request('/en/agent/01900000-0000-7000-8000-0000000000a1/marta-ruiz'));
+    await run(request('/es/agent/01900000-0000-7000-8000-0000000000A1/marta-ruiz'));
+    expect(counted).not.toHaveBeenCalled();
+    // An old unprefixed or locale-prefixed agent URL (a numeric legacy id) still goes to the legacy redirects.
+    const legacyRun = createProxy(ok(), allow, legacy);
+    const res = await legacyRun(request('/agent/42/jane-doe'));
+    expect(res.status).toBe(301);
+    expect(res.headers.get('location')).toBe('https://inmolink.test/en/properties');
+    expect((await run(request('/en/agent/42/jane-doe'))).status).toBe(301);
+    expect(counted).toHaveBeenCalledWith('/en/agent/42/jane-doe', expect.any(Function));
+  });
+
   it('[S15-02] old pages with an extension reach the proxy; sitemaps, robots.txt and the enquiry post do not', () => {
     const runs = (url: string) => unstable_doesMiddlewareMatch({ config, url });
     for (const url of ['/index.php', '/contacto.html', '/old/page.aspx']) expect(runs(url), url).toBe(true);

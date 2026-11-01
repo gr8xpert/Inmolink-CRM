@@ -68,6 +68,23 @@ export {
 export { getMe, type SessionClaims } from './me';
 export { earliestTeamInviteByAgency } from './onboarding-reads';
 export { CLIENT_MODE_ALLOWED, can, canStaff, type StaffIdentityAction } from './policy';
+// S15-F10: a member's own published portal profile; the portal's reads and the portal-images job's.
+export {
+  eraseAgencyPublicProfiles,
+  getMyPublicProfile,
+  MEMBER_PROFILE_ERASE_BATCH,
+  type MemberPhotoState,
+  memberPhotoStates,
+  type PublicMember,
+  type PublicMemberLinkRow,
+  publicMember,
+  publicMembersQuery,
+  removeMyPublicProfilePhoto,
+  setMemberPhotoPublicKey,
+  unpublishDeactivatedMember,
+  updateMyPublicProfile,
+  uploadMyPublicProfilePhoto,
+} from './public-profile';
 export {
   acceptInvite,
   changeMemberRole,

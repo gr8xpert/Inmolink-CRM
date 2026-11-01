@@ -340,3 +340,59 @@ export const apiKeys = pgTable(
     }).onDelete('no action'),
   ],
 );
+
+/**
+ * A member's published portal profile (S15-F10, PLAN §7 M14): opt-in, the member's own choice of name, photo,
+ * languages and the phone / e-mail they publish — nothing else of theirs ever reaches the portal. STRICT, own row only
+ * (`userSelect` + `write`: a member reads, creates and changes only their own row). The portal (`app_public`) never reads
+ * the table: the SECURITY DEFINER lookups `member_public_profile` / `agency_public_members` answer only published rows
+ * of active members of VERIFIED agencies listed in the directory. `id` is the page's public id (never the user id).
+ * The photo is uploaded to the private bucket (`member-photos/<agency>/<id>`); a worker re-encodes it into the media
+ * bucket (`portal/member-photos/<agency>/<id>.webp`, `photo_public_key`) only while the profile is published and the
+ * agency listed.
+ */
+export const memberPublicProfiles = pgTable(
+  'member_public_profiles',
+  {
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agencies.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').notNull(),
+    id: uuid('id').notNull(),
+    published: boolean('published').notNull().default(false),
+    displayName: text('display_name').notNull(),
+    /** Content locale codes the member speaks. */
+    languages: text('languages').array().notNull().default(sql`'{}'::text[]`),
+    /** What the member publishes — never their login e-mail unless they type it here. */
+    phone: text('phone'),
+    email: text('email'),
+    photoStorageKey: text('photo_storage_key'),
+    photoContentType: text('photo_content_type'),
+    /** The public variant in the media bucket; written by the portal-images job only. */
+    photoPublicKey: text('photo_public_key'),
+    version: integer('version').notNull().default(1),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.agencyId, t.userId] }),
+    // member page: where id = ? (`member_public_profile`)
+    uniqueIndex('member_public_profiles_id_uq').on(t.id),
+    // agency profile's team: where agency_id = ? and published order by display_name, id (`agency_public_members`)
+    index('member_public_profiles_agency_published_idx').on(t.agencyId, t.displayName, t.id).where(sql`${t.published}`),
+    check('member_public_profiles_name_ck', sql`char_length(${t.displayName}) between 2 and 80`),
+    check('member_public_profiles_languages_ck', sql`cardinality(${t.languages}) <= 12`),
+    check(
+      'member_public_profiles_contacts_ck',
+      sql`(${t.phone} is null or char_length(${t.phone}) between 3 and 40) and (${t.email} is null or (char_length(${t.email}) <= 254 and position('@' in ${t.email}) > 1))`,
+    ),
+    check(
+      'member_public_profiles_photo_ck',
+      sql`(${t.photoStorageKey} is null and ${t.photoContentType} is null) or (starts_with(${t.photoStorageKey}, 'member-photos/' || ${t.agencyId}::text || '/') and ${t.photoContentType} in ('image/png', 'image/jpeg', 'image/webp'))`,
+    ),
+    check(
+      'member_public_profiles_photo_public_ck',
+      sql`${t.photoPublicKey} is null or starts_with(${t.photoPublicKey}, 'portal/member-photos/' || ${t.agencyId}::text || '/')`,
+    ),
+  ],
+);

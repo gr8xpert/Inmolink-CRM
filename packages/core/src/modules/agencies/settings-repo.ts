@@ -1,6 +1,6 @@
 import type { Tx } from '@inmolink/db';
-import { agencyProfiles, agencySettings, agencyTranslations } from '@inmolink/db/schema/agencies';
-import { and, asc, eq, inArray, notInArray, sql } from 'drizzle-orm';
+import { agencyDirectory, agencyProfiles, agencySettings, agencyTranslations } from '@inmolink/db/schema/agencies';
+import { and, asc, eq, inArray, isNull, notInArray, sql } from 'drizzle-orm';
 
 /**
  * Profile and settings queries (S1-06, PATTERNS §5). Runs as `app_user` under `withTenant`; queries only
@@ -163,6 +163,67 @@ export async function updateProfile(
     .where(and(eq(agencyProfiles.agencyId, agencyId), eq(agencyProfiles.version, version)))
     .returning(profileColumns);
   return row ?? null;
+}
+
+// ── Portal logo (S15-F10, portal-images job: app_system, raw tx) ─────────────────────────────────────────────────
+
+export interface PortalLogoState {
+  /** Listed in the directory now (VERIFIED). */
+  listed: boolean;
+  logoStorageKey: string | null;
+  logoContentType: string | null;
+  logoPublicKey: string | null;
+}
+
+/** The agency's logo and its public variant, and whether it is listed. One statement; null: unknown agency. */
+export async function portalLogoState(tx: Tx, agencyId: string): Promise<PortalLogoState | null> {
+  const [row] = await tx
+    .select({
+      listed: agencyDirectory.listed,
+      logoStorageKey: agencyProfiles.logoStorageKey,
+      logoContentType: agencyProfiles.logoContentType,
+      logoPublicKey: agencyProfiles.logoPublicKey,
+    })
+    .from(agencyDirectory)
+    .leftJoin(agencyProfiles, eq(agencyProfiles.agencyId, agencyDirectory.agencyId))
+    .where(eq(agencyDirectory.agencyId, agencyId));
+  if (!row) return null;
+  return {
+    listed: row.listed,
+    logoStorageKey: row.logoStorageKey ?? null,
+    logoContentType: row.logoContentType ?? null,
+    logoPublicKey: row.logoPublicKey ?? null,
+  };
+}
+
+/**
+ * Records the logo's public variant (or none), only while the profile still holds `expectedStorageKey` — a logo
+ * replaced meanwhile never shows under the old one's variant. No `version` bump: an admin's open form stays valid.
+ * S15-F10 review: a non-null key is recorded only while the agency is still listed in the directory
+ * (`portalLogoState`'s test) — delisted during the render, it returns false and the job deletes the copy it just made.
+ */
+export async function setLogoPublicKey(
+  tx: Tx,
+  agencyId: string,
+  expectedStorageKey: string | null,
+  publicKey: string | null,
+): Promise<boolean> {
+  const res = await tx
+    .update(agencyProfiles)
+    .set({ logoPublicKey: publicKey })
+    .where(
+      and(
+        eq(agencyProfiles.agencyId, agencyId),
+        expectedStorageKey === null
+          ? isNull(agencyProfiles.logoStorageKey)
+          : eq(agencyProfiles.logoStorageKey, expectedStorageKey),
+        publicKey === null
+          ? undefined
+          : sql`exists (select 1 from ${agencyDirectory} d where d.agency_id = ${agencyProfiles.agencyId} and d.listed)`,
+      ),
+    )
+    .returning({ agencyId: agencyProfiles.agencyId });
+  return res.length > 0;
 }
 
 // ── Translations ────────────────────────────────────────────────────────────────────────────────

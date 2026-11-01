@@ -16,6 +16,7 @@ import type {
   PortalDevelopment,
   PortalListing,
   PortalLocation,
+  PortalMember,
   PortalPlace,
   PortalZone,
 } from './portal';
@@ -174,6 +175,8 @@ export function developmentJsonLd(d: DevelopmentLd) {
 export interface AgencyLd {
   url: string;
   name: string;
+  /** S15-F10: its logo's public copy (absolute CDN URL), or null. */
+  logo?: string | null;
   description: string | null;
   email: string | null;
   telephone: string | null;
@@ -196,6 +199,7 @@ export function agencyJsonLd(a: AgencyLd) {
     '@id': a.url,
     url: a.url,
     name: a.name,
+    ...(a.logo ? { logo: a.logo, image: a.logo } : {}),
     ...(a.description ? { description: a.description } : {}),
     ...(a.email ? { email: a.email } : {}),
     ...(a.telephone ? { telephone: a.telephone } : {}),
@@ -267,6 +271,8 @@ export type PortalPage = { locale: string; origin: string } & (
       slugs: Readonly<Record<string, string>>;
     }
   | { kind: 'agency'; query: PortalQuery; agency: PortalAgencyProfile }
+  /** S15-F10: a member's published profile. */
+  | { kind: 'member'; member: PortalMember }
   | { kind: 'listing'; listing: PortalListing; place?: PortalPlaceTrail | null }
   | { kind: 'development'; development: PortalDevelopment; place?: PortalPlaceTrail | null }
 );
@@ -333,6 +339,8 @@ function pathOf(page: PortalPage): string {
       return zonePath(page.locale, page.zone.slug);
     case 'agency':
       return page.agency.paths[page.locale] as string;
+    case 'member':
+      return page.member.paths[page.locale] as string;
     case 'listing':
       return page.listing.paths[page.locale] as string;
     case 'development':
@@ -443,6 +451,26 @@ export function portalMetadataFor(page: PortalPage): PortalMetadata {
         description,
       });
     }
+    case 'member': {
+      const { member } = page;
+      const canonical = `${origin}${member.paths[locale]}`;
+      const title = t('member.metaTitle', { name: member.name, agency: member.agency.name });
+      const description = t('member.metaDescription', { name: member.name, agency: member.agency.name });
+      return {
+        title,
+        description,
+        alternates: { canonical, languages: languageAlternates(origin, member.paths, DEFAULT_UI_LOCALE) },
+        openGraph: {
+          type: 'website',
+          url: canonical,
+          title,
+          description,
+          locale,
+          ...(member.photoUrl ? { images: [{ url: member.photoUrl, alt: member.name }] } : {}),
+        },
+        twitter: { card: 'summary', title },
+      };
+    }
     case 'listing': {
       const { detail, paths } = page.listing;
       const title = portalPageTitle(page);
@@ -522,6 +550,12 @@ export function portalCrumbs(page: PortalPage): Crumb[] {
       return [home, all, { name: page.zone.name, path }];
     case 'agency':
       return [home, { name: page.agency.name, path }];
+    case 'member':
+      return [
+        home,
+        { name: page.member.agency.name, path: page.member.agency.paths[locale] as string },
+        { name: page.member.name, path },
+      ];
     case 'listing':
     case 'development':
       return [home, all, ...trail(page.place), { name: portalPageTitle(page), path }];
@@ -567,7 +601,30 @@ export function portalJsonLd(page: PortalPage): object[] {
           city: a.city,
           languages: a.languages,
           registerNumber: a.registerNumber,
+          logo: a.logoUrl,
         }),
+        crumbs,
+      ];
+    }
+    case 'member': {
+      const m = page.member;
+      return [
+        {
+          '@context': 'https://schema.org',
+          '@type': 'Person',
+          '@id': url,
+          url,
+          name: m.name,
+          ...(m.photoUrl ? { image: m.photoUrl } : {}),
+          ...(m.email ? { email: m.email } : {}),
+          ...(m.phone ? { telephone: m.phone } : {}),
+          ...(m.languages.length > 0 ? { knowsLanguage: [...m.languages] } : {}),
+          worksFor: {
+            '@type': 'RealEstateAgent',
+            '@id': `${origin}${m.agency.paths[locale]}`,
+            name: m.agency.name,
+          },
+        },
         crumbs,
       ];
     }

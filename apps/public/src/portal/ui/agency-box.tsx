@@ -3,6 +3,7 @@ import type { getTranslations } from 'next-intl/server';
 import type { ReactNode } from 'react';
 import { agencyPath } from '../urls';
 import { AgencyContacts } from './agency-contacts';
+import { AgencyLogo } from './agency-logo';
 
 type T = Awaited<ReturnType<typeof getTranslations<'portal'>>>;
 
@@ -31,7 +32,8 @@ export function AgencyBox(props: {
         </h2>
         {agency ? (
           <>
-            <p className="mt-1 text-lg font-bold">
+            <p className="mt-1 flex items-center gap-3 text-lg font-bold">
+              <AgencyLogo agency={agency} size="md" />
               <a href={agencyPath(props.locale, agency)} className="text-ink hover:text-sea">
                 {agency.name}
               </a>

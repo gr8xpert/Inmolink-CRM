@@ -39,10 +39,12 @@ export type LegacyGate = (
 
 /**
  * The portal's own page shapes (`/en`, `/en/properties…`, `/en/property/…`, `/en/development/…`, `/en/zone/…`,
- * `/en/agency/…`): their pages ask the legacy redirects themselves, and only on a 404. Every other path may be an old
+ * `/en/agency/…`, S15-F10: `/en/agent/<profile uuid>/…` — a legacy `/agent/<numeric id>` is still looked up here): their
+ * pages ask the legacy redirects themselves, and only on a 404. Every other path may be an old
  * inmolink.es URL and is looked up here first, before locale routing — a true 301 (a page can only answer 308).
  */
-const PORTAL_PAGE_PATH = /^\/[a-z]{2}(?:\/(?:properties|property|development|zone|agency)(?:\/|$)|\/?$)/;
+const PORTAL_PAGE_PATH =
+  /^\/[a-z]{2}(?:\/(?:properties|property|development|zone|agency)(?:\/|$)|\/agent\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(?:\/|$)|\/?$)/;
 
 /** Old pages with an extension the proxy sees (the matcher's second entry). */
 const LEGACY_FILE_PATH = /\.(?:php|html?|aspx?)$/i;

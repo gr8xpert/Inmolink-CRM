@@ -173,7 +173,35 @@ create function agency_public_profile(a_id uuid, locales text[])
              order by array_position(locales[1:3], tr.locale)
              limit 1) t on true
          where g.agency_id = a_id and g.status = 'VERIFIED' $$;
-revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), website_network_open(uuid, integer, integer), agency_ai_features(uuid), legacy_target_ids(text[]), legacy_ids_of(uuid[]), portal_feed_by_token(text), calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer), calendar_feed_tag(text), selection_by_token(text[]), agency_public_profile(uuid, text[]) from public;
+drop function if exists member_public_profile(uuid);
+create function member_public_profile(m_id uuid)
+  returns table(id uuid, agency_id uuid, display_name text, languages text[], phone text, email text, photo_key text)
+  language sql stable security definer set search_path = pg_catalog, pg_temp
+  as $$ select p.id, p.agency_id, p.display_name, p.languages, p.phone, p.email, p.photo_public_key
+          from public.member_public_profiles p
+          join public.agency_members m on m.agency_id = p.agency_id and m.user_id = p.user_id
+           and m.deactivated_at is null
+          join public.users u on u.id = p.user_id and u.status = 'ACTIVE'
+          join public.agency_directory d on d.agency_id = p.agency_id and d.listed
+          join public.agencies g on g.agency_id = p.agency_id and g.status = 'VERIFIED'
+         where p.id = m_id and p.published $$;
+drop function if exists agency_public_members(uuid);
+create function agency_public_members(a_id uuid)
+  returns table(id uuid, display_name text, photo_key text)
+  language sql stable security definer set search_path = pg_catalog, pg_temp
+  as $$ select p.id, p.display_name, p.photo_public_key
+          from public.member_public_profiles p
+          join public.agency_members m on m.agency_id = p.agency_id and m.user_id = p.user_id
+           and m.deactivated_at is null
+          join public.users u on u.id = p.user_id and u.status = 'ACTIVE'
+         where p.agency_id = a_id and p.published
+           and exists (select 1 from public.agency_directory d
+                         join public.agencies g on g.agency_id = d.agency_id and g.status = 'VERIFIED'
+                        where d.agency_id = a_id and d.listed)
+         order by p.display_name, p.id
+         limit 100 $$;
+revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), website_network_open(uuid, integer, integer), agency_ai_features(uuid), legacy_target_ids(text[]), legacy_ids_of(uuid[]), portal_feed_by_token(text), calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer), calendar_feed_tag(text), selection_by_token(text[]), agency_public_profile(uuid, text[]), member_public_profile(uuid), agency_public_members(uuid) from public;
+grant execute on function member_public_profile(uuid), agency_public_members(uuid) to app_public;
 grant execute on function agency_public_profile(uuid, text[]) to app_public;
 grant execute on function calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer) to app_public;
 grant execute on function calendar_feed_tag(text) to app_public;
@@ -190,6 +218,8 @@ alter function calendar_feed_by_token(text, timestamptz, timestamptz, timestampt
 alter function calendar_feed_tag(text) owner to app_owner;
 alter function selection_by_token(text[]) owner to app_owner;
 alter function agency_public_profile(uuid, text[]) owner to app_owner;
+alter function member_public_profile(uuid) owner to app_owner;
+alter function agency_public_members(uuid) owner to app_owner;
 grant execute on function app_agency(), app_user_id() to app_user, app_system, app_public, app_auth, app_staff;
 grant execute on function app_impersonated_by() to app_user;
 grant execute on function app_agency() to app_intake;
@@ -201,7 +231,7 @@ do $$
 declare p record;
 begin
   for p in select tablename, policyname from pg_policies
-            where schemaname = 'public' and tablename = any (array['activities', 'agencies', 'agency_directory', 'agency_invites', 'agency_members', 'agency_portal_connections', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'ai_feedback', 'ai_jobs', 'ai_usage_monthly', 'api_keys', 'audit_logs', 'auth_tokens', 'billing_catalog_items', 'billing_customers', 'billing_invoices', 'billing_plan_grants', 'billing_price_locks', 'billing_prices', 'billing_stripe_events', 'billing_subscriptions', 'bookmark_folders', 'calendar_event_attendees', 'calendar_events', 'calendar_feeds', 'chat_messages', 'chat_participants', 'chat_threads', 'client_registration_fingerprints', 'client_registration_receipts', 'client_registrations', 'consent_records', 'contact_emails', 'contact_facets', 'contact_imports', 'contact_notes', 'contact_phones', 'contacts', 'crm_response_rollups', 'crm_stage_counts', 'crm_stage_move_rollups', 'data_export_jobs', 'development_access', 'development_documents', 'development_phases', 'development_translations', 'developments', 'feature_aliases', 'feature_flags', 'feature_group_translations', 'feature_groups', 'feature_translations', 'features', 'feed_connections', 'feed_image_queue', 'feed_image_sources', 'feed_item_errors', 'feed_mapping_profiles', 'feed_runs', 'feed_sheet_releases', 'feed_source_hashes', 'job_checkpoints', 'lead_introductions', 'lead_routing_settings', 'lead_stage_history', 'leads', 'legacy_id_maps', 'legacy_url_redirects', 'listing_bookmarks', 'listing_bulk_actions', 'listing_documents', 'listing_overrides', 'listing_public_changes', 'listing_public_codes', 'listing_read_models', 'listing_search_commissions', 'listing_search_developments', 'listing_search_docs', 'listing_studio_batches', 'listing_studio_usage', 'listing_views', 'location_aliases', 'location_group_members', 'location_group_translations', 'location_groups', 'location_translations', 'locations', 'matching_listing_states', 'media_objects', 'migration_batches', 'migration_cutovers', 'migration_validation_reports', 'network_post_authors', 'network_posts', 'network_subscription_terms', 'network_subscriptions', 'notification_preferences', 'notifications', 'onboarding_steps', 'outbox_events', 'pipeline_stages', 'portal_channels', 'portal_connection_issues', 'portal_connection_properties', 'portal_feed_runs', 'portal_listing_sync', 'preferred_agencies', 'preferred_agency_notes', 'price_lists', 'prompt_versions', 'properties', 'property_features', 'property_import_seen', 'property_import_staging', 'property_media', 'property_price_histories', 'property_privates', 'property_status_histories', 'property_tags', 'property_translations', 'property_type_aliases', 'property_type_group_translations', 'property_type_groups', 'property_type_translations', 'property_types', 'quality_queue', 'read_model_queue', 'retention_settings', 'saved_search_alerts', 'saved_searches', 'search_index_queue', 'selection_interactions', 'selection_items', 'selections', 'seller_prospects', 'social_accounts', 'social_posts', 'staff_impersonations', 'staff_operations', 'staff_users', 'support_ticket_attachments', 'support_ticket_messages', 'support_ticket_notes', 'support_tickets', 'tasks', 'taxonomy_unmatched', 'unit_price_histories', 'unit_status_histories', 'units', 'user_mfa', 'user_recovery_codes', 'users', 'viewing_request_receipts', 'viewing_requests', 'website_feeds', 'website_leads', 'website_sites', 'white_label_batches'])
+            where schemaname = 'public' and tablename = any (array['activities', 'agencies', 'agency_directory', 'agency_invites', 'agency_members', 'agency_portal_connections', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'ai_feedback', 'ai_jobs', 'ai_usage_monthly', 'api_keys', 'audit_logs', 'auth_tokens', 'billing_catalog_items', 'billing_customers', 'billing_invoices', 'billing_plan_grants', 'billing_price_locks', 'billing_prices', 'billing_stripe_events', 'billing_subscriptions', 'bookmark_folders', 'calendar_event_attendees', 'calendar_events', 'calendar_feeds', 'chat_messages', 'chat_participants', 'chat_threads', 'client_registration_fingerprints', 'client_registration_receipts', 'client_registrations', 'consent_records', 'contact_emails', 'contact_facets', 'contact_imports', 'contact_notes', 'contact_phones', 'contacts', 'crm_response_rollups', 'crm_stage_counts', 'crm_stage_move_rollups', 'data_export_jobs', 'development_access', 'development_documents', 'development_phases', 'development_translations', 'developments', 'feature_aliases', 'feature_flags', 'feature_group_translations', 'feature_groups', 'feature_translations', 'features', 'feed_connections', 'feed_image_queue', 'feed_image_sources', 'feed_item_errors', 'feed_mapping_profiles', 'feed_runs', 'feed_sheet_releases', 'feed_source_hashes', 'job_checkpoints', 'lead_introductions', 'lead_routing_settings', 'lead_stage_history', 'leads', 'legacy_id_maps', 'legacy_url_redirects', 'listing_bookmarks', 'listing_bulk_actions', 'listing_documents', 'listing_overrides', 'listing_public_changes', 'listing_public_codes', 'listing_read_models', 'listing_search_commissions', 'listing_search_developments', 'listing_search_docs', 'listing_studio_batches', 'listing_studio_usage', 'listing_views', 'location_aliases', 'location_group_members', 'location_group_translations', 'location_groups', 'location_translations', 'locations', 'matching_listing_states', 'media_objects', 'member_public_profiles', 'migration_batches', 'migration_cutovers', 'migration_validation_reports', 'network_post_authors', 'network_posts', 'network_subscription_terms', 'network_subscriptions', 'notification_preferences', 'notifications', 'onboarding_steps', 'outbox_events', 'pipeline_stages', 'portal_channels', 'portal_connection_issues', 'portal_connection_properties', 'portal_feed_runs', 'portal_listing_sync', 'preferred_agencies', 'preferred_agency_notes', 'price_lists', 'prompt_versions', 'properties', 'property_features', 'property_import_seen', 'property_import_staging', 'property_media', 'property_price_histories', 'property_privates', 'property_status_histories', 'property_tags', 'property_translations', 'property_type_aliases', 'property_type_group_translations', 'property_type_groups', 'property_type_translations', 'property_types', 'quality_queue', 'read_model_queue', 'retention_settings', 'saved_search_alerts', 'saved_searches', 'search_index_queue', 'selection_interactions', 'selection_items', 'selections', 'seller_prospects', 'social_accounts', 'social_posts', 'staff_impersonations', 'staff_operations', 'staff_users', 'support_ticket_attachments', 'support_ticket_messages', 'support_ticket_notes', 'support_tickets', 'tasks', 'taxonomy_unmatched', 'unit_price_histories', 'unit_status_histories', 'units', 'user_mfa', 'user_recovery_codes', 'users', 'viewing_request_receipts', 'viewing_requests', 'website_feeds', 'website_leads', 'website_sites', 'white_label_batches'])
   loop
     execute format('drop policy %I on public.%I', p.policyname, p.tablename);
   end loop;
@@ -333,7 +363,14 @@ create policy own_rows on public."agency_profiles" to app_user
 create policy public_read on public."agency_profiles" for select to app_public
   using (true);
 revoke all on table public."agency_profiles" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
-grant select, insert, update, delete on table public."agency_profiles" to app_user;
+grant select, insert, delete on table public."agency_profiles" to app_user;
+do $$
+declare cols text;
+begin
+  select string_agg(format('%I', attname), ', ' order by attnum) into cols from pg_attribute
+   where attrelid = 'public."agency_profiles"'::regclass and attnum > 0 and not attisdropped and attname <> all (array['logo_public_key']);
+  execute format('grant update (%s) on table public."agency_profiles" to app_user', cols);
+end $$;
 grant select, insert, update, delete on table public."agency_profiles" to app_system;
 do $$
 declare cols text;
@@ -1374,6 +1411,29 @@ grant select on table public."media_objects" to app_user;
 grant select, insert, update, delete on table public."media_objects" to app_system;
 create policy media_rows on public."media_objects" to app_media using (true) with check (true);
 grant select, insert, update, delete on table public."media_objects" to app_media;
+
+-- member_public_profiles: STRICT
+alter table public."member_public_profiles" enable row level security;
+alter table public."member_public_profiles" force row level security;
+create policy own_insert on public."member_public_profiles" for insert to app_user
+  with check (agency_id = app_agency() and (user_id = app_user_id() and photo_public_key is null));
+create policy own_update on public."member_public_profiles" for update to app_user
+  using (agency_id = app_agency() and (user_id = app_user_id())) with check (agency_id = app_agency() and (user_id = app_user_id()));
+create policy own_delete on public."member_public_profiles" for delete to app_user
+  using (agency_id = app_agency() and (user_id = app_user_id()));
+create policy user_select on public."member_public_profiles" for select to app_user
+  using (agency_id = app_agency() and (user_id = app_user_id()));
+revoke all on table public."member_public_profiles" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
+grant select, insert, delete on table public."member_public_profiles" to app_user;
+do $$
+declare cols text;
+begin
+  select string_agg(format('%I', attname), ', ' order by attnum) into cols from pg_attribute
+   where attrelid = 'public."member_public_profiles"'::regclass and attnum > 0 and not attisdropped and attname <> all (array['photo_public_key']);
+  execute format('grant update (%s) on table public."member_public_profiles" to app_user', cols);
+end $$;
+grant select, insert, update, delete on table public."member_public_profiles" to app_system;
+create policy definer_read on public."member_public_profiles" for select to app_owner using (true);
 
 -- migration_batches: GLOBAL
 alter table public."migration_batches" enable row level security;

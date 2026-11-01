@@ -37,7 +37,8 @@
     "inbox": "Bandeja de leads",
     "selections": "Selecciones",
     "dataExport": "Exportación de datos",
-    "billing": "Plan y facturación"
+    "billing": "Plan y facturación",
+    "publicProfile": "Perfil en el portal"
   },
   "account": {
     "label": "Tu cuenta",

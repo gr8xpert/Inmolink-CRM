@@ -168,8 +168,9 @@ describe('RLS generator', () => {
   it('[S1-08] partition maintenance is a SECURITY DEFINER helper executable by app_system only (the other: [S7-03])', () => {
     // S8-02 adds the two legacy-id lookups (app_public), S9-03 the portal feed token lookup (app_public), S10-06 the
     // calendar feed token lookup (app_public), S11-F7 the calendar feed fingerprint (app_public), S13-F17 the AI toggles
-    // lookup (app_public), S13-F1 the selection token lookup (app_public), S15-03 the agency profile lookup (app_public).
-    expect(out.match(/security definer/gi)).toHaveLength(10);
+    // lookup (app_public), S13-F1 the selection token lookup (app_public), S15-03 the agency profile lookup (app_public),
+    // S15-F10 the member profile and agency team lookups (app_public).
+    expect(out.match(/security definer/gi)).toHaveLength(12);
     expect(out).toContain(
       'create or replace function app_partition_maintenance() returns void language plpgsql security definer',
     );
@@ -275,6 +276,36 @@ describe('RLS generator', () => {
       expect(table).toContain(`create policy definer_read on public."${name}" for select to app_owner using (true);`);
       expect(table).not.toMatch(/to [^;]*app_public/);
     }
+  });
+
+  it('[S15-F10] member_public_profile / agency_public_members answer published profiles of active members of listed agencies only, for app_public', () => {
+    for (const fn of ['member_public_profile', 'agency_public_members']) {
+      expect(HELPER_FUNCTIONS as readonly string[]).toContain(fn);
+      expect(out).toContain(`drop function if exists ${fn}(uuid);`);
+      const body = out.split(`create function ${fn}(`)[1]?.split('$$;')[0] ?? '';
+      expect(body).toContain('security definer set search_path = pg_catalog, pg_temp');
+      expect(body).toContain('p.published');
+      expect(body).toContain('m.deactivated_at is null');
+      expect(body).toContain("u.status = 'ACTIVE'");
+      expect(body).toMatch(/agency_directory d[\s\S]*d\.listed/);
+      expect(body).toContain("g.status = 'VERIFIED'");
+      // Never the user id, login e-mail, role or the private photo key.
+      expect(body.split('from public.member_public_profiles')[0]).not.toMatch(
+        /user_id|m\.email|u\.email|role|photo_storage_key/,
+      );
+      expect(out).toContain(`alter function ${fn}(uuid) owner to app_owner;`);
+    }
+    expect(out).toContain(
+      'grant execute on function member_public_profile(uuid), agency_public_members(uuid) to app_public;',
+    );
+    expect(out).not.toMatch(
+      /(?:member_public_profile|agency_public_members)\(uuid\)[^;]* to [^;]*app_(?:user|system|auth|staff|intake|media)/,
+    );
+    const table = tablesSql(registry).split('-- member_public_profiles:')[1]?.split('\n\n')[0] ?? '';
+    expect(table).toContain(
+      'create policy definer_read on public."member_public_profiles" for select to app_owner using (true);',
+    );
+    expect(table).not.toMatch(/to [^;]*app_public/);
   });
 
   it('[S15-03] agency_public_profile answers a listed, verified agency’s published facts only, for app_public', () => {

@@ -221,6 +221,18 @@
     "contact": "Contactar con la agencia",
     "mailSubject": "Consulta desde Inmolink",
     "listings": "{count, plural, =0 {Ningún inmueble} one {# inmueble} other {# inmuebles}} en venta",
-    "empty": "{agency} no tiene inmuebles en venta en Inmolink en este momento."
+    "empty": "{agency} no tiene inmuebles en venta en Inmolink en este momento.",
+    "team": "Nuestro equipo"
+  },
+  "member": {
+    "metaTitle": "{name}, {agency}",
+    "metaDescription": "{name} trabaja en {agency}, una empresa verificada en Inmolink. Contacta directamente o mira los inmuebles en venta de la agencia.",
+    "worksAt": "Trabaja en",
+    "languages": "Idiomas",
+    "contact": "Contactar con {name}",
+    "call": "Llamar",
+    "email": "Correo electrónico",
+    "mailSubject": "Consulta desde Inmolink",
+    "agencyListings": "Ver los inmuebles de {agency}"
   }
 }

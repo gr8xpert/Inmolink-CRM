@@ -65,6 +65,9 @@ export const IDENTITY_ACTIONS = [
   'identity.staffAccess.read',
   // S12-06: start Client Mode for one's own session.
   'identity.clientMode.enter',
+  // S15-F10: the member's own published portal profile (read it, change it).
+  'identity.publicProfile.read',
+  'identity.publicProfile.update',
 ] as const;
 export type IdentityAction = (typeof IDENTITY_ACTIONS)[number];
 
@@ -88,6 +91,9 @@ export const IDENTITY_IMPERSONATION: ImpersonationRules<IdentityAction> = {
   'identity.staffAccess.read': 'forbidden',
   // S12-06: Client Mode is the member's own session (an impersonation token never carries it).
   'identity.clientMode.enter': 'forbidden',
+  // S15-F10: what a member publishes about themselves is theirs to decide: staff may look, never change it.
+  'identity.publicProfile.read': 'allowed',
+  'identity.publicProfile.update': 'forbidden',
 };
 
 /** Roles that manage the agency's website API keys (S1-05): the admin of either family. */
@@ -128,6 +134,10 @@ export function can(
     case 'identity.clientMode.enter':
       // S12-06: any member, once (a session in Client Mode cannot start it again with another PIN).
       return sameAgency && !ctx.clientMode;
+    case 'identity.publicProfile.read':
+    case 'identity.publicProfile.update':
+      // S15-F10: any member, their own profile only (the service passes no other user), never in Client Mode.
+      return sameAgency && !ctx.clientMode && (resource.userId === undefined || resource.userId === ctx.actor.userId);
     case 'identity.apiKeys.read':
     case 'identity.apiKeys.manage':
       // Keys expose the agency's inventory to websites: admins only, never in Client Mode.

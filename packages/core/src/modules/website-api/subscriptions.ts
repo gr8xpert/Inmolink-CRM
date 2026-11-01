@@ -4,6 +4,7 @@ import { type EventMeta, subscribe } from '@inmolink/platform/outbox';
 import * as agencies from '../agencies';
 import * as crm from '../crm';
 import * as identity from '../identity';
+import * as media from '../media';
 import * as search from '../search';
 import * as websites from '../websites';
 import { portalEdgePurgeItem } from './edge';
@@ -213,6 +214,18 @@ export function registerWebsiteApiSubscriptions(): void {
     }),
     subscribe(agencies.agenciesEvents.profileUpdated, (p) => portalAgencyChanged(p.agencyId), {
       name: 'websiteApi.portal.agencyProfile',
+    }),
+    // S15-F10 review: a logo or member photo copy published or removed — the agency's cards and profiles show it.
+    subscribe(media.mediaEvents.portalImagesChanged, (p) => portalAgencyChanged(p.agencyId), {
+      name: 'websiteApi.portal.agencyImages',
+    }),
+    // S15-F10 review: a member's profile saved, published or unpublished, or the member deactivated — the agency's
+    // cached team list and the member's page drop (or show) it without waiting for the photo job.
+    subscribe(identity.identityEvents.publicProfileUpdated, (p) => portalAgencyChanged(p.agencyId), {
+      name: 'websiteApi.portal.memberProfile',
+    }),
+    subscribe(identity.identityEvents.memberDeactivated, (p) => portalAgencyChanged(p.agencyId), {
+      name: 'websiteApi.portal.memberDeactivated',
     }),
     subscribe(identity.identityEvents.apiKeyRotated, keyChanged, { name: 'websiteApi.edge.apiKeyRotated' }),
     subscribe(identity.identityEvents.apiKeyRevoked, keyChanged, { name: 'websiteApi.edge.apiKeyRevoked' }),

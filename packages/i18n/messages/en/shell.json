@@ -37,7 +37,8 @@
     "inbox": "Lead inbox",
     "selections": "Selections",
     "dataExport": "Data export",
-    "billing": "Plan & billing"
+    "billing": "Plan & billing",
+    "publicProfile": "Portal profile"
   },
   "account": {
     "label": "Your account",

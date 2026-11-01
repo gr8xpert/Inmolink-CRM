@@ -202,7 +202,14 @@ function listing(website: string | null, developmentCode: string | null = null):
   return {
     detail,
     code: 'M2Q7ZK4P',
-    agency: { id: '01900000-0000-7000-8000-0000000000a1', name: 'Move Homes', email: null, phone: null, website },
+    agency: {
+      id: '01900000-0000-7000-8000-0000000000a1',
+      name: 'Move Homes',
+      email: null,
+      phone: null,
+      website,
+      logoUrl: null,
+    },
     updatedAt: new Date('2026-10-26T00:00:00Z'),
     developmentCode,
     paths: { en: '/en/property/villa-in-rojales-m2q7zk4p', es: '/es/property/chalet-en-rojales-m2q7zk4p' },
@@ -246,7 +253,14 @@ describe('portal listing page (S15-01)', () => {
 describe('portal development page (S15-01)', () => {
   const dev: PortalDevelopment = {
     code: 'D4V3L0PM',
-    agency: { id: '01900000-0000-7000-8000-0000000000a1', name: 'Move Homes', email: null, phone: null, website: null },
+    agency: {
+      id: '01900000-0000-7000-8000-0000000000a1',
+      name: 'Move Homes',
+      email: null,
+      phone: null,
+      website: null,
+      logoUrl: null,
+    },
     updatedAt: new Date('2026-10-26T00:00:00Z'),
     moreUnits: false,
     paths: { en: '/en/development/marina-d4v3l0pm', es: '/es/development/marina-d4v3l0pm' },

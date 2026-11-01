@@ -7,6 +7,8 @@
  * - `/{locale}/property/{type-in-town}-{code}` — a listing (its public code, lower case)
  * - `/{locale}/development/{name}-{code}` — a new-build development with its units (its public code, lower case)
  * - `/{locale}/agency/{agencyId}/{name}` — a listed agency's profile with its PUBLIC listings (S15-03)
+ * - `/{locale}/agent/{profileId}/{name}` — a member's published profile (S15-F10; the id is the profile's, a UUID —
+ *   legacy `/agent/<numeric id>` URLs keep their redirects to the agency's profile)
  */
 import { PublicCode } from '@inmolink/contracts';
 import { translator } from '@inmolink/i18n/server';
@@ -23,6 +25,9 @@ export const developmentPath = (locale: string, name: string, code: string) =>
 /** S15-03: a listed agency's profile page (its id names it; the name slug follows a rename — the page 301s to it). */
 export const agencyPath = (locale: string, id: string, name: string) =>
   `/${locale}/agency/${id.toLowerCase()}/${slugOf(name, 'agency')}`;
+/** S15-F10: a member's published profile page (its profile id names it; the name slug follows a rename). */
+export const memberPath = (locale: string, id: string, name: string) =>
+  `/${locale}/agent/${id.toLowerCase()}/${slugOf(name, 'agent')}`;
 
 /**
  * The public code a listing or development slug ends in (`…-<code>`, any case), upper case — or null when the slug

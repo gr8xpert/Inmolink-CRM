@@ -249,6 +249,8 @@ export interface PublicAgencyRow {
   websiteUrl: string | null;
   primaryColor: string | null;
   accentColor: string | null;
+  /** S15-F10: the logo's public variant in the media bucket (published while listed), or null. */
+  logoPublicKey: string | null;
 }
 
 /**
@@ -266,6 +268,7 @@ export async function publicAgencies(tx: Tx, ids: readonly string[]): Promise<Pu
       websiteUrl: agencyProfiles.websiteUrl,
       primaryColor: agencyProfiles.primaryColor,
       accentColor: agencyProfiles.accentColor,
+      logoPublicKey: agencyProfiles.logoPublicKey,
     })
     .from(agencyDirectory)
     .leftJoin(agencyProfiles, eq(agencyProfiles.agencyId, agencyDirectory.agencyId))
@@ -278,6 +281,7 @@ export async function publicAgencies(tx: Tx, ids: readonly string[]): Promise<Pu
     websiteUrl: r.websiteUrl ?? null,
     primaryColor: r.primaryColor ?? null,
     accentColor: r.accentColor ?? null,
+    logoPublicKey: r.logoPublicKey ?? null,
   }));
 }
 
@@ -290,6 +294,8 @@ export interface PublicAgencyProfileRow extends PublicAgencyRow {
   textLocale: string | null;
   tagline: string | null;
   description: string | null;
+  /** S15-F10: the caller's `extra` scalar subquery's value (another module's part of the same statement). */
+  extra: unknown;
 }
 
 /**
@@ -302,6 +308,7 @@ export async function publicAgencyProfile(
   tx: Tx,
   id: string,
   locales: readonly string[],
+  extra?: SQL,
 ): Promise<PublicAgencyProfileRow | null> {
   const res = await tx.execute<{
     agency_id: string;
@@ -318,8 +325,11 @@ export async function publicAgencyProfile(
     locale: string | null;
     tagline: string | null;
     description: string | null;
+    logo_public_key: string | null;
+    extra: unknown;
   }>(sql`select d.agency_id, d.name, d.kind, p.contact_email, p.contact_phone, p.website_url, p.primary_color,
-                p.accent_color, f.register_number, f.languages, f.city, f.locale, f.tagline, f.description
+                p.accent_color, f.register_number, f.languages, f.city, f.locale, f.tagline, f.description,
+                p.logo_public_key, ${extra ?? sql`null`} as extra
            from ${agencyDirectory} d
            join public.agency_public_profile(d.agency_id, ${sql.param([...locales])}::text[]) f on true
            left join ${agencyProfiles} p on p.agency_id = d.agency_id
@@ -341,6 +351,8 @@ export async function publicAgencyProfile(
     textLocale: r.locale ?? null,
     tagline: r.tagline ?? null,
     description: r.description ?? null,
+    logoPublicKey: r.logo_public_key ?? null,
+    extra: r.extra ?? null,
   };
 }
 

@@ -1,6 +1,7 @@
 import { withSystem } from '@inmolink/db';
 import * as chat from '../chat';
 import * as crm from '../crm';
+import * as identity from '../identity';
 import * as imports from '../imports';
 import * as matching from '../matching';
 import * as media from '../media';
@@ -34,7 +35,9 @@ import { auditSystem } from './service';
  * good (children cascade, photos recounted), then the agency's `documents/` objects. 9. `chat` — the agency's message
  * copies, then its threads and participants (S16-F5: deleted, not only untitled). 10. `savedSearches`.
  * 11. `notifications` — every notification and preference. 12. `contactImports` — files and the
- * `crm/contact-imports/<agency>/` prefix. 13. `exports` — every data export.
+ * `crm/contact-imports/<agency>/` prefix. 13. `exports` — every data export. 14. `memberProfiles` (S15-F10) — the
+ * members' published portal profiles (names, phones, e-mails they published), then their photo uploads
+ * (`member-photos/<agency>/`, private) and public copies (`portal/member-photos/<agency>/`, media).
  *
  * Then `compliance.agency.erased` is audited with the totals of all steps. Kept: deals (leads: ids, stages), audit
  * rows, billing, the agency row, its members' accounts and memberships (platform accounts, Inmolink's as controller —
@@ -55,6 +58,7 @@ export const AGENCY_ERASURE_PHASES = [
   'notifications',
   'contactImports',
   'exports',
+  'memberProfiles',
 ] as const;
 type Phase = (typeof AGENCY_ERASURE_PHASES)[number];
 
@@ -137,6 +141,10 @@ async function runPhase(
     case 'exports': {
       const r = await expireErasedExports({ agencyId, scope: 'ALL' });
       return { rows: r.files, more: false };
+    }
+    case 'memberProfiles': {
+      const r = await identity.eraseAgencyPublicProfiles({ agencyId, signal });
+      return { rows: r.profiles + r.objects, more: r.more };
     }
     case 'done':
       return { rows: 0, more: false };

@@ -40,5 +40,45 @@
     "VALIDATION_FAILED": "Please check the email and role.",
     "RATE_LIMITED": "Too many changes. Please wait a minute and try again.",
     "generic": "Something went wrong. Please try again."
+  },
+  "publicProfile": {
+    "title": "Your portal profile",
+    "link": "Your portal profile",
+    "intro": "Choose whether inmolink.es shows a page about you, linked from your agency's profile. Only what you enter here is shown, and only while your agency is verified.",
+    "published": "Publish my profile on inmolink.es",
+    "publishedHint": "Off: nobody sees your profile. You can turn it off at any time.",
+    "displayName": "Name shown",
+    "languages": "Languages you speak",
+    "phone": "Phone to publish (optional)",
+    "email": "E-mail to publish (optional)",
+    "contactHint": "Leave empty to publish no phone or e-mail. Your login e-mail is never shown.",
+    "save": "Save",
+    "photo": {
+      "title": "Photo",
+      "none": "No photo yet.",
+      "current": "A photo is uploaded. The portal shows a resized copy while your profile is published.",
+      "file": "Choose a photo (PNG, JPEG or WebP, max 900 KB)",
+      "upload": "Upload photo",
+      "remove": "Remove photo",
+      "saveFirst": "Save your profile first, then add a photo."
+    },
+    "status": {
+      "live": "Published: your page is on inmolink.es while your agency is listed.",
+      "off": "Not published."
+    },
+    "notices": {
+      "saved": "Your portal profile was saved.",
+      "photoUploaded": "The photo was uploaded.",
+      "photoRemoved": "The photo was removed."
+    },
+    "errors": {
+      "invalidInput": "Please check the name, languages, phone and e-mail.",
+      "conflict": "Your profile changed in another window. Reload the page and try again.",
+      "forbidden": "You cannot change this profile now.",
+      "UNSUPPORTED_MEDIA_TYPE": "Upload a PNG, JPEG or WebP image.",
+      "PAYLOAD_TOO_LARGE": "The photo is larger than 900 KB.",
+      "RATE_LIMITED": "Too many uploads. Please wait a few minutes and try again.",
+      "generic": "Something went wrong. Please try again."
+    }
   }
 }

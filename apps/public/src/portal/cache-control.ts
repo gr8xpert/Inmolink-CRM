@@ -15,6 +15,13 @@
 export const PORTAL_PAGE_CACHE = 'public, max-age=0, s-maxage=45, stale-while-revalidate=15, stale-if-error=600';
 
 /**
+ * S15-F10 review: a member's published profile (`/<l>/agent/<id>/<name>`) — personal data the member may withdraw at
+ * any time, so the CDN never bridges an origin outage with it (`stale-if-error=0`): a withdrawn profile stops within
+ * the 45 + 15 s of the edge copy, plus the public processes' 60 s member cache (`portal.ts`).
+ */
+export const PORTAL_MEMBER_PAGE_CACHE = 'public, max-age=0, s-maxage=45, stale-while-revalidate=15, stale-if-error=0';
+
+/**
  * S15 review: listing and development pages (ISR, `revalidate = 300` in process). Next would send `s-maxage=300` and
  * about a year of `stale-while-revalidate` (its default `expireTime`), and the page cache's tag invalidation (S15-F7)
  * never reaches the CDN — a withdrawn listing or a suspended agency's contacts could be served from the edge long

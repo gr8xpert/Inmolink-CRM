@@ -59,6 +59,12 @@ export const agencyOf = cache(async (locale: string, id: string) => {
   return websiteApi.portalAgency(locale, id);
 });
 
+/** S15-F10: a member's published profile (null: not published, or the agency is not listed — no page). */
+export const memberOf = cache(async (id: string) => {
+  await publicConfig();
+  return websiteApi.portalMember(id);
+});
+
 export const locationOf = cache(async (locale: string, slugs: string) => {
   await publicConfig();
   return websiteApi.portalLocation(locale, slugs.split('/'));

@@ -31,6 +31,7 @@ export * from './legacy-v1';
 export * from './legal'; // S16-04
 export * from './matching';
 export * from './media';
+export * from './member-profile';
 export * from './migration';
 export * from './mls';
 export * from './network';

@@ -54,6 +54,8 @@ export const AUDIT_TYPES = [
   'identity.clientMode.started',
   'identity.clientMode.ended',
   'identity.clientMode.pinFailed',
+  // S15-F10: a member saved, published, unpublished or changed the photo of their portal profile (flags only).
+  'identity.publicProfile.updated',
   // S12-07: a member connected Facebook Pages / Instagram accounts (counts and platforms only) or disconnected one.
   'social.account.connected',
   'social.account.disconnected',

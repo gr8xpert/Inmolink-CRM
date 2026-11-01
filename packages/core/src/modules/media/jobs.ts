@@ -15,6 +15,7 @@ import {
   importFeedImages,
   overdueFeedImageAgencies,
 } from './feed-images';
+import { publishPortalImages } from './portal-images';
 import { ImageInputError, isHeavyInput, normalizeOriginal, renderVariants, withImageSlot } from './processing';
 import * as repo from './repo';
 import { mapLimit, ORIGINALS_BUCKET, originalKey } from './service';
@@ -364,6 +365,23 @@ export const mediaJobs = {
     },
   }),
 
+  /**
+   * S15-F10: an agency's portal images (logo, members' photos) — public copies made or removed (`publishPortalImages`).
+   * One run per agency at a time; idempotent. `imports` pool: it reads the private bucket and writes the media bucket.
+   */
+  publishPortalImages: defineJob({
+    name: 'media.publishPortalImages',
+    pool: 'imports',
+    payload: z.object({ agencyId: z.uuid() }),
+    group: (p) => `portal-images:${p.agencyId}`,
+    concurrencyPerGroup: 1,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 10_000 },
+    async run(p, { log }) {
+      return publishPortalImages(p.agencyId, { log });
+    },
+  }),
+
   /** S6-02 (every 5 minutes): agencies with feed images nobody claimed for a while get their run asked for again. */
   sweepFeedImages: defineJob({
     name: 'media.sweepFeedImages',
@@ -384,6 +402,14 @@ export const mediaJobs = {
 /** Asks for the agency's feed image run (throttled: queued images until then join it). Never inside a transaction. */
 export async function requestFeedImages(agencyId: string): Promise<void> {
   await mediaJobs.importFeedImages.enqueue({ agencyId }, { throttleMs: FEED_IMAGES.THROTTLE_MS, debounceKey: 'now' });
+}
+
+/** S15-F10: edits within this window share one portal-images run. */
+export const PORTAL_IMAGES_DEBOUNCE_MS = 2_000;
+
+/** S15-F10: an agency's portal images are reconciled shortly (edits within the window share one run). */
+export async function requestPortalImages(agencyId: string): Promise<void> {
+  await mediaJobs.publishPortalImages.enqueue({ agencyId }, { debounceMs: PORTAL_IMAGES_DEBOUNCE_MS });
 }
 
 /**

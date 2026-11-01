@@ -10,7 +10,14 @@ export type ShellIdentity =
   | { kind: 'staff'; role: StaffRole }
   | { kind: 'unknown' };
 
-export type NavKey = 'home' | 'security' | 'support' | DashboardSection | 'staffConsole' | 'staffVerification';
+export type NavKey =
+  | 'home'
+  | 'security'
+  | 'support'
+  | 'publicProfile'
+  | DashboardSection
+  | 'staffConsole'
+  | 'staffVerification';
 
 export interface NavItem {
   /** Message key under `shell.nav`. */
@@ -61,6 +68,10 @@ export function buildNav(identity: ShellIdentity): NavItem[] {
     for (const [key, href] of SECTIONS) if (allowed.has(key)) items.push({ key, href });
     // S13-05: every member may ask support (never in Client Mode: tickets are the agency's own business).
     if (!identity.caps.clientMode) items.push({ key: 'support', href: '/support' });
+    // S15-F10: the member's own portal profile (theirs to change: not in Client Mode, not while staff act as them).
+    if (!identity.caps.clientMode && !identity.caps.impersonating) {
+      items.push({ key: 'publicProfile', href: '/account/public-profile' });
+    }
     if (!identity.caps.impersonating) items.push({ key: 'security', href: '/account/security' });
     return items;
   }

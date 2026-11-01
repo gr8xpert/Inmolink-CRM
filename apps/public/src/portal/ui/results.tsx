@@ -4,6 +4,7 @@ import type { PortalCard } from '@inmolink/core/modules/website-api';
 import { formatter } from '@inmolink/i18n';
 import { getTranslations } from 'next-intl/server';
 import { agencyPath, listingPath, queryString } from '../urls';
+import { AgencyLogo } from './agency-logo';
 import { CARD_SIZES, Photo } from './picture';
 
 type T = Awaited<ReturnType<typeof getTranslations<'portal'>>>;
@@ -90,8 +91,11 @@ export async function ResultList(props: { locale: string; items: readonly Portal
               ) : null}
               {item.excerpt ? <p className="line-clamp-3 text-sm leading-relaxed text-stone">{item.excerpt}</p> : null}
               {item.agency ? (
-                <p className="relative z-10 mt-auto text-sm text-stone">
-                  {t('card.listedBy')} <AgencyName locale={props.locale} agency={item.agency} />
+                <p className="relative z-10 mt-auto flex items-center gap-2 text-sm text-stone">
+                  <AgencyLogo agency={item.agency} size="sm" />
+                  <span>
+                    {t('card.listedBy')} <AgencyName locale={props.locale} agency={item.agency} />
+                  </span>
                 </p>
               ) : null}
             </div>

@@ -2,18 +2,22 @@
 
 Listing photos are served from the `inmolink-media` bucket (Cloudflare R2 in production, MinIO locally) under
 deterministic variant keys: `v<pipeline>/<32 hex public id>/<variant>.<ext>` (`packages/core/src/modules/media/variants.ts`).
-The JS widget script (S8-F8, `pnpm ops:widget-publish`) is the one other public shape:
+The JS widget script (S8-F8, `pnpm ops:widget-publish`) is another public shape:
 `vwidget/<32 hex of its SHA-256>/inmolink-widget.iife.js`.
+Since S15-F10 the portal's public copies of agency logos and opted-in member photos are the last:
+`portal/agency-logos/<agency uuid>/<upload uuid>.webp` and `portal/member-photos/<agency uuid>/<upload uuid>.webp`
+(`packages/core/src/modules/media/portal-images.ts`; withdrawn by deleting the object, `max-age=300`).
 Nothing else in that bucket may be readable without credentials: originals and masters live in the work bucket (`inmolink-media-work`, S3-F9),
 but a stray object (a bug, a manual upload) must not become public either.
 
 ## Local and test (MinIO)
 
 `docker compose` applies `infra/storage/media-public-policy.json` (anonymous `s3:GetObject` on
-`inmolink-media/v?/<32 × ?>/*`, `v??/…`, `v???/…` and `vwidget/<32 × ?>/inmolink-widget.iife.js` only) in the
+`inmolink-media/v?/<32 × ?>/*`, `v??/…`, `v???/…`, `vwidget/<32 × ?>/inmolink-widget.iife.js` and
+`portal/(agency-logos|member-photos)/<uuid>/<uuid>.webp` only) in the
 `minio-init` / `minio-init-test` containers. Checked by
-`packages/core/src/modules/media/__tests__/public-host.int.test.ts` (`[S3-F4]`, `[S8-F8]`): a variant key and the widget
-key answer 200, any other key 403. A running stack picks up a changed policy only when `minio-init` runs again (or
+`packages/core/src/modules/media/__tests__/public-host.int.test.ts` (`[S3-F4]`, `[S8-F8]`, `[S15-F10]`): a variant key,
+the widget key and a portal logo / photo key answer 200, any other key 403. A running stack picks up a changed policy only when `minio-init` runs again (or
 `mc anonymous set-json` / an S3 `PutBucketPolicy` on `inmolink-media`).
 
 ## Production (Cloudflare R2) — needs H3/H5
@@ -25,7 +29,7 @@ so the line is held at the edge.
 2. Security → WAF → Custom rules, on the media hostname, action **Block**:
 
    ```
-   (http.host eq "media.inmolink.es" and not (http.request.uri.path matches "^/v[0-9]{1,3}/[0-9a-f]{32}/[a-z0-9-]+\.(webp|jpg|avif)$" or http.request.uri.path matches "^/vwidget/[0-9a-f]{32}/inmolink-widget\.iife\.js$"))
+   (http.host eq "media.inmolink.es" and not (http.request.uri.path matches "^/v[0-9]{1,3}/[0-9a-f]{32}/[a-z0-9-]+\.(webp|jpg|avif)$" or http.request.uri.path matches "^/vwidget/[0-9a-f]{32}/inmolink-widget\.iife\.js$" or http.request.uri.path matches "^/portal/(agency-logos|member-photos)/[0-9a-f-]{36}/[0-9a-f-]{36}\.webp$"))
    ```
 
    (`matches` needs a Business plan or the Pro regex add-on; on Free, use a Transform Rule that rewrites any other

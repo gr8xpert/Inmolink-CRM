@@ -2,21 +2,13 @@ import type { PortalAgencyProfile } from '@inmolink/core/modules/website-api';
 import * as websiteApi from '@inmolink/core/modules/website-api';
 import { getTranslations } from 'next-intl/server';
 import type { PortalSettings } from '../data';
+import { memberPath } from '../urls';
 import { AgencyContacts } from './agency-contacts';
+import { AgencyLogo, initialsOf } from './agency-logo';
 import { EnquiryForm } from './enquiry-form';
 import { languageName } from './shell';
 
-/** Up to two initials of the agency's name: its mark until agencies can publish a logo. */
-export function initialsOf(name: string): string {
-  const words = name
-    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
-    .split(/\s+/)
-    .filter((w) => w.length > 0);
-  return words
-    .slice(0, 2)
-    .map((w) => w.charAt(0).toLocaleUpperCase())
-    .join('');
-}
+export { initialsOf };
 
 /** About text as paragraphs (blank lines), rendered as text — never as markup. */
 const paragraphsOf = (text: string) =>
@@ -41,7 +33,8 @@ export async function agencySubline(locale: string, agency: PortalAgencyProfile)
  * An agency profile's opening (S15-03): its mark, kind and town, the verified-business note (only directory-listed
  * agencies have a page), its tagline and about text (in the language it wrote them: `lang`), the facts it states
  * (register number, languages) beside its published contact details and the contact form. Everything shown is what
- * the agency published (profile, company details staff verified) — no tax id, address, members or commission.
+ * the agency published (profile, company details staff verified) — no tax id, address or commission. S15-F10: its logo
+ * (when published) and the members who published a profile, each linking their page.
  */
 export async function AgencyProfileIntro(props: {
   locale: string;
@@ -64,12 +57,7 @@ export async function AgencyProfileIntro(props: {
     <div className="mt-5 grid gap-10 lg:grid-cols-[minmax(0,1fr)_22rem]">
       <div className="min-w-0">
         <div className="flex items-center gap-4">
-          <span
-            aria-hidden="true"
-            className="flex size-14 shrink-0 items-center justify-center rounded-lg bg-sea-deep text-xl font-extrabold tracking-tight text-white"
-          >
-            {initialsOf(agency.name)}
-          </span>
+          <AgencyLogo agency={agency} size="lg" />
           <div>
             <p className="text-base font-medium text-ink">{subline}</p>
             <p className="mt-0.5 flex items-center gap-1.5 text-sm text-pine">
@@ -116,6 +104,27 @@ export async function AgencyProfileIntro(props: {
             ) : null}
           </dl>
         ) : null}
+        {agency.members.length > 0 ? (
+          <section aria-labelledby="team" className="mt-8">
+            <h2 id="team" className="text-sm font-semibold text-stone">
+              {t('agency.team')}
+            </h2>
+            <ul className="mt-3 grid max-w-2xl gap-3 sm:grid-cols-2">
+              {agency.members.map((m) => (
+                <li key={m.id}>
+                  <a
+                    href={memberPath(props.locale, m)}
+                    data-member-link=""
+                    className="flex items-center gap-3 rounded-lg border border-shore p-3 text-ink hover:border-sea hover:text-sea"
+                  >
+                    <MemberPhoto name={m.name} photoUrl={m.photoUrl} size="sm" />
+                    <span className="font-medium">{m.name}</span>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
       </div>
       <aside aria-labelledby="contact" className="lg:self-start">
         <div className="rounded-lg border border-shore p-5">
@@ -136,5 +145,33 @@ export async function AgencyProfileIntro(props: {
         </div>
       </aside>
     </div>
+  );
+}
+
+/** S15-F10: a member's published photo (a re-encoded square under the media CDN), or their initials. */
+export function MemberPhoto(props: { name: string; photoUrl: string | null; size: 'sm' | 'lg' }) {
+  const px = props.size === 'lg' ? 128 : 48;
+  const box = props.size === 'lg' ? 'size-32 text-3xl' : 'size-12 text-base';
+  if (props.photoUrl) {
+    return (
+      // biome-ignore lint/performance/noImgElement: a small CDN image already re-encoded to its size (no next/image).
+      <img
+        src={props.photoUrl}
+        alt=""
+        width={px}
+        height={px}
+        loading={props.size === 'lg' ? 'eager' : 'lazy'}
+        decoding="async"
+        className={`${box} shrink-0 rounded-full object-cover`}
+      />
+    );
+  }
+  return (
+    <span
+      aria-hidden="true"
+      className={`flex ${box} shrink-0 items-center justify-center rounded-full bg-shore font-bold text-sea-deep`}
+    >
+      {initialsOf(props.name)}
+    </span>
   );
 }

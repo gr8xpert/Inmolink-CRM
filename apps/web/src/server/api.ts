@@ -71,11 +71,13 @@ import {
   type MapperSampleUrlBody,
   MappingProfileDto,
   MappingProfilePage,
+  MEMBER_PHOTO_TYPES,
   MeDto,
   type MediaCheckBody,
   MediaCheckResult,
   MemberDto,
   MemberPage,
+  MemberPublicProfileDto,
   MyCapabilitiesDto,
   type NetworkSearchBody,
   NetworkSearchResult,
@@ -121,6 +123,7 @@ import {
   type UpdateFeedConnectionBody,
   type UpdateListingBody,
   type UpdateListingMediaBody,
+  type UpdateMemberPublicProfileInput,
   type UpdatePortalConnectionInput,
   type UpdatePreferredAgencyBody,
   type UpdateSiteInput,
@@ -403,6 +406,37 @@ export function uploadAgencyLogo(
 
 export function removeAgencyLogo(session: SessionRef): Promise<ApiResult<AgencyProfileDto>> {
   return apiRequest(session, '/v1/agency/profile/logo', AgencyProfileDto, { method: 'DELETE' });
+}
+
+/** S15-F10: the member's own portal profile. */
+export function fetchMyPublicProfile(session: SessionRef): Promise<ApiResult<MemberPublicProfileDto>> {
+  return apiRequest(session, '/v1/me/public-profile', MemberPublicProfileDto);
+}
+
+export function saveMyPublicProfile(
+  session: SessionRef,
+  body: UpdateMemberPublicProfileInput,
+): Promise<ApiResult<MemberPublicProfileDto>> {
+  return apiRequest(session, '/v1/me/public-profile', MemberPublicProfileDto, { method: 'PUT', body });
+}
+
+/** The photo goes to the API as the raw body; the API checks its real type and size. */
+export function uploadMyPublicProfilePhoto(
+  session: SessionRef,
+  file: { bytes: Uint8Array; contentType: string },
+): Promise<ApiResult<MemberPublicProfileDto>> {
+  const contentType = (MEMBER_PHOTO_TYPES as readonly string[]).includes(file.contentType)
+    ? file.contentType
+    : 'application/octet-stream';
+  return apiRequest(session, '/v1/me/public-profile/photo', MemberPublicProfileDto, {
+    method: 'PUT',
+    raw: { bytes: file.bytes, contentType },
+    timeoutMs: 15_000,
+  });
+}
+
+export function removeMyPublicProfilePhoto(session: SessionRef): Promise<ApiResult<MemberPublicProfileDto>> {
+  return apiRequest(session, '/v1/me/public-profile/photo', MemberPublicProfileDto, { method: 'DELETE' });
 }
 
 export function fetchAgencySettings(session: SessionRef): Promise<ApiResult<AgencySettingsDto>> {

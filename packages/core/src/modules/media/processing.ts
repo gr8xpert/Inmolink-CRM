@@ -295,6 +295,27 @@ export async function normalizeOriginal(
   }
 }
 
+/**
+ * S15-F10: a portal image (agency logo, member photo) from an upload (PNG, JPEG or WebP): EXIF orientation applied,
+ * every metadata block (EXIF, GPS, XMP) dropped, WebP. `cover`: a `px` square cropped at the centre (photos); otherwise
+ * the whole image within `px` (logos, transparency kept). Throws `ImageInputError` for a bad input.
+ */
+export async function portalImage(bytes: Uint8Array, opts: { px: number; cover: boolean }): Promise<Uint8Array> {
+  const sharp = await loadSharp();
+  try {
+    const img = sharp(bytes, INPUT)
+      .rotate()
+      .resize(
+        opts.cover
+          ? { width: opts.px, height: opts.px, fit: 'cover', position: 'centre' }
+          : { width: opts.px, height: opts.px, fit: 'inside', withoutEnlargement: true },
+      );
+    return bytesOf(await img.webp(VARIANT_WEBP).toBuffer());
+  } catch (err) {
+    throw new ImageInputError(`image not readable (${(err as Error).message})`);
+  }
+}
+
 export interface RenderedVariants {
   files: Map<VariantName, Uint8Array>;
   /** 64-bit DCT perceptual hash of the master (signed, as Postgres `bigint` stores it). */

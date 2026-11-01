@@ -43,6 +43,8 @@ export const HELPER_FUNCTIONS = [
   'calendar_feed_tag',
   'selection_by_token',
   'agency_public_profile',
+  'member_public_profile',
+  'agency_public_members',
 ] as const;
 
 /**
@@ -758,7 +760,41 @@ end $$;`,
              order by array_position(locales[1:3], tr.locale)
              limit 1) t on true
          where g.agency_id = a_id and g.status = 'VERIFIED' $$;`,
-    `revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), website_network_open(uuid, integer, integer), agency_ai_features(uuid), legacy_target_ids(text[]), legacy_ids_of(uuid[]), portal_feed_by_token(text), calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer), calendar_feed_tag(text), selection_by_token(text[]), agency_public_profile(uuid, text[]) from public;`,
+    // S15-F10: a member's portal page and an agency profile's team (app_public reads neither member_public_profiles,
+    // agency_members, users, agencies nor — for writes — the directory). Only a PUBLISHED profile of an ACTIVE user who
+    // is an active member of a VERIFIED agency listed in the directory answers; never the user id, login e-mail, role
+    // or the private photo key. `member_public_profile`: the profile id's unique index, then primary-key probes of the
+    // membership, user, directory and agency. `agency_public_members`: the agency's standing once, then its published
+    // profiles in name order from the partial index (at most 100). Owned by app_owner (their `definer_read` policies).
+    `drop function if exists member_public_profile(uuid);`,
+    `create function member_public_profile(m_id uuid)
+  returns table(id uuid, agency_id uuid, display_name text, languages text[], phone text, email text, photo_key text)
+  language sql stable security definer set search_path = pg_catalog, pg_temp
+  as $$ select p.id, p.agency_id, p.display_name, p.languages, p.phone, p.email, p.photo_public_key
+          from public.member_public_profiles p
+          join public.agency_members m on m.agency_id = p.agency_id and m.user_id = p.user_id
+           and m.deactivated_at is null
+          join public.users u on u.id = p.user_id and u.status = 'ACTIVE'
+          join public.agency_directory d on d.agency_id = p.agency_id and d.listed
+          join public.agencies g on g.agency_id = p.agency_id and g.status = 'VERIFIED'
+         where p.id = m_id and p.published $$;`,
+    `drop function if exists agency_public_members(uuid);`,
+    `create function agency_public_members(a_id uuid)
+  returns table(id uuid, display_name text, photo_key text)
+  language sql stable security definer set search_path = pg_catalog, pg_temp
+  as $$ select p.id, p.display_name, p.photo_public_key
+          from public.member_public_profiles p
+          join public.agency_members m on m.agency_id = p.agency_id and m.user_id = p.user_id
+           and m.deactivated_at is null
+          join public.users u on u.id = p.user_id and u.status = 'ACTIVE'
+         where p.agency_id = a_id and p.published
+           and exists (select 1 from public.agency_directory d
+                         join public.agencies g on g.agency_id = d.agency_id and g.status = 'VERIFIED'
+                        where d.agency_id = a_id and d.listed)
+         order by p.display_name, p.id
+         limit 100 $$;`,
+    `revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), website_network_open(uuid, integer, integer), agency_ai_features(uuid), legacy_target_ids(text[]), legacy_ids_of(uuid[]), portal_feed_by_token(text), calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer), calendar_feed_tag(text), selection_by_token(text[]), agency_public_profile(uuid, text[]), member_public_profile(uuid), agency_public_members(uuid) from public;`,
+    `grant execute on function member_public_profile(uuid), agency_public_members(uuid) to app_public;`,
     `grant execute on function agency_public_profile(uuid, text[]) to app_public;`,
     `grant execute on function calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer) to app_public;`,
     `grant execute on function calendar_feed_tag(text) to app_public;`,
@@ -784,6 +820,10 @@ end $$;`,
     `alter function selection_by_token(text[]) owner to app_owner;`,
     // S15-03: reads agencies, agency_directory and agency_translations through their `definer_read` policies.
     `alter function agency_public_profile(uuid, text[]) owner to app_owner;`,
+    // S15-F10: read member_public_profiles, agency_members, users, agency_directory and agencies through their
+    // `definer_read` policies.
+    `alter function member_public_profile(uuid) owner to app_owner;`,
+    `alter function agency_public_members(uuid) owner to app_owner;`,
     `grant execute on function app_agency(), app_user_id() to app_user, app_system, app_public, app_auth, app_staff;`,
     `grant execute on function app_impersonated_by() to app_user;`,
     `grant execute on function app_agency() to app_intake;`,

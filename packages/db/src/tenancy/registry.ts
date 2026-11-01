@@ -428,6 +428,8 @@ export const tenantTables: Record<string, TenantTable> = {
     // the presenter reads listed agencies only. Contacts and colours only: logo and bookkeeping columns stay hidden.
     publicReadSql: 'true',
     publicHiddenColumns: ['logo_storage_key', 'logo_content_type', 'logo_size_bytes', 'logo_updated_at', 'version'],
+    // S15-F10: the logo's public variant is the portal-images job's (app_system), never a request's.
+    userNoUpdateColumns: ['logo_public_key'],
     samples: { visible: [{}], hidden: [] },
   },
   // S15-03: `definerRead` — the portal's profile lookup (`agency_public_profile`, SECURITY DEFINER) reads a listed
@@ -462,6 +464,27 @@ export const tenantTables: Record<string, TenantTable> = {
   // accept flow (app_auth) pins its scope to the agency named in the link, reads that agency's open
   // invites, and marks one accepted by the user it just created. The coalesce reads "open, or
   // accepted by the scoped user" (`accepted_user_id` is set together with `accepted_at`).
+  // S15-F10: a member's opt-in portal profile. S15-F10 review: `app_user` reads and writes only the member's own row
+  // (`userSelect` + `write`): no service reads a colleague's (staff acting as the member read it as that member), and
+  // an INSERT cannot plant the public photo key (`photo_public_key is null`), which no request UPDATEs either
+  // (`userNoUpdateColumns`) — it is the portal-images job's (app_system). `definerRead`: the portal's lookups
+  // (`member_public_profile`, `agency_public_members`, SECURITY DEFINER, app_public) read published rows of active
+  // members of listed agencies.
+  member_public_profiles: {
+    kind: 'STRICT',
+    definerRead: true,
+    base: { display_name: 'Jane Doe' },
+    userNoUpdateColumns: ['photo_public_key'],
+    userSelect: {
+      sql: 'user_id = app_user_id()',
+      write: {
+        insert: 'user_id = app_user_id() and photo_public_key is null',
+        update: 'user_id = app_user_id()',
+        delete: 'user_id = app_user_id()',
+      },
+      samples: { visible: [{ user_id: SAMPLE_USER }], hidden: [{}] },
+    },
+  },
   agency_invites: {
     kind: 'STRICT',
     guardedInsert: true,

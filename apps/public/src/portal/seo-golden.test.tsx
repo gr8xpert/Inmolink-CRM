@@ -40,7 +40,7 @@ const presenter = {
   primaryColor: null,
   accentColor: null,
 };
-const agency = { id: AGENCY_ID, name: 'Move Homes', email: null, phone: null, website: null };
+const agency = { id: AGENCY_ID, name: 'Move Homes', email: null, phone: null, website: null, logoUrl: null };
 
 const urls = (n: string) => ({
   small: `https://media.test/${n}/s.webp`,
@@ -166,6 +166,8 @@ function profileOf(over: Partial<PortalAgencyProfile> = {}): PortalAgencyProfile
     tagline: 'Homes by the sea',
     description: 'We sell homes on the coast.\n\nSince 1998 <script>.',
     textLocale: 'en',
+    logoUrl: null,
+    members: [],
     paths: { en: `/en/agency/${AGENCY_ID}/move-homes`, es: `/es/agency/${AGENCY_ID}/move-homes` },
     ...over,
   };

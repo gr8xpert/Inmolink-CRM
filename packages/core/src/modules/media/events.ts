@@ -46,4 +46,14 @@ export const mediaEvents = {
    * throttled `media.importFeedImages` run. One per import batch, not per listing.
    */
   feedImagesQueued: defineEvent('media.feedImages.queued', 1, z.object({ listings: z.number().int().positive() })),
+  /**
+   * S15-F10 review: the portal-images job recorded a new public copy of the agency's logo or of a member's photo, or
+   * cleared one (`publishPortalImages`). website-api marks the agency's portal pages (`portal:a:<agency>`) and purges
+   * them at the edge, so cards and profiles show the change. Written by `app_system` in the transaction of the change.
+   */
+  portalImagesChanged: defineEvent(
+    'media.portalImages.changed',
+    1,
+    z.object({ agencyId: z.uuid(), kind: z.enum(['agency-logos', 'member-photos']) }),
+  ),
 };

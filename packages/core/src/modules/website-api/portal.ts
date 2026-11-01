@@ -41,6 +41,7 @@ import {
 import { LocalLru } from '@inmolink/platform/cache';
 import { createLogger, type Logger } from '@inmolink/platform/logger';
 import * as agencies from '../agencies';
+import * as identity from '../identity';
 import * as search from '../search';
 import * as taxonomy from '../taxonomy';
 import * as websites from '../websites';
@@ -51,6 +52,7 @@ import {
   developmentNameOf,
   developmentPath,
   listingPath,
+  memberPath,
   portalListingTitle,
 } from './portal-urls';
 import { configured } from './settings';
@@ -421,7 +423,12 @@ export interface PortalAgency {
   email: string | null;
   phone: string | null;
   website: string | null;
+  /** S15-F10: its logo's public copy under the media CDN (shown on cards and the profile), or null. */
+  logoUrl: string | null;
 }
+
+/** S15-F10: a public portal image's URL under the media CDN (logos, members' photos), or null. */
+const portalImageUrl = (key: string | null): string | null => (key ? `${configured().mediaBaseUrl}/${key}` : null);
 
 /**
  * Published profiles by agency id; null: not listed (unverified or left the directory) — no agency is named. S15-F7:
@@ -437,6 +444,8 @@ export function resetPortalCaches(): void {
   agencyCache.clear();
   profileCache.clear();
   profileMisses.clear();
+  memberCache.clear();
+  memberMisses.clear();
   placeIndexes.clear();
   knownCodes.clear();
   unknownCodes.clear();
@@ -457,7 +466,14 @@ async function agenciesOf(tx: Tx, ids: readonly string[]): Promise<Map<string, P
   for (const id of missing) {
     const a = found.get(id);
     const agency: PortalAgency | null = a
-      ? { id, name: a.name, email: a.contactEmail, phone: a.contactPhone, website: a.websiteUrl }
+      ? {
+          id,
+          name: a.name,
+          email: a.contactEmail,
+          phone: a.contactPhone,
+          website: a.websiteUrl,
+          logoUrl: portalImageUrl(a.logoPublicKey),
+        }
       : null;
     agencyCache.set(id, agency, agency ? AGENCY_TTL_MS : UNLISTED_TTL_MS);
     out.set(id, agency);
@@ -502,6 +518,16 @@ export interface PortalAgencyProfile extends PortalAgency {
   textLocale: string | null;
   /** Its page in every UI locale (`portalAgencyPaths`): canonical, alternates, sitemaps, legacy redirects. */
   paths: Record<string, string>;
+  /** S15-F10: its members who published a profile, in name order (at most 100), each linking their page. */
+  members: PortalMemberLink[];
+}
+
+/** S15-F10: a member on their agency's profile: published name and photo, and their page. */
+export interface PortalMemberLink {
+  id: string;
+  name: string;
+  photoUrl: string | null;
+  paths: Record<string, string>;
 }
 
 /**
@@ -538,7 +564,9 @@ export async function portalAgency(locale: string, id: string): Promise<PortalAg
   if (hit !== undefined) return hit;
   if (profileMisses.get(key)) return null;
   const locales = [...new Set([l, fallbackOf(l), DEFAULT_CONTENT_LOCALE])];
-  const row = await withPublicRead((tx) => agencies.publicAgencyProfile(tx, agencyId, locales));
+  // S15-F10: the agency's published team in the same statement (identity's lookup as a scalar subquery).
+  const team = identity.publicMembersQuery(agencyId);
+  const row = await withPublicRead((tx) => agencies.publicAgencyProfile(tx, agencyId, locales, team.sql));
   const profile: PortalAgencyProfile | null = row
     ? {
         id: agencyId,
@@ -554,6 +582,13 @@ export async function portalAgency(locale: string, id: string): Promise<PortalAg
         description: row.description,
         textLocale: row.tagline || row.description ? row.textLocale : null,
         paths: portalAgencyPaths({ id: agencyId, name: row.name }),
+        logoUrl: portalImageUrl(row.logoPublicKey),
+        members: team.read(row.extra).map((m) => ({
+          id: m.id,
+          name: m.name,
+          photoUrl: portalImageUrl(m.photoKey),
+          paths: portalMemberPaths(m),
+        })),
       }
     : null;
   if (!profile) {
@@ -561,9 +596,83 @@ export async function portalAgency(locale: string, id: string): Promise<PortalAg
     return null;
   }
   profileCache.set(key, profile, PROFILE_TTL_MS);
-  const { name, email, phone, website } = profile;
-  agencyCache.set(agencyId, { id: agencyId, name, email, phone, website }, AGENCY_TTL_MS);
+  const { name, email, phone, website, logoUrl } = profile;
+  agencyCache.set(agencyId, { id: agencyId, name, email, phone, website, logoUrl }, AGENCY_TTL_MS);
   return profile;
+}
+
+// ── Member profiles (S15-F10) ───────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * A member's published portal profile as their page shows it: the name, photo, languages and phone / e-mail they
+ * chose to publish, and their agency (directory name, logo, its profile page). Never their user id, login e-mail, role
+ * or anything they did not publish.
+ */
+export interface PortalMember {
+  id: string;
+  name: string;
+  photoUrl: string | null;
+  /** Content locale codes they speak. */
+  languages: string[];
+  phone: string | null;
+  email: string | null;
+  agency: PortalAgency & { paths: Record<string, string> };
+  /** Their page in every UI locale (`portalMemberPaths`). */
+  paths: Record<string, string>;
+}
+
+/** S15-F10: a member's page in every UI locale (one name for all: the name they publish). */
+export function portalMemberPaths(
+  member: { id: string; name: string },
+  locales: readonly string[] = UI_LOCALES,
+): Record<string, string> {
+  return Object.fromEntries(locales.map((l) => [l, memberPath(l, member.id, member.name)]));
+}
+
+/**
+ * Profiles by id (locale-free), a minute; misses in their own small LRU (made-up ids never evict real ones). Per
+ * process and not cleared by any event (the worker cannot reach the public processes' memory): an unpublished
+ * profile, a deactivated member or a delisted agency can still be served by an instance for up to 60 s
+ * (`MEMBER_TTL_MS`), and the CDN adds its own `s-maxage` (`PORTAL_MEMBER_PAGE_CACHE`, apps/public) — bounded, by design.
+ */
+const memberCache = new LocalLru<PortalMember>(5_000);
+const memberMisses = new LocalLru<true>(1_000);
+const MEMBER_TTL_MS = 60_000;
+
+/**
+ * S15-F10: the published member profile `id` names; null for any other id (unpublished, a deactivated member, an
+ * agency not verified or listed, unknown, or not a UUID — so a legacy numeric `/agent/<id>` never reads). Cached a
+ * minute; a miss costs one statement (`member_public_profile`, `app_public`) plus the agency's when it is not cached.
+ */
+export async function portalMember(id: string): Promise<PortalMember | null> {
+  if (!isPortalAgencyId(id)) return null;
+  const memberId = id.toLowerCase();
+  const hit = memberCache.get(memberId);
+  if (hit !== undefined) return hit;
+  if (memberMisses.get(memberId)) return null;
+  const found = await withPublicRead(async (tx) => {
+    const row = await identity.publicMember(tx, memberId);
+    if (!row) return null;
+    const agency = (await agenciesOf(tx, [row.agencyId])).get(row.agencyId) ?? null;
+    return agency ? { row, agency } : null;
+  });
+  if (!found) {
+    memberMisses.set(memberId, true, MEMBER_TTL_MS);
+    return null;
+  }
+  const { row, agency } = found;
+  const member: PortalMember = {
+    id: memberId,
+    name: row.displayName,
+    photoUrl: portalImageUrl(row.photoKey),
+    languages: row.languages.filter(isContentLocale),
+    phone: row.phone,
+    email: row.email,
+    agency: { ...agency, paths: portalAgencyPaths(agency) },
+    paths: portalMemberPaths({ id: memberId, name: row.displayName }),
+  };
+  memberCache.set(memberId, member, MEMBER_TTL_MS);
+  return member;
 }
 
 // ── Search ──────────────────────────────────────────────────────────────────────────────────────────────────────

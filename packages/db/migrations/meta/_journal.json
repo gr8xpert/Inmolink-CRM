@@ -1254,6 +1254,13 @@
       "when": 1793527637374,
       "tag": "0178_s17_f3_retention_erasure_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 179,
+      "version": "7",
+      "when": 1793534372485,
+      "tag": "0179_s15_f10_member_profiles",
+      "breakpoints": true
     }
   ]
 }

@@ -35,6 +35,7 @@ export {
   updatePreferredAgency,
 } from './preferred';
 export {
+  type AgencyTeamColumn,
   indexOwnerIdentities,
   listedAgencyIds,
   ownerIdentities,
@@ -70,7 +71,10 @@ export {
   getMyAgencySettings,
   invalidateAgencySettings,
   LOGO_URL_TTL_SECONDS,
+  type PortalLogoState,
+  portalLogoState,
   removeAgencyLogo,
+  setLogoPublicKey,
   updateAgencyProfile,
   updateAgencySettings,
   uploadAgencyLogo,

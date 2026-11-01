@@ -3,7 +3,12 @@ import { pageCacheMaxBytes } from '@inmolink/platform/cache';
 import { unstable_getResponseFromNextConfig } from 'next/experimental/testing/server';
 import { NextRequest } from 'next/server';
 import { describe, expect, it, vi } from 'vitest';
-import nextConfig, { ENQUIRY_NOTICE_CACHE, PORTAL_ISR_PAGE_CACHE, PORTAL_PAGE_CACHE } from '../next.config';
+import nextConfig, {
+  ENQUIRY_NOTICE_CACHE,
+  PORTAL_ISR_PAGE_CACHE,
+  PORTAL_MEMBER_PAGE_CACHE,
+  PORTAL_PAGE_CACHE,
+} from '../next.config';
 import { type CodeGate, createProxy, type EmbedGate, type PortalGate } from './proxy';
 
 vi.mock('./server/legacy-redirects', () => ({ legacyRedirect: async () => null }));
@@ -76,6 +81,18 @@ describe('portal CDN headers (S15 review)', () => {
     for (const path of ['/en/property/villa-in-x-ab12cd34?enquiry=sent', '/en/properties?enquiry=sent']) {
       expect(await configCache(path), path).toBe(ENQUIRY_NOTICE_CACHE);
     }
+  });
+
+  it('[S15-F10] member pages are never served stale on an origin error (stale-if-error=0), and an enquiry notice stays private', async () => {
+    expect(PORTAL_MEMBER_PAGE_CACHE).toContain('stale-if-error=0');
+    expect(PORTAL_MEMBER_PAGE_CACHE).not.toContain('stale-if-error=600');
+    for (const path of ['/en/agent/01900000-0000-7000-8000-0000000000a1/marta-ruiz', '/es/agent/x/y']) {
+      expect(await configCache(path), path).toBe(PORTAL_MEMBER_PAGE_CACHE);
+    }
+    expect(await configCache('/en/agency/01900000-0000-7000-8000-0000000000a1/x'), 'agency').toBe(PORTAL_PAGE_CACHE);
+    expect(await configCache('/en/agent/01900000-0000-7000-8000-0000000000a1/marta-ruiz?enquiry=sent')).toBe(
+      ENQUIRY_NOTICE_CACHE,
+    );
   });
 
   it('[S15-01] review: the proxy’s 429 is no-store even on paths a headers() rule caches publicly', async () => {

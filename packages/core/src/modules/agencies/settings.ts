@@ -485,3 +485,25 @@ export async function getAgencyLogoUrl(ctx: Ctx): Promise<SignedUrlDto> {
   });
   return { url, expiresAt: expiresAt.toISOString() };
 }
+
+// ── Portal logo (S15-F10) ───────────────────────────────────────────────────────────────────────────────────────
+
+export type PortalLogoState = repo.PortalLogoState;
+
+/**
+ * S15-F10, worker-only (raw `tx` under `withSystem`, the portal-images job): the agency's logo, its public variant and
+ * whether the agency is listed in the directory. Null: unknown agency.
+ */
+export function portalLogoState(tx: Tx, agencyId: string): Promise<PortalLogoState | null> {
+  return repo.portalLogoState(tx, agencyId);
+}
+
+/** S15-F10, worker-only: records the logo's public variant (or none) while the profile still holds that logo. */
+export function setLogoPublicKey(
+  tx: Tx,
+  agencyId: string,
+  expectedStorageKey: string | null,
+  publicKey: string | null,
+): Promise<boolean> {
+  return repo.setLogoPublicKey(tx, agencyId, expectedStorageKey, publicKey);
+}

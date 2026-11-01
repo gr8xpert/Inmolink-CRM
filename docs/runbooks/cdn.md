@@ -108,6 +108,14 @@ replaces the entry (to be confirmed on staging, below).
   a separate bulk set (`inl:edge-purge-bulk:{agency}`) that is drained only after the targeted one, so a backlog never
   delays a withdrawal. `c` tags older than 90 s (`PORTAL_EDGE_TTL_MS`, the pages' `s-maxage` + `stale-while-revalidate`)
   are dropped, so one agency's bulk purge sends at most ~1,800 tags (18 requests).
+- **Member pages and portal images (S15-F10):** `/<l>/agent/<id>/<name>` is rendered per request and carries no tag:
+  the edge keeps it 45 s + 15 s stale and never on an origin error (`PORTAL_MEMBER_PAGE_CACHE`, `stale-if-error=0`);
+  each public process caches a profile 60 s (`portal.ts`). An unpublished profile, a deactivated member or a delisted
+  agency therefore leaves the portal within about two minutes, without a purge. The public copies of logos and
+  member photos (`portal/agency-logos/…`, `portal/member-photos/…` in the media bucket) are sent with
+  `Cache-Control: public, max-age=300` (never `immutable`): a withdrawn copy is deleted, and browsers and the edge
+  stop showing it within 5 minutes. A copy published or removed marks the agency's portal pages (`portal:a:<agency>`)
+  and purges them at the edge like an agency change.
 - **Global purge volume (bulk status changes):** the per-agency throttle does not cap the account. Suspending or
   reinstating many agencies at once (a billing run, a staff bulk action) queues one bulk purge per agency, and every
   agency competes for the one global purge slot (`globalConcurrency: 1`, 250 ms per request: ~4 requests / s, 400 tags

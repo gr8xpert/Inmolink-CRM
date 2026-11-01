@@ -40,5 +40,45 @@
     "VALIDATION_FAILED": "Revisa el correo y el rol.",
     "RATE_LIMITED": "Demasiados cambios. Espera un minuto y vuelve a intentarlo.",
     "generic": "Algo ha ido mal. Vuelve a intentarlo."
+  },
+  "publicProfile": {
+    "title": "Tu perfil en el portal",
+    "link": "Tu perfil en el portal",
+    "intro": "Elige si inmolink.es muestra una página sobre ti, enlazada desde el perfil de tu agencia. Solo se muestra lo que escribas aquí, y solo mientras tu agencia esté verificada.",
+    "published": "Publicar mi perfil en inmolink.es",
+    "publishedHint": "Desactivado: nadie ve tu perfil. Puedes desactivarlo cuando quieras.",
+    "displayName": "Nombre que se muestra",
+    "languages": "Idiomas que hablas",
+    "phone": "Teléfono a publicar (opcional)",
+    "email": "Correo electrónico a publicar (opcional)",
+    "contactHint": "Déjalo vacío para no publicar teléfono ni correo. Tu correo de acceso nunca se muestra.",
+    "save": "Guardar",
+    "photo": {
+      "title": "Foto",
+      "none": "Aún no hay foto.",
+      "current": "Hay una foto subida. El portal muestra una copia reducida mientras tu perfil esté publicado.",
+      "file": "Elige una foto (PNG, JPEG o WebP, máx. 900 KB)",
+      "upload": "Subir foto",
+      "remove": "Quitar foto",
+      "saveFirst": "Guarda primero tu perfil y después añade una foto."
+    },
+    "status": {
+      "live": "Publicado: tu página está en inmolink.es mientras tu agencia figure en el directorio.",
+      "off": "No publicado."
+    },
+    "notices": {
+      "saved": "Se ha guardado tu perfil del portal.",
+      "photoUploaded": "Se ha subido la foto.",
+      "photoRemoved": "Se ha quitado la foto."
+    },
+    "errors": {
+      "invalidInput": "Revisa el nombre, los idiomas, el teléfono y el correo.",
+      "conflict": "Tu perfil ha cambiado en otra ventana. Recarga la página e inténtalo de nuevo.",
+      "forbidden": "Ahora no puedes cambiar este perfil.",
+      "UNSUPPORTED_MEDIA_TYPE": "Sube una imagen PNG, JPEG o WebP.",
+      "PAYLOAD_TOO_LARGE": "La foto pesa más de 900 KB.",
+      "RATE_LIMITED": "Demasiadas subidas. Espera unos minutos e inténtalo de nuevo.",
+      "generic": "Algo ha fallado. Inténtalo de nuevo."
+    }
   }
 }

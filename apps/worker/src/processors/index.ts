@@ -45,6 +45,8 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     mediaJobs.sweepFeedImages,
     // S10-01: CSV / Excel contact imports.
     crmJobs.importContacts,
+    // S15-F10: public copies of agency logos and members' portal photos.
+    mediaJobs.publishPortalImages,
   ],
   media: [mediaJobs.syncObjects, mediaJobs.processObject, mediaJobs.pruneOrphans, mediaJobs.reprocessStale],
   indexing: [

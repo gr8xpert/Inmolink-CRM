@@ -185,6 +185,11 @@ export const agencyProfiles = pgTable(
     logoContentType: text('logo_content_type'),
     logoSizeBytes: integer('logo_size_bytes'),
     logoUpdatedAt: timestamp('logo_updated_at', { withTimezone: true }),
+    /**
+     * S15-F10: the logo's public variant in the media bucket (`portal/agency-logos/<agency_id>/<id>.webp`), re-encoded
+     * by the portal-images job (media) while the agency is listed in the directory; null otherwise. The portal shows it.
+     */
+    logoPublicKey: text('logo_public_key'),
     /** Brand colours, `#rrggbb` (lower case). */
     primaryColor: text('primary_color'),
     accentColor: text('accent_color'),
@@ -206,6 +211,10 @@ export const agencyProfiles = pgTable(
       sql`(${t.primaryColor} is null or ${t.primaryColor} ~ '^#[0-9a-f]{6}$') and (${t.accentColor} is null or ${t.accentColor} ~ '^#[0-9a-f]{6}$')`,
     ),
     check('agency_profiles_website_ck', sql`${t.websiteUrl} is null or ${t.websiteUrl} ~ '^https?://'`),
+    check(
+      'agency_profiles_logo_public_ck',
+      sql`${t.logoPublicKey} is null or starts_with(${t.logoPublicKey}, 'portal/agency-logos/' || ${t.agencyId}::text || '/')`,
+    ),
   ],
 );
 

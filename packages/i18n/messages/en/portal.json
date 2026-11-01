@@ -221,6 +221,18 @@
     "contact": "Contact the agency",
     "mailSubject": "Enquiry from Inmolink",
     "listings": "{count, plural, =0 {No properties} one {# property} other {# properties}} for sale",
-    "empty": "{agency} has no properties for sale on Inmolink right now."
+    "empty": "{agency} has no properties for sale on Inmolink right now.",
+    "team": "Our team"
+  },
+  "member": {
+    "metaTitle": "{name}, {agency}",
+    "metaDescription": "{name} works at {agency}, a verified business on Inmolink. Contact them directly or see the agency's properties for sale.",
+    "worksAt": "Works at",
+    "languages": "Languages spoken",
+    "contact": "Contact {name}",
+    "call": "Call",
+    "email": "E-mail",
+    "mailSubject": "Enquiry from Inmolink",
+    "agencyListings": "See {agency}'s properties"
   }
 }
