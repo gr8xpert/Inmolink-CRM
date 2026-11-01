@@ -14,3 +14,13 @@ alert_email_to: ops@inmolink.es
 # Prometheus job `redis` (S7-F7).
 redis_cache_host: staging-1
 redis_queue_maxmemory: 1gb
+# Public health probes (S16-05, blackbox_exporter on the monitoring host — infra/monitoring/rules/endpoints.yml). One per
+# Kamal app with a proxy host: its `proxy.host` (infra/kamal/<app>.staging.yml) + healthcheck path. The public status page
+# (infra/monitoring/status-page.yml) monitors the same production URLs from outside. `host`: the app host serving it
+# (inventory group `app`; NodeDown of that host inhibits EndpointDown).
+endpoint_probes:
+  - { service: api, url: "https://api.staging.inmolink.es/readyz", host: staging-1 }
+  - { service: feed-api, url: "https://feed.staging.inmolink.es/readyz", host: staging-1 }
+  - { service: realtime, url: "https://realtime.staging.inmolink.es/readyz", host: staging-1 }
+  - { service: web, url: "https://app.staging.inmolink.es/healthz", host: staging-1 }
+  - { service: public, url: "https://sites.staging.inmolink.es/healthz", host: staging-1 }

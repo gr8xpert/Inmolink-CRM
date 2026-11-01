@@ -1,0 +1,903 @@
+{
+  "title": "Inmolink · Service · api",
+  "uid": "inmolink-service-api",
+  "description": "S16-05 (PLAN §17). Dashboard API (apps/api, job `api`): golden signals, SLO error budgets (99.9 %, p95 < 300 ms), AI provider calls and rate limits.",
+  "tags": ["inmolink", "service:api", "service"],
+  "schemaVersion": 41,
+  "version": 1,
+  "editable": true,
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Golden signals (traffic · errors · latency · saturation)",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 2,
+      "title": "Scraped targets up",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "AppMetricsDown fires when none is up (runbook observability.md › App metrics down).",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        },
+        "colorMode": "background"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(up{job=\"api\"})",
+          "legendFormat": ""
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 6,
+        "h": 4
+      }
+    },
+    {
+      "id": 3,
+      "title": "Requests / s",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        },
+        "colorMode": "background"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(http_server_request_duration_count{job=\"api\", http_route!~\"/readyz|/healthz\"}[5m]))",
+          "legendFormat": ""
+        }
+      ],
+      "gridPos": {
+        "x": 6,
+        "y": 1,
+        "w": 6,
+        "h": 4
+      }
+    },
+    {
+      "id": 4,
+      "title": "5xx share (5 m)",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.001
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        },
+        "colorMode": "background"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(http_server_request_duration_count{job=\"api\", http_route!~\"/readyz|/healthz\", http_response_status_code=~\"5..\"}[5m])) / sum(rate(http_server_request_duration_count{job=\"api\", http_route!~\"/readyz|/healthz\"}[5m]))",
+          "legendFormat": ""
+        }
+      ],
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 6,
+        "h": 4
+      }
+    },
+    {
+      "id": 5,
+      "title": "p95 latency (budget 300 ms)",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.3
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        },
+        "colorMode": "background"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_bucket{job=\"api\", http_route!~\"/readyz|/healthz\"}[5m])))",
+          "legendFormat": ""
+        }
+      ],
+      "gridPos": {
+        "x": 18,
+        "y": 1,
+        "w": 6,
+        "h": 4
+      }
+    },
+    {
+      "id": 6,
+      "title": "Requests / s by route",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (http_route) (rate(http_server_request_duration_count{job=\"api\", http_route!~\"/readyz|/healthz\"}[5m]))",
+          "legendFormat": "{{http_route}}"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "id": 7,
+      "title": "Responses / s by status class",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (http_response_status_code) (rate(http_server_request_duration_count{job=\"api\", http_route!~\"/readyz|/healthz\"}[5m]))",
+          "legendFormat": "{{http_response_status_code}}"
+        }
+      ],
+      "gridPos": {
+        "x": 12,
+        "y": 5,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "id": 8,
+      "title": "Error share (5xx) by route",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (http_route) (rate(http_server_request_duration_count{job=\"api\", http_route!~\"/readyz|/healthz\", http_response_status_code=~\"5..\"}[5m])) / sum by (http_route) (rate(http_server_request_duration_count{job=\"api\", http_route!~\"/readyz|/healthz\"}[5m]))",
+          "legendFormat": "{{http_route}}"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "id": 9,
+      "title": "Latency p50 / p95 / p99 (budget p95 300 ms)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.3
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(http_server_request_duration_bucket{job=\"api\", http_route!~\"/readyz|/healthz\"}[5m])))",
+          "legendFormat": "p50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_bucket{job=\"api\", http_route!~\"/readyz|/healthz\"}[5m])))",
+          "legendFormat": "p95"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(http_server_request_duration_bucket{job=\"api\", http_route!~\"/readyz|/healthz\"}[5m])))",
+          "legendFormat": "p99"
+        }
+      ],
+      "gridPos": {
+        "x": 12,
+        "y": 13,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "id": 10,
+      "title": "p95 latency by route (slowest 10)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk(10, histogram_quantile(0.95, sum by (le, http_route) (rate(http_server_request_duration_bucket{job=\"api\", http_route!~\"/readyz|/healthz\"}[5m]))))",
+          "legendFormat": "{{http_route}}"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 21,
+        "w": 24,
+        "h": 8
+      }
+    },
+    {
+      "id": 11,
+      "title": "Public health probe (via Cloudflare)",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "blackbox_exporter on the monitoring host; EndpointDown after 2 min.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        },
+        "colorMode": "background"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(probe_success{job=\"blackbox\", service=\"api\"})",
+          "legendFormat": ""
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 29,
+        "w": 6,
+        "h": 4
+      }
+    },
+    {
+      "id": 12,
+      "type": "row",
+      "title": "SLO error budget (30 days) — infra/monitoring/rules/slo.yml",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 33,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 13,
+      "title": "availability budget left (30 d)",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.25
+              },
+              {
+                "color": "green",
+                "value": 0.5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        },
+        "colorMode": "background"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "1 - (sum_over_time(slo:sli_bad:increase1h{service=\"api\", slo=\"availability\"}[30d]) / sum_over_time(slo:sli_total:increase1h{service=\"api\", slo=\"availability\"}[30d])) / on (service, slo) (1 - slo:objective:ratio{service=\"api\", slo=\"availability\"})",
+          "legendFormat": ""
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 34,
+        "w": 6,
+        "h": 4
+      }
+    },
+    {
+      "id": 14,
+      "title": "availability burn rate (1 h)",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Pages at 14.4× (1 h and 5 min), warns at 6× (6 h and 30 min).",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "x",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 6
+              },
+              {
+                "color": "red",
+                "value": 14.4
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        },
+        "colorMode": "background"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "slo:sli_error:ratio_rate1h{service=\"api\", slo=\"availability\"} / on (service, slo) (1 - slo:objective:ratio{service=\"api\", slo=\"availability\"})",
+          "legendFormat": ""
+        }
+      ],
+      "gridPos": {
+        "x": 6,
+        "y": 34,
+        "w": 6,
+        "h": 4
+      }
+    },
+    {
+      "id": 15,
+      "title": "latency budget left (30 d)",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.25
+              },
+              {
+                "color": "green",
+                "value": 0.5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        },
+        "colorMode": "background"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "1 - (sum_over_time(slo:sli_bad:increase1h{service=\"api\", slo=\"latency\"}[30d]) / sum_over_time(slo:sli_total:increase1h{service=\"api\", slo=\"latency\"}[30d])) / on (service, slo) (1 - slo:objective:ratio{service=\"api\", slo=\"latency\"})",
+          "legendFormat": ""
+        }
+      ],
+      "gridPos": {
+        "x": 12,
+        "y": 34,
+        "w": 6,
+        "h": 4
+      }
+    },
+    {
+      "id": 16,
+      "title": "latency burn rate (1 h)",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Pages at 14.4× (1 h and 5 min), warns at 6× (6 h and 30 min).",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "x",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 6
+              },
+              {
+                "color": "red",
+                "value": 14.4
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        },
+        "colorMode": "background"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "slo:sli_error:ratio_rate1h{service=\"api\", slo=\"latency\"} / on (service, slo) (1 - slo:objective:ratio{service=\"api\", slo=\"latency\"})",
+          "legendFormat": ""
+        }
+      ],
+      "gridPos": {
+        "x": 18,
+        "y": 34,
+        "w": 6,
+        "h": 4
+      }
+    },
+    {
+      "id": 17,
+      "title": "Burn rate by window",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "x",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 6
+              },
+              {
+                "color": "red",
+                "value": 14.4
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "slo:sli_error:ratio_rate5m{service=\"api\", slo=\"availability\"} / on (service, slo) (1 - slo:objective:ratio{service=\"api\", slo=\"availability\"})",
+          "legendFormat": "availability 5m"
+        },
+        {
+          "refId": "B",
+          "expr": "slo:sli_error:ratio_rate1h{service=\"api\", slo=\"availability\"} / on (service, slo) (1 - slo:objective:ratio{service=\"api\", slo=\"availability\"})",
+          "legendFormat": "availability 1h"
+        },
+        {
+          "refId": "C",
+          "expr": "slo:sli_error:ratio_rate6h{service=\"api\", slo=\"availability\"} / on (service, slo) (1 - slo:objective:ratio{service=\"api\", slo=\"availability\"})",
+          "legendFormat": "availability 6h"
+        },
+        {
+          "refId": "D",
+          "expr": "slo:sli_error:ratio_rate5m{service=\"api\", slo=\"latency\"} / on (service, slo) (1 - slo:objective:ratio{service=\"api\", slo=\"latency\"})",
+          "legendFormat": "latency 5m"
+        },
+        {
+          "refId": "E",
+          "expr": "slo:sli_error:ratio_rate1h{service=\"api\", slo=\"latency\"} / on (service, slo) (1 - slo:objective:ratio{service=\"api\", slo=\"latency\"})",
+          "legendFormat": "latency 1h"
+        },
+        {
+          "refId": "F",
+          "expr": "slo:sli_error:ratio_rate6h{service=\"api\", slo=\"latency\"} / on (service, slo) (1 - slo:objective:ratio{service=\"api\", slo=\"latency\"})",
+          "legendFormat": "latency 6h"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 38,
+        "w": 24,
+        "h": 8
+      }
+    },
+    {
+      "id": 18,
+      "type": "row",
+      "title": "Dependencies",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 46,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 19,
+      "title": "AI provider calls / s by outcome",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "AiProviderFailing (ai-outage.md).",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (outcome) (rate(inmolink_ai_provider_calls_total{job=\"api\"}[5m]))",
+          "legendFormat": "{{outcome}}"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 47,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "id": 20,
+      "title": "Rate-limit script failures / s",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "RateLimitFailing: limits fail open (website-api.md › Rate limits failing).",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (call) (rate(inmolink_rate_limit_failures_total{job=\"api\"}[5m]))",
+          "legendFormat": "{{call}}"
+        }
+      ],
+      "gridPos": {
+        "x": 12,
+        "y": 47,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "id": 21,
+      "title": "Realtime events published / s",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(inmolink_realtime_user_events_total{job=\"api\"}[5m]))",
+          "legendFormat": "events"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 55,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "id": 22,
+      "title": "AI usage records failing / s",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(inmolink_ai_usage_record_failures_total{job=\"api\"}[5m]))",
+          "legendFormat": "record"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(inmolink_ai_usage_record_enqueue_failures_total{job=\"api\"}[5m]))",
+          "legendFormat": "enqueue"
+        }
+      ],
+      "gridPos": {
+        "x": 12,
+        "y": 55,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "id": 23,
+      "title": "Per-tenant usage and AI spend",
+      "type": "text",
+      "options": {
+        "mode": "markdown",
+        "content": "Per-tenant usage and AI spend are tenant data, not Prometheus series (no agency label: cardinality): **staff console › System** (`/staff/system`). Error budgets of every service: dashboard *Inmolink · SLO error budgets*."
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 63,
+        "w": 24,
+        "h": 3
+      }
+    },
+    {
+      "id": 24,
+      "title": "Firing alerts",
+      "type": "table",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "ALERTS{alertstate=\"firing\", alertname=~\"Slo.*|AppMetricsDown|EndpointDown|Ai.*|RateLimitFailing\"}",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "options": {
+        "showHeader": true
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 66,
+        "w": 24,
+        "h": 6
+      }
+    }
+  ]
+}

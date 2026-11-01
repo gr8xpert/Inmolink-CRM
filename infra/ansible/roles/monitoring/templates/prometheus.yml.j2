@@ -4,6 +4,8 @@ global:
   evaluation_interval: 15s
   external_labels:
     env: {{ inmolink_env }}
+    # S16-05: rule annotations build `runbook_url` from it ($externalLabels.runbook_base) — a link in every notification.
+    runbook_base: "{{ runbook_base_url }}"
 
 rule_files:
   - /etc/prometheus/rules/*.yml
@@ -18,7 +20,7 @@ scrape_configs:
     static_configs:
 {% for h in groups['all'] | unique %}
       - targets: ["{{ hostvars[h].wg_ip }}:{{ node_exporter_port }}"]
-        labels: { instance: {{ h }} }
+        labels: { instance: {{ h }}, host: {{ h }} }
 {% endfor %}
 
   # `role` drives the replication alerts (infra/monitoring/rules/postgres.yml). After a failover, move
@@ -47,3 +49,46 @@ scrape_configs:
       - targets: ["{{ hostvars[redis_cache_host].wg_ip }}:{{ redis_cache_exporter_port }}"]
         labels: { instance: redis-cache, host: {{ redis_cache_host }} }
 
+  # S16-05: public health probes through Cloudflare (`endpoint_probes` per environment: every Kamal app's proxy host and
+  # healthcheck path — tests/workspace/monitoring.test.ts keeps them in sync). `service` drives EndpointDown and the
+  # uptime SLOs (infra/monitoring/rules/endpoints.yml, slo.yml); `instance` is the probed URL.
+  - job_name: blackbox
+    metrics_path: /probe
+    params:
+      module: [http_health]
+    scrape_interval: 30s
+    static_configs:
+{% for p in endpoint_probes %}
+      - targets: ["{{ p.url }}"]
+        labels: { service: {{ p.service }}, host: {{ p.host }} }
+{% endfor %}
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: "{{ wg_ip }}:{{ blackbox_exporter_port }}"
+
+  # S16-05: the same health paths at each probe's origin (its app host's WireGuard address — the origin lock admits the
+  # private network), Host header and SNI = the public host (`hostname` parameter): the origin certificate kamal-proxy
+  # serves behind Cloudflare Full (strict). CertificateExpiringSoon / CertificateExpiryCritical read both jobs.
+  - job_name: blackbox-origin
+    metrics_path: /probe
+    params:
+      module: [http_origin]
+    scrape_interval: 2m
+    static_configs:
+{% for p in endpoint_probes %}
+      - targets: ["https://{{ hostvars[p.host].wg_ip }}{{ p.url | urlsplit('path') }}"]
+        labels: { service: {{ p.service }}, host: {{ p.host }}, vhost: "{{ p.url | urlsplit('hostname') }}" }
+{% endfor %}
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - source_labels: [vhost]
+        target_label: __param_hostname
+      - target_label: __address__
+        replacement: "{{ wg_ip }}:{{ blackbox_exporter_port }}"

@@ -1,0 +1,32 @@
+# {{ ansible_managed }}
+# blackbox_exporter modules (S16-05). `http_health`: the apps' /readyz and /healthz through Cloudflare — a 200 over
+# TLS within 5 s, no redirect followed (a redirect means a misrouted host). Feeds infra/monitoring/rules/endpoints.yml
+# and the uptime SLOs (slo.yml).
+modules:
+  http_health:
+    prober: http
+    timeout: 5s
+    http:
+      method: GET
+      valid_status_codes: [200]
+      follow_redirects: false
+      fail_if_not_ssl: true
+      preferred_ip_protocol: ip4
+      headers:
+        User-Agent: inmolink-blackbox/1 (+ops)
+  # S16-05: the origin behind Cloudflare, reached at its WireGuard address with Host/SNI from the `hostname` parameter.
+  # Its certificate is a Cloudflare Origin CA certificate (deploy.md step 3), not publicly trusted: the chain is not
+  # verified here (Cloudflare verifies it in Full (strict)); the probe exists for its expiry date and the origin's health.
+  http_origin:
+    prober: http
+    timeout: 5s
+    http:
+      method: GET
+      valid_status_codes: [200]
+      follow_redirects: false
+      fail_if_not_ssl: true
+      preferred_ip_protocol: ip4
+      tls_config:
+        insecure_skip_verify: true
+      headers:
+        User-Agent: inmolink-blackbox/1 (+ops)

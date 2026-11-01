@@ -20,8 +20,11 @@ import { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION } from '@opentelemetry/semantic
 import { HTTP_DURATION_METRIC, QUEUE_WAIT_BUCKETS_S, QUEUE_WAIT_METRIC } from './names';
 import { RedactingSpanExporter } from './redact';
 
-/** Histogram buckets (seconds) for request and job durations: 5 ms … 10 s. */
-export const DURATION_BUCKETS_S = [0.005, 0.01, 0.025, 0.05, 0.1, 0.15, 0.25, 0.5, 1, 2.5, 5, 10];
+/**
+ * Histogram buckets (seconds) for request and job durations: 5 ms … 10 s. 0.15 and 0.3 are the feed-api and dashboard
+ * API p95 budgets — the latency SLIs count requests at or under them (infra/monitoring/rules/slo.yml, S16-05).
+ */
+export const DURATION_BUCKETS_S = [0.005, 0.01, 0.025, 0.05, 0.1, 0.15, 0.25, 0.3, 0.5, 1, 2.5, 5, 10];
 
 /** BullMQ's timer-driven housekeeping: a root trace every few seconds per queue, never useful alone. */
 const HOUSEKEEPING_SPANS = new Set([

@@ -35,6 +35,21 @@ references, and facet counts are missing. Detail pages and cached pages are not 
 The fallback reads `listing_search_docs`, which is written in the same transaction as the read models, so it is
 never stale. If it ever looks wrong, `pnpm ops:rebuild-read-models` rebuilds it along with the read models.
 
+## Reindex
+
+PLAN §17 runbook list (S16-05). Postgres is the source of truth; the Meilisearch index is rebuilt from it at any time
+without downtime (websites use the Postgres fallback while documents are missing only if the breaker opens).
+
+- **Drift (some documents stale or missing):** the nightly `search.checkIndexDrift` (count and sample check) starts
+  `search.repairIndex`, which queues every document that is missing, different or orphaned; to run it now, enqueue
+  `search.repairIndex` and wait until `search_index_queue` has drained.
+- **One agency:** staff console › **Operations** › *Reindex* for the agency (a resumable operation, paged per step;
+  the operation's progress is on the same page).
+- **Everything (index lost, new Meilisearch host, settings change):** start Meilisearch, let the worker recreate the
+  index (`ensureIndex` on start), then enqueue `search.repairIndex`: every document is pushed again. Expect search
+  fallback answers until the push completes (SearchFallbackActive may fire while the engine is empty and answering
+  errors). Read models are a separate rebuild: `pnpm ops:rebuild-read-models` (it does not re-push unchanged documents).
+
 ## Network search rollout (S5-05)
 
 Migration 0071 adds `listing_read_models.allowed_agency_ids` (who a PRIVATE_NETWORK development is shared with) and

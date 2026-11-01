@@ -1,0 +1,97 @@
+# promtool test rules endpoints.test.yml — run by tests/ops/alerts.int.test.ts (S16-05).
+rule_files:
+  - endpoints.yml
+evaluation_interval: 15s
+tests:
+  # feed-api's probe fails from 3m: critical after 2 minutes; it recovers at 8m. web's probe stays green, and a failing
+  # origin probe is no EndpointDown (the public path is what users see).
+  - interval: 1m
+    external_labels: { runbook_base: "https://runbooks.example" }
+    input_series:
+      - series: 'probe_success{job="blackbox", service="feed-api", host="app-1", instance="https://feed.inmolink.es/readyz"}'
+        values: "1 1 1 0 0 0 0 0 1 1 1"
+      - series: 'probe_success{job="blackbox", service="web", host="app-1", instance="https://app.inmolink.es/healthz"}'
+        values: "1x10"
+      - series: 'probe_success{job="blackbox-origin", service="web", host="app-1", instance="https://10.10.0.11/healthz"}'
+        values: "0x10"
+      - series: 'up{job="blackbox", service="feed-api", instance="https://feed.inmolink.es/readyz"}'
+        values: "1x10"
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: EndpointDown
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: EndpointDown
+        exp_alerts:
+          - exp_labels: { severity: critical, service: feed-api, host: app-1, instance: "https://feed.inmolink.es/readyz" }
+            exp_annotations:
+              summary: "feed-api fails its health probe (https://feed.inmolink.es/readyz)"
+              runbook: docs/runbooks/observability.md#endpoint-down
+              runbook_url: https://runbooks.example/docs/runbooks/observability.md#endpoint-down
+      - eval_time: 9m
+        alertname: EndpointDown
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: EndpointProbesMissing
+        exp_alerts: []
+  # No probe target answers at all (exporter down): EndpointProbesMissing after 10 minutes.
+  - interval: 1m
+    external_labels: { runbook_base: "https://runbooks.example" }
+    input_series:
+      - series: 'up{job="blackbox", service="api", instance="https://api.inmolink.es/readyz"}'
+        values: "0x20"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: EndpointProbesMissing
+        exp_alerts: []
+      - eval_time: 12m
+        alertname: EndpointProbesMissing
+        exp_alerts:
+          - exp_labels: { severity: critical }
+            exp_annotations:
+              summary: "No endpoint probe has run for 10 minutes: blackbox_exporter is down or unscraped"
+              runbook: docs/runbooks/observability.md#endpoint-down
+              runbook_url: https://runbooks.example/docs/runbooks/observability.md#endpoint-down
+  # Edge certificates expiring 10 days and 2 days after t=0 (90 days: never), and an origin certificate 10 days out:
+  # the 2-day one is critical after 10 minutes, the others warn after an hour.
+  - interval: 1m
+    external_labels: { runbook_base: "https://runbooks.example" }
+    input_series:
+      - series: 'probe_ssl_earliest_cert_expiry{job="blackbox", service="api", host="app-1", instance="https://api.inmolink.es/readyz"}'
+        values: "864000x150"
+      - series: 'probe_ssl_earliest_cert_expiry{job="blackbox", service="web", host="app-1", instance="https://app.inmolink.es/healthz"}'
+        values: "172800x150"
+      - series: 'probe_ssl_earliest_cert_expiry{job="blackbox", service="public", host="app-1", instance="https://sites.inmolink.es/healthz"}'
+        values: "7776000x150"
+      - series: 'probe_ssl_earliest_cert_expiry{job="blackbox-origin", service="feed-api", host="app-1", instance="https://10.10.0.11/readyz"}'
+        values: "864000x150"
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: CertificateExpiringSoon
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: CertificateExpiryCritical
+        exp_alerts:
+          - exp_labels: { severity: critical, job: blackbox, service: web, instance: "https://app.inmolink.es/healthz" }
+            exp_annotations:
+              summary: "The TLS certificate of https://app.inmolink.es/healthz (blackbox) expires in 1d 23h 30m 0s"
+              runbook: docs/runbooks/observability.md#certificate-expiry
+              runbook_url: https://runbooks.example/docs/runbooks/observability.md#certificate-expiry
+      - eval_time: 2h
+        alertname: CertificateExpiringSoon
+        exp_alerts:
+          - exp_labels: { severity: warning, job: blackbox, service: api, instance: "https://api.inmolink.es/readyz" }
+            exp_annotations:
+              summary: "The TLS certificate of https://api.inmolink.es/readyz (blackbox) expires in 9d 22h 0m 0s"
+              runbook: docs/runbooks/observability.md#certificate-expiry
+              runbook_url: https://runbooks.example/docs/runbooks/observability.md#certificate-expiry
+          - exp_labels: { severity: warning, job: blackbox, service: web, instance: "https://app.inmolink.es/healthz" }
+            exp_annotations:
+              summary: "The TLS certificate of https://app.inmolink.es/healthz (blackbox) expires in 1d 22h 0m 0s"
+              runbook: docs/runbooks/observability.md#certificate-expiry
+              runbook_url: https://runbooks.example/docs/runbooks/observability.md#certificate-expiry
+          - exp_labels: { severity: warning, job: blackbox-origin, service: feed-api, instance: "https://10.10.0.11/readyz" }
+            exp_annotations:
+              summary: "The TLS certificate of https://10.10.0.11/readyz (blackbox-origin) expires in 9d 22h 0m 0s"
+              runbook: docs/runbooks/observability.md#certificate-expiry
+              runbook_url: https://runbooks.example/docs/runbooks/observability.md#certificate-expiry

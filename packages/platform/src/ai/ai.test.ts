@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { metrics } from '@opentelemetry/api';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { createFakeClock } from '../clock';
 import { ConfigError } from '../config';
@@ -515,5 +516,55 @@ describe('ai:eval checks', () => {
       expect.arrayContaining(['keys of "strings" differ', 'strings.a lost "{name}"']),
     );
     expect(checkAnswer(c, 'Sure! Here it is')).toEqual(['not JSON']);
+  });
+});
+
+describe('AI gateway — provider call metric (S16-05)', () => {
+  it('[S16-05] every provider call counts by outcome, the open breaker as circuit_open (AiProviderFailing alert)', async () => {
+    const add = vi.fn();
+    const createCounter = vi.fn(() => ({ add }));
+    const spy = vi
+      .spyOn(metrics, 'getMeter')
+      .mockReturnValue({ createCounter } as unknown as ReturnType<typeof metrics.getMeter>);
+    try {
+      // A fresh module: its counter is taken on first use, from the meter above.
+      vi.resetModules();
+      const fresh = await import('./gateway');
+      const rest = {
+        provider: new FakeProvider(() => 'A bright villa.'),
+        store: memoryAiStore(),
+        cache: memoryAiCache(),
+        clock: createFakeClock('2026-10-15T10:00:00Z'),
+      };
+      const gateway = fresh.createAiGateway({
+        provider: rest.provider,
+        models: { FAST: 'fast-model', SMART: 'smart-model' },
+        pricing: PRICING,
+        batchDiscountBp: 5_000,
+        prompts: staticPromptSource([PROMPT, PROMPT_V2]),
+        cache: rest.cache,
+        cacheTtlSeconds: 3_600,
+        store: rest.store,
+        budgetFor: () => ({ softMicroUsd: 50_000, hardMicroUsd: 100_000 }),
+        timeoutMs: 5_000,
+        breaker: { failures: 2, openMs: 30_000 },
+        logger: log,
+        clock: rest.clock,
+      });
+      await gateway.generate(ctx, { ...call, cacheKey: false });
+      rest.provider.failWith();
+      for (let i = 0; i < 3; i++) await gateway.generate(ctx, { ...call, cacheKey: false }).catch(() => undefined);
+      expect(createCounter).toHaveBeenCalledWith(fresh.AI_PROVIDER_CALLS_METRIC, expect.any(Object));
+      expect(fresh.AI_PROVIDER_CALLS_METRIC).toBe('inmolink.ai.provider_calls');
+      expect(add.mock.calls.map(([, attrs]) => (attrs as { outcome: string }).outcome)).toEqual([
+        'ok',
+        'unavailable',
+        'unavailable',
+        'circuit_open',
+      ]);
+    } finally {
+      spy.mockRestore();
+      vi.resetModules();
+    }
   });
 });

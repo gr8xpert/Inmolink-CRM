@@ -7,6 +7,7 @@ tests:
   # A secret key trips its paging limit at 5m on one process: the alert fires at once with the trip's labels and clears
   # once the 15-minute window has passed. Observed-only label sets at 0 never fire.
   - interval: 1m
+    external_labels: { runbook_base: "https://runbooks.example" }
     input_series:
       - series: 'inmolink_website_scraping_detected_total{action="throttled", scope="key", key_kind="SECRET", instance="feed-api-1"}'
         values: "0 0 0 0 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1"
@@ -25,12 +26,14 @@ tests:
             exp_annotations:
               summary: "Website API: scripted paging detected (SECRET key, key, throttled)"
               runbook: docs/runbooks/website-api.md#scraping-detected
+              runbook_url: https://runbooks.example/docs/runbooks/website-api.md#scraping-detected
       - eval_time: 25m
         alertname: WebsiteScrapingDetected
         exp_alerts: []
 
   # A honeytoken's detail is requested at 3m: the alert fires at once, and clears after 15 minutes without hits.
   - interval: 1m
+    external_labels: { runbook_base: "https://runbooks.example" }
     input_series:
       - series: 'inmolink_website_honeytoken_hits_total{instance="feed-api-1"}'
         values: "0 0 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1"
@@ -45,12 +48,14 @@ tests:
             exp_annotations:
               summary: "Website API: a honeytoken listing was requested — a site's inventory has been scraped"
               runbook: docs/runbooks/website-api.md#honeytoken-hit
+              runbook_url: https://runbooks.example/docs/runbooks/website-api.md#honeytoken-hit
       - eval_time: 20m
         alertname: WebsiteHoneytokenHit
         exp_alerts: []
 
   # S7-06: a purge fails its last attempt at 4m: the alert fires and clears 30 minutes after the last failure.
   - interval: 1m
+    external_labels: { runbook_base: "https://runbooks.example" }
     input_series:
       - series: 'inmolink_website_edge_purge_failed_total{instance="worker-1"}'
         values: "0 0 0 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1"
@@ -65,6 +70,7 @@ tests:
             exp_annotations:
               summary: "Website API: edge cache purges are failing"
               runbook: docs/runbooks/cdn.md#purge-failing
+              runbook_url: https://runbooks.example/docs/runbooks/cdn.md#purge-failing
       - eval_time: 39m
         alertname: WebsiteEdgePurgeFailing
         exp_alerts: []
@@ -72,6 +78,7 @@ tests:
   # S7-F7: limiter calls start failing at 3m on one process (an ACL change): critical after 5 minutes of failures; a
   # credit series at 0 never fires.
   - interval: 1m
+    external_labels: { runbook_base: "https://runbooks.example" }
     input_series:
       - series: 'inmolink_rate_limit_failures_total{call="consume", instance="feed-api-1"}'
         values: "0 0 0 5 10 15 20 25 30 35 40 45 50 55 60 65 70"
@@ -88,3 +95,4 @@ tests:
             exp_annotations:
               summary: "Rate limits are failing open (consume script calls fail): quotas and scraping detection are off"
               runbook: docs/runbooks/website-api.md#rate-limits-failing
+              runbook_url: https://runbooks.example/docs/runbooks/website-api.md#rate-limits-failing

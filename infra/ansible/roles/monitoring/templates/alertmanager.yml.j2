@@ -8,7 +8,7 @@ global:
 
 route:
   receiver: ops-email
-  group_by: [alertname, instance]
+  group_by: [alertname, service, instance]
   group_wait: 30s
   group_interval: 5m
   repeat_interval: 4h
@@ -19,15 +19,49 @@ route:
       group_wait: 0s
       group_interval: 1m
       repeat_interval: 1m
+{% if vault_oncall_webhook_url | default('') %}
+    # S16-05 (PLAN §17 "phone + email"): critical alerts also go to the on-call service (phone call / push), then on to
+    # the e-mail route below.
+    - matchers: [severity="critical"]
+      receiver: ops-phone
+      continue: true
+{% endif %}
     - matchers: [severity="critical"]
       receiver: ops-email
       repeat_interval: 1h
+
+# S16-05: one cause, one notification. A source alert mutes the targets that share the `equal` labels while it fires.
+inhibit_rules:
+  # A host gone: its public endpoints fail too (`host` = the app host behind the probe).
+  - source_matchers: [alertname="NodeDown"]
+    target_matchers: [alertname="EndpointDown"]
+    equal: [host]
+  # An endpoint down: its app's metrics and its uptime SLO follow (`service`).
+  - source_matchers: [alertname="EndpointDown"]
+    target_matchers: [alertname="AppMetricsDown"]
+    equal: [service]
+  - source_matchers: [alertname="EndpointDown"]
+    target_matchers: [alertname=~"SloErrorBudgetBurn(Fast|Slow)", slo="uptime"]
+    equal: [service]
+  # The fast burn already pages for the same SLO.
+  - source_matchers: [alertname="SloErrorBudgetBurnFast"]
+    target_matchers: [alertname="SloErrorBudgetBurnSlow"]
+    equal: [service, slo]
+  - source_matchers: [alertname="CertificateExpiryCritical"]
+    target_matchers: [alertname="CertificateExpiringSoon"]
+    equal: [instance]
 
 receivers:
   - name: heartbeat
     webhook_configs:
       - url: "{{ vault_heartbeat_url }}"
         send_resolved: false
+{% if vault_oncall_webhook_url | default('') %}
+  - name: ops-phone
+    webhook_configs:
+      - url: "{{ vault_oncall_webhook_url }}"
+        send_resolved: true
+{% endif %}
   - name: ops-email
     email_configs:
       - to: "{{ alert_email_to }}"

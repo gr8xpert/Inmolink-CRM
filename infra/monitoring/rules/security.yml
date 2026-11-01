@@ -19,3 +19,4 @@ groups:
         annotations:
           summary: "HMAC rotation: {{ $value }} client registrations still lack a current-key fingerprint near the window's end"
           runbook: docs/runbooks/hmac-key-rotation.md#rotation-steps
+          runbook_url: "{{ $externalLabels.runbook_base }}/docs/runbooks/hmac-key-rotation.md#rotation-steps"

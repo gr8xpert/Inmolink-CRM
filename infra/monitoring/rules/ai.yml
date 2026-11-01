@@ -1,0 +1,59 @@
+# AI provider alerts (S16-05, PLAN §17 "AI outage" runbook). Loaded by Prometheus on the monitoring host (Ansible role
+# `monitoring`). Unit tests: ai.test.yml (`promtool test rules`, tests/ops/alerts.int.test.ts).
+# Metrics: api, feed-api and worker processes (OpenTelemetry → Prometheus exporter), from packages/platform/src/ai:
+#   inmolink_ai_provider_calls_total                 provider calls by `outcome` (ok | unavailable | rate_limited |
+#                                                    rejected | circuit_open: refused by the open breaker, not sent)
+#   inmolink_ai_usage_record_failures_total          usage rows not written after the provider answered (retried via
+#                                                    the queue)
+#   inmolink_ai_usage_record_enqueue_failures_total  request-path usage rows that could not even be queued (spend not
+#                                                    metered until replayed from the error log)
+# AI features degrade gracefully (owner text, no suggestion — S12-01), so a provider outage is a warning. A provider
+# rejecting nearly every call is critical: a revoked key or exhausted credit never recovers by itself.
+# Minimum traffic: more than 20 calls in the 10-minute window (a handful of calls at night proves nothing).
+groups:
+  - name: ai
+    rules:
+      - alert: AiProviderFailing
+        expr: >-
+          (
+            sum(rate(inmolink_ai_provider_calls_total{outcome=~"unavailable|circuit_open"}[10m]))
+              / sum(rate(inmolink_ai_provider_calls_total[10m]))
+            > 0.5
+          )
+          and on () (sum(increase(inmolink_ai_provider_calls_total[10m])) > 20)
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $value | humanizePercentage }} of AI provider calls fail or are refused by the open breaker"
+          runbook: docs/runbooks/ai-outage.md#ai-provider-failing
+          runbook_url: "{{ $externalLabels.runbook_base }}/docs/runbooks/ai-outage.md#ai-provider-failing"
+      # 4xx from the provider: 401/403 (key revoked or rotated), 400 on every call (credit exhausted, a model id the
+      # account may not use, a request shape the API no longer takes). The breaker does not open on these (they say
+      # nothing about the provider's health), so AiProviderFailing never sees them.
+      - alert: AiProviderRejecting
+        expr: >-
+          (
+            sum(rate(inmolink_ai_provider_calls_total{outcome="rejected"}[10m]))
+              / sum(rate(inmolink_ai_provider_calls_total{outcome!="circuit_open"}[10m]))
+            > 0.9
+          )
+          and on () (sum(increase(inmolink_ai_provider_calls_total{outcome!="circuit_open"}[10m])) > 20)
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "The AI provider rejects {{ $value | humanizePercentage }} of calls (key, credit or request refused)"
+          runbook: docs/runbooks/ai-outage.md#ai-provider-rejecting
+          runbook_url: "{{ $externalLabels.runbook_base }}/docs/runbooks/ai-outage.md#ai-provider-rejecting"
+      - alert: AiUsageRecordFailing
+        expr: >-
+          (sum(increase(inmolink_ai_usage_record_failures_total[15m])) or vector(0))
+            + (sum(increase(inmolink_ai_usage_record_enqueue_failures_total[15m])) or vector(0))
+          > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "AI usage records are failing: spend is not metered until they are replayed"
+          runbook: docs/runbooks/ai-outage.md#ai-usage-records-failing
+          runbook_url: "{{ $externalLabels.runbook_base }}/docs/runbooks/ai-outage.md#ai-usage-records-failing"

@@ -6,6 +6,7 @@ evaluation_interval: 15s
 tests:
   # The breaker opens at 1m and stays open: pending for 2 minutes, then firing; closed again at 5m: resolved.
   - interval: 15s
+    external_labels: { runbook_base: "https://runbooks.example" }
     input_series:
       - series: 'inmolink_search_breaker_open{instance="feed-api-1"}'
         values: "0 0 0 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 0 0 0 0"
@@ -22,12 +23,14 @@ tests:
             exp_annotations:
               summary: "Website search on feed-api-1 has used the Postgres fallback for over 2 minutes"
               runbook: docs/runbooks/search.md#fallback-active
+              runbook_url: https://runbooks.example/docs/runbooks/search.md#fallback-active
       - eval_time: 5m30s # closed again
         alertname: SearchFallbackActive
         exp_alerts: []
 
   # 10 % of queries fall back for 15 minutes (breaker never open long): the share alert fires after 10 minutes.
   - interval: 1m
+    external_labels: { runbook_base: "https://runbooks.example" }
     input_series:
       - series: 'inmolink_search_queries_total{backend="engine", instance="feed-api-1"}'
         values: "0+540x20"
@@ -44,9 +47,11 @@ tests:
             exp_annotations:
               summary: "10% of website searches answered by the Postgres fallback"
               runbook: docs/runbooks/search.md#fallback-active
+              runbook_url: https://runbooks.example/docs/runbooks/search.md#fallback-active
 
   # S7-F10: the breaker opens 12 times in an hour on one process: flapping fires; 2 opens an hour on another: nothing.
   - interval: 5m
+    external_labels: { runbook_base: "https://runbooks.example" }
     input_series:
       - series: 'inmolink_search_breaker_transitions_total{to="open", instance="feed-api-1"}'
         values: "0+1x24"
@@ -63,7 +68,9 @@ tests:
             exp_annotations:
               summary: "The website search breaker opened 12 times in the last hour"
               runbook: docs/runbooks/search.md#fallback-active
+              runbook_url: https://runbooks.example/docs/runbooks/search.md#fallback-active
   - interval: 30m
+    external_labels: { runbook_base: "https://runbooks.example" }
     input_series:
       - series: 'inmolink_search_breaker_transitions_total{to="open", instance="feed-api-2"}'
         values: "0+1x6"
@@ -74,6 +81,7 @@ tests:
 
   # A healthy engine (no fallback series yet): nothing fires.
   - interval: 1m
+    external_labels: { runbook_base: "https://runbooks.example" }
     input_series:
       - series: 'inmolink_search_queries_total{backend="engine", instance="feed-api-1"}'
         values: "0+600x20"
@@ -89,6 +97,7 @@ tests:
 
   # A transaction stays open: the oldest held change waits 0 → 20 min, then the transaction ends (S7-03).
   - interval: 1m
+    external_labels: { runbook_base: "https://runbooks.example" }
     input_series:
       - series: 'inmolink_website_changes_held_seconds{instance="feed-api-1"}'
         values: "0 60 120 180 240 300 360 420 480 540 600 660 720 780 840 900 960 1020 1080 1140 1200 0 0 0 0 0 0"
@@ -103,6 +112,7 @@ tests:
             exp_annotations:
               summary: "Website change feeds are held back 17m 0s by a long-running transaction"
               runbook: docs/runbooks/search.md#website-changes-held
+              runbook_url: https://runbooks.example/docs/runbooks/search.md#website-changes-held
       - eval_time: 30m
         alertname: WebsiteChangesHeld
         exp_alerts: []

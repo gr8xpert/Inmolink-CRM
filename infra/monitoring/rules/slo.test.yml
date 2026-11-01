@@ -1,0 +1,169 @@
+# promtool test rules slo.test.yml — run by tests/ops/alerts.int.test.ts (S16-05).
+rule_files:
+  - slo.yml
+evaluation_interval: 15s
+tests:
+  # feed-api: 2 % of 1,000 requests a minute answer 5xx — 40× its 0.05 % budget: the fast burn pages after 2 minutes,
+  # the slow one warns after 15. 100,000 /readyz probes a minute are left out (they would dilute the share to 0.02 %).
+  # The api's 0.05 % (half its 0.1 % budget) never alerts.
+  - interval: 1m
+    external_labels: { runbook_base: "https://runbooks.example" }
+    input_series:
+      - series: 'http_server_request_duration_count{job="feed-api", instance="feed-api-1", http_route="/v2/listings", http_response_status_code="200"}'
+        values: "0+980x80"
+      - series: 'http_server_request_duration_count{job="feed-api", instance="feed-api-1", http_route="/v2/listings", http_response_status_code="500"}'
+        values: "0+20x80"
+      - series: 'http_server_request_duration_count{job="feed-api", instance="feed-api-1", http_route="/readyz", http_response_status_code="200"}'
+        values: "0+100000x80"
+      - series: 'http_server_request_duration_count{job="api", instance="api-1", http_route="/v1/contacts", http_response_status_code="200"}'
+        values: "0+19990x80"
+      - series: 'http_server_request_duration_count{job="api", instance="api-1", http_route="/v1/contacts", http_response_status_code="503"}'
+        values: "0+10x80"
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: SloErrorBudgetBurnFast
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: SloErrorBudgetBurnFast
+        exp_alerts:
+          - exp_labels: { severity: critical, service: feed-api, slo: availability }
+            exp_annotations:
+              summary: "feed-api availability SLO: the error budget burns 14× too fast (2% bad over 1 h)"
+              runbook: docs/runbooks/observability.md#slo-error-budget-burn
+              runbook_url: https://runbooks.example/docs/runbooks/observability.md#slo-error-budget-burn
+      - eval_time: 70m
+        alertname: SloErrorBudgetBurnSlow
+        exp_alerts:
+          - exp_labels: { severity: warning, service: feed-api, slo: availability }
+            exp_annotations:
+              summary: "feed-api availability SLO: the error budget burns 6× too fast (2% bad over 6 h)"
+              runbook: docs/runbooks/observability.md#slo-error-budget-burn
+              runbook_url: https://runbooks.example/docs/runbooks/observability.md#slo-error-budget-burn
+  # api: 1 % errors — 10× its budget: the slow burn (6×) warns after 15 minutes, the fast one (14.4×) stays quiet.
+  - interval: 1m
+    external_labels: { runbook_base: "https://runbooks.example" }
+    input_series:
+      - series: 'http_server_request_duration_count{job="api", instance="api-1", http_route="/v1/listings", http_response_status_code="200"}'
+        values: "0+990x40"
+      - series: 'http_server_request_duration_count{job="api", instance="api-1", http_route="/v1/listings", http_response_status_code="500"}'
+        values: "0+10x40"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: SloErrorBudgetBurnSlow
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: SloErrorBudgetBurnSlow
+        exp_alerts:
+          - exp_labels: { severity: warning, service: api, slo: availability }
+            exp_annotations:
+              summary: "api availability SLO: the error budget burns 6× too fast (1% bad over 6 h)"
+              runbook: docs/runbooks/observability.md#slo-error-budget-burn
+              runbook_url: https://runbooks.example/docs/runbooks/observability.md#slo-error-budget-burn
+      - eval_time: 20m
+        alertname: SloErrorBudgetBurnFast
+        exp_alerts: []
+  # Minimum traffic: one request a minute and a single 5xx (3 % of 31 — over 14.4× the budget): fewer than 100 requests
+  # in either long window, so neither burn alert fires.
+  - interval: 1m
+    external_labels: { runbook_base: "https://runbooks.example" }
+    input_series:
+      - series: 'http_server_request_duration_count{job="api", instance="api-1", http_route="/v1/listings", http_response_status_code="200"}'
+        values: "0+1x40"
+      - series: 'http_server_request_duration_count{job="api", instance="api-1", http_route="/v1/listings", http_response_status_code="500"}'
+        values: "0 0 0 0 0 1x35"
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: SloErrorBudgetBurnFast
+        exp_alerts: []
+      - eval_time: 40m
+        alertname: SloErrorBudgetBurnSlow
+        exp_alerts: []
+  # feed-api latency: 80 % of its non-5xx requests slower than 150 ms (budget 5 %): the fast burn pages. Fast 5xx answers
+  # do not count (they would halve the slow share); no 5xx share alert either (the 500s are 50 %: availability fires).
+  - interval: 1m
+    external_labels: { runbook_base: "https://runbooks.example" }
+    input_series:
+      - series: 'http_server_request_duration_bucket{job="feed-api", instance="feed-api-1", http_route="/v2/listings", http_response_status_code="200", le="0.15"}'
+        values: "0+200x30"
+      - series: 'http_server_request_duration_count{job="feed-api", instance="feed-api-1", http_route="/v2/listings", http_response_status_code="200"}'
+        values: "0+1000x30"
+      - series: 'http_server_request_duration_bucket{job="feed-api", instance="feed-api-1", http_route="/v2/listings", http_response_status_code="500", le="0.15"}'
+        values: "0+1000x30"
+      - series: 'http_server_request_duration_count{job="feed-api", instance="feed-api-1", http_route="/v2/listings", http_response_status_code="500"}'
+        values: "0+1000x30"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: SloErrorBudgetBurnFast
+        exp_alerts:
+          - exp_labels: { severity: critical, service: feed-api, slo: availability }
+            exp_annotations:
+              summary: "feed-api availability SLO: the error budget burns 14× too fast (50% bad over 1 h)"
+              runbook: docs/runbooks/observability.md#slo-error-budget-burn
+              runbook_url: https://runbooks.example/docs/runbooks/observability.md#slo-error-budget-burn
+          - exp_labels: { severity: critical, service: feed-api, slo: latency }
+            exp_annotations:
+              summary: "feed-api latency SLO: the error budget burns 14× too fast (80% bad over 1 h)"
+              runbook: docs/runbooks/observability.md#slo-error-budget-burn
+              runbook_url: https://runbooks.example/docs/runbooks/observability.md#slo-error-budget-burn
+  # api latency: the budget bucket is 0.3 s (300 ms p95): 97 % within it → no alert even though only 50 % are within 0.25 s.
+  - interval: 1m
+    external_labels: { runbook_base: "https://runbooks.example" }
+    input_series:
+      - series: 'http_server_request_duration_bucket{job="api", instance="api-1", http_route="/v1/contacts", http_response_status_code="200", le="0.25"}'
+        values: "0+500x30"
+      - series: 'http_server_request_duration_bucket{job="api", instance="api-1", http_route="/v1/contacts", http_response_status_code="200", le="0.3"}'
+        values: "0+970x30"
+      - series: 'http_server_request_duration_count{job="api", instance="api-1", http_route="/v1/contacts", http_response_status_code="200"}'
+        values: "0+1000x30"
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: SloErrorBudgetBurnFast
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: SloErrorBudgetBurnSlow
+        exp_alerts: []
+  # The public portal fails every probe (no /metrics endpoint: the uptime SLI): fast burn. A failing probe of a service
+  # without an uptime objective (api: request SLIs) adds no SLO alert (EndpointDown covers it).
+  - interval: 1m
+    external_labels: { runbook_base: "https://runbooks.example" }
+    input_series:
+      - series: 'probe_success{job="blackbox", service="public", host="app-1", instance="https://sites.inmolink.es/healthz"}'
+        values: "0x20"
+      - series: 'probe_success{job="blackbox", service="api", host="app-1", instance="https://api.inmolink.es/readyz"}'
+        values: "0x20"
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: SloErrorBudgetBurnFast
+        exp_alerts:
+          - exp_labels: { severity: critical, service: public, slo: uptime }
+            exp_annotations:
+              summary: "public uptime SLO: the error budget burns 14× too fast (100% bad over 1 h)"
+              runbook: docs/runbooks/observability.md#slo-error-budget-burn
+              runbook_url: https://runbooks.example/docs/runbooks/observability.md#slo-error-budget-burn
+  # api and feed-api scraped; the worker target is down and realtime has none at all: both page after 10 minutes.
+  - interval: 1m
+    external_labels: { runbook_base: "https://runbooks.example" }
+    input_series:
+      - series: 'up{job="api", instance="api-1"}'
+        values: "1x20"
+      - series: 'up{job="feed-api", instance="feed-api-1"}'
+        values: "1x20"
+      - series: 'up{job="worker", instance="worker-1"}'
+        values: "0x20"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: AppMetricsDown
+        exp_alerts: []
+      - eval_time: 12m
+        alertname: AppMetricsDown
+        exp_alerts:
+          - exp_labels: { severity: critical, job: worker, service: worker }
+            exp_annotations:
+              summary: "No worker process is scraped: its alerts and SLOs are blind"
+              runbook: docs/runbooks/observability.md#app-metrics-down
+              runbook_url: https://runbooks.example/docs/runbooks/observability.md#app-metrics-down
+          - exp_labels: { severity: critical, job: realtime, service: realtime }
+            exp_annotations:
+              summary: "No realtime process is scraped: its alerts and SLOs are blind"
+              runbook: docs/runbooks/observability.md#app-metrics-down
+              runbook_url: https://runbooks.example/docs/runbooks/observability.md#app-metrics-down

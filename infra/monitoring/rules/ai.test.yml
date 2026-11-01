@@ -1,0 +1,99 @@
+# promtool test rules ai.test.yml — run by tests/ops/alerts.int.test.ts (S16-05).
+rule_files:
+  - ai.yml
+evaluation_interval: 15s
+tests:
+  # 100 calls a minute: healthy for 10 minutes, then 80 of 101 fail or are refused by the open breaker: warning after
+  # 5 minutes. Rejected requests (4xx) count as calls but not as failures.
+  - interval: 1m
+    external_labels: { runbook_base: "https://runbooks.example" }
+    input_series:
+      - series: 'inmolink_ai_provider_calls_total{outcome="ok", instance="worker-1"}'
+        values: "0+100x10 1000+20x30"
+      - series: 'inmolink_ai_provider_calls_total{outcome="unavailable", instance="worker-1"}'
+        values: "0x10 0+30x30"
+      - series: 'inmolink_ai_provider_calls_total{outcome="circuit_open", instance="worker-1"}'
+        values: "0x10 0+50x30"
+      - series: 'inmolink_ai_provider_calls_total{outcome="rejected", instance="worker-1"}'
+        values: "0+1x40"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: AiProviderFailing
+        exp_alerts: []
+      - eval_time: 32m
+        alertname: AiProviderFailing
+        exp_alerts:
+          - exp_labels: { severity: warning }
+            exp_annotations:
+              summary: "79.21% of AI provider calls fail or are refused by the open breaker"
+              runbook: docs/runbooks/ai-outage.md#ai-provider-failing
+              runbook_url: https://runbooks.example/docs/runbooks/ai-outage.md#ai-provider-failing
+      - eval_time: 32m
+        alertname: AiProviderRejecting
+        exp_alerts: []
+  # Minimum traffic: one call a minute, every one failing — 10 calls in 10 minutes is no outage signal.
+  - interval: 1m
+    external_labels: { runbook_base: "https://runbooks.example" }
+    input_series:
+      - series: 'inmolink_ai_provider_calls_total{outcome="unavailable", instance="worker-1"}'
+        values: "0+1x40"
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: AiProviderFailing
+        exp_alerts: []
+  # The key is revoked at 10m: every call answers 401 (`rejected`; the breaker stays closed): critical after 5 minutes.
+  # A quiet worker (one rejected call a minute) never alerts.
+  - interval: 1m
+    external_labels: { runbook_base: "https://runbooks.example" }
+    input_series:
+      - series: 'inmolink_ai_provider_calls_total{outcome="ok", instance="worker-1"}'
+        values: "0+30x10 300x30"
+      - series: 'inmolink_ai_provider_calls_total{outcome="rejected", instance="worker-1"}'
+        values: "0x10 0+30x30"
+      - series: 'inmolink_ai_provider_calls_total{outcome="rejected", instance="feed-api-1"}'
+        values: "0+1x40"
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: AiProviderRejecting
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: AiProviderRejecting
+        exp_alerts:
+          - exp_labels: { severity: critical }
+            exp_annotations:
+              summary: "The AI provider rejects 100% of calls (key, credit or request refused)"
+              runbook: docs/runbooks/ai-outage.md#ai-provider-rejecting
+              runbook_url: https://runbooks.example/docs/runbooks/ai-outage.md#ai-provider-rejecting
+      - eval_time: 30m
+        alertname: AiProviderFailing
+        exp_alerts: []
+  - interval: 1m
+    external_labels: { runbook_base: "https://runbooks.example" }
+    input_series:
+      - series: 'inmolink_ai_provider_calls_total{outcome="rejected", instance="feed-api-1"}'
+        values: "0+1x40"
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: AiProviderRejecting
+        exp_alerts: []
+  # One usage row could not be queued at 3m (the other counter never appears): warning at once, clear 15 min later.
+  - interval: 1m
+    external_labels: { runbook_base: "https://runbooks.example" }
+    input_series:
+      - series: 'inmolink_ai_usage_record_enqueue_failures_total{feature="search.ai", instance="feed-api-1"}'
+        values: "0 0 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1"
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: AiUsageRecordFailing
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: AiUsageRecordFailing
+        exp_alerts:
+          - exp_labels: { severity: warning }
+            exp_annotations:
+              summary: "AI usage records are failing: spend is not metered until they are replayed"
+              runbook: docs/runbooks/ai-outage.md#ai-usage-records-failing
+              runbook_url: https://runbooks.example/docs/runbooks/ai-outage.md#ai-usage-records-failing
+      - eval_time: 24m
+        alertname: AiUsageRecordFailing
+        exp_alerts: []

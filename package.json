@@ -64,6 +64,7 @@
     "test:isolation": "vitest run --project isolation --reporter=dot",
     "test:e2e": "turbo run build --filter=@inmolink/app-web... --filter=@inmolink/app-public... && tsx tests/e2e/prepare.ts && playwright test",
     "ops:drill": "tsx --conditions=@inmolink/source scripts/ops/drill.ts",
+    "ops:alerts": "tsx scripts/ops/alerts.ts",
     "ops:chaos": "vitest run --project ops-chaos --reporter=dot",
     "perf:smoke": "tsx --conditions=@inmolink/source scripts/perf/smoke.ts",
     "perf:load:setup": "tsx --conditions=@inmolink/source scripts/perf/load-setup.ts",

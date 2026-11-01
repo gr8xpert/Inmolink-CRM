@@ -75,6 +75,27 @@ listings. Nothing past the spike was written and nothing was withdrawn. The agen
    skip the guard once; without it the next run is checked again. An accepted empty run still withdraws nothing.
 3. `EMPTY_FEED`: check the feed URL answers with listings (a CRM export that broke, a moved file, an expired key).
 
+## Feed storm
+
+PLAN §17 runbook list (S16-05). Hundreds of feed runs due at once — a provider's feeds all changing overnight, a backlog
+after an outage (workers down, then the scheduler catches up), many agencies onboarded in a wave. The design budget is
+500 feeds at once with no tenant's queue age over 15 minutes (load-suite.md › Import and matching storms). Signs:
+`ImportQueueWaitHigh`, `QueueAgeHigh{pool="imports"}`, then downstream `search` / `media` / read-model pools backing
+up; websites stay up (read models and the edge cache), but freshness slips (PLAN §4.2: feed change → ≤ 60 min).
+
+1. Do not stop the scheduler or pause feeds wholesale: fair share already keeps one agency (or one provider) from
+   starving the others, and runs are idempotent. Watch *Service · worker*: oldest queued run, pool wait p95.
+2. Database write load (Hosts dashboard, Postgres CPU / IO, replica lag): if the primary saturates, lower
+   `IMPORT_MAX_CONCURRENT_RUNS` (fewer runs at once, each faster) rather than adding `imports` processes.
+3. Headroom left: add `imports` worker processes (Feed imports wait in the queue, step 2) — they drain the backlog;
+   remove them after.
+4. Media follows imports (new photos): `media` pool wait rising is expected; its own container and Redis user keep it
+   apart. Search pushes (`search_index_queue`) drain after the imports.
+5. A feed storm that is really bad data (every feed of one provider empty or doubled) shows as many `ImportFeedPaused`
+   at once: the guard stopped them; contact the provider, then resume per feed (A feed was paused).
+6. Afterwards: compare the oldest-wait peak with the 15-minute budget; past it on real traffic, plan capacity
+   (PLAN §5.6 scale triggers).
+
 ## Never
 
 - Never `FLUSHALL` redis-queue. It holds jobs, fair-share state and dead letters.

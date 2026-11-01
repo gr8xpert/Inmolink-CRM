@@ -25,6 +25,7 @@ groups:
         annotations:
           summary: "Website API: scripted paging detected ({{ $labels.key_kind }} key, {{ $labels.scope }}, {{ $labels.action }})"
           runbook: docs/runbooks/website-api.md#scraping-detected
+          runbook_url: "{{ $externalLabels.runbook_base }}/docs/runbooks/website-api.md#scraping-detected"
       # A honeytoken listing was requested: it is only on deep pages served to a suspected scraper, so its reference
       # came from a full-inventory scrape (or a copy of one).
       - alert: WebsiteHoneytokenHit
@@ -34,6 +35,7 @@ groups:
         annotations:
           summary: "Website API: a honeytoken listing was requested — a site's inventory has been scraped"
           runbook: docs/runbooks/website-api.md#honeytoken-hit
+          runbook_url: "{{ $externalLabels.runbook_base }}/docs/runbooks/website-api.md#honeytoken-hit"
       # S7-06: an edge cache purge failed its last attempt (Cloudflare down, token revoked, rate limit): cached website
       # answers then live out their TTL (≤ 5 min), and site/key purges (suspension, revocation) wait for the next run.
       - alert: WebsiteEdgePurgeFailing
@@ -43,6 +45,7 @@ groups:
         annotations:
           summary: "Website API: edge cache purges are failing"
           runbook: docs/runbooks/cdn.md#purge-failing
+          runbook_url: "{{ $externalLabels.runbook_base }}/docs/runbooks/cdn.md#purge-failing"
       # S7-F7: the limiter's script calls fail (NOPERM after an ACL change, OOM on a full redis-queue, an outage): every
       # website limit fails open, so quotas and scraping detection are off until it is fixed. feed-api's readiness
       # (`rateLimitScripts`) fails on the same cause.
@@ -54,3 +57,4 @@ groups:
         annotations:
           summary: "Rate limits are failing open ({{ $labels.call }} script calls fail): quotas and scraping detection are off"
           runbook: docs/runbooks/website-api.md#rate-limits-failing
+          runbook_url: "{{ $externalLabels.runbook_base }}/docs/runbooks/website-api.md#rate-limits-failing"

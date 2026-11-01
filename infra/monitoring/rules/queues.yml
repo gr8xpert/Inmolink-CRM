@@ -17,6 +17,7 @@ groups:
         annotations:
           summary: "Jobs of pool {{ $labels.pool }} wait {{ $value | humanizeDuration }} (p95) in the queue"
           runbook: docs/runbooks/queues.md#jobs-pile-up-queue-age-alert
+          runbook_url: "{{ $externalLabels.runbook_base }}/docs/runbooks/queues.md#jobs-pile-up-queue-age-alert"
       # Every other pool: a p95 past 15 minutes means the pool is saturated or its workers are down.
       - alert: QueueAgeHigh
         expr: >-
@@ -28,3 +29,4 @@ groups:
         annotations:
           summary: "Jobs of pool {{ $labels.pool }} wait {{ $value | humanizeDuration }} (p95) in the queue"
           runbook: docs/runbooks/queues.md#jobs-pile-up-queue-age-alert
+          runbook_url: "{{ $externalLabels.runbook_base }}/docs/runbooks/queues.md#jobs-pile-up-queue-age-alert"

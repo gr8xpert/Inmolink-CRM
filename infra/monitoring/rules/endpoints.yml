@@ -1,0 +1,53 @@
+# Public endpoint probes and TLS certificates (S16-05, PLAN §17). Loaded by Prometheus on the monitoring host (Ansible
+# role `monitoring`). Unit tests: endpoints.test.yml (`promtool test rules`, tests/ops/alerts.int.test.ts).
+# Metrics: blackbox_exporter on the monitoring host (roles/monitoring prometheus.yml.j2), from
+# inventories/<env>/group_vars `endpoint_probes` (every Kamal app's proxy host + healthcheck path):
+#   job `blackbox`         GET of the public URL through Cloudflare; labels `service`, `host` (the app host behind it);
+#                          `instance` is the URL. Its certificate is Cloudflare's edge certificate.
+#   job `blackbox-origin`  the same path on each app host's WireGuard address, SNI and Host = the public host: the origin
+#                          certificate kamal-proxy serves (Cloudflare Origin CA, Full (strict)); `instance` = the origin URL
+#   probe_success                      1 when the probe got a 200 over TLS within 5 s
+#   probe_ssl_earliest_cert_expiry     unix time the first certificate of the served chain expires
+# The monitoring host sits in the other datacenter (db-2), so an outage of app-1's datacenter is seen from outside it.
+# The public status page (status-page.yml, hosted) probes the same public URLs from the internet.
+groups:
+  - name: endpoints
+    rules:
+      - alert: EndpointDown
+        expr: max by (service, instance, host) (probe_success{job="blackbox"}) == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.service }} fails its health probe ({{ $labels.instance }})"
+          runbook: docs/runbooks/observability.md#endpoint-down
+          runbook_url: "{{ $externalLabels.runbook_base }}/docs/runbooks/observability.md#endpoint-down"
+      # The prober itself is gone: every EndpointDown is blind.
+      - alert: EndpointProbesMissing
+        expr: absent(up{job="blackbox"} == 1)
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No endpoint probe has run for 10 minutes: blackbox_exporter is down or unscraped"
+          runbook: docs/runbooks/observability.md#endpoint-down
+          runbook_url: "{{ $externalLabels.runbook_base }}/docs/runbooks/observability.md#endpoint-down"
+      # Edge (Cloudflare) and origin (kamal-proxy) certificates; `job` tells which.
+      - alert: CertificateExpiringSoon
+        expr: min by (job, service, instance) (probe_ssl_earliest_cert_expiry{job=~"blackbox|blackbox-origin"}) - time() < 14 * 86400
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "The TLS certificate of {{ $labels.instance }} ({{ $labels.job }}) expires in {{ $value | humanizeDuration }}"
+          runbook: docs/runbooks/observability.md#certificate-expiry
+          runbook_url: "{{ $externalLabels.runbook_base }}/docs/runbooks/observability.md#certificate-expiry"
+      - alert: CertificateExpiryCritical
+        expr: min by (job, service, instance) (probe_ssl_earliest_cert_expiry{job=~"blackbox|blackbox-origin"}) - time() < 3 * 86400
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "The TLS certificate of {{ $labels.instance }} ({{ $labels.job }}) expires in {{ $value | humanizeDuration }}"
+          runbook: docs/runbooks/observability.md#certificate-expiry
+          runbook_url: "{{ $externalLabels.runbook_base }}/docs/runbooks/observability.md#certificate-expiry"

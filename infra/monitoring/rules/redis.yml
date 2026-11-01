@@ -19,6 +19,7 @@ groups:
         annotations:
           summary: "Redis {{ $labels.instance }} uses {{ $value | humanizePercentage }} of maxmemory"
           runbook: docs/runbooks/website-api.md#redis-memory
+          runbook_url: "{{ $externalLabels.runbook_base }}/docs/runbooks/website-api.md#redis-memory"
       - alert: RedisMemoryCritical
         expr: max by (instance) (redis_memory_used_bytes / (redis_memory_max_bytes > 0)) > 0.95
         for: 2m
@@ -27,6 +28,7 @@ groups:
         annotations:
           summary: "Redis {{ $labels.instance }} is at {{ $value | humanizePercentage }} of maxmemory (noeviction: writes will fail)"
           runbook: docs/runbooks/website-api.md#redis-memory
+          runbook_url: "{{ $externalLabels.runbook_base }}/docs/runbooks/website-api.md#redis-memory"
       # S7-F7: no series means the memory alerts above are blind — the exporter is down, or its Redis does not answer it.
       - alert: RedisExporterDown
         expr: (up{job="redis"} == 0) or (redis_up == 0)
@@ -36,3 +38,4 @@ groups:
         annotations:
           summary: "Redis {{ $labels.instance }}: no metrics (exporter down or Redis not answering) — the memory alerts are blind"
           runbook: docs/runbooks/website-api.md#redis-memory
+          runbook_url: "{{ $externalLabels.runbook_base }}/docs/runbooks/website-api.md#redis-memory"

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { metrics } from '@opentelemetry/api';
+import { type Counter, metrics } from '@opentelemetry/api';
 import { z } from 'zod';
 import { type CacheKey, cacheKey } from '../cache/key';
 import { type Clock, clock as processClock } from '../clock';
@@ -139,6 +139,19 @@ const MISS = Symbol('ai-cache-miss');
 const recordFailures = metrics.getMeter('@inmolink/platform').createCounter('inmolink.ai.usage_record_failures', {
   description: 'AI usage records that could not be written after the provider answered (retried through the queue)',
 });
+
+/** S16-05: name of the provider-call counter — Prometheus `inmolink_ai_provider_calls_total` (rules/ai.yml). */
+export const AI_PROVIDER_CALLS_METRIC = 'inmolink.ai.provider_calls';
+export type AiProviderCallOutcome = 'ok' | 'unavailable' | 'rate_limited' | 'rejected' | 'circuit_open';
+/** Created on first use (after the meter provider is set), like the matching histogram. */
+let providerCallsCounter: Counter | undefined;
+const providerCalls = (outcome: AiProviderCallOutcome) => {
+  providerCallsCounter ??= metrics.getMeter('@inmolink/platform').createCounter(AI_PROVIDER_CALLS_METRIC, {
+    description:
+      'AI provider calls by `outcome` (ok, unavailable, rate_limited, rejected; circuit_open: not attempted)',
+  });
+  providerCallsCounter.add(1, { outcome });
+};
 
 /** JSON with sorted keys, so equal inputs hash equally whatever their key order. */
 export function stableJson(value: unknown): string {
@@ -357,14 +370,19 @@ export function createAiGateway(options: AiGatewayOptions): AiGateway {
   /** One provider call through the breaker and the timeout. */
   async function callProvider<T>(fn: (signal: AbortSignal) => Promise<T>): Promise<T> {
     const permit = breaker.acquire();
-    if (!permit) throw unavailable('CIRCUIT_OPEN');
+    if (!permit) {
+      providerCalls('circuit_open');
+      throw unavailable('CIRCUIT_OPEN');
+    }
     const started = time.nowMs();
     try {
       const out = await fn(AbortSignal.timeout(options.timeoutMs));
       permit.success(time.nowMs() - started);
+      providerCalls('ok');
       return out;
     } catch (err) {
       const mapped = err instanceof AiProviderError ? err : new AiProviderError('unavailable', 'provider call failed');
+      providerCalls(mapped.kind);
       // A rejected request (4xx) or a rate limit says nothing about the provider's health.
       if (mapped.kind === 'unavailable') permit.failure();
       else permit.success(time.nowMs() - started);

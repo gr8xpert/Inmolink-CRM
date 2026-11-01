@@ -16,14 +16,14 @@
     - { path: /srv/alertmanager, owner: "65534" }
     - { path: /srv/grafana, owner: "472" }
 
-- name: Prometheus and Alertmanager config (Alertmanager's holds the SMTP password; both run as nobody)
+- name: Prometheus, Alertmanager and blackbox_exporter config (Alertmanager's holds the SMTP password; all run as nobody)
   ansible.builtin.template:
     src: "{{ item }}.j2"
     dest: "/etc/inmolink/monitoring/{{ item }}"
     owner: "65534"
     group: "65534"
     mode: "0600"
-  loop: [prometheus.yml, alertmanager.yml]
+  loop: [prometheus.yml, alertmanager.yml, blackbox.yml]
   register: monitoring_config
   no_log: true
 
@@ -32,7 +32,7 @@
     src: "{{ playbook_dir }}/../monitoring/rules/{{ item }}"
     dest: "/etc/inmolink/monitoring/rules/{{ item }}"
     mode: "0644"
-  loop: [postgres.yml, search.yml, imports.yml, website.yml, redis.yml, queues.yml, security.yml]
+  loop: [postgres.yml, search.yml, imports.yml, website.yml, redis.yml, queues.yml, security.yml, slo.yml, endpoints.yml, node.yml, ai.yml]
   register: monitoring_rules
 
 - name: Grafana dashboards (infra/grafana/dashboards)
@@ -71,7 +71,7 @@
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
-      - --storage.tsdb.retention.time=30d
+      - --storage.tsdb.retention.time=35d
       - --web.listen-address={{ wg_ip }}:9090
     restart: "{{ monitoring_config.changed or monitoring_rules.changed }}"
 
@@ -89,6 +89,22 @@
       - --storage.path=/alertmanager
       - --web.listen-address={{ wg_ip }}:9093
       - --cluster.listen-address=
+    restart: "{{ monitoring_config.changed }}"
+
+# S16-05: probes each app's public health URL through Cloudflare (`endpoint_probes`) for EndpointDown, the uptime SLOs
+# and certificate expiry (infra/monitoring/rules/endpoints.yml). Listens on the WireGuard address only.
+- name: blackbox_exporter
+  community.docker.docker_container:
+    name: blackbox-exporter
+    image: "{{ blackbox_exporter_image }}"
+    network_mode: host
+    restart_policy: unless-stopped
+    user: "65534"
+    volumes:
+      - /etc/inmolink/monitoring/blackbox.yml:/etc/blackbox_exporter/config.yml:ro
+    command:
+      - --config.file=/etc/blackbox_exporter/config.yml
+      - --web.listen-address={{ wg_ip }}:{{ blackbox_exporter_port }}
     restart: "{{ monitoring_config.changed }}"
 
 - name: Grafana

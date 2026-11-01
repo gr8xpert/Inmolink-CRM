@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- feat(ops): operations readiness — SLO burn-rate (min-traffic guarded), endpoint/origin-certificate, disk and AI alerts with clickable runbook links and Alertmanager inhibitions; per-service Grafana dashboards; blackbox_exporter (prom/blackbox-exporter v0.28.0, new image); Prometheus retention 35 d; 0.3 s request-duration bucket; hosted status page config; complete runbooks; pnpm ops:alerts staged-firing plan [S16-05]
 - feat(compliance,crm,mls,presentations,notifications,chat,matching,websites,imports,admin,web): GDPR flows — consent records, data subject export, retention anonymization with grace window, agency erasure (ERASE_AGENCY, step-up), erasure reaches MLS registrations, selections, notifications, exports and import files; legal pages and cookie consent (placeholder texts, H7) [S16-04]
 - feat(seed): scale seed writes feed connections (5,074, off), client profiles, contacts/leads/tasks/activities/calendar/notifications with e-mail-off preferences; storms reuse them, no provisioning; dashboard smoke checks CRM pages have items in the seeded calendar span [S16-F4]
 - fix(tests): chat markLinkRead plan test seeds notifications at a mid-month anchor and checks only the partition holding the member's rows (other suites' rows in next month's partition gave a Seq Scan of cost 1.07 on CI); the S9-03 portal feed race test holds upload completion until both runs have read the served file [S16 CI]

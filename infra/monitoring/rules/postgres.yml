@@ -14,6 +14,8 @@ groups:
           severity: none
         annotations:
           summary: "Alerting pipeline heartbeat"
+          runbook: docs/runbooks/observability.md#watchdog-heartbeat
+          runbook_url: "{{ $externalLabels.runbook_base }}/docs/runbooks/observability.md#watchdog-heartbeat"
   - name: postgres-replication
     rules:
       # The exporter reports 0 when the standby has replayed everything it received, so an idle primary
@@ -26,6 +28,7 @@ groups:
         annotations:
           summary: "Replica {{ $labels.instance }} is {{ $value | humanizeDuration }} behind the primary"
           runbook: docs/runbooks/failover.md#replica-lag
+          runbook_url: "{{ $externalLabels.runbook_base }}/docs/runbooks/failover.md#replica-lag"
       # Primary-side view: WAL the standby has not confirmed. Catches a standby that receives slowly (saturated
       # cross-datacenter link), which the replay-based lag above reports as 0.
       - alert: PostgresReplicaBehindBytes
@@ -36,6 +39,7 @@ groups:
         annotations:
           summary: "Standby on slot {{ $labels.slot_name }} is {{ $value | humanize1024 }}B of WAL behind {{ $labels.instance }}"
           runbook: docs/runbooks/failover.md#replica-lag
+          runbook_url: "{{ $externalLabels.runbook_base }}/docs/runbooks/failover.md#replica-lag"
       - alert: PostgresReplicaNotStreaming
         expr: max by (instance, slot_name) (pg_replication_slots_slot_is_active{role="primary"}) == 0
         for: 2m
@@ -44,6 +48,7 @@ groups:
         annotations:
           summary: "No standby is streaming from slot {{ $labels.slot_name }} on {{ $labels.instance }}"
           runbook: docs/runbooks/failover.md#replica-not-streaming
+          runbook_url: "{{ $externalLabels.runbook_base }}/docs/runbooks/failover.md#replica-not-streaming"
       # An inactive slot keeps WAL on the primary forever; page before the disk fills.
       - alert: PostgresSlotRetainingWal
         expr: max by (instance, slot_name) (pg_replication_slots_pg_wal_lsn_diff{role="primary"}) > 20 * 1024 * 1024 * 1024
@@ -53,6 +58,7 @@ groups:
         annotations:
           summary: "Slot {{ $labels.slot_name }} holds {{ $value | humanize1024 }}B of WAL on {{ $labels.instance }}"
           runbook: docs/runbooks/failover.md#replica-not-streaming
+          runbook_url: "{{ $externalLabels.runbook_base }}/docs/runbooks/failover.md#replica-not-streaming"
       - alert: PostgresDown
         expr: (pg_up == 0) or (up{job="postgres"} == 0)
         for: 1m
@@ -61,6 +67,7 @@ groups:
         annotations:
           summary: "Postgres {{ $labels.instance }} ({{ $labels.role }}) is not answering"
           runbook: docs/runbooks/failover.md
+          runbook_url: "{{ $externalLabels.runbook_base }}/docs/runbooks/failover.md"
   - name: postgres-backups
     rules:
       - alert: WalArchivingFailing
@@ -70,6 +77,7 @@ groups:
         annotations:
           summary: "wal-g wal-push is failing on {{ $labels.instance }}: point-in-time recovery is at risk"
           runbook: docs/runbooks/pitr-restore.md#archiving-failing
+          runbook_url: "{{ $externalLabels.runbook_base }}/docs/runbooks/pitr-restore.md#archiving-failing"
       # archive_timeout = 60 s and the outbox writes continuously, so 15 min without a segment means
       # archiving stalled (RPO target ≤ 5 min).
       - alert: WalArchivingStale
@@ -80,6 +88,7 @@ groups:
         annotations:
           summary: "No WAL segment archived from {{ $labels.instance }} for {{ $value | humanizeDuration }}"
           runbook: docs/runbooks/pitr-restore.md#archiving-failing
+          runbook_url: "{{ $externalLabels.runbook_base }}/docs/runbooks/pitr-restore.md#archiving-failing"
       - alert: BaseBackupMissing
         expr: time() - max(inmolink_walg_last_backup_success_timestamp_seconds) > 26 * 3600
         labels:
@@ -87,6 +96,7 @@ groups:
         annotations:
           summary: "No successful nightly base backup for {{ $value | humanizeDuration }}"
           runbook: docs/runbooks/pitr-restore.md#base-backup-missing
+          runbook_url: "{{ $externalLabels.runbook_base }}/docs/runbooks/pitr-restore.md#base-backup-missing"
       - alert: BaseBackupNeverReported
         expr: absent(inmolink_walg_last_backup_success_timestamp_seconds)
         for: 26h
@@ -95,3 +105,4 @@ groups:
         annotations:
           summary: "The base backup job has never reported success"
           runbook: docs/runbooks/pitr-restore.md#base-backup-missing
+          runbook_url: "{{ $externalLabels.runbook_base }}/docs/runbooks/pitr-restore.md#base-backup-missing"

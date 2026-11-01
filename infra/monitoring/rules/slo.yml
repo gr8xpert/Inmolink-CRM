@@ -1,0 +1,205 @@
+# SLO error budgets and burn-rate alerts (S16-05, PLAN §4.2 and §17). Loaded by Prometheus on the monitoring host
+# (Ansible role `monitoring`). Unit tests: slo.test.yml (`promtool test rules`, tests/ops/alerts.int.test.ts).
+#
+# SLIs, by `service` and `slo` — events counted per window (`slo:sli_total:increase<w>`, `slo:sli_bad:increase<w>`) and
+# their ratio (`slo:sli_error:ratio_rate<w>`). The 30-day budget on the dashboards sums the 1 h counts (traffic-weighted).
+#   availability  5xx answers of all requests — http_server_request_duration (platform/server `observeRequests`) of the
+#                 app scrape jobs `api` and `feed-api` (job = service); health checks (/readyz, /healthz) left out
+#   latency       non-5xx requests slower than the budget: feed-api 150 ms (CLAUDE.md origin budget), api 300 ms
+#                 (dashboard API p95) — both are buckets of DURATION_BUCKETS_S (platform/telemetry)
+#   uptime        failed health probes — blackbox exporter, job `blackbox` (`service` label per probe,
+#                 inventories/<env>/group_vars `endpoint_probes`): the apps without a /metrics endpoint (web, public)
+# Objectives (`slo:objective:ratio`): website API 99.95 %, dashboard API 99.9 %, agent dashboard and public portal
+# 99.9 % (PLAN §4.2); latency 95 % of requests within the budget (a p95 target).
+#
+# Alerts — multi-window, multi-burn-rate (Google SRE workbook, ch. 5): the long window proves the burn is real, the short
+# one that it is still happening (the alert clears minutes after a fix, not an hour later).
+#   fast  14.4x over 1 h and 5 min — 2 % of a 30-day budget in an hour (gone in ~2 days)      → critical (pages)
+#   slow   6x  over 6 h and 30 min — 5 % of the budget in 6 hours (gone in ~5 days)          → warning (e-mail)
+# Minimum traffic: more than 100 requests (10 probes) in the long window, so one error on a quiet staging or at night
+# does not page.
+groups:
+  - name: slo-objectives
+    rules:
+      - record: slo:objective:ratio
+        expr: vector(0.9995)
+        labels: { service: feed-api, slo: availability }
+      - record: slo:objective:ratio
+        expr: vector(0.999)
+        labels: { service: api, slo: availability }
+      - record: slo:objective:ratio
+        expr: vector(0.95)
+        labels: { service: feed-api, slo: latency }
+      - record: slo:objective:ratio
+        expr: vector(0.95)
+        labels: { service: api, slo: latency }
+      - record: slo:objective:ratio
+        expr: vector(0.999)
+        labels: { service: web, slo: uptime }
+      - record: slo:objective:ratio
+        expr: vector(0.999)
+        labels: { service: public, slo: uptime }
+
+  # Per window: events, bad events, their ratio (in this order: a group evaluates its rules in sequence). `or … * 0`: a
+  # service without a single bad event reads 0, not "no data".
+  - name: slo-sli
+    rules:
+      - record: slo:sli_total:increase5m
+        labels: { slo: availability }
+        expr: >-
+          sum by (service) (label_replace(sum by (job) (increase(http_server_request_duration_count{job=~"api|feed-api", http_route!~"/readyz|/healthz"}[5m])), "service", "$1", "job", "(.*)"))
+      - record: slo:sli_bad:increase5m
+        labels: { slo: availability }
+        expr: >-
+          sum by (service) (label_replace((sum by (job) (increase(http_server_request_duration_count{job=~"api|feed-api", http_route!~"/readyz|/healthz", http_response_status_code=~"5.."}[5m])) or sum by (job) (increase(http_server_request_duration_count{job=~"api|feed-api", http_route!~"/readyz|/healthz"}[5m])) * 0), "service", "$1", "job", "(.*)"))
+      - record: slo:sli_total:increase5m
+        labels: { slo: latency }
+        expr: >-
+          sum by (service) (label_replace(sum by (job) (increase(http_server_request_duration_count{job=~"api|feed-api", http_route!~"/readyz|/healthz", http_response_status_code!~"5.."}[5m])), "service", "$1", "job", "(.*)"))
+      - record: slo:sli_bad:increase5m
+        labels: { slo: latency }
+        expr: >-
+          sum by (service) (label_replace(sum by (job) (increase(http_server_request_duration_count{job=~"api|feed-api", http_route!~"/readyz|/healthz", http_response_status_code!~"5.."}[5m])) - (sum by (job) (increase(http_server_request_duration_bucket{job="feed-api", http_route!~"/readyz|/healthz", http_response_status_code!~"5..", le="0.15"}[5m])) or sum by (job) (increase(http_server_request_duration_bucket{job="api", http_route!~"/readyz|/healthz", http_response_status_code!~"5..", le="0.3"}[5m]))), "service", "$1", "job", "(.*)"))
+      - record: slo:sli_total:increase5m
+        labels: { slo: uptime }
+        expr: >-
+          sum by (service) (count_over_time(probe_success{job="blackbox"}[5m]))
+      - record: slo:sli_bad:increase5m
+        labels: { slo: uptime }
+        expr: >-
+          sum by (service) (count_over_time(probe_success{job="blackbox"}[5m])) - sum by (service) (sum_over_time(probe_success{job="blackbox"}[5m]))
+      - record: slo:sli_error:ratio_rate5m
+        expr: slo:sli_bad:increase5m / slo:sli_total:increase5m
+      - record: slo:sli_total:increase30m
+        labels: { slo: availability }
+        expr: >-
+          sum by (service) (label_replace(sum by (job) (increase(http_server_request_duration_count{job=~"api|feed-api", http_route!~"/readyz|/healthz"}[30m])), "service", "$1", "job", "(.*)"))
+      - record: slo:sli_bad:increase30m
+        labels: { slo: availability }
+        expr: >-
+          sum by (service) (label_replace((sum by (job) (increase(http_server_request_duration_count{job=~"api|feed-api", http_route!~"/readyz|/healthz", http_response_status_code=~"5.."}[30m])) or sum by (job) (increase(http_server_request_duration_count{job=~"api|feed-api", http_route!~"/readyz|/healthz"}[30m])) * 0), "service", "$1", "job", "(.*)"))
+      - record: slo:sli_total:increase30m
+        labels: { slo: latency }
+        expr: >-
+          sum by (service) (label_replace(sum by (job) (increase(http_server_request_duration_count{job=~"api|feed-api", http_route!~"/readyz|/healthz", http_response_status_code!~"5.."}[30m])), "service", "$1", "job", "(.*)"))
+      - record: slo:sli_bad:increase30m
+        labels: { slo: latency }
+        expr: >-
+          sum by (service) (label_replace(sum by (job) (increase(http_server_request_duration_count{job=~"api|feed-api", http_route!~"/readyz|/healthz", http_response_status_code!~"5.."}[30m])) - (sum by (job) (increase(http_server_request_duration_bucket{job="feed-api", http_route!~"/readyz|/healthz", http_response_status_code!~"5..", le="0.15"}[30m])) or sum by (job) (increase(http_server_request_duration_bucket{job="api", http_route!~"/readyz|/healthz", http_response_status_code!~"5..", le="0.3"}[30m]))), "service", "$1", "job", "(.*)"))
+      - record: slo:sli_total:increase30m
+        labels: { slo: uptime }
+        expr: >-
+          sum by (service) (count_over_time(probe_success{job="blackbox"}[30m]))
+      - record: slo:sli_bad:increase30m
+        labels: { slo: uptime }
+        expr: >-
+          sum by (service) (count_over_time(probe_success{job="blackbox"}[30m])) - sum by (service) (sum_over_time(probe_success{job="blackbox"}[30m]))
+      - record: slo:sli_error:ratio_rate30m
+        expr: slo:sli_bad:increase30m / slo:sli_total:increase30m
+      - record: slo:sli_total:increase1h
+        labels: { slo: availability }
+        expr: >-
+          sum by (service) (label_replace(sum by (job) (increase(http_server_request_duration_count{job=~"api|feed-api", http_route!~"/readyz|/healthz"}[1h])), "service", "$1", "job", "(.*)"))
+      - record: slo:sli_bad:increase1h
+        labels: { slo: availability }
+        expr: >-
+          sum by (service) (label_replace((sum by (job) (increase(http_server_request_duration_count{job=~"api|feed-api", http_route!~"/readyz|/healthz", http_response_status_code=~"5.."}[1h])) or sum by (job) (increase(http_server_request_duration_count{job=~"api|feed-api", http_route!~"/readyz|/healthz"}[1h])) * 0), "service", "$1", "job", "(.*)"))
+      - record: slo:sli_total:increase1h
+        labels: { slo: latency }
+        expr: >-
+          sum by (service) (label_replace(sum by (job) (increase(http_server_request_duration_count{job=~"api|feed-api", http_route!~"/readyz|/healthz", http_response_status_code!~"5.."}[1h])), "service", "$1", "job", "(.*)"))
+      - record: slo:sli_bad:increase1h
+        labels: { slo: latency }
+        expr: >-
+          sum by (service) (label_replace(sum by (job) (increase(http_server_request_duration_count{job=~"api|feed-api", http_route!~"/readyz|/healthz", http_response_status_code!~"5.."}[1h])) - (sum by (job) (increase(http_server_request_duration_bucket{job="feed-api", http_route!~"/readyz|/healthz", http_response_status_code!~"5..", le="0.15"}[1h])) or sum by (job) (increase(http_server_request_duration_bucket{job="api", http_route!~"/readyz|/healthz", http_response_status_code!~"5..", le="0.3"}[1h]))), "service", "$1", "job", "(.*)"))
+      - record: slo:sli_total:increase1h
+        labels: { slo: uptime }
+        expr: >-
+          sum by (service) (count_over_time(probe_success{job="blackbox"}[1h]))
+      - record: slo:sli_bad:increase1h
+        labels: { slo: uptime }
+        expr: >-
+          sum by (service) (count_over_time(probe_success{job="blackbox"}[1h])) - sum by (service) (sum_over_time(probe_success{job="blackbox"}[1h]))
+      - record: slo:sli_error:ratio_rate1h
+        expr: slo:sli_bad:increase1h / slo:sli_total:increase1h
+      - record: slo:sli_total:increase6h
+        labels: { slo: availability }
+        expr: >-
+          sum by (service) (label_replace(sum by (job) (increase(http_server_request_duration_count{job=~"api|feed-api", http_route!~"/readyz|/healthz"}[6h])), "service", "$1", "job", "(.*)"))
+      - record: slo:sli_bad:increase6h
+        labels: { slo: availability }
+        expr: >-
+          sum by (service) (label_replace((sum by (job) (increase(http_server_request_duration_count{job=~"api|feed-api", http_route!~"/readyz|/healthz", http_response_status_code=~"5.."}[6h])) or sum by (job) (increase(http_server_request_duration_count{job=~"api|feed-api", http_route!~"/readyz|/healthz"}[6h])) * 0), "service", "$1", "job", "(.*)"))
+      - record: slo:sli_total:increase6h
+        labels: { slo: latency }
+        expr: >-
+          sum by (service) (label_replace(sum by (job) (increase(http_server_request_duration_count{job=~"api|feed-api", http_route!~"/readyz|/healthz", http_response_status_code!~"5.."}[6h])), "service", "$1", "job", "(.*)"))
+      - record: slo:sli_bad:increase6h
+        labels: { slo: latency }
+        expr: >-
+          sum by (service) (label_replace(sum by (job) (increase(http_server_request_duration_count{job=~"api|feed-api", http_route!~"/readyz|/healthz", http_response_status_code!~"5.."}[6h])) - (sum by (job) (increase(http_server_request_duration_bucket{job="feed-api", http_route!~"/readyz|/healthz", http_response_status_code!~"5..", le="0.15"}[6h])) or sum by (job) (increase(http_server_request_duration_bucket{job="api", http_route!~"/readyz|/healthz", http_response_status_code!~"5..", le="0.3"}[6h]))), "service", "$1", "job", "(.*)"))
+      - record: slo:sli_total:increase6h
+        labels: { slo: uptime }
+        expr: >-
+          sum by (service) (count_over_time(probe_success{job="blackbox"}[6h]))
+      - record: slo:sli_bad:increase6h
+        labels: { slo: uptime }
+        expr: >-
+          sum by (service) (count_over_time(probe_success{job="blackbox"}[6h])) - sum by (service) (sum_over_time(probe_success{job="blackbox"}[6h]))
+      - record: slo:sli_error:ratio_rate6h
+        expr: slo:sli_bad:increase6h / slo:sli_total:increase6h
+
+  - name: slo-burn
+    rules:
+      - alert: SloErrorBudgetBurnFast
+        expr: >-
+          (slo:sli_error:ratio_rate1h > on (service, slo) (14.4 * (1 - slo:objective:ratio)))
+          and on (service, slo)
+          (slo:sli_error:ratio_rate5m > on (service, slo) (14.4 * (1 - slo:objective:ratio)))
+          and on (service, slo)
+          (slo:sli_total:increase1h{slo!="uptime"} > 100 or slo:sli_total:increase1h{slo="uptime"} > 10)
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.service }} {{ $labels.slo }} SLO: the error budget burns 14× too fast ({{ $value | humanizePercentage }} bad over 1 h)"
+          runbook: docs/runbooks/observability.md#slo-error-budget-burn
+          runbook_url: "{{ $externalLabels.runbook_base }}/docs/runbooks/observability.md#slo-error-budget-burn"
+      - alert: SloErrorBudgetBurnSlow
+        expr: >-
+          (slo:sli_error:ratio_rate6h > on (service, slo) (6 * (1 - slo:objective:ratio)))
+          and on (service, slo)
+          (slo:sli_error:ratio_rate30m > on (service, slo) (6 * (1 - slo:objective:ratio)))
+          and on (service, slo)
+          (slo:sli_total:increase6h{slo!="uptime"} > 100 or slo:sli_total:increase6h{slo="uptime"} > 10)
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.service }} {{ $labels.slo }} SLO: the error budget burns 6× too fast ({{ $value | humanizePercentage }} bad over 6 h)"
+          runbook: docs/runbooks/observability.md#slo-error-budget-burn
+          runbook_url: "{{ $externalLabels.runbook_base }}/docs/runbooks/observability.md#slo-error-budget-burn"
+
+  # Every inmolink_* alert (and the SLOs above) reads metrics scraped from the apps' private /metrics ports. No target of
+  # a job up — exporter off (`*_METRICS_PORT: "0"`), scrape path missing (S16-F6), every container down — makes them
+  # blind. `service` = job, so EndpointDown of the same service inhibits it (alertmanager.yml.j2).
+  - name: app-metrics
+    rules:
+      - alert: AppMetricsDown
+        expr: >-
+          label_replace(
+            (
+              label_replace(vector(1), "job", "api", "", "")
+              or label_replace(vector(1), "job", "feed-api", "", "")
+              or label_replace(vector(1), "job", "realtime", "", "")
+              or label_replace(vector(1), "job", "worker", "", "")
+            )
+            unless on (job) (max by (job) (up == 1)),
+          "service", "$1", "job", "(.*)")
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No {{ $labels.job }} process is scraped: its alerts and SLOs are blind"
+          runbook: docs/runbooks/observability.md#app-metrics-down
+          runbook_url: "{{ $externalLabels.runbook_base }}/docs/runbooks/observability.md#app-metrics-down"

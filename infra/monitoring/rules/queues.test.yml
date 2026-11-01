@@ -6,6 +6,7 @@ evaluation_interval: 15s
 tests:
   # Live pushes: 60 jobs a minute, all under 1 s for 10 minutes, then all 30–60 s: p95 58.5 s from 10m, firing at ~16m.
   - interval: 1m
+    external_labels: { runbook_base: "https://runbooks.example" }
     input_series:
       - series: 'inmolink_queue_wait_seconds_bucket{pool="realtime", le="1", instance="worker-1"}'
         values: "0+60x10 600+0x20"
@@ -29,9 +30,11 @@ tests:
             exp_annotations:
               summary: "Jobs of pool realtime wait 58.5s (p95) in the queue"
               runbook: docs/runbooks/queues.md#jobs-pile-up-queue-age-alert
+              runbook_url: https://runbooks.example/docs/runbooks/queues.md#jobs-pile-up-queue-age-alert
 
   # Digests waiting 30–60 s are no delivery-pool breach (their own pool), and no slow-pool alert either.
   - interval: 1m
+    external_labels: { runbook_base: "https://runbooks.example" }
     input_series:
       - series: 'inmolink_queue_wait_seconds_bucket{pool="digest", le="30", instance="worker-1"}'
         values: "0+0x40"
@@ -49,6 +52,7 @@ tests:
 
   # Digests waiting 15–30 minutes: p95 29m 15s, held 15 minutes → QueueAgeHigh firing.
   - interval: 1m
+    external_labels: { runbook_base: "https://runbooks.example" }
     input_series:
       - series: 'inmolink_queue_wait_seconds_bucket{pool="digest", le="900", instance="worker-1"}'
         values: "0+0x40"
@@ -67,3 +71,4 @@ tests:
             exp_annotations:
               summary: "Jobs of pool digest wait 29m 15s (p95) in the queue"
               runbook: docs/runbooks/queues.md#jobs-pile-up-queue-age-alert
+              runbook_url: https://runbooks.example/docs/runbooks/queues.md#jobs-pile-up-queue-age-alert

@@ -41,3 +41,6 @@ vault_smtp_url: "smtp://user:pass@email-smtp.eu-west-1.amazonaws.com:587"
 vault_alert_email_from: "alerts@inmolink.es"
 # Dead-man's switch ping URL (e.g. healthchecks.io / Better Stack heartbeat), alerting if pings stop for 5 min.
 vault_heartbeat_url: "https://hc-ping.com/<uuid>"
+# On-call webhook for critical alerts (S16-05: phone + e-mail) — the hosted status/on-call provider's Alertmanager
+# integration URL (H3). Empty: critical alerts go by e-mail only.
+vault_oncall_webhook_url: ""

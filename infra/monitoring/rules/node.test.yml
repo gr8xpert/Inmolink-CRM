@@ -1,0 +1,58 @@
+# promtool test rules node.test.yml — run by tests/ops/alerts.int.test.ts (S16-05).
+rule_files:
+  - node.yml
+evaluation_interval: 15s
+tests:
+  # db-1's node_exporter stops answering at 3m: critical after 2 minutes.
+  - interval: 1m
+    external_labels: { runbook_base: "https://runbooks.example" }
+    input_series:
+      - series: 'up{job="node", instance="db-1"}'
+        values: "1 1 1 0 0 0 0 0"
+      - series: 'up{job="node", instance="app-1"}'
+        values: "1x7"
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: NodeDown
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: NodeDown
+        exp_alerts:
+          - exp_labels: { severity: critical, job: node, instance: db-1 }
+            exp_annotations:
+              summary: "Host db-1 does not answer node_exporter: down, or unreachable over WireGuard"
+              runbook: docs/runbooks/observability.md#node-down
+              runbook_url: https://runbooks.example/docs/runbooks/observability.md#node-down
+  # /srv on db-1: 60 % full, 75 % from 4m (critical after 15 minutes). app-1's 69 % never alerts; a full tmpfs and a
+  # full Docker overlay mount are ignored.
+  - interval: 1m
+    external_labels: { runbook_base: "https://runbooks.example" }
+    input_series:
+      - series: 'node_filesystem_size_bytes{job="node", instance="db-1", mountpoint="/srv", fstype="ext4"}'
+        values: "1000x30"
+      - series: 'node_filesystem_avail_bytes{job="node", instance="db-1", mountpoint="/srv", fstype="ext4"}'
+        values: "400x3 250x26"
+      - series: 'node_filesystem_size_bytes{job="node", instance="app-1", mountpoint="/", fstype="ext4"}'
+        values: "1000x30"
+      - series: 'node_filesystem_avail_bytes{job="node", instance="app-1", mountpoint="/", fstype="ext4"}'
+        values: "310x30"
+      - series: 'node_filesystem_size_bytes{job="node", instance="app-1", mountpoint="/run/user/1000", fstype="tmpfs"}'
+        values: "100x30"
+      - series: 'node_filesystem_avail_bytes{job="node", instance="app-1", mountpoint="/run/user/1000", fstype="tmpfs"}'
+        values: "0x30"
+      - series: 'node_filesystem_size_bytes{job="node", instance="app-1", mountpoint="/var/lib/docker/overlay2/abc/merged", fstype="overlay"}'
+        values: "100x30"
+      - series: 'node_filesystem_avail_bytes{job="node", instance="app-1", mountpoint="/var/lib/docker/overlay2/abc/merged", fstype="overlay"}'
+        values: "0x30"
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: DiskUsageHigh
+        exp_alerts: []
+      - eval_time: 22m
+        alertname: DiskUsageHigh
+        exp_alerts:
+          - exp_labels: { severity: critical, instance: db-1, mountpoint: /srv }
+            exp_annotations:
+              summary: "Disk /srv on db-1 is 75% full"
+              runbook: docs/runbooks/observability.md#disk-usage
+              runbook_url: https://runbooks.example/docs/runbooks/observability.md#disk-usage

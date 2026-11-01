@@ -20,6 +20,7 @@ groups:
         annotations:
           summary: "Website search on {{ $labels.instance }} has used the Postgres fallback for over 2 minutes"
           runbook: docs/runbooks/search.md#fallback-active
+          runbook_url: "{{ $externalLabels.runbook_base }}/docs/runbooks/search.md#fallback-active"
       # The engine keeps failing single queries without staying down (flapping, slow spikes): a share of website
       # searches is answered by the fallback even while the breaker closes again.
       - alert: SearchFallbackShareHigh
@@ -32,6 +33,7 @@ groups:
         annotations:
           summary: "{{ $value | humanizePercentage }} of website searches answered by the Postgres fallback"
           runbook: docs/runbooks/search.md#fallback-active
+          runbook_url: "{{ $externalLabels.runbook_base }}/docs/runbooks/search.md#fallback-active"
       # The breaker keeps opening (S7-F10: `SEARCH_SLOW_MS` 50, `SEARCH_BREAKER_MIN_CALLS` 10): more than 6 opens an hour
       # across feed-api processes means the thresholds sit inside the engine's normal latency (its p95 near 50 ms) or
       # the engine flaps — check Meilisearch's own p95 before raising `SEARCH_SLOW_MS` (runbook).
@@ -43,6 +45,7 @@ groups:
         annotations:
           summary: "The website search breaker opened {{ $value | humanize }} times in the last hour"
           runbook: docs/runbooks/search.md#fallback-active
+          runbook_url: "{{ $externalLabels.runbook_base }}/docs/runbooks/search.md#fallback-active"
       # Website delta feeds (S7-03) hand out only changes below the oldest running transaction, so one transaction open
       # for minutes (a stuck job, an open psql session) holds every site's `/v2/changes` back. Nothing is lost; sites
       # see edits late. Last value of any feed-api process over 5 minutes.
@@ -54,3 +57,4 @@ groups:
         annotations:
           summary: "Website change feeds are held back {{ $value | humanizeDuration }} by a long-running transaction"
           runbook: docs/runbooks/search.md#website-changes-held
+          runbook_url: "{{ $externalLabels.runbook_base }}/docs/runbooks/search.md#website-changes-held"

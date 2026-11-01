@@ -1,0 +1,37 @@
+# Public status page (S16-05, PLAN §17 "agencies trust what they can see") — hosted, outside our servers and
+# datacenters, at https://status.inmolink.es (CNAME to the provider, H5). Monitors as code: the provider's account is
+# configured from this file by hand (BLOCKED-HUMAN: account H3, DNS H5; steps in docs/runbooks/observability.md ›
+# Status page). tests/workspace/monitoring.test.ts checks that every monitor URL is a production endpoint probe
+# (inventories/production/group_vars `endpoint_probes`) and every probed service is on the page.
+#
+# Decision (S16-05): a hosted uptime + status-page provider (Better Stack Uptime or an equivalent with an Alertmanager
+# webhook and phone calls) instead of a self-built page: it probes from several regions outside our servers and
+# datacenters, keeps working when our whole stack is down, and its on-call webhook gives the critical alerts their
+# phone leg (Alertmanager `ops-phone` receiver, `vault_oncall_webhook_url`). Nothing is pushed from our servers.
+provider: hosted # Better Stack Uptime (or equivalent): HTTP monitors, regions EU + US, status page, phone on-call
+url: https://status.inmolink.es
+check_interval_seconds: 60
+# A component is down after this many consecutive failed checks from at least two regions (no flapping on one blip).
+confirmation_checks: 2
+components:
+  - name: Website API
+    description: Property data for agency websites, the WordPress plugin and the JS widget
+    service: feed-api
+    url: https://feed.inmolink.es/readyz
+  - name: Agent dashboard
+    description: The Inmolink app at app.inmolink.es
+    service: web
+    url: https://app.inmolink.es/healthz
+  - name: Dashboard API
+    description: The API behind the agent dashboard and integrations
+    service: api
+    url: https://api.inmolink.es/readyz
+  - name: Live updates
+    description: Real-time notifications in the dashboard
+    service: realtime
+    url: https://realtime.inmolink.es/readyz
+  - name: Hosted sites and portal
+    description: Agency sites hosted by Inmolink and the public portal
+    service: public
+    url: https://sites.inmolink.es/healthz
+# Incidents and maintenance notices are written by on-call in the provider's UI (templates: observability.md).

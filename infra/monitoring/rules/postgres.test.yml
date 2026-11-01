@@ -6,6 +6,7 @@ evaluation_interval: 15s
 tests:
   # Lag climbs 0 → 120 s at 15 s per minute... then recovers. Fires once lag > 60 s has held for 30 s.
   - interval: 15s
+    external_labels: { runbook_base: "https://runbooks.example" }
     input_series:
       - series: 'pg_replication_lag_seconds{role="replica", instance="db-2"}'
         values: "0 0 0 0 30 59 59 59 61 75 90 105 120 0 0 0 0"
@@ -23,12 +24,14 @@ tests:
             exp_annotations:
               summary: "Replica db-2 is 1m 30s behind the primary"
               runbook: docs/runbooks/failover.md#replica-lag
+              runbook_url: https://runbooks.example/docs/runbooks/failover.md#replica-lag
       - eval_time: 4m # caught up again
         alertname: PostgresReplicaLagHigh
         exp_alerts: []
 
   # The primary's own lag series (always 0) never alerts, even with a replica label missing.
   - interval: 15s
+    external_labels: { runbook_base: "https://runbooks.example" }
     input_series:
       - series: 'pg_replication_lag_seconds{role="primary", instance="db-1"}'
         values: "0x20"
@@ -38,6 +41,7 @@ tests:
         exp_alerts: []
 
   - interval: 30s
+    external_labels: { runbook_base: "https://runbooks.example" }
     input_series:
       - series: 'pg_replication_slots_slot_is_active{role="primary", instance="db-1", slot_name="db_2"}'
         values: "1 1 0 0 0 0 0 0"
@@ -52,9 +56,11 @@ tests:
             exp_annotations:
               summary: "No standby is streaming from slot db_2 on db-1"
               runbook: docs/runbooks/failover.md#replica-not-streaming
+              runbook_url: https://runbooks.example/docs/runbooks/failover.md#replica-not-streaming
 
   # Slot 2 GiB behind (slow link), while replay-based lag on the standby reads 0.
   - interval: 1m
+    external_labels: { runbook_base: "https://runbooks.example" }
     input_series:
       - series: 'pg_replication_slots_pg_wal_lsn_diff{role="primary", instance="db-1", slot_name="db_2"}'
         values: "0 104857600 2147483648 2147483648 2147483648 2147483648"
@@ -71,11 +77,13 @@ tests:
             exp_annotations:
               summary: "Standby on slot db_2 is 2GiB of WAL behind db-1"
               runbook: docs/runbooks/failover.md#replica-lag
+              runbook_url: https://runbooks.example/docs/runbooks/failover.md#replica-lag
       - eval_time: 5m
         alertname: PostgresReplicaLagHigh
         exp_alerts: []
 
   - interval: 1m
+    external_labels: { runbook_base: "https://runbooks.example" }
     input_series: []
     alert_rule_test:
       - eval_time: 1m
@@ -84,8 +92,11 @@ tests:
           - exp_labels: { severity: none }
             exp_annotations:
               summary: "Alerting pipeline heartbeat"
+              runbook: docs/runbooks/observability.md#watchdog-heartbeat
+              runbook_url: https://runbooks.example/docs/runbooks/observability.md#watchdog-heartbeat
 
   - interval: 1m
+    external_labels: { runbook_base: "https://runbooks.example" }
     input_series:
       - series: 'pg_stat_archiver_failed_count{role="primary", instance="db-1"}'
         values: "0 0 0 1 1"
@@ -100,9 +111,11 @@ tests:
             exp_annotations:
               summary: "wal-g wal-push is failing on db-1: point-in-time recovery is at risk"
               runbook: docs/runbooks/pitr-restore.md#archiving-failing
+              runbook_url: https://runbooks.example/docs/runbooks/pitr-restore.md#archiving-failing
 
   # Last success at t=0; 26 h later with no new success the alert fires.
   - interval: 1h
+    external_labels: { runbook_base: "https://runbooks.example" }
     input_series:
       - series: 'inmolink_walg_last_backup_success_timestamp_seconds{instance="db-1"}'
         values: "0x30"
@@ -117,3 +130,74 @@ tests:
             exp_annotations:
               summary: "No successful nightly base backup for 1d 3h 0m 0s"
               runbook: docs/runbooks/pitr-restore.md#base-backup-missing
+              runbook_url: https://runbooks.example/docs/runbooks/pitr-restore.md#base-backup-missing
+  # S16-05: every alert of this file fires in a test. The backup job never wrote its textfile: critical after 26 h.
+  - interval: 1h
+    external_labels: { runbook_base: "https://runbooks.example" }
+    input_series: []
+    alert_rule_test:
+      - eval_time: 25h
+        alertname: BaseBackupNeverReported
+        exp_alerts: []
+      - eval_time: 27h
+        alertname: BaseBackupNeverReported
+        exp_alerts:
+          - exp_labels: { severity: critical }
+            exp_annotations:
+              summary: "The base backup job has never reported success"
+              runbook: docs/runbooks/pitr-restore.md#base-backup-missing
+              runbook_url: https://runbooks.example/docs/runbooks/pitr-restore.md#base-backup-missing
+  # An abandoned slot holds 25 GiB of WAL on the primary: critical after 5 minutes.
+  - interval: 1m
+    external_labels: { runbook_base: "https://runbooks.example" }
+    input_series:
+      - series: 'pg_replication_slots_pg_wal_lsn_diff{role="primary", instance="db-1", slot_name="db_2"}'
+        values: "26843545600x10"
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: PostgresSlotRetainingWal
+        exp_alerts: []
+      - eval_time: 7m
+        alertname: PostgresSlotRetainingWal
+        exp_alerts:
+          - exp_labels: { severity: critical, instance: db-1, slot_name: db_2 }
+            exp_annotations:
+              summary: "Slot db_2 holds 25GiB of WAL on db-1"
+              runbook: docs/runbooks/failover.md#replica-not-streaming
+              runbook_url: https://runbooks.example/docs/runbooks/failover.md#replica-not-streaming
+  # The standby stops answering its exporter at 2m: critical after 1 minute.
+  - interval: 1m
+    external_labels: { runbook_base: "https://runbooks.example" }
+    input_series:
+      - series: 'pg_up{job="postgres", role="replica", instance="db-2"}'
+        values: "1 1 0 0 0 0"
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: PostgresDown
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: PostgresDown
+        exp_alerts:
+          - exp_labels: { severity: critical, job: postgres, role: replica, instance: db-2 }
+            exp_annotations:
+              summary: "Postgres db-2 (replica) is not answering"
+              runbook: docs/runbooks/failover.md
+              runbook_url: https://runbooks.example/docs/runbooks/failover.md
+  # No WAL segment archived for 16 minutes and counting: warning after 5 minutes.
+  - interval: 1m
+    external_labels: { runbook_base: "https://runbooks.example" }
+    input_series:
+      - series: 'pg_stat_archiver_last_archive_age{role="primary", instance="db-1"}'
+        values: "960+60x15"
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: WalArchivingStale
+        exp_alerts: []
+      - eval_time: 7m
+        alertname: WalArchivingStale
+        exp_alerts:
+          - exp_labels: { severity: warning, role: primary, instance: db-1 }
+            exp_annotations:
+              summary: "No WAL segment archived from db-1 for 23m 0s"
+              runbook: docs/runbooks/pitr-restore.md#archiving-failing
+              runbook_url: https://runbooks.example/docs/runbooks/pitr-restore.md#archiving-failing

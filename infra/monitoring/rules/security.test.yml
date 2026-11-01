@@ -7,6 +7,7 @@ tests:
   # The check reports 0 outside the last 24 h, then 3 pending registrations at 15m: the alert fires at once and clears
   # when the rehash has reached them (0 at 45m).
   - interval: 15m
+    external_labels: { runbook_base: "https://runbooks.example" }
     input_series:
       - series: 'inmolink_mls_fingerprint_rehash_pending{instance="worker-1"}'
         values: "0 3 3 0 0"
@@ -21,6 +22,7 @@ tests:
             exp_annotations:
               summary: "HMAC rotation: 3 client registrations still lack a current-key fingerprint near the window's end"
               runbook: docs/runbooks/hmac-key-rotation.md#rotation-steps
+              runbook_url: https://runbooks.example/docs/runbooks/hmac-key-rotation.md#rotation-steps
       - eval_time: 46m
         alertname: HmacRotationRehashPending
         exp_alerts: []

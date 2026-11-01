@@ -17,6 +17,7 @@ groups:
         annotations:
           summary: "A feed import was paused by the anomaly guard ({{ $labels.reason }})"
           runbook: docs/runbooks/queues.md#a-feed-was-paused-importfeedpaused-s6-08
+          runbook_url: "{{ $externalLabels.runbook_base }}/docs/runbooks/queues.md#a-feed-was-paused-importfeedpaused-s6-08"
       # The fair-share budget (S6-08 load test): no feed run should wait 15 minutes in the queue.
       - alert: ImportQueueWaitHigh
         expr: max(inmolink_import_oldest_queued_seconds) > 900
@@ -26,3 +27,4 @@ groups:
         annotations:
           summary: "A feed run has waited {{ $value | humanizeDuration }} in the import queue"
           runbook: docs/runbooks/queues.md#feed-imports-wait-in-the-queue-importqueuewaithigh-s6-08
+          runbook_url: "{{ $externalLabels.runbook_base }}/docs/runbooks/queues.md#feed-imports-wait-in-the-queue-importqueuewaithigh-s6-08"
