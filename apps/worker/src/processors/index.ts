@@ -64,6 +64,8 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     // S7-06: purges the website API's edge cache when public listings, sites or keys change.
     websiteApiJobs.purgeEdgeCache,
     websiteApiJobs.purgeSiteAtCutoff,
+    // S15-F11: an agency's portal listing and development pages, purged at the edge by their Cache-Tags.
+    websiteApiJobs.purgePortalAgencyPages,
     // S10-04: the activity timeline's writers from outbox events (lead, merge, listing status).
     crmJobs.recordActivity,
     // S11-F10: the pipeline report's and the response KPI's rollups, rebuilt from lead events (throttled).
