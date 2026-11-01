@@ -2149,6 +2149,21 @@ Ref §5 §12 · Mod identity, ops · Dep S12-06 · 🔒
 **Build:** Client Mode (S12-06) keeps its state with `SET` / `GET` on `inl:cm:*` keys over the limits Redis connection, but the production `limits` ACL (Ansible `redis_limits_acl`) allows only `~inl:rl:*` and no `+set`: entering Client Mode fails with NOPERM in production (reproduced against the test redis-queue with the production ACL). Either widen the ACL to exactly the keys and commands Client Mode uses (`~inl:cm:*`, the commands of `enterClientMode` / `exitClientMode` / `checkClientModePin`) or move the keys under `inl:rl:` with allowed commands — prefer the narrowest. Add a test that runs every limits-connection operation of the code base (rate limits, MFA proof nonce, Client Mode) as a user with the production ACL.
 **Done when:** Client Mode enter / PIN check / exit pass against Redis with the production `limits` ACL (test); the ACL-coverage test fails when a new limits-connection command or key prefix is added without an ACL change
 
+### S17-F1 · One home for the S16 security helpers (S16 review)
+Ref §12 · Mod web, public, identity · Dep S16-03 S16-F8 S16-F10
+**Build:** the sprint duplicated small security helpers across apps — `TURNSTILE_ORIGIN`, the base page CSP (`PAGE_BASE_CSP`), `newNonce`, the step-up check helper and the consent value builder (export `consentValue` instead of rebuilding `v<version>.<choice>` in tests). Move each to one shared module; tag the keyed feed-api routes `apiKeyLimited` through explicit route config, not inference. Add `watchCsp` (no CSP reports) to one dashboard e2e flow.
+**Done when:** each helper defined once (grep); a dashboard e2e fails on a CSP report; rate-limit coverage test reads the explicit config
+
+### S17-F2 · Security lows from the S16 review
+Ref §12 · Mod ops, tests, compliance, crm, public · Dep S16-02 S16-04 S16-F8 · 🔒
+**Build:** chaos `drill.ts` refuses a production host (only test / staging targets); `assertLoadTarget` also checks the DB host, not only the API URL; the SUBJECT export takes a `target_id` confirmation step before it builds; `eraseContact` asks for step-up and is rate-limited per user; portal stored-page flight hashes are checked against the cache entry's `rscData` before they are allowed (a hash only for strings the entry really holds).
+**Done when:** a test per item: production host refused, wrong DB host refused, export without confirmation refused, erase without step-up refused / over the limit 429, a flight string not in `rscData` gets no hash
+
+### S17-F3 · Perf should-fixes from the S16 review
+Ref §15 · Mod search, compliance, mls, crm, ops · Dep S16-F3 S16-F5 · ⚡
+**Build:** release a sitemap run's claim when its mark is stale; throttle delisting-triggered sitemap regenerations per agency and measure them; `clearAgencyText` walks on a keyset (no unbounded statement); spread the daily retention sweep's delay per agency; index for the inactive-contact retention scan (`agency_id, last_activity_at`) — `CONCURRENTLY` in its own migration; SLO recording-rule interval matches the scrape interval; `mls.pruneRegistrations` skips agencies with nothing past retention.
+**Done when:** each item has a test or an `EXPLAIN` in the STATUS entry (no Seq Scan on the scale seed); retention sweep and prune stay < 20 ms a page on the scale seed
+
 ## S17 — Pilot
 
 ### S17-01 · Pilot cutover

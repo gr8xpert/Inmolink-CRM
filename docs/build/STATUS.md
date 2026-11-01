@@ -3,14 +3,14 @@
 Single source of truth for progress. Claude updates this at the end of every task. Keep **Now**, **Current sprint** and **Blocked** short — the session-start hook injects them.
 
 ## Now
-- **Task:** S16 unattended run (2026-11-01, Shahzaib away): S16-01 DONE (staging acceptance BLOCKED-HUMAN H4); in progress in parallel lanes: S16-F1, S16-F2, S16-02, S16-04; then S16-F3, S16-F4, S16-03, S16-05, then `/sprint-review S16`. H1 / H3 / H4 / H11: no date yet.
+- **Task:** S17-01 Pilot cutover — needs H11 (and the H4 staging runs before it). Unblocked meanwhile: S17-F1 … S17-F3 (S16 review follow-ups), S16-F7 (dependency pins, on or after 2026-11-02); S16-F9 waits on Shahzaib's decision (golden files). H1 / H3 / H4 / H11: no date yet.
 - **Started:** —
 - **Load it with:** `node scripts/task-brief.mjs --next`. Longer notes and open human steps: **Handover** below (not injected at session start).
 - **Waiting on Shahzaib:** the H items (HUMAN-ACTIONS.md). The Anthropic key is in the local `.env` (AI is off unless `AI_PROVIDER=anthropic`, the tier models and `AI_PRICING` are set too). `UNIT_SPLIT_BP` deferred to the end of development (S17).
 ## Current sprint
-- **Sprint:** S16 — Hardening
-- **Exit criteria:** see PLAN §16 (S16 row)
-- **Progress:** 1 / 5 tasks (S16-01 built; its staging runs BLOCKED-HUMAN H4). S15 closed 2026-10-27: 3/3 tasks + 8/9 follow-ups; exit criterion met (301s; Lighthouse a11y / SEO; performance per ADR 0019 A until H4); e2e 28/28 × 3 — report `docs/build/reviews/S15.md`
+- **Sprint:** S17 — Pilot
+- **Exit criteria:** see PLAN §16 (S17 row)
+- **Progress:** 0 / 2 tasks. S16 closed 2026-11-01: 5/5 tasks (staging / human parts BLOCKED-HUMAN H4 H7 H8 H3 H5) + 9/11 follow-ups (S16-F7 date-gated, S16-F9 needs a decision); exit criterion "all §15 targets met" BLOCKED-HUMAN H4 — every local smoke, storm and soak slice passes; e2e 28/28 — report `docs/build/reviews/S16.md`
 
 ## Blocked
 - **S16-03 · DONE, external pen test BLOCKED-HUMAN H8** — scope and tester checklist in `docs/build/reviews/security-R1.md` §7. With H8: run the pen test against staging (H4), fix every Critical / High with a test, record results in security-R1.md. **S16-F9 needs Shahzaib's decision** (the `/v1` legacy API shows network owners' legacy ids — fixing it changes the frozen goldens).
@@ -1030,4 +1030,5 @@ Single source of truth for progress. Claude updates this at the end of every tas
 | S12 Presentations, AI Studio, Client Mode, social | 2026-10-25 (8/8 + S5-06 + 25/25 follow-ups; S12-07 real Meta BLOCKED-HUMAN H3, S12-F5 acceptance H4; exit criterion met by e2e; e2e 21/21) | [reviews/S12.md](reviews/S12.md) |
 | S13 Billing, staff console, onboarding, support | 2026-10-26 (5/5 + 26/26 follow-ups incl. review fixes; exit criterion met against the fake Stripe server, real test mode BLOCKED-HUMAN H3; e2e 23/23) | [reviews/S13.md](reviews/S13.md) |
 | S14 Migration tooling | 2026-10-26 (6/6 + S4-04 + 9/10 follow-ups, S14-F8 H4; exit criterion BLOCKED-HUMAN H1 — toolkit runs end to end on fixtures; cutover rehearsal H11; e2e 23/24) | [reviews/S14.md](reviews/S14.md) |
+| S16 Hardening | 2026-11-01 (5/5, S16-01 S16-02 S16-05 staging BLOCKED-HUMAN H4, S16-03 pen test H8, S16-04 legal texts H7, status page H3 H5; 9/11 follow-ups, S16-F7 date-gated, S16-F9 needs a decision; no code / perf must-fix open, security Medium fixed; exit criterion BLOCKED-HUMAN H4; soak slice p95 40.6 ms; follow-ups S17-F1 … S17-F3) | [reviews/S16.md](reviews/S16.md) |
 | S15 Portal MVP | 2026-10-27 (3/3 + 8/9 follow-ups, S15-F9 LCP check H4; exit criterion: 301s met, Lighthouse a11y / SEO 100, performance at the measured level per ADR 0019 A until staging; e2e 28/28 × 3) | [reviews/S15.md](reviews/S15.md) |

@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- docs: sprint S16 review (`docs/build/reviews/S16.md`); follow-ups S17-F1 … S17-F3; CI integration job limit 35 → 45 min (throughput checks grew to 17–24 min); Client Mode test no longer matches `952` inside random ids [S16 review]
 - fix(crm,search,security): S16 review — retention job re-reads the period in force (off / lengthened since queued → erases nothing); noteDocOwner fails closed (build jobs retry and re-mark on every retry); storm journals written 0600; gitleaks no longer skips tests/load/.data (workspace test fails if anything there is tracked) [S16 review]
 - feat(public): enforced script CSP on portal pages — proxy nonce for per-request pages, SHA-256 hashes of Next inline scripts stored with ISR copies, write-time no-inline fallback for any other HTML answer, rate-limited /api/csp-report endpoint; selection pages keep their CSP on every answer; e2e CSP-violation listener [S16-F8]
 - fix(identity,ops): Client Mode and social connect-state work under the production redis-queue limits ACL (selector for inl:cm:* / inl:social:state:*: GET/SET/DEL, plus MULTI/EXEC); ACL-coverage test derives every limits-connection operation from source [S16-F11]
