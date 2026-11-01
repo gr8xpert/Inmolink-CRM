@@ -21,6 +21,7 @@
 import { withPublicRead, withSystem } from '@inmolink/db';
 import { counts, LocalLru } from '@inmolink/platform/cache';
 import { clock } from '@inmolink/platform/clock';
+import { createLogger, type Logger } from '@inmolink/platform/logger';
 import * as repo from './repo';
 
 export type RedirectSource = 'portal' | 'plugin';
@@ -280,40 +281,86 @@ export async function pushRedirectHits(): Promise<number> {
 }
 
 /**
+ * S16-F3: how long a flush holds the taken shared counters (`counts.take` lease): the flush job's time limit
+ * (`REDIRECT_HITS_FLUSH_TIMEOUT_MS`) plus a minute — by then a flush has been aborted before committing, so another
+ * flush (a retry, a stalled job's re-run) may take the counters over without writing them twice.
+ */
+export const REDIRECT_HITS_FLUSH_TIMEOUT_MS = 60_000;
+export const REDIRECT_HITS_LEASE_MS = REDIRECT_HITS_FLUSH_TIMEOUT_MS + 60_000;
+/** S16-F3: takes of one shared batch before it is dropped (logged): a batch the database refuses every time. */
+export const REDIRECT_HITS_MAX_ATTEMPTS = 5;
+
+let flushLog: Logger | undefined;
+
+/**
  * Writes the hit counts — the shared counters the resolving processes pushed and this process's own buffer — in one
  * statement per 1,000 URLs, and clears them. Returns URLs flushed.
+ *
+ * S16-F3: the shared counters are drained in two steps under a lease (`counts.take`, the write, `counts.settle`):
+ * they stay on redis-cache until the write committed, so a failed or aborted write (or a worker killed mid-flush) loses
+ * nothing — the lease is given back (`counts.release`) and the next flush takes the same counters again. A flush that
+ * finds them leased to another flush writes its own buffer only. `signal` (the job's) is checked before the
+ * transaction commits: a timed-out flush never commits behind its retry. Only this process's own buffer goes back into
+ * memory on a failure (the shared counters never do: they would be counted twice). A batch taken
+ * `REDIRECT_HITS_MAX_ATTEMPTS` times without committing is dropped and logged (a poison batch must not block the
+ * counters behind it). At least once: a write that committed but whose settle never ran (a crash in between) is
+ * written again when the lease expires — idempotent writes need a ledger table (a migration), not worth it for
+ * statistics.
  */
-export async function flushRedirectHits(): Promise<number> {
+export async function flushRedirectHits(opts: { signal?: AbortSignal; log?: Logger } = {}): Promise<number> {
+  flushLog ??= createLogger({ service: 'migration' });
+  const log = opts.log ?? flushLog;
+  opts.signal?.throwIfAborted();
   const merged = new Map<string, repo.RedirectHit>();
-  // No redis-cache in this process (a script), or an outage: this process's own buffer only.
-  const shared = await Promise.resolve()
-    .then(() => counts.drain(REDIRECT_HITS_SET))
-    .catch(() => new Map<string, number>());
-  for (const [name, n] of shared) {
+  // No redis-cache in this process (a script), or an outage, or another flush holds them: this process's buffer only.
+  let taken = await Promise.resolve()
+    .then(() => counts.take(REDIRECT_HITS_SET, { leaseMs: REDIRECT_HITS_LEASE_MS }))
+    .catch(() => null);
+  if (taken && taken.attempts > REDIRECT_HITS_MAX_ATTEMPTS) {
+    log.error(
+      { set: REDIRECT_HITS_SET, urls: taken.counts.size, attempts: taken.attempts },
+      'legacy redirect hits: a batch failed every write; dropped',
+    );
+    await counts.settle(REDIRECT_HITS_SET, taken.lease).catch(() => undefined);
+    taken = null;
+  }
+  for (const [name, n] of taken?.counts ?? []) {
     const h = hitOf(name, n);
     if (h) merged.set(name, h);
   }
-  for (const h of pendingHits.values()) {
+  const own = [...pendingHits.values()];
+  pendingHits.clear();
+  for (const h of own) {
     const name = hitName(h);
     const cur = merged.get(name);
     if (cur) cur.hits += h.hits;
     else merged.set(name, { ...h });
   }
-  pendingHits.clear();
-  if (merged.size === 0) return 0;
-  const batch = [...merged.values()];
-  try {
-    await withSystem('S14-05 flush legacy redirect hit counters', (tx) => repo.addRedirectHits(tx, batch, clock.now()));
-  } catch (err) {
-    // Put the counts back for the next flush — within the buffer's cap (S15-02 review: the drained shared counters
-    // must not grow it past `REDIRECT_HIT_BUFFER_MAX`; counters are statistics).
-    for (const b of batch) {
-      const k = `${b.source}|${b.host}|${b.locale}|${b.pathKey}`;
-      const cur = pendingHits.get(k);
-      if (cur) cur.hits += b.hits;
-      else if (pendingHits.size < REDIRECT_HIT_BUFFER_MAX) pendingHits.set(k, b);
+  if (merged.size > 0) {
+    const batch = [...merged.values()];
+    try {
+      await withSystem('S14-05 flush legacy redirect hit counters', async (tx) => {
+        await repo.addRedirectHits(tx, batch, clock.now());
+        // Aborted (the job's time limit): roll back rather than commit behind a retry that may take the counters over.
+        opts.signal?.throwIfAborted();
+      });
+    } catch (err) {
+      // This process's own counts back for the next flush — within the buffer's cap (S15-02 review). The shared ones
+      // are still taken on redis-cache: given back, the next flush retries them from there.
+      for (const b of own) {
+        const k = `${b.source}|${b.host}|${b.locale}|${b.pathKey}`;
+        const cur = pendingHits.get(k);
+        if (cur) cur.hits += b.hits;
+        else if (pendingHits.size < REDIRECT_HIT_BUFFER_MAX) pendingHits.set(k, { ...b });
+      }
+      if (taken) await counts.release(REDIRECT_HITS_SET, taken.lease).catch(() => undefined);
+      throw err;
     }
-    throw err;
   }
-  return batch.length;
+  // Also when nothing was writable (only malformed names): a taken set must never block the next take.
+  if (taken?.lease) {
+    const settled = await counts.settle(REDIRECT_HITS_SET, taken.lease).catch(() => false);
+    if (!settled) log.warn({ set: REDIRECT_HITS_SET }, 'legacy redirect hits: written but not settled (lease lost)');
+  }
+  return merged.size;
 }

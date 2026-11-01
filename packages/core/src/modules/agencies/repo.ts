@@ -53,7 +53,7 @@ export async function replaceSignupAgency(
 ): Promise<boolean> {
   const rows = await tx
     .update(agencies)
-    .set({ ...patch, version: sql`${agencies.version} + 1`, updatedAt: now })
+    .set({ kind: patch.kind, name: patch.name, version: sql`${agencies.version} + 1`, updatedAt: now })
     .where(and(eq(agencies.id, id), eq(agencies.status, 'PENDING'), sql`${agencies.onboardedAt} is null`))
     .returning({ id: agencies.id });
   return rows.length === 1;
@@ -132,8 +132,16 @@ export async function updateDetails(
 ) {
   const [row] = await tx
     .update(agencies)
+    // S16-F3: named columns, never a spread — a caller's wider object could carry the standing (standing-writers test).
     .set({
-      ...patch,
+      name: patch.name,
+      taxId: patch.taxId,
+      addressLine: patch.addressLine,
+      city: patch.city,
+      postalCode: patch.postalCode,
+      region: patch.region,
+      ...(patch.registerNumber !== undefined && { registerNumber: patch.registerNumber }),
+      languages: patch.languages,
       onboardedAt: sql`coalesce(${agencies.onboardedAt}, ${now})`,
       version: sql`${agencies.version} + 1`,
       updatedAt: now,

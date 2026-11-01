@@ -15,6 +15,8 @@ import { closeEmail, configureEmail, createMemoryMailer, type MemoryMailer } fro
 import { isAppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { createLogger } from '@inmolink/platform/logger';
+import { defaultSubscribers } from '@inmolink/platform/outbox';
+import { closeQueues, configureQueue, queueFor } from '@inmolink/platform/queue';
 import { closeRateLimit, rateLimiter } from '@inmolink/platform/rate-limit';
 import { configureSearch, createMeiliEngine } from '@inmolink/platform/search';
 import {
@@ -26,7 +28,7 @@ import {
 } from '@inmolink/platform/storage';
 import type { TurnstileVerifier } from '@inmolink/platform/turnstile';
 import { sql } from 'drizzle-orm';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Ctx } from '../../../context';
 import { withMemberCtx } from '../../../member';
 import { createFounder, type Founder } from '../../../testing/factories';
@@ -36,6 +38,7 @@ import * as properties from '../../properties';
 import * as search from '../../search';
 import * as taxonomy from '../../taxonomy';
 import * as websiteApi from '../index';
+import { OWNER_SCOPE_MAX_AGE_MS } from '../portal';
 
 /**
  * Portal enquiries and sitemaps (S15-02): an enquiry on an inmolink.es listing page is a marketplace lead — it reaches
@@ -693,4 +696,96 @@ describe('portal sitemaps: orphaned runs and memory (S16-F2)', () => {
       configureStorage(inner);
     }
   }, 300_000);
+});
+
+describe('portal sitemaps follow a delisting (S16-F3)', () => {
+  /** The worker's path, minus BullMQ: an `agencies.status.changed` through the sitemap subscriber. */
+  async function deliverStatus(agencyId: string, from: 'PENDING' | 'VERIFIED', to: 'VERIFIED' | 'SUSPENDED') {
+    const subs = defaultSubscribers
+      .get('agencies.status.changed', 1)
+      .filter((s) => s.name === 'websiteApi.portal.sitemapsDelisted');
+    expect(subs).toHaveLength(1);
+    for (const sub of subs) {
+      await sub.handler({ agencyId, from, to, version: 2 } as never, {
+        eventId: newId(),
+        agencyId,
+        type: 'agencies.status.changed',
+        version: 1,
+        createdAt: new Date(),
+        attempt: 1,
+      });
+    }
+  }
+
+  it("[S16-F3] a delisted agency's URLs leave the sitemaps within minutes: one coalesced run on the event", async () => {
+    const d = await createFounder({ companyName: `Delisted Homes ${RUN}` });
+    await setAgencyStatus(d.agencyId, 'VERIFIED');
+    const own = await listing(d);
+    await withSystem('portal-enquiries.test', (tx) => search.rebuildReadModels(tx, 'LISTING', [own]));
+    websiteApi.resetPortalCaches();
+    websiteApi.resetPortalSitemapCache();
+    await websiteApi.generatePortalSitemaps({ log });
+    const code = (await codeOf(own)).toLowerCase();
+    const listed = async () => {
+      const index = await sitemapXml(websiteApi.PORTAL_SITEMAP_INDEX);
+      const names = [...index.matchAll(/<loc>https:\/\/portal\.test\/sitemaps\/([^<]+)<\/loc>/g)].map(
+        (m) => m[1] as string,
+      );
+      const all = (await Promise.all(names.map((n) => sitemapXml(n)))).join('\n');
+      return { listing: all.includes(`-${code}</loc>`), profile: all.includes(`/agency/${d.agencyId.toLowerCase()}/`) };
+    };
+    expect(await listed()).toEqual({ listing: true, profile: true });
+
+    const queued: { throttleMs?: number; debounceKey?: string }[] = [];
+    const spy = vi
+      .spyOn(websiteApi.websiteApiJobs.generatePortalSitemaps, 'enqueue')
+      .mockImplementation(async (_p, options) => {
+        queued.push({ throttleMs: options?.throttleMs, debounceKey: options?.debounceKey });
+        return { id: newId() };
+      });
+    websiteApi.registerWebsiteApiSubscriptions();
+    try {
+      // Staff suspend the agency (its document stays in the index until search reacts: the sitemap must not rely on it).
+      await setAgencyStatus(d.agencyId, 'SUSPENDED');
+      await deliverStatus(d.agencyId, 'VERIFIED', 'SUSPENDED');
+      await deliverStatus(c.agencyId, 'VERIFIED', 'SUSPENDED'); // a burst: same throttle key, one run per window
+      await deliverStatus(a.agencyId, 'PENDING', 'VERIFIED'); // listed: no early run (the schedule adds it)
+      expect(queued).toHaveLength(2);
+      expect(new Set(queued.map((q) => q.debounceKey)).size).toBe(1);
+      for (const q of queued) expect(q.throttleMs).toBe(websiteApi.PORTAL_SITEMAP_DELIST_THROTTLE_MS);
+      // Within minutes, and longer than the owner scope's bound — the run's inventory already leaves the agency out.
+      expect(websiteApi.PORTAL_SITEMAP_DELIST_THROTTLE_MS).toBeLessThanOrEqual(5 * 60_000);
+      expect(websiteApi.PORTAL_SITEMAP_DELIST_THROTTLE_MS).toBeGreaterThan(OWNER_SCOPE_MAX_AGE_MS);
+    } finally {
+      websiteApi.unregisterWebsiteApiSubscriptions();
+      spy.mockRestore();
+    }
+
+    // The queued run, once the window passed (every process's owner scope is newer than the delisting by then).
+    websiteApi.resetPortalCaches();
+    websiteApi.resetPortalSitemapCache();
+    const run = (await websiteApi.websiteApiJobs.generatePortalSitemaps.spec.run({}, jobCtx(newId()))) as {
+      runId?: string;
+    };
+    expect(run.runId).toBeDefined();
+    expect(await listed()).toEqual({ listing: false, profile: false });
+  }, 300_000);
+
+  it('[S16-F3] a burst of delistings is one delayed sitemap run on the real queue (throttle window)', async () => {
+    await configureQueue({ prefix: `t-portal-sitemaps-${RUN}`, logger: log });
+    websiteApi.registerWebsiteApiSubscriptions();
+    try {
+      await deliverStatus(a.agencyId, 'VERIFIED', 'SUSPENDED');
+      await deliverStatus(c.agencyId, 'VERIFIED', 'SUSPENDED');
+      const delayed = (await queueFor('exports').getDelayed()).filter(
+        (j) => j.name === 'websiteApi.generatePortalSitemaps',
+      );
+      expect(delayed).toHaveLength(1);
+      expect(delayed[0]?.opts.delay).toBe(websiteApi.PORTAL_SITEMAP_DELIST_THROTTLE_MS);
+      await queueFor('exports').obliterate({ force: true });
+    } finally {
+      websiteApi.unregisterWebsiteApiSubscriptions();
+      await closeQueues();
+    }
+  });
 });

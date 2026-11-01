@@ -17,7 +17,7 @@
 import { defineJob } from '@inmolink/platform/queue';
 import { z } from 'zod';
 import { DELTA, deltaAgencies, legacyDeltaSourceFactory, syncLegacyDelta } from './delta';
-import { flushRedirectHits } from './redirects';
+import { flushRedirectHits, REDIRECT_HITS_FLUSH_TIMEOUT_MS } from './redirects';
 
 /** Deltas running at once across the maintenance pool (each holds a legacy read snapshot open). */
 const DELTA_CONCURRENCY = 2;
@@ -85,10 +85,13 @@ export const migrationJobs = {
     pool: 'maintenance',
     payload: z.object({}).strict(),
     every: 60_000,
+    // S16-F3: one flush at a time; overlaps (a timed-out run still going, a stalled re-run) are fenced by the lease on
+    // the taken counters, and the job's signal stops a timed-out flush before it commits.
+    globalConcurrency: 1,
     attempts: 3,
-    timeoutMs: 60_000,
-    async run() {
-      await flushRedirectHits();
+    timeoutMs: REDIRECT_HITS_FLUSH_TIMEOUT_MS,
+    async run(_p, { signal, log }) {
+      await flushRedirectHits({ signal, log });
     },
   }),
 };

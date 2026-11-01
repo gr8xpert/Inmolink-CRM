@@ -581,7 +581,7 @@ export const websiteApiJobs = {
   /**
    * S15-02, every 6 hours (`PORTAL_SITEMAP_EVERY_MS`): the portal's per-locale sitemaps and their index, written to
    * object storage (`portal-sitemaps.ts`). One run at a time across the pool; skipped until the worker knows the
-   * portal's origin (`PORTAL_URL`).
+   * portal's origin (`PORTAL_URL`). S16-F3: also queued, throttled, when an agency is delisted (`queuePortalSitemaps`).
    */
   generatePortalSitemaps: defineJob({
     name: 'websiteApi.generatePortalSitemaps',
@@ -648,6 +648,29 @@ export const siteFeedNetworkWindowMs = (): number => networkWindowMs;
  */
 export async function queueNetworkFeedSweep(): Promise<void> {
   await websiteApiJobs.sweepNetworkFeeds.enqueue({}, { throttleMs: networkWindowMs, debounceKey: 'network-feeds' });
+}
+
+/**
+ * S16-F3: an agency left the directory (`agencies.status.changed` away from VERIFIED) — its URLs leave the portal
+ * sitemaps with one extra run this long after the first delisting, not up to `PORTAL_SITEMAP_EVERY_MS` later. Longer
+ * than the portal's owner-scope bound (`OWNER_SCOPE_MAX_AGE_MS`, 1 minute), so the run's inventory already leaves the
+ * agency out in every worker process.
+ */
+export const PORTAL_SITEMAP_DELIST_THROTTLE_MS = 5 * 60_000;
+
+/**
+ * S16-F3: one regeneration of the portal sitemaps per window however many agencies are delisted in it (stable throttle
+ * key, no tenant group: the run is platform-wide, and staff decide delistings). A run already going (`globalConcurrency`
+ * 1, the 6-hour schedule's or an earlier window's) finishes first; this run then publishes over it (newer manifest).
+ * Idempotent: a run only replaces the manifest with a newer one. The bound on a delisted agency's URLs: the window
+ * (5 minutes), plus waiting behind a run already going (at most its `PORTAL_SITEMAP_TIMEOUT_MS`, 60 minutes), plus this
+ * run's own time, plus the serving manifest cache (1 minute) — well inside the 6-hour schedule, not "5 minutes" flat.
+ */
+export async function queuePortalSitemaps(): Promise<void> {
+  await websiteApiJobs.generatePortalSitemaps.enqueue(
+    {},
+    { throttleMs: PORTAL_SITEMAP_DELIST_THROTTLE_MS, debounceKey: 'portal-sitemaps-delist' },
+  );
 }
 
 /**

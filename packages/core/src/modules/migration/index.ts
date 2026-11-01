@@ -117,6 +117,8 @@ export {
   type NormalizedLegacyUrl,
   normalizeLegacyUrl,
   pushRedirectHits,
+  REDIRECT_HITS_LEASE_MS,
+  REDIRECT_HITS_MAX_ATTEMPTS,
   REDIRECT_HITS_PUSH_MS,
   REDIRECT_QUERY_KEYS,
   type RedirectRow,

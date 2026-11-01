@@ -11,6 +11,7 @@ import {
   queueEdgePurge,
   queueNetworkFeedSweep,
   queueNetworkFeeds,
+  queuePortalSitemaps,
   queueSiteFeed,
   queueSiteFeeds,
   SITE_FEED_PARTNER_THROTTLE_MS,
@@ -186,6 +187,15 @@ export function registerWebsiteApiSubscriptions(): void {
     subscribe(agencies.agenciesEvents.statusChanged, (p) => invalidatePortalAgency(p.agencyId), {
       name: 'websiteApi.portal.agencyStatus',
     }),
+    // S16-F3: a delisted agency's URLs leave the portal sitemaps within minutes (one coalesced run per window). Being
+    // listed again needs no early run: missing URLs hide nothing, the next scheduled run adds them.
+    subscribe(
+      agencies.agenciesEvents.statusChanged,
+      async (p) => {
+        if (p.from === 'VERIFIED' && p.to !== 'VERIFIED') await queuePortalSitemaps();
+      },
+      { name: 'websiteApi.portal.sitemapsDelisted' },
+    ),
     subscribe(agencies.agenciesEvents.detailsUpdated, (p) => invalidatePortalAgency(p.agencyId), {
       name: 'websiteApi.portal.agencyDetails',
     }),

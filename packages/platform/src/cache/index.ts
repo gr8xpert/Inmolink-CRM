@@ -2,7 +2,7 @@ import { Redis, type RedisOptions } from 'ioredis';
 import { loadConfig, realtimeEventsEnv, redisEnv } from '../config';
 import { createLogger, type Logger } from '../logger';
 import { Cache, type CacheGetOptions } from './cache';
-import { Counters } from './counts';
+import { Counters, type TakenCounts } from './counts';
 import type { CacheKey } from './key';
 import { DEFAULT_PAGE_CACHE_BYTES, markPageTagsChanged, PageCache, type PageTagStore } from './page-cache';
 import { whenReady } from './ready';
@@ -10,7 +10,7 @@ import { SeenTimes } from './seen';
 import { encodeUserEvent, USER_EVENTS_CHANNEL, type UserEvent } from './user-events';
 
 export { Cache, type CacheGetOptions, type CacheOptions } from './cache';
-export { Counters } from './counts';
+export { Counters, type TakenCounts } from './counts';
 export { assertCacheKey, type CacheKey, type CacheKeyParts, cacheKey } from './key';
 export { LocalLru } from './lru';
 export {
@@ -270,7 +270,10 @@ export const seen = {
 /** Process-wide shared counters on redis-cache (S15-02: legacy redirect hits). */
 export const counts = {
   add: (set: string, values: ReadonlyMap<string, number>): Promise<void> => countsInstance().add(set, values),
-  drain: (set: string): Promise<Map<string, number>> => countsInstance().drain(set),
+  /** S16-F3: step one of a drain, under a lease — the counters stay in Redis until `settle` (see `Counters.take`). */
+  take: (set: string, opts: { leaseMs: number }): Promise<TakenCounts | null> => countsInstance().take(set, opts),
+  settle: (set: string, lease: string): Promise<boolean> => countsInstance().settle(set, lease),
+  release: (set: string, lease: string): Promise<boolean> => countsInstance().release(set, lease),
 };
 
 function countsInstance(): Counters {

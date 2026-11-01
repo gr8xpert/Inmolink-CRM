@@ -68,6 +68,9 @@ export const agenciesEvents = {
   /**
    * The agency's status changed (S1-03: PENDING → VERIFIED; suspension later). Caches of anything the
    * status gates (API keys S1-05, site configs) invalidate on it; `withMemberCtx` reads it per request.
+   * S16-F3: it is also the directory event — `agency_directory.listed` follows the status alone (trigger, migration
+   * 0022) — so the portal (pages, owner scope, sitemaps) reacts to it. Every writer of the status emits it in its
+   * transaction; `__tests__/standing-writers.test.ts` lists them and fails on a new one.
    */
   statusChanged: defineEvent(
     'agencies.status.changed',
