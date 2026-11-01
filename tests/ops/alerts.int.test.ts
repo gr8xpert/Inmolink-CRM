@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { stringify } from 'yaml';
@@ -15,6 +15,15 @@ const promtool = (...args: string[]) =>
     180_000,
     true,
   );
+
+/**
+ * mkdtemp makes a 0700 folder; the prom/* images run as `nobody`, so on a Linux Docker host (CI) a bind mount of it
+ * is unreadable in the container (`stat …: permission denied`). Docker Desktop ignores the mode; Linux does not.
+ */
+function worldReadable(dir: string, ...files: string[]): void {
+  chmodSync(dir, 0o755);
+  for (const f of files) chmodSync(join(dir, f), 0o644);
+}
 
 describe('Postgres alerts', () => {
   it('[S0-15] alert rules are valid Prometheus rules', async () => {
@@ -150,6 +159,7 @@ describe('Grafana dashboards', () => {
         groups: [{ name: 'dashboards', rules: exprs.map((expr, i) => ({ record: `dashboard:check_${i}`, expr })) }],
       };
       writeFileSync(join(tmp, 'dashboards.yml'), stringify(rules));
+      worldReadable(tmp, 'dashboards.yml');
       const out = await docker(
         [
           'run',
@@ -198,6 +208,7 @@ describe('Alertmanager config', () => {
     const tmp = mkdtempSync(join(cache, 'inmolink-am-'));
     try {
       writeFileSync(join(tmp, 'alertmanager.yml'), rendered);
+      worldReadable(tmp, 'alertmanager.yml');
       // Same release as the monitoring role (infra/ansible/group_vars/all.yml `alertmanager_image`).
       const out = await docker(
         [

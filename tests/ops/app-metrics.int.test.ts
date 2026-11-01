@@ -1,6 +1,15 @@
 import { type ChildProcess, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { parseEnv } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -11,8 +20,11 @@ import { docker } from '../../scripts/ops/pitr';
 // S16-F6: app metrics reach Prometheus across Kamal's rolling deploys. Locally: the app host's scraper
 // (infra/ansible/roles/app_metrics/templates/app-metrics.yml.j2) on a throwaway Docker network, the monitoring host's
 // `app-metrics` federation job (roles/monitoring/templates/prometheus.yml.j2) in a second Prometheus, both rendered from
-// the templates. The real api, feed-api, realtime and worker boot from main.ts on this machine (their aliases point at
-// the Docker host); the media role's alias names two stand-in containers at once — a rolling deploy's old and new.
+// the templates. The real api, feed-api, realtime and worker boot from main.ts on this machine; each app's Kamal alias
+// is a forwarder container on the network (to the app's metrics port on the Docker host), so the scraper's DNS
+// discovery runs as rendered — Prometheus asks Docker's DNS, which never serves `--add-host` entries (on Linux,
+// `host.docker.internal` exists only in /etc/hosts). The media role's alias names two stand-in containers at once — a
+// rolling deploy's old and new.
 
 const ROOT = join(import.meta.dirname, '..', '..');
 const TSX = join(ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs');
@@ -21,6 +33,8 @@ const PROMETHEUS_IMAGE = String(
   (parse(readFileSync(join(ROOT, 'infra', 'ansible', 'group_vars', 'all.yml'), 'utf8')) as { prometheus_image: string })
     .prometheus_image,
 );
+// Forwards an alias's container port to the app on the Docker host (socat 1.8.0.3, pinned by digest).
+const SOCAT_IMAGE = 'alpine/socat:1.8.0.3@sha256:beb4a68d9e4fe6b0f21ea774a0fde6c31f580dde6368939ed70100c5385b015e';
 const LABEL = 'inmolink.test=s16-f6';
 const RUN = randomBytes(3).toString('hex');
 const NET = `inmolink-s16f6-${RUN}`;
@@ -68,21 +82,17 @@ function stackEnv(): Record<string, string> {
   return Object.fromEntries(Object.entries(env).filter((e): e is [string, string] => e[1] !== undefined));
 }
 
-/** The scraper's config as Ansible renders it, the real apps' aliases pointed at the Docker host, intervals at 2 s. */
+/** The scraper's config as Ansible renders it, intervals at 2 s. */
 function renderScraper(): string {
-  let text = readFileSync(
+  const text = readFileSync(
     join(ROOT, 'infra', 'ansible', 'roles', 'app_metrics', 'templates', 'app-metrics.yml.j2'),
     'utf8',
   )
     .replace('{{ ansible_managed }}', 'rendered by tests/ops/app-metrics.int.test.ts')
     .replace(/\{\{ inventory_hostname \}\}/g, HOST);
   for (const app of APPS) {
-    const entry = `{ names: [${alias(app.name)}], type: A, port: ${app.container},`;
-    expect(text, app.name).toContain(entry);
-    text = text.replace(entry, `{ names: [host.docker.internal], type: A, port: ${app.metrics},`);
+    expect(text, app.name).toContain(`{ names: [${alias(app.name)}], type: A, port: ${app.container},`);
   }
-  // The workers role's kamal_role relabel follows its (replaced) DNS name.
-  text = text.replace('regex: inmolink-worker-metrics', 'regex: host.docker.internal');
   expect(text).not.toContain('{{');
   return text.replace(/\b15s\b/g, '2s').replace('scrape_timeout: 10s', 'scrape_timeout: 2s');
 }
@@ -141,8 +151,34 @@ async function eventually<T>(what: string, fn: () => Promise<T | undefined>, ms 
     await new Promise((r) => setTimeout(r, 1_000));
   }
   const logs = [...outputs.entries()].map(([n, o]) => `--- ${n}\n${o().slice(-1500)}`).join('\n');
-  throw new Error(`${what}: not in ${ms / 1000} s (${String(last ?? '')})\n${logs}`);
+  // The scraper's view (no published port): each target's health and last error, for a failure on CI.
+  const targets = await docker(['exec', SCRAPER, 'wget', '-qO-', 'http://127.0.0.1:9090/api/v1/targets']).catch(
+    (err: unknown) => String(err),
+  );
+  throw new Error(`${what}: not in ${ms / 1000} s (${String(last ?? '')})\n${logs}\n--- scraper targets\n${targets}`);
 }
+
+/** An app's Kamal alias on the network, listening on the template's port, forwarding to the app on this machine. */
+const startForwarder = (app: (typeof APPS)[number]) =>
+  docker([
+    'run',
+    '-d',
+    '--name',
+    `inmolink-s16f6-fwd-${app.name}-${RUN}`,
+    '--label',
+    LABEL,
+    '--network',
+    NET,
+    '--network-alias',
+    alias(app.name),
+    // Linux: the Docker host is host-gateway (docker0), in /etc/hosts only; Docker Desktop also answers it by DNS.
+    '--add-host',
+    'host.docker.internal:host-gateway',
+    SOCAT_IMAGE,
+    `TCP-LISTEN:${app.container},fork,reuseaddr`,
+    // IPv4: Docker Desktop's host-gateway entry is IPv6 (not routed to Windows); its DNS gives the IPv4 address.
+    `TCP4:host.docker.internal:${app.metrics}`,
+  ]);
 
 const standIn = (n: number) => `inmolink-s16f6-media-${n}-${RUN}`;
 const startStandIn = (n: number) =>
@@ -169,12 +205,19 @@ beforeAll(async () => {
   const cache = join(ROOT, 'node_modules', '.cache');
   mkdirSync(cache, { recursive: true });
   tmp = mkdtempSync(join(cache, 'inmolink-s16f6-'));
-  mkdirSync(join(tmp, 'scraper'));
-  mkdirSync(join(tmp, 'central'));
-  writeFileSync(join(tmp, 'scraper', 'prometheus.yml'), renderScraper());
-  writeFileSync(join(tmp, 'central', 'prometheus.yml'), renderCentral());
+  // The prom/prometheus image runs as `nobody`: on a Linux Docker host the mounted folders must be world-readable.
+  for (const [dir, config] of [
+    ['scraper', renderScraper()],
+    ['central', renderCentral()],
+  ] as const) {
+    mkdirSync(join(tmp, dir));
+    chmodSync(join(tmp, dir), 0o755);
+    writeFileSync(join(tmp, dir, 'prometheus.yml'), config);
+    chmodSync(join(tmp, dir, 'prometheus.yml'), 0o644);
+  }
 
   await docker(['network', 'create', '--label', LABEL, NET]);
+  for (const app of APPS) await startForwarder(app);
   await startStandIn(1);
   await startStandIn(2);
   const prometheus = (name: string, dir: string, extra: string[]) =>
@@ -195,8 +238,7 @@ beforeAll(async () => {
       '--storage.tsdb.path=/prometheus',
       '--web.listen-address=:9090',
     ]);
-  // The scraper reaches this machine's app processes as the Docker host (Linux CI: host-gateway).
-  await prometheus(SCRAPER, 'scraper', ['--add-host', 'host.docker.internal:host-gateway']);
+  await prometheus(SCRAPER, 'scraper', []);
   await prometheus(CENTRAL, 'central', ['-p', '127.0.0.1::9090']);
   const port = (await docker(['port', CENTRAL, '9090/tcp'])).split(/\r?\n/)[0]?.split(':').at(-1);
   central = `http://127.0.0.1:${port}`;
@@ -220,7 +262,7 @@ beforeAll(async () => {
         RELEASE,
         [app.portVar]: String(app.port),
         [app.metricsVar]: String(app.metrics),
-        // As in the Kamal configs: every interface (the scraper is not on loopback).
+        // As in the Kamal configs: every interface (the forwarders reach it from the Docker network).
         METRICS_HOST: '0.0.0.0',
         ...('extra' in app ? app.extra : {}),
       },
@@ -270,9 +312,9 @@ describe('app metrics reach Prometheus (S16-F6)', () => {
         return r.length === 1 ? r[0] : undefined;
       });
       // Per-instance identity: the job, the scraped container, the app host — labels kept by the federation.
-      // (`instance`: the address Docker's DNS gave for the alias — here the Docker host's.)
+      // (`instance`: the address Docker's DNS gave for the alias, on the template's port.)
       expect(up.metric).toMatchObject({ job: app.name, host: HOST });
-      expect(up.metric.instance).toMatch(new RegExp(`^[0-9.]+:${app.metrics}$`));
+      expect(up.metric.instance).toMatch(new RegExp(`^[0-9.]+:${app.container}$`));
       if (app.name === 'worker') expect(up.metric.kamal_role).toBe('workers');
       // The version, from the app's OpenTelemetry resource.
       const info = await eventually(`target_info{job="${app.name}"}`, async () => {
