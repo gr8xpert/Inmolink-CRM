@@ -88,7 +88,25 @@ export async function copyNewRows(
     [ids],
   );
   const skip = new Set(existing.rows.map((r) => r.id));
-  const fresh = rows.filter((r) => !skip.has(r[0] as string));
+  return copyRows(
+    client,
+    table,
+    columns,
+    rows.filter((r) => !skip.has(r[0] as string)),
+  );
+}
+
+/**
+ * COPYs `rows` into `table` as they are — no existence check. For a seeder that already knows they are new (S16-F4:
+ * the CRM seeder skips whole agencies whose rows its earlier run wrote in one transaction).
+ */
+export async function copyRows(
+  client: pg.PoolClient,
+  table: string,
+  columns: readonly string[],
+  fresh: readonly (readonly CopyValue[])[],
+): Promise<number> {
+  for (const name of [table, ...columns]) if (!IDENT.test(name)) throw new TypeError(`bad identifier ${name}`);
   if (fresh.length === 0) return 0;
 
   // ~1 MB writes instead of one per row: a stream write per line dominated small-row seeds (S1-F6).

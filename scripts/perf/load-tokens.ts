@@ -78,6 +78,11 @@ export interface LoadUsersFile {
   expiresAt: string;
   /** The refresh service (`--serve`), or null: the tokens last one lifetime. */
   refresh: { url: string; secret: string } | null;
+  /**
+   * S16-F4: the span every member's agency has seeded calendar events in (the latest first start, the earliest last
+   * one, ISO), or null without one: the dashboard's calendar action asks for a week inside it (`calendarWeekStart`).
+   */
+  calendarWindow?: { from: string; to: string } | null;
 }
 
 /**
@@ -193,7 +198,33 @@ export async function mintUsersFile(
     };
   });
   const expiresAt = new Date(Math.min(...minted.map((t) => t.expiresAt.getTime())));
-  return { users, issuedAt: issuedAt.toISOString(), expiresAt: expiresAt.toISOString(), refresh };
+  const calendarWindow = await seededCalendarWindow([...new Set(members.map((m) => m.agencyId))]);
+  return { users, issuedAt: issuedAt.toISOString(), expiresAt: expiresAt.toISOString(), refresh, calendarWindow };
+}
+
+/**
+ * S16-F4: the span every one of `agencyIds` with calendar events has events in — the latest of their first starts to
+ * the earliest of their last — or null (none, or no common span). Index-only per agency
+ * (`calendar_events_agency_idx`: agency_id, starts_at). One statement.
+ */
+export async function seededCalendarWindow(agencyIds: readonly string[]): Promise<{ from: string; to: string } | null> {
+  if (agencyIds.length === 0) return null;
+  const [row] = await withSystem(
+    `${REASON}.calendar`,
+    async (tx) =>
+      (
+        await tx.execute<{ lo: string | null; hi: string | null }>(sql`
+        select max(x.lo) as lo, min(x.hi) as hi
+          from unnest(${`{${agencyIds.join(',')}}`}::uuid[]) as a(id)
+          cross join lateral (select min(starts_at) as lo, max(starts_at) as hi
+                                from calendar_events e where e.agency_id = a.id) x
+         where x.lo is not null`)
+      ).rows,
+  );
+  if (!row?.lo || !row.hi) return null;
+  const from = new Date(row.lo);
+  const to = new Date(row.hi);
+  return from < to ? { from: from.toISOString(), to: to.toISOString() } : null;
 }
 
 export interface TokenService {

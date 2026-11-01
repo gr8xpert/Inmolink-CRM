@@ -24,8 +24,15 @@ import {
 import {
   ACCEPTANCE_PROFILE,
   actionAt,
+  calendarWeekStart,
   ENDPOINTS,
   type Endpoint,
+  emptyItemEndpoints,
+  ITEM_ENDPOINTS,
+  itemCount,
+  itemRows,
+  LIST_PAGES,
+  LIST_PAGES_WITH_ITEMS,
   MAX_PAGE_SIZE,
   MIX,
   minSteadyRequests,
@@ -49,6 +56,7 @@ import {
   thinkSeconds,
   thresholds,
   tokensLastProblem,
+  withItems,
 } from './lib/dashboard-mix';
 
 /** A seeded PRNG (mulberry32): the distributions below are checked on a fixed sample. */
@@ -453,3 +461,87 @@ describe('load-test token refresh service (S16-01)', () => {
 function never(): never {
   throw new Error('not called');
 }
+
+describe('S16-F4 CRM pages with items', () => {
+  const p = resolveProfile({ PROFILE: 'smoke' });
+
+  it('[S16-F4] every CRM list action the seed fills is marked for item counting; others are not', () => {
+    const rng = rngOf(16_04);
+    const s = newVuState();
+    s.contactIds.push('0190c3f0-0000-7000-8000-000000000001');
+    const items = new Set<string>(ITEM_ENDPOINTS);
+    for (const action of ENDPOINTS) {
+      const req = withItems(requestFor(action, rng, s, Date.UTC(2026, 10, 2)));
+      expect({ endpoint: req.endpoint, items: req.items === true }).toEqual({
+        endpoint: req.endpoint,
+        items: items.has(req.endpoint),
+      });
+    }
+    // what k6 draws carries the mark too
+    for (let i = 0; i < 500; i++) {
+      const req = nextRequest(rng, s, Date.now());
+      expect(req.items === true).toBe(items.has(req.endpoint));
+    }
+  });
+
+  it('[S16-F4] items on a page: `items`, or the board leads over its columns; anything else is 0', () => {
+    expect(itemCount('tasks_list', { items: [{}, {}], nextCursor: null })).toBe(2);
+    expect(itemCount('calendar', { items: [] })).toBe(0);
+    expect(itemCount('pipeline_board', { columns: [{ items: [{}] }, { items: [] }, { items: [{}, {}] }] })).toBe(3);
+    expect(itemCount('pipeline_board', { columns: [{ items: [] }] })).toBe(0);
+    expect(itemCount('notifications', null)).toBe(0);
+    expect(itemCount('saved_searches', { items: 'x' })).toBe(0);
+  });
+
+  it('[S16-F4] the smoke fails on an endpoint that answered only empty pages — never on one the run did not reach', () => {
+    const t = thresholds(p);
+    for (const e of ITEM_ENDPOINTS) {
+      // reported, never a limit: k6 shows the sub-metric only when a threshold names it
+      expect(t[`${LIST_PAGES}{endpoint:${e}}`]).toEqual(['count>=0']);
+      expect(t[`${LIST_PAGES_WITH_ITEMS}{endpoint:${e}}`]).toEqual(['count>=0']);
+    }
+    const data: SummaryData = {
+      metrics: {
+        [`${LIST_PAGES}{endpoint:tasks_list}`]: { values: { count: 9 } },
+        [`${LIST_PAGES_WITH_ITEMS}{endpoint:tasks_list}`]: { values: { count: 1 } },
+        [`${LIST_PAGES}{endpoint:calendar}`]: { values: { count: 3 } },
+        [`${LIST_PAGES_WITH_ITEMS}{endpoint:calendar}`]: { values: { count: 0 } },
+        // saved_searches: not sent in this run
+      },
+    };
+    expect(emptyItemEndpoints(data)).toEqual(['calendar']);
+    expect(itemRows(data).find((r) => r.endpoint === 'tasks_list')).toEqual({
+      endpoint: 'tasks_list',
+      pages: 9,
+      withItems: 1,
+    });
+    expect(itemRows(data).find((r) => r.endpoint === 'saved_searches')).toEqual({
+      endpoint: 'saved_searches',
+      pages: 0,
+      withItems: 0,
+    });
+    const r = summaryReport(data, p);
+    expect(r.emptyItemEndpoints).toEqual(['calendar']);
+    expect(summaryText(data, p)).toMatch(/EMPTY CRM pages only .*: calendar/);
+    expect(summaryText(data, p)).toMatch(/tasks_list 1\/9/);
+  });
+
+  it('[S16-F4] the calendar asks for a week inside the seeded span: this week while it lies inside, else the nearest full week', () => {
+    const DAY = 86_400_000;
+    const seedDay = Date.UTC(2026, 10, 1);
+    // the seed's span: 4 weeks before the seed day to 12 after (first and last event start)
+    const window = { fromMs: seedDay - 28 * DAY + 9 * 3_600_000, toMs: seedDay + 84 * DAY - DAY + 17 * 3_600_000 };
+    const inside = seedDay + 10 * DAY + 5_000;
+    expect(calendarWeekStart(inside, window)).toBe(seedDay + 10 * DAY);
+    expect(calendarWeekStart(inside)).toBe(seedDay + 10 * DAY);
+    // half a year after the seed: the span's last full week, not an empty one
+    const late = calendarWeekStart(seedDay + 200 * DAY, window);
+    expect(late + 7 * DAY).toBeLessThanOrEqual(window.toMs);
+    expect(late).toBeGreaterThanOrEqual(window.fromMs - DAY);
+    // before it: its first full day
+    expect(calendarWeekStart(seedDay - 100 * DAY, window)).toBe(seedDay - 27 * DAY);
+    // the request carries that week
+    const req = requestFor('calendar', rngOf(1), newVuState(), seedDay + 200 * DAY, window);
+    expect(req.path).toContain(`from=${encodeURIComponent(new Date(late).toISOString())}`);
+  });
+});

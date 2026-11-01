@@ -92,6 +92,8 @@ export {
   repointSellerListings,
   updateProspect,
 } from './prospects';
+/** S16-F4: the scale seed ranks its leads as the service does. */
+export { timeRank } from './rank';
 export {
   rebuildReportRollups,
   refreshReportDay,

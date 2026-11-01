@@ -117,6 +117,16 @@ async function countAgencies(ids: string[]): Promise<number> {
   return r.rows[0]?.n ?? 0;
 }
 
+/** The first two draws of agency `a`'s RNG: its kind and status. */
+function drawKindStatus(rng: Rng): { kind: 'AGENCY' | 'DEVELOPER'; status: 'PENDING' | 'VERIFIED' } {
+  const kind = rng.next() < 0.05 ? 'DEVELOPER' : 'AGENCY';
+  const status = rng.next() < 0.9 ? 'VERIFIED' : 'PENDING';
+  return { kind, status };
+}
+
+/** Kind and status of scale agency `a` (S16-F4: a saved search's network keys depend on it), as its seeder drew them. */
+export const scaleAgencyKindStatus = (seed: number, a: number) => drawKindStatus(createRng(seed, `agencies:${a}`));
+
 export const agenciesSeeder: Seeder = {
   name: 'agencies.agencies',
 
@@ -153,8 +163,7 @@ export const agenciesSeeder: Seeder = {
       for (let a = start; a < end; a++) {
         const rng = createRng(seed, `agencies:${a}`);
         const id = ids[a] as string;
-        const kind = rng.next() < 0.05 ? 'DEVELOPER' : 'AGENCY';
-        const status = rng.next() < 0.9 ? 'VERIFIED' : 'PENDING';
+        const { kind, status } = drawKindStatus(rng);
         agencies.push(agencyRow(id, a, `Agency ${a}`, kind, status, rng));
         scaleUserProfiles(seed, a).forEach(({ name: userName }, u) => {
           const admin = u === 0;

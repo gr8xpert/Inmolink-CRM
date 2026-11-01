@@ -9,7 +9,8 @@
 // no override; soak-slice — NOT the acceptance soak — takes VUS, DURATION and RAMP),
 // TOKENS_REFRESH_URL (the refresh service as this load generator reaches it, else the file's `refresh.url`),
 // CLIENT_IPS (default 1: `X-Forwarded-For` = the member's office address, one per agency — only an API that trusts one
-// proxy hop reads it; 0: none), SUMMARY_FILE (k6's summary as JSON).
+// proxy hop reads it; 0: none), SUMMARY_FILE (k6's summary as JSON), CALENDAR_FROM / CALENDAR_TO (ISO: the seeded
+// calendar span, default the users file's `calendarWindow`).
 //
 // Tokens: the API takes 15-minute Bearer tokens (audience `api`) only. The users file carries one per member, minted
 // by `identity.issueAccessToken` (the service behind the web app's `/session/token`); for anything longer than one
@@ -23,6 +24,9 @@ import exec from 'k6/execution';
 import http from 'k6/http';
 import { Counter } from 'k6/metrics';
 import {
+  itemCount,
+  LIST_PAGES,
+  LIST_PAGES_WITH_ITEMS,
   newVuState,
   nextRequest,
   observe,
@@ -43,18 +47,26 @@ const FILE = JSON.parse(open(__ENV.USERS_FILE || './.data/dashboard-users.json')
 const REFRESH_URL = (__ENV.TOKENS_REFRESH_URL || FILE.refresh?.url || '').replace(/\/$/, '');
 const REFRESH_SECRET = FILE.refresh?.secret || '';
 const CLIENT_IPS = __ENV.CLIENT_IPS !== '0';
+// S16-F4: the span the members' agencies have seeded calendar events in (the users file's; CALENDAR_FROM / CALENDAR_TO,
+// ISO, override it): the calendar action asks for a week inside it, so an old seed still answers a full week.
+const CAL_FROM = __ENV.CALENDAR_FROM || FILE.calendarWindow?.from;
+const CAL_TO = __ENV.CALENDAR_TO || FILE.calendarWindow?.to;
+const CALENDAR = CAL_FROM && CAL_TO ? { fromMs: Date.parse(CAL_FROM), toMs: Date.parse(CAL_TO) } : null;
 
 export const options = {
   scenarios: scenarios(profile),
   thresholds: thresholds(profile),
   summaryTrendStats: ['avg', 'med', 'p(90)', 'p(95)', 'p(99)', 'max'],
-  // Bodies only of list pages (ids to open, cursors to follow): the load generator stays small at 5,000 VUs.
+  // Bodies only of list pages (ids to open, cursors to follow) and of the CRM pages whose items are counted (S16-F4).
   discardResponseBodies: true,
   dns: { ttl: '1m', select: 'random' },
   userAgent: 'inmolink-load-test/S16-01 (k6)',
 };
 
 const tokenRefreshes = new Counter('token_refreshes');
+// S16-F4: CRM pages answered, and those with items (perf:smoke fails on an endpoint whose pages were all empty)
+const listPages = new Counter(LIST_PAGES);
+const listPagesWithItems = new Counter(LIST_PAGES_WITH_ITEMS);
 const rng = Math.random;
 let failuresLogged = 0;
 
@@ -120,14 +132,14 @@ export function dashboard() {
   exec.vu.metrics.tags.phase = phaseAt(profile, Date.now() - exec.scenario.startTime);
   refreshToken(false);
 
-  const req = nextRequest(rng, state, Date.now());
+  const req = nextRequest(rng, state, Date.now(), CALENDAR);
   const headers = { Authorization: `Bearer ${token}`, 'Accept-Encoding': 'gzip' };
   if (CLIENT_IPS && me.office) headers['X-Forwarded-For'] = me.office;
   if (req.body) headers['Content-Type'] = 'application/json';
   const res = http.request(req.method, `${BASE_URL}${req.path}`, req.body ? JSON.stringify(req.body) : null, {
     headers,
     tags: { endpoint: req.endpoint, name: req.endpoint },
-    ...(req.list ? { responseType: 'text' } : {}),
+    ...(req.list || req.items ? { responseType: 'text' } : {}),
   });
   if (res.status !== 200 && failuresLogged < 5) {
     failuresLogged++;
@@ -142,6 +154,16 @@ export function dashboard() {
   check(res, { 'status 200': (r) => r.status === 200 });
   // A token the API refused (expired between the check and the request, or revoked): fetch a new one now.
   if (res.status === 401) refreshToken(true);
+  if (req.items && res.status === 200) {
+    let n = 0;
+    try {
+      n = itemCount(req.endpoint, res.json());
+    } catch {
+      // not JSON: no items
+    }
+    listPages.add(1, { endpoint: req.endpoint });
+    listPagesWithItems.add(n > 0 ? 1 : 0, { endpoint: req.endpoint });
+  }
   if (req.list && res.status === 200) {
     let ids = [];
     let nextCursor = null;

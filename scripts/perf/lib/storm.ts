@@ -48,7 +48,10 @@ export interface MatchingProfile {
   changes: number;
   windowMs: number;
   maxProcessMs: number;
-  /** Active (not OFF) saved searches the run needs; the driver provisions the shortfall. */
+  /**
+   * Active (not OFF) saved searches the run needs: the scale seed's client profiles (S16-F4: 200 per agency, so the
+   * staging seed's 1M and the perf:smoke seed's 8,000); the driver provisions a shortfall only (and says so).
+   */
   profiles: number;
   /** Agencies the changes are spread over. */
   agencies: number;
@@ -81,7 +84,8 @@ export const MATCHING_PROFILES: Record<StormProfileName, MatchingProfile> = {
     changes: 200,
     windowMs: 60_000,
     maxProcessMs: MATCHING_STORM.maxProcessMs,
-    profiles: 10_000,
+    // S16-F4: the perf:smoke seed's client profiles (40 agencies × 200): the run provisions none
+    profiles: 8_000,
     agencies: 38, // the perf:smoke seed (40 agencies) indexes ~5 priced listings per agency; 200 changes need ~38
     concurrency: 4,
     sampleMs: 2_000,
@@ -155,8 +159,7 @@ export interface StormFeed {
  */
 export function feedMix(feeds: number, sizes: FeedSizes): StormFeed[] {
   if (!Number.isInteger(feeds) || feeds < 1) throw new RangeError('feeds must be a positive integer');
-  const multi8 = Math.floor((feeds * 0.12) / 8);
-  const multi2 = Math.floor((feeds * 0.1) / 2);
+  const { eight: multi8, two: multi2 } = multiFeedTenants(feeds);
   const owners: number[] = [];
   let agency = 0;
   for (let a = 0; a < multi8; a++, agency++) for (let i = 0; i < 8; i++) owners.push(agency);
@@ -181,7 +184,71 @@ export function feedMix(feeds: number, sizes: FeedSizes): StormFeed[] {
   });
 }
 
+/**
+ * The multi-feed tenants of a storm of `feeds` feeds (`feedMix`): `eight` agencies with 8 feeds, `two` with 2. S16-F4:
+ * the scale seed gives that many agencies that many connections for the acceptance storm (`IMPORT_STORM.feeds`), so
+ * the storm provisions none.
+ */
+export function multiFeedTenants(feeds: number): { eight: number; two: number } {
+  return { eight: Math.floor((feeds * 0.12) / 8), two: Math.floor((feeds * 0.1) / 2) };
+}
+
 export const agenciesIn = (mix: readonly StormFeed[]): number => new Set(mix.map((f) => f.agency)).size;
+
+/** A scale-seed feed connection (S16-F4, `scripts/seed/imports.ts`): off, at its seeded URL. */
+export interface SeededConnection {
+  id: string;
+  agencyId: string;
+  url: string;
+}
+
+/** The connection one storm feed runs on: a seeded one (`seededUrl`, put back after the run) or a new one (null). */
+export interface StormConnection {
+  /** Index into the mix. */
+  feed: number;
+  id: string;
+  agencyId: string;
+  seededUrl: string | null;
+}
+
+/**
+ * S16-F4: the tenant and connection of every feed of `mix`. The mix's tenants, most feeds first, each take an agency
+ * holding at least that many free seeded connections (the one with the fewest that suffice, so an 8-connection agency
+ * is kept for an 8-feed tenant); a tenant no such agency is left for takes the next of `fallback` (the load-test
+ * agencies, best first) and its free seeded connections, and gets new ids (`newId`: provisioned for the run) for the
+ * rest. A seeded connection serves one feed (one URL, one run at a time); an agency serves one tenant.
+ */
+export function planConnections(
+  mix: readonly StormFeed[],
+  seeded: readonly SeededConnection[],
+  fallback: readonly string[],
+  newId: () => string,
+): { connections: StormConnection[]; agencies: string[] } {
+  const free = new Map<string, SeededConnection[]>();
+  for (const c of seeded) free.set(c.agencyId, [...(free.get(c.agencyId) ?? []), c]);
+  const feedsOf = new Map<number, number[]>();
+  for (const [i, f] of mix.entries()) feedsOf.set(f.agency, [...(feedsOf.get(f.agency) ?? []), i]);
+  const tenants = [...feedsOf.entries()].sort((a, b) => b[1].length - a[1].length || a[0] - b[0]);
+  const used = new Set<string>();
+  const agencyOf = new Map<number, string>();
+  for (const [tenant, feeds] of tenants) {
+    let best: string | undefined;
+    for (const [agencyId, cs] of free) {
+      if (used.has(agencyId) || cs.length < feeds.length) continue;
+      if (best === undefined || cs.length < (free.get(best)?.length ?? 0)) best = agencyId;
+    }
+    best ??= fallback.find((a) => !used.has(a));
+    if (best === undefined) throw new Error(`${used.size} agencies for ${tenants.length} storm tenants: seed more`);
+    used.add(best);
+    agencyOf.set(tenant, best);
+  }
+  const connections = mix.map((f, feed): StormConnection => {
+    const agencyId = agencyOf.get(f.agency) as string;
+    const c = free.get(agencyId)?.shift();
+    return c ? { feed, id: c.id, agencyId, seededUrl: c.url } : { feed, id: newId(), agencyId, seededUrl: null };
+  });
+  return { connections, agencies: [...new Set(connections.map((c) => c.agencyId))] };
+}
 
 /* ------------------------------------------------------------------ import storm: queue ages */
 

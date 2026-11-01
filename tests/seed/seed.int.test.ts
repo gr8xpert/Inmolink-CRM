@@ -9,21 +9,31 @@ import { DEMO_DOMAIN, DEMO_STAFF_EMAIL, demoEmail } from '../../scripts/seed/ide
 import { scaleCounts } from '../../scripts/seed/profile';
 import { seededId } from '../../scripts/seed/rng';
 import { assertSeedTarget, DEFAULT_DEMO_PASSWORD, runDevSeed, runScaleSeed } from '../../scripts/seed/run';
+import { LOAD_SUITE_SEEDERS } from '../../scripts/seed/seeders';
 import { removeSeededTaxonomy, taxonomySize } from '../../scripts/seed/taxonomy';
+import { removeSeededLoadData } from './cleanup';
 
 // A seed no other suite uses, so its rows are this file's alone.
 const SEED = 913;
+/** The agencies every scale run of this file seeds. */
+const SCALE_AGENCIES = 40;
 const scaleDomain = `%@s${SEED}.scale.inmolink.test`;
 const demoDomain = `%.${DEMO_DOMAIN}`;
 
-/** Users matching `pattern`, and first the listings they own (S3-F6: a listing's owner must stay a member). */
-const removeUsers = (pattern: string) =>
-  withSystem('test.seed.cleanup', async (tx) => {
+/**
+ * Users matching `pattern`, and first the listings they own (S3-F6: a listing's owner must stay a member) and the
+ * scale agencies' CRM, client profiles, feed connections and notifications (S16-F4: leads, tasks and events name the
+ * members; the resumed run seeds them again).
+ */
+const removeUsers = async (pattern: string) => {
+  if (pattern !== demoDomain) await removeSeededLoadData(SEED, SCALE_AGENCIES);
+  await withSystem('test.seed.cleanup', async (tx) => {
     await tx.execute(
       sql`delete from properties where owner_user_id in (select id from users where email like ${pattern})`,
     );
     await tx.delete(users).where(like(users.email, pattern));
   });
+};
 
 const snapshot = (pattern: string) =>
   withSystem('test.seed.snapshot', (tx) =>
@@ -34,8 +44,12 @@ const snapshot = (pattern: string) =>
       .orderBy(asc(users.id)),
   );
 
+/**
+ * Without the load suite's seeders (S16-F4: ~11k CRM rows per agency would put each of this file's many 40-agency runs
+ * past its timeout; `seed-load.int.test.ts` covers them).
+ */
 const scale = (agencies: number, chunk: number) =>
-  runScaleSeed({ agencies, seed: SEED, chunk, scalePassword: DEFAULT_DEMO_PASSWORD });
+  runScaleSeed({ agencies, seed: SEED, chunk, scalePassword: DEFAULT_DEMO_PASSWORD }, { skip: LOAD_SUITE_SEEDERS });
 
 beforeAll(async () => {
   await setupTestDb('script');
@@ -69,6 +83,12 @@ describe('generator', () => {
       contacts: 10_000_000,
       clientProfiles: 1_000_000,
       feedConnections: 5_000,
+      // S16-F4: the CRM ratios of this seed (scripts/seed/profile.ts)
+      leads: 2_000_000,
+      tasks: 750_000,
+      activities: 14_000_000,
+      calendarEvents: 1_200_000,
+      notifications: 1_250_000,
     });
   });
 

@@ -2114,6 +2114,16 @@ Ref §15 · Mod tests · Dep S16-01 · ⚡
 **Build:** `scripts/seed` seeds what `profile.ts` already counts but no seeder writes: 1 feed connection per agency (Kyero, pointing at a load-test feed host given at seed time, paused by default), 200 client profiles / saved searches per agency (DAILY), 2,000 contacts per agency with leads, tasks, activities, calendar entries and notifications in PLAN §4.1 ratios — deterministic and idempotent like the other seeders (COPY per chunk). The storms then use the seeded rows instead of provisioning their own; the dashboard mix asserts its CRM endpoints return items.
 **Done when:** `db:seed:scale --agencies=5000` yields 5,000 feed connections, 1M client profiles and 10M contacts (counts in the scale-seed runbook); the storms run without provisioning; the dashboard smoke shows non-empty CRM pages; seed timing for 5,000 agencies recorded
 
+### S16-F5 · GDPR completeness and scale (S16-04 review)
+Ref §13 · Mod compliance, crm, mls, web · Dep S16-04 · 🔒 ⚡
+**Build:** set-based batch erasure (one statement per table per batch, `auditMany` / `emitMany`, no per-contact loop); the SUBJECT export covers website enquiries, viewing requests, calendar events, seller prospects and selections and pages notes / leads / tasks past 1,000 rows; consent records written by contact import (`IMPORT`) and merge (`MERGE`); sub-processor names and locations in i18n; dashboard UI for the retention setting (with the grace window) and a contact's consent history; legal links in the public portal footer; retention for MLS client registrations and viewing requests (validity + claim period); a full tenant purge after agency erasure (listings, chat, notifications, the agency's member accounts per platform policy).
+**Done when:** erasing 100 contacts runs ≤ 10 statements per table batch (query-count test); the SUBJECT export ZIP of a seeded person contains every category listed in the privacy notice (test); import and merge write consent records (test); the retention UI shows the effective date of a shortened period; the scan test still passes after the tenant purge
+
+### S16-F6 · App metrics reach Prometheus (S16-05)
+Ref §17 · Mod ops, platform · Dep S16-05
+**Build:** every Kamal config sets `*_METRICS_PORT: "0"`, so no Prometheus job scrapes api, feed-api, realtime or the worker pools and every alert / SLO on app metrics has no data (`AppMetricsDown` fires by design). Add a scrape path that survives Kamal's rolling deploys (two containers of a role at once): e.g. each app pushes OTLP metrics to a host-local OpenTelemetry Collector (or Prometheus agent) that Prometheus scrapes, or Docker service discovery on the Kamal labels over the WireGuard network — pick the lightest consistent with PLAN §3 and the platform telemetry adapter; per-instance identity without per-tenant labels.
+**Done when:** on the local test / dev stack a running api, feed-api, realtime and worker each appear as an `up == 1` target (or collector series) and `AppMetricsDown` resolves; a rolling deploy on staging keeps the series continuous (H4); the dashboards from S16-05 show data
+
 ## S17 — Pilot
 
 ### S17-01 · Pilot cutover

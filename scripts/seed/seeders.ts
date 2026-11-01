@@ -6,9 +6,13 @@
  */
 import { agenciesSeeder } from './agencies';
 import { billingSeeder } from './billing';
+import { crmSeeder } from './crm';
 import { exportsSeeder } from './exports';
 import { identityUsers } from './identity';
+import { feedConnectionsSeeder } from './imports';
 import { listingsSeeder } from './listings';
+import { savedSearchesSeeder } from './matching';
+import { notificationsSeeder } from './notifications';
 import { taxonomySeeder } from './taxonomy';
 
 export interface Login {
@@ -29,6 +33,18 @@ export interface ScaleSeedOptions {
   chunk: number;
   /** Plain-text password of every synthetic user (one Argon2 hash shared by all). */
   scalePassword: string;
+  /**
+   * S16-F4: origin the seeded feed connections point at (`<origin>/s<seed>/a<agency>.xml`). They are disabled, so
+   * nothing fetches it until a storm (or an operator) turns one on. Default `DEFAULT_FEED_BASE_URL`: a reserved
+   * `.invalid` host, never a real one.
+   */
+  feedBaseUrl?: string;
+  /**
+   * S16-F4: the day the time-relative CRM rows are placed around (activities and notifications in the 30–60 days
+   * before it — the months whose partitions exist — calendar events from 4 weeks before to 12 after, task due dates).
+   * Default: the start of today (UTC). Rows are found by deterministic ID, so a re-run on a later day writes nothing.
+   */
+  anchor?: Date;
   onProgress?: (done: number, total: number) => void;
 }
 
@@ -56,4 +72,17 @@ export const SEEDERS: readonly Seeder[] = [
   listingsSeeder,
   exportsSeeder,
   billingSeeder,
+  // S16-F4: what the load suite reads (PLAN §15's 10M contacts, 1M client profiles, 5,000 feed connections)
+  feedConnectionsSeeder,
+  savedSearchesSeeder,
+  crmSeeder,
+  notificationsSeeder,
+];
+
+/** S16-F4: the seeders of the load suite's data (feeds, client profiles, CRM, notifications), by name. */
+export const LOAD_SUITE_SEEDERS: readonly string[] = [
+  feedConnectionsSeeder.name,
+  savedSearchesSeeder.name,
+  crmSeeder.name,
+  notificationsSeeder.name,
 ];

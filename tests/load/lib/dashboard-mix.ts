@@ -178,10 +178,19 @@ export function thresholds(p: Profile): Record<string, string[]> {
     // Not a limit: k6 reports a sub-metric only when a threshold names it (requests per endpoint in the summary).
     t[`http_reqs{phase:steady,endpoint:${e}}`] = ['count>=0'];
   }
+  // S16-F4: not limits either — the pages with items per CRM endpoint, over the whole run (`emptyItemEndpoints`)
+  for (const e of ITEM_ENDPOINTS) {
+    t[`${LIST_PAGES}{endpoint:${e}}`] = ['count>=0'];
+    t[`${LIST_PAGES_WITH_ITEMS}{endpoint:${e}}`] = ['count>=0'];
+  }
   return t;
 }
 
 export type Rng = () => number;
+
+/** k6 counters (S16-F4): CRM pages answered 200, and those of them with at least one item, tagged by endpoint. */
+export const LIST_PAGES = 'list_pages';
+export const LIST_PAGES_WITH_ITEMS = 'list_pages_with_items';
 
 export const pick = <T>(rng: Rng, xs: readonly T[]): T | undefined =>
   xs.length === 0 ? undefined : xs[Math.floor(rng() * xs.length) % xs.length];
@@ -231,6 +240,44 @@ export interface Req {
   list?: ListKind;
   /** A first page (no cursor): its query string, or body, starts a new paging. */
   first?: { query: string; body?: Record<string, unknown> };
+  /**
+   * S16-F4: a CRM page the scale seed fills (`ITEM_ENDPOINTS`): the script keeps its body and counts whether it held
+   * items (`list_pages` / `list_pages_with_items`), so the smoke can tell an empty seed from a working one.
+   */
+  items?: true;
+}
+
+/**
+ * S16-F4: the CRM pages the scale seed fills for every seeded agent (contacts, the timeline of a contact it saw, the
+ * activity feed, the board and inbox of its leads, its open tasks, this week of its calendar, its notifications and
+ * its saved searches). The smoke fails when one of them answered only empty pages (`emptyItemEndpoints`) — a check
+ * on what was sent, never a rate: a 60-second run that happened not to send a page asserts nothing about it.
+ */
+export const ITEM_ENDPOINTS = [
+  'contacts_list',
+  'contact_timeline',
+  'activities',
+  'pipeline_board',
+  'leads_list',
+  'tasks_list',
+  'calendar',
+  'notifications',
+  'saved_searches',
+] as const satisfies readonly Endpoint[];
+export type ItemEndpoint = (typeof ITEM_ENDPOINTS)[number];
+const ITEM_SET: ReadonlySet<Endpoint> = new Set(ITEM_ENDPOINTS);
+
+/** Items on a page of an `ITEM_ENDPOINTS` answer: `items`, or a board's leads over its columns. */
+export function itemCount(endpoint: Endpoint, body: unknown): number {
+  const b = (body ?? {}) as { items?: unknown; columns?: unknown };
+  if (endpoint === 'pipeline_board') {
+    if (!Array.isArray(b.columns)) return 0;
+    return b.columns.reduce(
+      (n: number, c: { items?: unknown }) => n + (Array.isArray(c?.items) ? c.items.length : 0),
+      0,
+    );
+  }
+  return Array.isArray(b.items) ? b.items.length : 0;
 }
 
 const qs = (params: [string, string | number][]) =>
@@ -340,11 +387,36 @@ function nextPage(kind: ListKind, s: VuState): Req | undefined {
 const iso = (ms: number) => new Date(ms).toISOString();
 const DAY = 86_400_000;
 
+/** S16-F4: where the members' agencies have calendar events (the users file's `calendarWindow`), epoch ms. */
+export interface CalendarWindow {
+  fromMs: number;
+  toMs: number;
+}
+
+/**
+ * The first day (UTC midnight) of the week the calendar action asks for: this week — or, with the seeded `window`,
+ * the week nearest to it whose 7 days lie inside the window (a seed older than its calendar still answers a full week;
+ * a window shorter than a week, from its first day).
+ */
+export function calendarWeekStart(nowMs: number, window?: CalendarWindow | null): number {
+  const today = Math.floor(nowMs / DAY) * DAY;
+  if (!window) return today;
+  const first = Math.ceil(window.fromMs / DAY) * DAY;
+  const last = Math.max(first, Math.floor(window.toMs / DAY) * DAY - 7 * DAY);
+  return Math.min(Math.max(today, first), last);
+}
+
 /**
  * The request for one action of a working agent, given what the VU has seen. Detail, timeline and next-page actions
  * fall back to the list's first page while the VU has nothing to open or follow (the member opens the list first).
  */
-export function requestFor(action: Endpoint, rng: Rng, s: VuState, nowMs: number): Req {
+export function requestFor(
+  action: Endpoint,
+  rng: Rng,
+  s: VuState,
+  nowMs: number,
+  calendar?: CalendarWindow | null,
+): Req {
   switch (action) {
     case 'listings_list':
       return listingsFirst(rng);
@@ -405,8 +477,8 @@ export function requestFor(action: Endpoint, rng: Rng, s: VuState, nowMs: number
         endpoint: 'tasks_list',
       };
     case 'calendar': {
-      // This week, from the start of today (UTC): the calendar's week view.
-      const from = Math.floor(nowMs / DAY) * DAY;
+      // This week, from the start of today (UTC): the calendar's week view — kept inside the seeded window (S16-F4).
+      const from = calendarWeekStart(nowMs, calendar);
       return {
         method: 'GET',
         path: `/v1/crm/calendar/events?${qs([
@@ -441,8 +513,12 @@ export function requestFor(action: Endpoint, rng: Rng, s: VuState, nowMs: number
   }
 }
 
-/** One action: a weighted draw over the mix, then its request. */
-export const nextRequest = (rng: Rng, s: VuState, nowMs: number): Req => requestFor(actionAt(rng()), rng, s, nowMs);
+/** One action: a weighted draw over the mix, then its request (a CRM page the seed fills is marked `items`). */
+export const nextRequest = (rng: Rng, s: VuState, nowMs: number, calendar?: CalendarWindow | null): Req =>
+  withItems(requestFor(actionAt(rng()), rng, s, nowMs, calendar));
+
+/** `req`, marked `items` when its endpoint is one of `ITEM_ENDPOINTS` (a fallback keeps its own endpoint's mark). */
+export const withItems = (req: Req): Req => (ITEM_SET.has(req.endpoint) ? { ...req, items: true } : req);
 
 const keepLast = (into: string[], ids: readonly string[]) => {
   for (const id of ids) {
@@ -536,6 +612,32 @@ export interface SummaryRow {
   count: number | null;
 }
 
+export interface ItemRow {
+  endpoint: ItemEndpoint;
+  pages: number;
+  withItems: number;
+}
+
+/** S16-F4: per CRM endpoint, the 200 pages the run got and how many held items. */
+export function itemRows(data: SummaryData): ItemRow[] {
+  const count = (name: string) => data.metrics[name]?.values.count ?? 0;
+  return ITEM_ENDPOINTS.map((endpoint) => ({
+    endpoint,
+    pages: count(`${LIST_PAGES}{endpoint:${endpoint}}`),
+    withItems: count(`${LIST_PAGES_WITH_ITEMS}{endpoint:${endpoint}}`),
+  }));
+}
+
+/**
+ * S16-F4: the CRM endpoints that answered pages and never one with an item — the seed lacks their data (or the API
+ * lost it). An endpoint the run did not reach is not listed: there is nothing to judge.
+ */
+export function emptyItemEndpoints(data: SummaryData): ItemEndpoint[] {
+  return itemRows(data)
+    .filter((r) => r.pages > 0 && r.withItems === 0)
+    .map((r) => r.endpoint);
+}
+
 /** The numbers the STATUS entry and the runbook record, from k6's end-of-test summary. */
 export function summaryReport(data: SummaryData, p: Profile) {
   const m = data.metrics;
@@ -569,6 +671,8 @@ export function summaryReport(data: SummaryData, p: Profile) {
     errorRate: m['http_req_failed{phase:steady}']?.values.rate ?? 0,
     tokenRefreshes: m.token_refreshes?.values.count ?? 0,
     rows,
+    items: itemRows(data),
+    emptyItemEndpoints: emptyItemEndpoints(data),
     failedThresholds,
     pass: failedThresholds.length === 0,
   };
@@ -593,6 +697,10 @@ export function summaryText(data: SummaryData, p: Profile): string {
     `  sent ${r.requests} requests in the steady phase = ${r.rps} rps; errors ${(r.errorRate * 100).toFixed(3)} %; token refreshes ${r.tokenRefreshes}`,
     '  latency ms              p50     p95     p99  requests',
     ...r.rows.map((x) => `  ${x.name.padEnd(20)} ${n(x.p50)}  ${n(x.p95)}  ${n(x.p99)}  ${x.count ?? '-'}`),
+    `  CRM pages with items: ${r.items.map((x) => `${x.endpoint} ${x.withItems}/${x.pages}`).join(', ')}`,
+    ...(r.emptyItemEndpoints.length > 0
+      ? [`  EMPTY CRM pages only (seed the CRM: pnpm db:seed:scale): ${r.emptyItemEndpoints.join(', ')}`]
+      : []),
     r.pass ? '  PASS: every threshold held' : `  FAIL: ${r.failedThresholds.join('; ')}`,
   ];
   return `${lines.join('\n')}\n`;

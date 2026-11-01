@@ -13,21 +13,25 @@
 // stack from Node and report in the k6 runs' summary style, thresholds as code (`lib/storm.ts`). Exit code 1 = FAIL.
 //
 // import: N synthetic Kyero v3 feeds (the format every deployed worker reads) served by a fixture HTTP server in this
-//   process; one storm connection per feed on scale-seed agencies (`lib/storm.ts › feedMix`: some agencies hold 8 or 2
-//   feeds); all made due in one UPDATE and picked up by the real scheduler (`imports.scheduleFeeds`, one tick queued at
-//   once) → `imports.run.requested` → dispatcher → `imports.runFeed` on the `imports` pool with its fair-share caps.
+//   process; one connection per feed on scale-seed agencies (`lib/storm.ts › feedMix`: some agencies hold 8 or 2
+//   feeds) — S16-F4: a tenant's first feed on its seeded connection (`scripts/seed/imports.ts`, off until the storm
+//   points it at its feed and turns it on, back off with its seeded URL after), only the multi-feed tenants' extra
+//   feeds on storm connections created for the run; all made due in one UPDATE and picked up by the real scheduler
+//   (`imports.scheduleFeeds`, one tick queued at once) → `imports.run.requested` → dispatcher → `imports.runFeed` on
+//   the `imports` pool with its fair-share caps.
 //   `feed_runs` is sampled every few seconds: a tenant's queue age is the longest any of its runs waited between being
 //   queued (`created_at`, as the ImportQueueWaitHigh alert counts) and starting (`started_at`, or now while waiting).
 //   Each connection is judged by its first run (a second one the scheduler queues later is counted, not judged).
-//   Afterwards the storm connections are deleted (their runs cascade); the imported `STORM-*` listings stay, a re-run
-//   updates them, and `storm cleanup --listings` deletes them (soft delete, as a member would; purged after 30 days).
+//   Afterwards the storm connections are deleted (their runs cascade; a seeded connection keeps its runs); the
+//   imported `STORM-*` listings stay, a re-run updates them, and `storm cleanup --listings` deletes them (soft delete,
+//   as a member would; purged after 30 days).
 // matching: `changes` listing price drops (1 %) spread evenly over `window-ms`, through `properties.updateListing` as
 //   an agency admin of scale-seed agencies (so the outbox → read-model rebuild → `search.listings.changed` →
 //   `matching.matchListings` path runs as in production), against at least `profiles` active saved searches (the
-//   client profiles; the shortfall is provisioned for the run, DAILY — no instant alert or notification fires for
-//   them — and deleted after it). A change is processed when matching wrote the listing's state at its new version
-//   (`matching_listing_states`); the run is processed when every change is, measured from the first change. The
-//   original prices are journalled (`tests/load/.data/storm-prices-<run>.json`) before the first change and restored
+//   client profiles: S16-F4 the scale seed's, 200 DAILY per agency; only a shortfall is provisioned for the run, DAILY
+//   too — no instant alert or notification fires for them — and deleted after it). A change is processed when
+//   matching wrote the listing's state at its new version (`matching_listing_states`); the run is processed when
+//   every change is, measured from the first change. The original prices are journalled (`tests/load/.data/storm-prices-<run>.json`) before the first change and restored
 //   through `properties.updateListing` at the end — or by `storm cleanup` after an interrupted run; a listing whose
 //   price changed again since is left alone.
 //
@@ -60,6 +64,7 @@ import { closeQueues, configureQueue } from '@inmolink/platform/queue';
 import { checkUrl } from '@inmolink/platform/safe-fetch';
 import { type SQL, sql } from 'drizzle-orm';
 import { readStackEnv } from '../ops/stack-env';
+import { SEEDED_FEED_NAME } from '../seed/imports';
 import * as storm from './lib/storm';
 import { assertLoadTarget, loadTestAgencies } from './load-sites';
 
@@ -67,6 +72,8 @@ const ROOT = join(import.meta.dirname, '..', '..');
 /** Where a matching storm journals the prices it drops (git-ignored, as the load tests' other run files). */
 const DATA_DIR = join(ROOT, 'tests', 'load', '.data');
 const PRICE_JOURNAL = /^storm-prices-[a-z0-9]+\.json$/;
+/** Where an import storm journals the seeded connections' URLs it repoints (S16-F4). */
+const FEED_JOURNAL = /^storm-feeds-[a-z0-9]+\.json$/;
 const TSX = join(ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs');
 /** Names of what a storm creates (cleanup finds leftovers by them). */
 const CONNECTION_NAME = 'Storm (S16-01)';
@@ -243,23 +250,63 @@ async function importStorm(staging: boolean): Promise<boolean> {
   // what the workers' safeFetch will say, before 500 runs fail on it (loopback is allowed only in the local worker)
   if (values['feed-base-url']) checkUrl(`${base}/storm/${run}/0.xml`);
 
-  const connectionIds = mix.map(() => newId());
+  // S16-F4: every feed runs on a seeded connection (off; the scale seed gives the acceptance storm's multi-feed tenants
+  // 8 or 2 of them: `scripts/seed/imports.ts`) — a connection is provisioned only for what the seed lacks.
+  const { connections: plan } = storm.planConnections(
+    mix,
+    await seededConnections(),
+    agencies.map((a) => a.agencyId),
+    newId,
+  );
+  const connectionIds = plan.map((c) => c.id);
+  const reused = plan.filter((c) => c.seededUrl !== null);
+  const provisioned = plan.filter((c) => c.seededUrl === null);
+  const feedUrl = (c: storm.StormConnection) => `${base}/storm/${run}/${(mix[c.feed] as storm.StormFeed).feed}.xml`;
   let worker: ChildProcess | undefined;
+  let feedJournal: string | undefined;
   try {
-    await withSystem(`${REASON}.connections`, (tx) =>
-      tx.execute(sql`
-        insert into feed_connections (id, agency_id, name, connector, url)
-        select id, agency_id, name, connector, url from jsonb_to_recordset(${JSON.stringify(
-          mix.map((f, i) => ({
-            id: connectionIds[i],
-            agency_id: (agencies[f.agency] as (typeof agencies)[number]).agencyId,
-            name: `${CONNECTION_NAME} ${run} #${f.feed}`,
-            connector: 'kyero',
-            url: `${base}/storm/${run}/${f.feed}.xml`,
-          })),
-        )}::jsonb) as x(id uuid, agency_id uuid, name text, connector text, url text)`),
+    if (provisioned.length > 0) {
+      await withSystem(`${REASON}.connections`, (tx) =>
+        tx.execute(sql`
+          insert into feed_connections (id, agency_id, name, connector, url)
+          select id, agency_id, name, connector, url from jsonb_to_recordset(${JSON.stringify(
+            provisioned.map((c) => ({
+              id: c.id,
+              agency_id: c.agencyId,
+              name: `${CONNECTION_NAME} ${run} #${(mix[c.feed] as storm.StormFeed).feed}`,
+              connector: 'kyero',
+              url: feedUrl(c),
+            })),
+          )}::jsonb) as x(id uuid, agency_id uuid, name text, connector text, url text)`),
+      );
+    }
+    if (provisioned.length > 0) {
+      log.warn({ provisioned: provisioned.length }, 'the seed lacks feed connections for this mix: provisioned them');
+    }
+    // Their seeded URLs, journalled first: `storm cleanup` puts them back after an interrupted run.
+    if (reused.length > 0) {
+      feedJournal = join(DATA_DIR, `storm-feeds-${run}.json`);
+      mkdirSync(DATA_DIR, { recursive: true });
+      writeFileSync(feedJournal, JSON.stringify({ entries: reused.map((c) => ({ id: c.id, url: c.seededUrl })) }));
+    }
+    // The seeded ones point at this run's feeds and are turned on — a guard pause an earlier run left lifted and the
+    // next run's anomaly check waived once (a reused connection's feed may differ from its last one); `finally` turns
+    // them off and puts their seeded URL back.
+    if (reused.length > 0) {
+      await withSystem(`${REASON}.connections`, (tx) =>
+        tx.execute(sql`
+          update feed_connections c
+             set url = x.url, enabled = true, paused_at = null, pause_reason = null, pause_details = null,
+                 paused_run_id = null, accept_anomaly_once = true, version = version + 1, updated_at = now()
+            from jsonb_to_recordset(${JSON.stringify(reused.map((c) => ({ id: c.id, url: feedUrl(c) })))}::jsonb)
+              as x(id uuid, url text)
+           where c.id = x.id`),
+      );
+    }
+    log.info(
+      { feeds: mix.length, tenants: needed, seeded: reused.length, provisioned: provisioned.length, base },
+      'storm connections ready',
     );
-    log.info({ feeds: mix.length, tenants: needed, base }, 'storm connections created');
     if (localWorkers) worker = await startLocalWorker(['outbox', 'imports', 'indexing'], bound);
 
     // All due at once; the scheduler's next tick queues them (one tick is queued now, the repeatable one follows).
@@ -278,8 +325,9 @@ async function importStorm(staging: boolean): Promise<boolean> {
     let endedAtMs = triggeredAtMs;
     for (;;) {
       await sleep(p.sampleMs);
-      // One row per connection — its first run (the one the storm triggered), with how many it has: a second run the
-      // scheduler queues after the first ended must neither stand in for a connection still waiting nor end the loop.
+      // One row per connection — its first run since the trigger (the one the storm triggered: a seeded connection
+      // keeps earlier storms' runs), with how many it has: a second run the scheduler queues after the first ended must
+      // neither stand in for a connection still waiting nor end the loop.
       const rows = await system<{
         id: string;
         agency_id: string;
@@ -296,6 +344,7 @@ async function importStorm(staging: boolean): Promise<boolean> {
                    extract(epoch from finished_at) * 1000 as finished, extract(epoch from now()) * 1000 as now,
                    (count(*) over (partition by connection_id))::int as runs
               from feed_runs where connection_id = any(${uuids(connectionIds)})
+               and created_at >= to_timestamp(${triggeredAtMs / 1000})
              order by connection_id, created_at, id`,
       );
       extraRuns = rows.reduce((n, r) => n + Math.max(0, Number(r.runs) - 1), 0);
@@ -342,13 +391,49 @@ async function importStorm(staging: boolean): Promise<boolean> {
   } finally {
     await stopWorker(worker);
     server.close();
-    if (!values.keep) {
+    // the seeded connections back as the seed left them (off, their seeded URL), with --keep too; their runs stay
+    if (reused.length > 0) {
+      await restoreSeededConnections(reused.map((c) => ({ id: c.id, url: c.seededUrl as string })));
+      if (feedJournal) rmSync(feedJournal, { force: true });
+      log.info({ seeded: reused.length }, 'seeded connections turned off again');
+    }
+    if (!values.keep && provisioned.length > 0) {
       await withSystem(`${REASON}.cleanup`, (tx) =>
-        tx.execute(sql`delete from feed_connections where id = any(${uuids(connectionIds)})`),
+        tx.execute(sql`delete from feed_connections where id = any(${uuids(provisioned.map((c) => c.id))})`),
       );
       log.info('storm connections deleted (their runs cascade); STORM-* listings stay (storm cleanup --listings)');
     }
   }
+}
+
+/**
+ * The seeded feed connections (S16-F4, `scripts/seed/imports.ts`) of every verified agency — never one with a queued
+ * or running run (an interrupted storm's): the scheduler could not start another on it. ~5,100 rows at 5,000 agencies.
+ */
+async function seededConnections(): Promise<storm.SeededConnection[]> {
+  const rows = await system<{ id: string; agency_id: string; url: string }>(
+    'seeded',
+    sql`select c.id, c.agency_id, c.url
+          from feed_connections c join agencies a on a.agency_id = c.agency_id and a.status = 'VERIFIED'
+         where c.name = ${SEEDED_FEED_NAME}
+           and not exists (select 1 from feed_runs r where r.connection_id = c.id and r.state in ('QUEUED', 'RUNNING'))
+         order by c.agency_id, c.id`,
+  );
+  return rows.map((r) => ({ id: r.id, agencyId: r.agency_id, url: r.url }));
+}
+
+/** Seeded connections back as the seed left them: off, at their seeded URL. One statement. */
+async function restoreSeededConnections(entries: readonly { id: string; url: string }[]): Promise<number> {
+  const rows = await system<{ id: string }>(
+    'restore-feeds',
+    sql`update feed_connections c
+           set url = x.url, enabled = false, next_run_at = null, accept_anomaly_once = false, version = version + 1,
+               updated_at = now()
+          from jsonb_to_recordset(${JSON.stringify(entries)}::jsonb) as x(id uuid, url text)
+         where c.id = x.id and c.name = ${SEEDED_FEED_NAME}
+        returning c.id`,
+  );
+  return rows.length;
 }
 
 /* ------------------------------------------------------------------ matching storm */
@@ -384,9 +469,16 @@ async function matchingStorm(staging: boolean): Promise<boolean> {
     }
     const admins = new Map(agencies.map((a) => [a.agencyId, a]));
 
-    // client profiles: what the database holds, the shortfall provisioned for this run
+    // client profiles: what the database holds — the scale seed's (S16-F4: 200 per agency) — and only a shortfall
+    // provisioned for this run (a seed of too few agencies)
     const existing = await activeProfiles();
-    if (existing < p.profiles) provisioned = await provisionProfiles(p.profiles - existing, profileName);
+    if (existing < p.profiles) {
+      log.warn(
+        { existing, needed: p.profiles },
+        'fewer client profiles than the run needs: provisioning the shortfall (seed more agencies to avoid it)',
+      );
+      provisioned = await provisionProfiles(p.profiles - existing, profileName);
+    }
     const profiles = existing + provisioned;
     log.info({ existing, provisioned, profiles }, 'client profiles ready');
 
@@ -756,7 +848,26 @@ async function cleanup(): Promise<void> {
     profiles += rows.length;
     if (rows.length < PROVISION_BATCH) break;
   }
-  log.info({ connections: c?.n ?? 0, profiles }, 'storm leftovers removed');
+  // S16-F4: seeded connections an interrupted import storm left on: their seeded URLs from its journal, then off
+  let urlsRestored = 0;
+  const feedJournals = existsSync(DATA_DIR) ? readdirSync(DATA_DIR).filter((f) => FEED_JOURNAL.test(f)) : [];
+  for (const f of feedJournals) {
+    const path = join(DATA_DIR, f);
+    const { entries } = JSON.parse(readFileSync(path, 'utf8')) as { entries: { id: string; url: string }[] };
+    urlsRestored += await restoreSeededConnections(entries);
+    rmSync(path, { force: true });
+  }
+  const [off] = await system<{ n: number }>(
+    'cleanup',
+    sql`with u as (update feed_connections
+                      set enabled = false, next_run_at = null, accept_anomaly_once = false, updated_at = now()
+                    where name = ${SEEDED_FEED_NAME} and (enabled or next_run_at is not null) returning 1)
+        select count(*)::int as n from u`,
+  );
+  log.info(
+    { connections: c?.n ?? 0, profiles, seededUrlsRestored: urlsRestored, seededTurnedOff: off?.n ?? 0 },
+    'storm leftovers removed',
+  );
 
   // Prices an interrupted matching storm dropped: every journal left in tests/load/.data, removed once restored.
   const journals = existsSync(DATA_DIR) ? readdirSync(DATA_DIR).filter((f) => PRICE_JOURNAL.test(f)) : [];

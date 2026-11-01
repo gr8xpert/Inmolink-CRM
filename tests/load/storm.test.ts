@@ -14,12 +14,15 @@ import {
   matchingReport,
   matchingSummaryText,
   percentile,
+  planConnections,
   QueueAgeTracker,
   queueAgeOf,
   type RunSample,
   resolveImportProfile,
   resolveMatchingProfile,
 } from '../../scripts/perf/lib/storm';
+import { feedConnectionsOf } from '../../scripts/seed/imports';
+import { seededId } from '../../scripts/seed/rng';
 
 const MIN = 60_000;
 const run = (agencyId: string, created: number, started: number | null, finished: number | null, state: string) =>
@@ -279,5 +282,62 @@ describe('matching storm', () => {
         0.95,
       ),
     ).toBe(95);
+  });
+});
+
+describe('S16-F4 storms on the scale seed', () => {
+  /** The seed's connections of agencies [0, n) of seed 1, as the storm reads them. */
+  const seededOf = (n: number) =>
+    feedConnectionsOf(1, n).flatMap((k, a) =>
+      Array.from({ length: k }, (_, i) => ({
+        id: seededId(1, `imports.feed_connections:${a}`, i),
+        agencyId: `agency-${a}`,
+        url: `https://load-feeds.invalid/s1/a${a}-${i}.xml`,
+      })),
+    );
+
+  it('[S16-F4] the acceptance import storm (500 feeds) runs on seeded connections only: 7 agencies with 8, 25 with 2', () => {
+    const per = feedConnectionsOf(1, 5_000);
+    expect(per.filter((n) => n === 8)).toHaveLength(7);
+    expect(per.filter((n) => n === 2)).toHaveLength(25);
+    expect(per.reduce((n, c) => n + c, 0)).toBe(5_074);
+    const mix = feedMix(IMPORT_STORM.feeds, IMPORT_PROFILES.staging.sizes);
+    let n = 0;
+    const { connections, agencies } = planConnections(mix, seededOf(5_000), [], () => `new-${n++}`);
+    expect(connections.filter((c) => c.seededUrl === null)).toEqual([]);
+    expect(connections).toHaveLength(500);
+    expect(new Set(connections.map((c) => c.id)).size).toBe(500);
+    expect(agencies).toHaveLength(agenciesIn(mix));
+    // each tenant's feeds on one agency, and an agency serves one tenant
+    const tenantOf = new Map<string, number>();
+    for (const c of connections) {
+      const t = (mix[c.feed] as (typeof mix)[number]).agency;
+      expect(tenantOf.get(c.agencyId) ?? t).toBe(t);
+      tenantOf.set(c.agencyId, t);
+    }
+    // the smoke storm (20 feeds) too
+    const smoke = planConnections(feedMix(20, IMPORT_PROFILES.smoke.sizes), seededOf(40), [], () => `new-${n++}`);
+    expect(smoke.connections.filter((c) => c.seededUrl === null)).toEqual([]);
+  });
+
+  it('[S16-F4] what the seed lacks is provisioned: a tenant without enough seeded connections takes a fallback agency and new ids', () => {
+    const mix = feedMix(20, IMPORT_PROFILES.smoke.sizes); // one 2-feed tenant, 18 single ones
+    const single = Array.from({ length: 30 }, (_, a) => ({
+      id: `s${a}`,
+      agencyId: `a${a}`,
+      url: `https://x.invalid/${a}`,
+    }));
+    let n = 0;
+    const { connections } = planConnections(mix, single, ['a0', 'a1'], () => `new-${n++}`);
+    const fresh = connections.filter((c) => c.seededUrl === null);
+    expect(fresh).toHaveLength(1);
+    // the 2-feed tenant took a fallback agency: its seeded connection and one new
+    expect(connections.filter((c) => c.agencyId === (fresh[0] as (typeof fresh)[number]).agencyId)).toHaveLength(2);
+    expect(() => planConnections(mix, [], [], () => 'x')).toThrow(/seed more/);
+  });
+
+  it('[S16-F4] the matching storm profiles are the scale seed ones: 200 per agency — 1M at 5,000 agencies, 8,000 for the 40-agency smoke seed', () => {
+    expect(MATCHING_PROFILES.staging.profiles).toBe(5_000 * 200);
+    expect(MATCHING_PROFILES.smoke.profiles).toBe(40 * 200);
   });
 });

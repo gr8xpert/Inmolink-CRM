@@ -23,7 +23,8 @@
 // for --users scale-seed agents (`scripts/perf/load-tokens.ts`, with its refresh service on for the run), starts the real
 // apps/api (TRUST_PROXY=1: each member's office address in `X-Forwarded-For`), runs `tests/load/dashboard.js` (smoke
 // profile, --users VUs for --duration seconds) in the pinned k6 image and prints p50 / p95 / p99 per endpoint and the
-// statements per request of the API's roles (`app_user`, `app_auth`): fails on a k6 threshold or over 10.
+// statements per request of the API's roles (`app_user`, `app_auth`): fails on a k6 threshold or over 10, and (S16-F4)
+// when a CRM endpoint the seed fills answered only empty pages (`dashboard-mix.ts › emptyItemEndpoints`).
 import { type ChildProcess, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -595,7 +596,16 @@ async function runDashboardSmoke(): Promise<void> {
       'perf:smoke dashboard',
     );
     console.table(report.rows);
+    console.table(report.items);
     process.exitCode = code;
+    // S16-F4: the scale seed fills every agent's CRM pages; an endpoint that answered only empty ones means it did not
+    if (report.emptyItemEndpoints.length > 0) {
+      log.error(
+        { endpoints: report.emptyItemEndpoints },
+        'CRM pages answered without items: seed the CRM (pnpm db:seed:scale, or drop --skip-seed)',
+      );
+      process.exitCode = 1;
+    }
     if (statementsPerRequest !== null && statementsPerRequest > API_STATEMENT_BUDGET) {
       log.error(
         { statementsPerRequest },

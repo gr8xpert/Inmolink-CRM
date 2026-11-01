@@ -59,8 +59,15 @@ prints p50 / p95 / p99 per endpoint and **statements per request** (`app_user` +
    route group) and the run fails on 429s. Put it back afterwards.
 4. Stop the token service (Ctrl+C); delete the users file.
 
-The scale seed has no contacts, leads, tasks, notifications or calendar rows yet (S16-F4): those endpoints answer
-empty pages and their p95 means little until it does.
+CRM pages (S16-F4): the scale seed fills every agent's contacts, contact timelines, activity feed, board and inbox,
+open tasks, calendar (the weeks around the seed day) and notifications, and their saved searches
+([scale-seed.md](scale-seed.md)). k6 counts, per CRM endpoint, the pages that answered 200 and those with at least one
+item (`list_pages` / `list_pages_with_items`, `dashboard-mix.ts › ITEM_ENDPOINTS`); the summary prints both, and
+`perf:smoke dashboard` **fails when a CRM endpoint answered only empty pages** (`emptyItemEndpoints`) — a check of what
+was sent, not a rate, so an endpoint the 60-second run did not reach is not judged. The calendar's events lie from
+4 weeks before to 12 weeks after the seed day; `perf:load:tokens` writes the span the members' agencies share into the
+users file (`calendarWindow`; k6 `CALENDAR_FROM` / `CALENDAR_TO` override it) and the calendar action asks for this
+week while it lies inside, else the nearest full week inside it — an old seed still answers full weeks.
 
 ## Import and matching storms
 
@@ -68,19 +75,26 @@ Not k6: neither has an HTTP surface whose latency is the target (k6 can neither 
 read queue ages or match states). `scripts/perf/storm.ts` drives the real stack from Node and reports in the k6 runs'
 style.
 
-- **import:** N synthetic Kyero v3 feeds served by a fixture HTTP server in the driver, one storm connection per feed on
-  scale-seed agencies (some agencies hold 8 or 2 feeds), all made due in one UPDATE and picked up by the real scheduler
+- **import:** N synthetic Kyero v3 feeds served by a fixture HTTP server in the driver, one connection per feed on
+  scale-seed agencies (some agencies hold 8 or 2 feeds). S16-F4: every feed runs on a **seeded** connection (off:
+  `scripts/seed/imports.ts`; the seed gives the acceptance storm's 7 eight-feed and 25 two-feed tenants that many) —
+  the storm gives each tenant an agency with enough of them, points them at its feeds, turns them on and, at the end,
+  off again with their seeded URL back (journalled in `tests/load/.data/storm-feeds-<run>.json` first). A connection is
+  provisioned for the run only for what the seed lacks (with a warning). All made due in one UPDATE and picked up by the real scheduler
   (`imports.scheduleFeeds` → dispatcher → `imports.runFeed` with its fair-share caps). A tenant's queue age is the
   longest any of its runs waited between `created_at` (as ImportQueueWaitHigh counts it) and `started_at`. PASS: worst
   tenant ≤ 15 min, every run SUCCEEDED, no timeout. Scheduler lag counts too: the worst run's trigger → start must also be ≤ 15 min.
-  Each connection is judged by its first run (later runs are reported, not judged). The storm connections are deleted afterwards (the `STORM-*`
-  listings stay; a re-run updates them).
+  Each connection is judged by its first run since the trigger (a seeded connection keeps earlier storms' runs; later
+  runs are reported, not judged). The storm connections are deleted afterwards (the `STORM-*` listings stay; a re-run
+  updates them).
 - **matching:** 1 % price drops through `properties.updateListing`, paced over the window, so outbox → read-model
   rebuild → `search.listings.changed` → `matching.matchListings` runs as in production, against at least `profiles`
-  active saved searches (the shortfall is provisioned DAILY for the run and deleted after it). A change is processed
+  active saved searches — S16-F4: the scale seed's client profiles (200 DAILY per agency: 1M at 5,000 agencies, 8,000
+  for the 40-agency local seed, the smoke profile's number); only a shortfall is provisioned (DAILY, with a warning,
+  deleted after the run). A change is processed
   when `matching_listing_states.version` reaches it. PASS: last change matched ≤ 10 min after the first.
   The original prices are journalled in `tests/load/.data/storm-prices-<run>.json` and restored at the end;
-  provisioned profiles are DAILY, so no instant alerts fire (searches already in the database are untouched — on
+  seeded and provisioned profiles are DAILY, so no instant alerts fire (searches already in the database are untouched — on
   staging check outbound email is sandboxed).
 
 **Local:** `pnpm perf:storm import --test` and `pnpm perf:storm matching --test` start the real worker
@@ -90,7 +104,7 @@ style.
 `NODE_ENV=production DEPLOY_ENV=staging pnpm perf:storm import --staging --listen 0.0.0.0:8080 --feed-base-url
 https://<public host>` (safeFetch allows ports 80 / 443 only and no private ranges: put a TLS proxy or tunnel in front
 of 8080), then `pnpm perf:storm matching --staging`. `pnpm perf:storm cleanup [--staging]` removes what an interrupted
-run left. `cleanup` also restores price journals left by an interrupted matching storm;
+run left (and puts seeded connections it left on back: their seeded URL from the run's journal, then off). `cleanup` also restores price journals left by an interrupted matching storm;
 `cleanup --listings` soft-deletes the imported `STORM-*` listings (purged after the 30-day restore window).
 
 ## Realtime

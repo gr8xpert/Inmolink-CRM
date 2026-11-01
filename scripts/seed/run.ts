@@ -48,7 +48,12 @@ export async function runDevSeed(options: DevSeedOptions): Promise<SeedReport> {
 /** `pnpm db:seed:scale`: §4.1 ratios × `agencies`, COPY-based, deterministic per `seed`. */
 export async function runScaleSeed(
   options: ScaleSeedOptions,
-  hooks: { allowStaging?: boolean; onSeeder?: (name: string) => void } = {},
+  hooks: {
+    allowStaging?: boolean;
+    onSeeder?: (name: string) => void;
+    /** Seeders (by name) not to run — a test of the others that does not need, say, the CRM (S16-F4). */
+    skip?: readonly string[];
+  } = {},
 ): Promise<SeedReport> {
   assertSeedTarget({ allowStaging: hooks.allowStaging ?? false, scalePassword: options.scalePassword });
   if (!Number.isInteger(options.agencies) || options.agencies < 1) throw new RangeError('agencies must be ≥ 1');
@@ -56,6 +61,7 @@ export async function runScaleSeed(
   const t0 = performance.now();
   const results: Record<string, SeedResult> = {};
   for (const seeder of SEEDERS) {
+    if (hooks.skip?.includes(seeder.name)) continue;
     hooks.onSeeder?.(seeder.name);
     const started = performance.now();
     const result = await seeder.scale(options);

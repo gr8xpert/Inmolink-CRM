@@ -1,5 +1,5 @@
 // pnpm db:seed [--test]
-// pnpm db:seed:scale --agencies=N [--seed=1] [--chunk=100] [--test] [--staging]
+// pnpm db:seed:scale --agencies=N [--seed=1] [--chunk=100] [--feed-base-url=https://…] [--test] [--staging]
 //
 // Dev seed: 5 demo agencies with known logins (printed at the end). Scale seed: PLAN §4.1 ratios ×
 // N agencies, COPY-based and deterministic per --seed (docs/runbooks/scale-seed.md). Both are
@@ -20,6 +20,8 @@ const { values, positionals } = parseArgs({
     agencies: { type: 'string' },
     seed: { type: 'string', default: '1' },
     chunk: { type: 'string', default: '100' },
+    // S16-F4: the origin the seeded (disabled) feed connections point at; default a reserved `.invalid` host
+    'feed-base-url': { type: 'string' },
   },
 });
 const mode = positionals[0];
@@ -67,6 +69,7 @@ try {
         seed,
         chunk,
         scalePassword: process.env.SEED_SCALE_PASSWORD ?? DEFAULT_DEMO_PASSWORD,
+        ...(values['feed-base-url'] ? { feedBaseUrl: values['feed-base-url'] } : {}),
         onProgress: (done, total) => process.stdout.write(`\r  ${done}/${total} agencies`),
       },
       { allowStaging: values.staging, onSeeder: (name) => process.stdout.write(`\n${name}\n`) },
