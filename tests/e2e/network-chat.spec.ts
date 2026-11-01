@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import type { Browser, Page } from '@playwright/test';
+import { consentState } from './consent';
 import { expect, test } from './fixtures';
 import { SEED_PASSWORD as password, seedListingAgent } from './seed';
 import { testStackEnv } from './stack';
@@ -20,7 +21,7 @@ interface Agency {
 /** An agent of a verified agency, signed in in a browser context of its own. */
 async function signIn(browser: Browser): Promise<Agency> {
   const seeded = await seedListingAgent();
-  const context = await browser.newContext({ baseURL: WEB_URL, locale: 'en-GB' });
+  const context = await browser.newContext({ baseURL: WEB_URL, locale: 'en-GB', storageState: consentState(WEB_URL) });
   const page = await context.newPage();
   await page.goto('/login');
   await page.getByLabel('Email').fill(seeded.email);

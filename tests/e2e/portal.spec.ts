@@ -2,6 +2,7 @@ import { randomInt } from 'node:crypto';
 import { RENDER_MARGIN_MS } from '@inmolink/platform/cache';
 import type { APIRequestContext, Browser } from '@playwright/test';
 import { Redis } from 'ioredis';
+import { consentState } from './consent';
 import { expect, test } from './fixtures';
 import {
   LISTING_TAXONOMY,
@@ -40,7 +41,7 @@ async function listingTagTime(listingId: string): Promise<number | null> {
 /** A verified agency's agent, signed in on the dashboard; its api token comes from the web session. */
 async function agent(browser: Browser) {
   const seeded = await seedListingAgent();
-  const context = await browser.newContext({ baseURL: WEB_URL, locale: 'en-GB' });
+  const context = await browser.newContext({ baseURL: WEB_URL, locale: 'en-GB', storageState: consentState(WEB_URL) });
   const page = await context.newPage();
   await page.goto('/login');
   await page.getByLabel('Email').fill(seeded.email);
@@ -281,7 +282,7 @@ test('[S15-02] portal: an enquiry reaches the listing agency as a MARKETPLACE le
   await expect(form.getByRole('status')).toContainText(`sent to ${seller.company}`);
 
   // The listing agency sees it in its inbox as a marketplace lead (promoted by the worker from the outbox).
-  const context = await browser.newContext({ baseURL: WEB_URL, locale: 'en-GB' });
+  const context = await browser.newContext({ baseURL: WEB_URL, locale: 'en-GB', storageState: consentState(WEB_URL) });
   const dashboard = await context.newPage();
   await dashboard.goto('/login');
   await dashboard.getByLabel('Email').fill(seller.email);

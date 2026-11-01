@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { type APIRequestContext, type Browser, chromium, type Page } from '@playwright/test';
 import lighthouse from 'lighthouse';
+import { consentState } from './consent';
 import { expect, test } from './fixtures';
 import { SEED_PASSWORD as password, seedListingAgent, TAXONOMY_IDS } from './seed';
 import { PORTS, PUBLIC_URL, testStackEnv } from './stack';
@@ -28,7 +29,7 @@ interface Agent {
 /** An agent of a verified agency, signed in in its own browser context; its API token comes from the web session. */
 async function signIn(browser: Browser): Promise<Agent> {
   const seeded = await seedListingAgent();
-  const context = await browser.newContext({ baseURL: WEB_URL, locale: 'en-GB' });
+  const context = await browser.newContext({ baseURL: WEB_URL, locale: 'en-GB', storageState: consentState(WEB_URL) });
   const page = await context.newPage();
   await page.goto('/login');
   await page.getByLabel('Email').fill(seeded.email);

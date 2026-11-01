@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
+import { consentState } from './tests/e2e/consent';
 import { PORTS, PUBLIC_URL, ROOT, testStackEnv } from './tests/e2e/stack';
 
 /**
@@ -36,6 +37,8 @@ export default defineConfig({
   reporter: [['list']],
   use: {
     baseURL: env.WEB_URL,
+    // S16-04: the cookie choice already made, so the cookie banner does not cover the flows' controls.
+    storageState: consentState(env.WEB_URL as string),
     trace: 'retain-on-failure',
     locale: 'en-GB',
     ...devices['Desktop Chrome'],
