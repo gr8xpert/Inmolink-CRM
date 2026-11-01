@@ -19,6 +19,8 @@ export interface NetworkUnitTerms {
   /** The currency of `commissionFixedCents` (the unit's, or its development's when the development's applies). */
   commissionCurrency: string;
   commissionIncludesVat: boolean;
+  /** S17-F5: the selling agency's share of the commission (basis points), the development's (units have none). */
+  splitBp: number;
 }
 
 function assertAgentSide(ctx: Ctx): void {
@@ -41,6 +43,7 @@ export async function networkUnitTerms(ctx: Ctx, ids: readonly string[]): Promis
       commissionFixedCents: own ? r.unitCommissionFixedCents : r.developmentCommissionFixedCents,
       commissionCurrency: own ? r.currency : r.developmentCurrency,
       commissionIncludesVat: own ? r.unitCommissionIncludesVat : r.developmentCommissionIncludesVat,
+      splitBp: r.splitBp,
     };
   });
 }
@@ -53,6 +56,8 @@ export interface NetworkDevelopmentTerms {
   /** The currency of `commissionFixedCents` (the development's). */
   commissionCurrency: string;
   commissionIncludesVat: boolean;
+  /** S17-F5: the selling agency's share of the commission (basis points). */
+  splitBp: number;
 }
 
 /**
@@ -70,6 +75,7 @@ export async function networkDevelopmentTerms(ctx: Ctx, id: string): Promise<Net
     commissionFixedCents: row.commissionFixedCents,
     commissionCurrency: row.currency,
     commissionIncludesVat: row.commissionIncludesVat,
+    splitBp: row.splitBp,
   };
 }
 

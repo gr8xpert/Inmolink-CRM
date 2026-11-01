@@ -76,6 +76,8 @@ export const AUDIT_TYPES = [
   'developments.development.accessChanged',
   'developments.development.commissionChanged',
   'developments.unit.commissionChanged',
+  // S17-F5: the share of a development's commission going to the selling agency — metadata: old and new basis points.
+  'developments.development.commissionSplitChanged',
   'developments.priceList.approved',
   'imports.connection.created',
   'imports.connection.changed',

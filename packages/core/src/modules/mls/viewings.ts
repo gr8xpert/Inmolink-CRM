@@ -7,9 +7,9 @@
  *   listing or development its copy; each changes only its own row, and the definer triggers keep the other in step in
  *   the same statement. The owner never sees the client: no registration, contact or any of the client's details.
  * - **The terms.** Read from the target as the introducer's RLS shows it when requesting — the listing's commission
- *   (percentage or fixed amount), split and VAT flag, or a development's commission (paid whole: split 10000) — and
- *   valid until the registration ends. The introducer accepts them by requesting, the owner by accepting the request or
- *   proposing another time; from then on `viewing_terms_guard` refuses any change, whatever the role.
+ *   (percentage or fixed amount), split and VAT flag, or a development's commission and its own split (S17-F5: 5000
+ *   unless the owner set another) — and valid until the registration ends. The introducer accepts them by requesting,
+ *   the owner by accepting the request or proposing another time; from then on `viewing_terms_guard` refuses any change, whatever the role.
  * - **Answers.** The side awaited accepts or declines the time on the table; either side proposes another time (the
  *   other must answer it), cancels, or — after the scheduled time — records the outcome. One request at a time:
  *   every transition takes the request's advisory lock, then reads its own row.
@@ -53,12 +53,6 @@ import { assertCan } from './policy';
 import * as repo from './viewings-repo';
 
 const DAY_MS = 86_400_000;
-/**
- * A developer pays a development's commission to the selling agency whole: there is no listing agent to split with.
- * Developments carry no split of their own (`developments` has commission columns only); the same rule as network
- * search's `UNIT_SPLIT_BP` (`search/network.ts`), so the terms shown upfront are the terms snapshotted.
- */
-const DEVELOPMENT_SPLIT_BP = 10_000;
 
 type Action = EventPayload<typeof mlsEvents.viewingChanged>['action'];
 
@@ -184,7 +178,8 @@ async function termsSnapshot(ctx: Ctx, kind: string, id: string): Promise<Snapsh
     commissionBp: pct ? t.commissionBp : null,
     commissionFixedCents: pct ? null : t.commissionFixedCents,
     commissionCurrency: pct ? null : t.commissionCurrency,
-    splitBp: DEVELOPMENT_SPLIT_BP,
+    // S17-F5: the development's own split, as network search shows it — snapshotted, so a later change leaves it.
+    splitBp: t.splitBp,
     commissionIncludesVat: t.commissionIncludesVat,
   };
 }

@@ -39,7 +39,8 @@
     "locationId": "Ubicación",
     "currency": "Moneda",
     "commission": "Comisión para agencias colaboradoras (%)",
-    "commissionIncludesVat": "La comisión incluye IVA"
+    "commissionIncludesVat": "La comisión incluye IVA",
+    "commissionSplit": "Parte de la comisión para la agencia vendedora (%)"
   },
   "fieldInvalid": "Este valor no es válido.",
   "create": {
@@ -56,6 +57,7 @@
     "verify": "Confirmar que unidades y precios están al día",
     "verifiedAt": "Verificada por última vez el {date}",
     "notVerified": "Nunca verificada",
+    "commissionSplitHint": "Lo que recibe la agencia que vende una unidad; el resto es para ti. 50 significa 50/50. Las solicitudes ya hechas mantienen el reparto con el que se hicieron.",
     "fixedCommission": "Hay una comisión fija ({amount}); vacía el campo para quitarla o escribe un porcentaje para sustituirla.",
     "readOnly": "Promoción de otra agencia: puedes consultarla y escribir tus propios textos para tus canales.",
     "feed": {

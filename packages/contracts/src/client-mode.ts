@@ -34,6 +34,8 @@ export const CLIENT_MODE_STRIPPED_FIELDS: ReadonlySet<string> = new Set([
   'commissionBp',
   'commissionFixed',
   'splitBp',
+  // S17-F5: a development's split for the selling agency
+  'commissionSplitBp',
   'defaultCommission',
   'defaultSplitBp',
   'minCommissionBp',

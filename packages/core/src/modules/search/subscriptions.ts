@@ -18,9 +18,16 @@ let unsubscribe: (() => void)[] | undefined;
  * Development fields its units' documents never show: an edit of only these (the "prices are
  * current" confirmation of a price-list approval — whose price changes arrive as `priceList.approved`) rebuilds
  * nothing. A commission change is not ignored (S7-F4): the units without a commission of their own carry the
- * development's in their index documents (the fallback rows and the engine filter a website's minimum on it).
+ * development's in their index documents (the fallback rows and the engine filter a website's minimum on it). Its
+ * split is ignored (S17-F5): agency-to-agency terms, never in a read model or an index document — network search reads
+ * it with the commission terms at hydration, viewing requests snapshot it.
  */
-export const DEVELOPMENT_IGNORED_FIELDS: ReadonlySet<string> = new Set(['lastVerifiedAt', 'managedBy', 'ref']);
+export const DEVELOPMENT_IGNORED_FIELDS: ReadonlySet<string> = new Set([
+  'lastVerifiedAt',
+  'managedBy',
+  'ref',
+  'commissionSplitBp',
+]);
 
 const { propertiesEvents } = properties;
 const { developmentsEvents } = developments;

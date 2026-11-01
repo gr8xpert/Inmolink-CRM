@@ -29,6 +29,8 @@ interface Draft {
   /** Percentage as typed ("3", "2.5"); empty: no percentage commission. */
   commissionPct: string;
   includesVat: boolean;
+  /** S17-F5: the selling agency's share of the commission, a percentage as typed ("50", "60.5"). */
+  splitPct: string;
   /** The feed field locks (S8-F5); empty on a development no feed created. */
   lockedFields: LockableDevelopmentField[];
 }
@@ -44,6 +46,7 @@ const draftOf = (d: DevelopmentDto): Draft => ({
   locationId: d.locationId,
   commissionPct: d.commission?.type === 'PCT' ? String(d.commission.basisPoints / 100) : '',
   includesVat: d.commission?.includesVat ?? false,
+  splitPct: d.commissionSplitBp === null ? '' : String(d.commissionSplitBp / 100),
   lockedFields: d.feed?.lockedFields ?? [],
 });
 
@@ -95,6 +98,11 @@ export function DevelopmentEditor({ development, locations, readOnly, messages }
         body.commission = { type: 'PCT', basisPoints: Math.round(pct * 100), includesVat: draft.includesVat };
       } else body.commission = 'invalid';
     }
+    if (draft.splitPct.trim() !== before.splitPct) {
+      // The server checks the range (0–10000 bp); anything not a number is sent as is and refused.
+      const pct = Number(draft.splitPct.replace(',', '.'));
+      body.commissionSplitBp = draft.splitPct.trim() !== '' && Number.isFinite(pct) ? Math.round(pct * 100) : 'invalid';
+    }
     return body;
   };
 
@@ -138,7 +146,7 @@ export function DevelopmentEditor({ development, locations, readOnly, messages }
   const field = (name: keyof Draft) => ({
     id: `${ids}-${name}`,
     disabled: readOnly || pending,
-    'aria-invalid': bad(name === 'commissionPct' ? 'commission' : name),
+    'aria-invalid': bad(name === 'commissionPct' ? 'commission' : name === 'splitPct' ? 'commissionSplitBp' : name),
   });
 
   return (
@@ -263,6 +271,19 @@ export function DevelopmentEditor({ development, locations, readOnly, messages }
               />
               {t('fields.commissionIncludesVat')}
             </label>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor={`${ids}-splitPct`}>{t('fields.commissionSplit')}</Label>
+              <Input
+                {...field('splitPct')}
+                inputMode="decimal"
+                aria-describedby={`${ids}-splitPct-hint`}
+                value={draft.splitPct}
+                onChange={(e) => setDraft({ ...draft, splitPct: e.target.value })}
+              />
+              <p id={`${ids}-splitPct-hint`} className="text-xs text-muted-foreground">
+                {t('editor.commissionSplitHint')}
+              </p>
+            </div>
             <div className="flex flex-wrap items-center gap-2 md:col-span-2">
               <Button type="submit" size="sm" disabled={pending}>
                 {t('editor.save')}

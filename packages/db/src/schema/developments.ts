@@ -85,6 +85,12 @@ export const developments = pgTable(
     commissionBp: integer('commission_bp'),
     commissionFixedCents: bigint('commission_fixed_cents', { mode: 'number' }),
     commissionIncludesVat: boolean('commission_includes_vat').notNull().default(false),
+    /**
+     * S17-F5: the share of the commission (basis points, 0–10000) the selling agency gets on a unit; the rest stays
+     * with the development's owner agency. 5000 (50/50) unless the owner's admins set another. Agent side only:
+     * never in a read model, an index document or any client-facing output.
+     */
+    commissionSplitBp: integer('commission_split_bp').notNull().default(5000),
     currency: char('currency', { length: 3 }).notNull().default('EUR'),
     managedBy: developmentManagerEnum('managed_by').notNull().default('DEVELOPER'),
     /** When the maintainer last confirmed units and prices (freshness SLA 24 h). */
@@ -122,6 +128,7 @@ export const developments = pgTable(
         and (${t.commissionFixedCents} is null or ${t.commissionFixedCents} between 1 and 100000000000)
         and not (${t.commissionBp} is not null and ${t.commissionFixedCents} is not null)`,
     ),
+    check('developments_commission_split_ck', sql`${t.commissionSplitBp} between 0 and 10000`),
     check(
       'developments_coordinates_ck',
       sql`(${t.lat} is null) = (${t.lng} is null)

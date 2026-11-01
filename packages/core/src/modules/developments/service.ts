@@ -115,6 +115,7 @@ export function toDevelopmentDto(ctx: Ctx, row: repo.DevelopmentListRow, allowed
     locationId: row.locationId,
     coordinates: lat === null || lng === null ? null : { lat, lng },
     commission: ctx.clientMode ? null : commissionOf(row, row.currency),
+    commissionSplitBp: ctx.clientMode ? null : row.commissionSplitBp,
     currency: row.currency,
     managedBy: row.managedBy,
     lastVerifiedAt: row.lastVerifiedAt?.toISOString() ?? null,
@@ -180,7 +181,7 @@ const point = (c: { lat: number; lng: number } | null | undefined) =>
  */
 export async function createDevelopment(ctx: Ctx, input: CreateDevelopmentBody): Promise<DevelopmentDto> {
   assertCan(ctx, 'development.create');
-  if (input.commission != null) assertCan(ctx, 'development.commission');
+  if (input.commission != null || input.commissionSplitBp !== undefined) assertCan(ctx, 'development.commission');
   const currency = input.currency ?? (await agencies.getAgencySettings(ctx)).currency;
   assertCommissionCurrency(input.commission, currency);
   const agencyId = ctx.tenant.agencyId;
@@ -195,6 +196,8 @@ export async function createDevelopment(ctx: Ctx, input: CreateDevelopmentBody):
       locationId: input.locationId,
       ...point(input.coordinates ?? null),
       ...commissionColumns(input.commission ?? null),
+      // S17-F5: left out, the column's default (5000, 50/50).
+      ...(input.commissionSplitBp !== undefined ? { commissionSplitBp: input.commissionSplitBp } : {}),
       currency,
       managedBy: input.managedBy ?? 'DEVELOPER',
     }),
@@ -260,7 +263,10 @@ export function lockedFieldsAfter(
  */
 export async function updateDevelopment(ctx: Ctx, id: string, input: UpdateDevelopmentBody): Promise<DevelopmentDto> {
   const current = await ownForChange(ctx, id, 'development.update');
-  if (input.commission !== undefined) assertCan(ctx, 'development.commission', current);
+  // The commission and its split are the deal offered to collaborating agencies: the owner's admins only.
+  if (input.commission !== undefined || input.commissionSplitBp !== undefined) {
+    assertCan(ctx, 'development.commission', current);
+  }
   assertCommissionCurrency(input.commission, current.currency);
   const lockedFields = lockedFieldsAfter(current, input);
   const patch: Partial<repo.DevelopmentInsert> = {
@@ -272,6 +278,7 @@ export async function updateDevelopment(ctx: Ctx, id: string, input: UpdateDevel
     ...(input.managedBy !== undefined ? { managedBy: input.managedBy } : {}),
     ...point(input.coordinates),
     ...(input.commission !== undefined ? commissionColumns(input.commission) : {}),
+    ...(input.commissionSplitBp !== undefined ? { commissionSplitBp: input.commissionSplitBp } : {}),
     ...(input.verified ? { lastVerifiedAt: clock.now() } : {}),
     ...(lockedFields !== undefined ? { lockedFields } : {}),
   };
@@ -297,6 +304,15 @@ export async function updateDevelopment(ctx: Ctx, id: string, input: UpdateDevel
         before: commissionLabel(commissionOf(current, current.currency)),
         after: commissionLabel(commissionOf(updated, updated.currency)),
       },
+    );
+  }
+  if (changed.includes('commissionSplitBp')) {
+    // S17-F5: the selling agency's share — new network results and viewing terms use it; requested ones keep theirs.
+    await compliance.audit(
+      ctx,
+      'developments.development.commissionSplitChanged',
+      { type: 'development', id },
+      { before: current.commissionSplitBp, after: updated.commissionSplitBp },
     );
   }
   await emit(

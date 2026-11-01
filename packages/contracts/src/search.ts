@@ -316,7 +316,7 @@ export type GiveToGetGate = z.infer<typeof GiveToGetGate>;
 
 /**
  * A result's commission (PLAN §3 #7), from the listing's or unit's own values: the total (a percentage of the price
- * or a fixed amount), the collaborating agent's share (`splitBp`; a developer pays a unit's commission whole, 10000)
+ * or a fixed amount), the collaborating agent's share (`splitBp`; for a unit, its development's split — S17-F5, default 5000)
  * and what the caller earns — price × total × split, or the fixed amount × split, rounded down to the cent; null
  * when the price is on request.
  */

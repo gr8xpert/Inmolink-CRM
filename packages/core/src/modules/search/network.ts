@@ -203,9 +203,6 @@ export function networkCommission(t: CommissionTerms): NetworkCommission | null 
   return null;
 }
 
-/** A developer pays a unit's commission to the selling agency whole: there is no listing agent to split with. */
-const UNIT_SPLIT_BP = 10_000;
-
 type Parsed = ReturnType<typeof NetworkSearchBody.parse>;
 
 /** Who the caller is on the network: its own agency and its preferred list. */
@@ -386,7 +383,8 @@ async function hydrate(ctx: Ctx, ids: string[], scope: Scope, locale: string): P
         commissionBp: t.commissionBp,
         commissionFixedCents: t.commissionFixedCents,
         commissionCurrency: t.commissionCurrency,
-        splitBp: UNIT_SPLIT_BP,
+        // S17-F5: the development's own split (5000 unless its owner set another), read with the terms.
+        splitBp: t.splitBp,
         includesVat: t.commissionIncludesVat,
       }),
     });

@@ -382,16 +382,35 @@ describe('commission', () => {
       preferred: true,
       commission: { totalBp: 300, splitBp: 6000, viewerEarnings: { amountCents: 540_000 } },
     });
-    // A unit: the development's 4 %, paid whole by the developer — €250,000 × 4 % = €10,000
+    // A unit: the development's 4 % at its default split (S17-F5: 50/50) — €250,000 × 4 % × 50 % = €5,000
     expect(items.get(U.shared as string)).toMatchObject({
       kind: 'UNIT',
       ownerAgency: { id: d.agencyId },
-      commission: { type: 'PCT', totalBp: 400, splitBp: 10_000, viewerEarnings: { amountCents: 1_000_000 } },
+      commission: { type: 'PCT', totalBp: 400, splitBp: 5000, viewerEarnings: { amountCents: 500_000 } },
     });
     // Agent side: the owner's name; the card is the client-safe read model.
     const name = await rows<{ name: string }>(sql`select name from agency_directory where agency_id = ${a.agencyId}`);
     expect(items.get(L.aAll as string)?.ownerAgency.name).toBe(name[0]?.name);
     expect(items.get(L.aAll as string)?.card).not.toHaveProperty('commission');
+  });
+
+  it("[S17-F5] a development's new split shows in network results at once, with no reindex", async () => {
+    const unitCommission = async () =>
+      ok(await net(v, { newBuilds: true })).items.find((i) => i.id === U.shared)?.commission;
+    const dev = await as(d, (ctx) => developments.getDevelopment(ctx, DEV.shared as string));
+    const changed = await as(d, (ctx) =>
+      developments.updateDevelopment(ctx, dev.id, { version: dev.version, commissionSplitBp: 7000 }),
+    );
+    try {
+      // €250,000 × 4 % × 70 % = €7,000, read with the terms at hydration (the index document is unchanged).
+      expect(await unitCommission()).toMatchObject({ splitBp: 7000, viewerEarnings: { amountCents: 700_000 } });
+      expect(await countQueries(() => net(v))).toBeLessThanOrEqual(10);
+    } finally {
+      await as(d, (ctx) =>
+        developments.updateDevelopment(ctx, dev.id, { version: changed.version, commissionSplitBp: 5000 }),
+      );
+    }
+    expect(await unitCommission()).toMatchObject({ splitBp: 5000 });
   });
 
   it('[S5-05] a page is at most ten statements (dashboard budget)', async () => {

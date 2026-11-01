@@ -788,10 +788,12 @@ export async function networkUnitTerms(tx: Tx, selfId: string, ids: readonly str
       developmentCommissionFixedCents: developments.commissionFixedCents,
       developmentCommissionIncludesVat: developments.commissionIncludesVat,
       developmentCurrency: developments.currency,
+      // S17-F5: the selling agency's share, from the row the statement already joins (no extra join).
+      splitBp: developments.commissionSplitBp,
     })
     .from(units)
     .innerJoin(developments, eq(developments.id, units.developmentId))
-    .where(and(inArray(units.id, [...ids]), sql`${units.agencyId} <> ${selfId}`));
+    .where(and(inArray(units.id, [...ids]), isNull(developments.deletedAt), sql`${units.agencyId} <> ${selfId}`));
 }
 
 /**
@@ -807,6 +809,7 @@ export async function networkDevelopmentTerms(tx: Tx, selfId: string, id: string
       commissionBp: developments.commissionBp,
       commissionFixedCents: developments.commissionFixedCents,
       commissionIncludesVat: developments.commissionIncludesVat,
+      splitBp: developments.commissionSplitBp,
     })
     .from(developments)
     .where(and(eq(developments.id, id), isNull(developments.deletedAt), sql`${developments.agencyId} <> ${selfId}`));

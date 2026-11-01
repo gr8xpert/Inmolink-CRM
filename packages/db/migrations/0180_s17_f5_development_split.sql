@@ -1,0 +1,2 @@
+ALTER TABLE "developments" ADD COLUMN "commission_split_bp" integer DEFAULT 5000 NOT NULL;--> statement-breakpoint
+ALTER TABLE "developments" ADD CONSTRAINT "developments_commission_split_ck" CHECK ("developments"."commission_split_bp" between 0 and 10000);

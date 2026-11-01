@@ -29,6 +29,14 @@ const Ref = z.string().trim().min(1).max(40);
 const Area = z.number().min(0).max(1_000_000);
 const PriceCents = z.number().int().min(0).max(100_000_000_000);
 
+/**
+ * S17-F5: the share of a development's unit commission that goes to the SELLING agency, in basis points of the
+ * commission (0–10000; the rest stays with the development's owner agency). 5000 (50/50) on a new development.
+ * Agency-to-agency terms: never in client-facing output.
+ */
+export const CommissionSplitBp = z.number().int().min(0).max(10_000);
+export type CommissionSplitBp = z.infer<typeof CommissionSplitBp>;
+
 /** The development fields a feed run leaves alone once the owner locks them (`LOCKABLE_DEVELOPMENT_FIELDS`, S8-F5). */
 export const LockableDevelopmentField = z.enum(LOCKABLE_DEVELOPMENT_FIELDS);
 export type LockableDevelopmentField = z.infer<typeof LockableDevelopmentField>;
@@ -52,6 +60,8 @@ export const DevelopmentDto = z.object({
   coordinates: Coordinates.nullable(),
   /** Offered to collaborating agencies; null when none is set, and always in Client Mode. */
   commission: Commission.nullable(),
+  /** S17-F5: the selling agency's share of the commission (basis points); null in Client Mode. */
+  commissionSplitBp: CommissionSplitBp.nullable(),
   currency: CurrencyCode,
   managedBy: DevelopmentManager,
   lastVerifiedAt: z.iso.datetime().nullable(),
@@ -82,6 +92,8 @@ export const CreateDevelopmentBody = z
     locationId: z.uuid(),
     coordinates: Coordinates.nullable().optional(),
     commission: Commission.nullable().optional(),
+    /** S17-F5: the selling agency's share of the commission (admins); left out, 5000 (50/50). */
+    commissionSplitBp: CommissionSplitBp.optional(),
     currency: CurrencyCode.optional(),
     managedBy: DevelopmentManager.optional(),
   })

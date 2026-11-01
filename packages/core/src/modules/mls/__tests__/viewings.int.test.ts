@@ -1,4 +1,4 @@
-import { CreateContactBody, CreateListingBody, UpdateListingBody } from '@inmolink/contracts';
+import { CreateContactBody, CreateDevelopmentBody, CreateListingBody, UpdateListingBody } from '@inmolink/contracts';
 import { closeDb, countQueries, withSystem, withTenant } from '@inmolink/db';
 import { adminQuery, loadStackEnv, setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
 import { createKeyring, generateKey } from '@inmolink/platform/crypto';
@@ -16,6 +16,7 @@ import type { Ctx } from '../../../context';
 import { withMemberCtx } from '../../../member';
 import { createFounder, type Founder, impersonatedCtx } from '../../../testing/factories';
 import * as crm from '../../crm';
+import * as developments from '../../developments';
 import * as documents from '../../documents';
 import * as properties from '../../properties';
 import * as taxonomy from '../../taxonomy';
@@ -111,8 +112,8 @@ async function listing(commission: unknown, splitBp: number): Promise<string> {
   return id;
 }
 
-/** A client of `a` registered for `listingId`: the registration's id. */
-async function registered(listingId: string): Promise<string> {
+/** A client of `a` registered for `listingId` (or a development): the registration's id. */
+async function registered(listingId: string, kind: 'LISTING' | 'DEVELOPMENT' = 'LISTING'): Promise<string> {
   seq += 1;
   const contact = (
     await as(a, (ctx) =>
@@ -128,7 +129,7 @@ async function registered(listingId: string): Promise<string> {
   ).contact;
   const reg = await mls.registerClient((fn) => as(a, fn), {
     contactId: contact.id,
-    target: { kind: 'LISTING', id: listingId },
+    target: { kind, id: listingId },
   });
   return reg.registration.id;
 }
@@ -643,5 +644,44 @@ describe('accepted-terms PDF (S12-05)', () => {
     expect(renderer.documents[0]).not.toMatch(/Mara|example\.com/);
     expect(await store.head('private', documents.viewingTermsKey(r.request.id))).not.toBeNull();
     expect((await mls.viewingTerms((fn) => as(a, fn), r.request.id)).pdfUrl).toEqual(expect.any(String));
+  });
+});
+
+// Last in the file: its development targets would add a label lookup to the S11-02 list budgets above.
+describe('development split (S17-F5)', () => {
+  it("[S17-F5] new viewing terms take the development's current split; a request already made keeps its snapshot", async () => {
+    // b's OPEN development at 3 %, its split left at the default (50/50).
+    const created = await as(b, (ctx) =>
+      developments.createDevelopment(
+        ctx,
+        CreateDevelopmentBody.parse({
+          ref: `VW-D-${RUN}`,
+          name: 'Viewing Heights',
+          locationId: ids.city,
+          commission: { type: 'PCT', basisPoints: 300, includesVat: false },
+        }),
+      ),
+    );
+    expect(created.commissionSplitBp).toBe(5000);
+    const dev = await as(b, (ctx) =>
+      developments.setDevelopmentAccess(ctx, created.id, {
+        version: created.version,
+        kind: 'OPEN',
+        allowedAgencyIds: [],
+      }),
+    );
+    const { request: first } = await request(await registered(dev.id, 'DEVELOPMENT'));
+    expect(first.terms).toMatchObject({ commissionBp: 300, splitBp: 5000 });
+
+    // The owner's admin changes the split: a new request takes it, the first keeps its own (both sides' rows).
+    await as(b, (ctx) =>
+      developments.updateDevelopment(ctx, dev.id, { version: dev.version, commissionSplitBp: 6500 }),
+    );
+    const { request: second } = await request(await registered(dev.id, 'DEVELOPMENT'));
+    expect(second.terms).toMatchObject({ commissionBp: 300, splitBp: 6500 });
+    expect((await as(a, (ctx) => mls.getViewingRequest(ctx, first.id))).terms.splitBp).toBe(5000);
+    const stored = await bothRows(first.id);
+    expect([stored.introducer?.split_bp, stored.owner?.split_bp]).toEqual([5000, 5000]);
+    expect((await bothRows(second.id)).owner?.split_bp).toBe(6500);
   });
 });
