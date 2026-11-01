@@ -2164,6 +2164,16 @@ Ref §15 · Mod search, compliance, mls, crm, ops · Dep S16-F3 S16-F5 · ⚡
 **Build:** release a sitemap run's claim when its mark is stale; throttle delisting-triggered sitemap regenerations per agency and measure them; `clearAgencyText` walks on a keyset (no unbounded statement); spread the daily retention sweep's delay per agency; index for the inactive-contact retention scan (`agency_id, last_activity_at`) — `CONCURRENTLY` in its own migration; SLO recording-rule interval matches the scrape interval; `mls.pruneRegistrations` skips agencies with nothing past retention.
 **Done when:** each item has a test or an `EXPLAIN` in the STATUS entry (no Seq Scan on the scale seed); retention sweep and prune stay < 20 ms a page on the scale seed
 
+### S17-F4 · Remove the legacy system bridge (decision 2026-11-01)
+Ref §14 · Mod website-api, feed-api, migration, platform, wp-plugin · Dep —
+**Build:** the old Inmolink system will not run beside v2. Remove the legacy `/v1` API shim (S8-02, S8-F10 hostname cutover, S16-F9 flag `LEGACY_V1_HIDE_NETWORK_OWNER`), its golden files and harness (`tests/golden`, `pnpm legacy:traffic`, `pnpm legacy:record`, `test:golden`), the live legacy delta reader / parallel run (S15-F4 `platform/legacy-db`, `LEGACY_DATABASE_URL`, hourly `migration.scheduleLegacyDeltas`) and the WP plugin's legacy settings migration (S8-F11). **Keep:** the one-time legacy data import (S2-06, S4-04, S14 importers, `legacy_id_maps`) and the portal's legacy URL 301 redirects (SEO). Contracts, OpenAPI, SDK, runbooks, CI and PATTERNS updated; no dead env vars.
+**Done when:** no route answers `/v1/*` legacy paths (404); the one-time import tests and the legacy-URL redirect tests still pass; `pnpm verify` green; nothing references the removed env vars, scripts or flags
+
+### S17-F5 · Per-development commission split for new-build units (decision 2026-11-01)
+Ref §7 · Mod developments, search, mls, web · Dep —
+**Build:** replace the hard-coded `UNIT_SPLIT_BP = 10_000` (`search/network.ts`, mirrored in `mls/viewings.ts`) with a development field `commission_split_bp` (basis points to the selling agency, 0–10000, **default 5000 = 50/50**), editable by the development's owner admins in the dashboard (EN / ES), validated in contracts, carried on the read model / index documents so network search shows it without a join, and snapshotted into viewing-request terms. Existing developments backfill to 5000.
+**Done when:** a new development defaults to 50/50; an owner admin can change it and network search and new viewing terms show the new split; a viewing already requested keeps its snapshotted split; a non-owner cannot change it; tests
+
 ## S17 — Pilot
 
 ### S17-01 · Pilot cutover
