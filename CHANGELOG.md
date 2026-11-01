@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- fix(identity,ops): Client Mode and social connect-state work under the production redis-queue limits ACL (selector for inl:cm:* / inl:social:state:*: GET/SET/DEL, plus MULTI/EXEC); ACL-coverage test derives every limits-connection operation from source [S16-F11]
 - feat(identity,web): 2FA proofs are bound to the web session and single-use; a captured, replayed or raced proof is refused, and so is every proof while the limits Redis is down [S16-F10]
 - fix(tests,ops): ops tests portable to Linux CI — dashboard promtool / amtool mounts world-readable (mkdtemp 0700 vs prom/* running as nobody); app-metrics scrapes each app through a forwarder container carrying its real Kamal alias, so the template's DNS discovery runs unchanged (Prometheus ignores /etc/hosts). New test image: alpine/socat:1.8.0.3 (pinned by digest) [S16 CI]
 - feat(security): S16-03 hardening — dashboard nonce CSP limited to configured hosts (new optional web env MEDIA_CDN_URL, S3_ENDPOINT, MAP_TILE_ORIGINS; Kamal web config sets them), security headers on all apps, login daily cap counts password checks only, rate-limit / CORS coverage tests (apiKeyLimited route tag), CI dependency audit + gitleaks; deps: zod 4.6.7, nodemailer 10.1.7, fastify 5.12.7 (scoped overrides); new CI tool: gitleaks 8.28.0 (Docker, pinned digest) [S16-03]

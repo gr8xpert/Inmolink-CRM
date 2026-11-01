@@ -54,8 +54,12 @@ app_metrics_port: 9095
 # ACL of redis-queue's `exporter` user (S7-F7): server state only (INFO, SLOWLOG, LATENCY), no key, no CONFIG (CONFIG GET
 # would show the default user's requirepass), no CLIENT KILL. `maxmemory` comes from INFO memory.
 redis_exporter_acl: "resetkeys resetchannels -@all +ping +auth +hello +select +client|setname +client|getname +client|info +info +slowlog|get +slowlog|len +latency|latest +latency|histogram +command|info +cluster|info"
-# ACL of redis-queue's `limits` user (S1-F6). tests/adapters/rate-limit.int.test.ts runs the limiter as it.
-redis_limits_acl: "resetkeys ~inl:rl:* resetchannels -@all +ping +client|setname +get +incrby +pexpire +pfadd +pfcount +eval +evalsha"
+# ACL of redis-queue's `limits` user (S1-F6). tests/adapters/rate-limit.int.test.ts runs the limiter as it;
+# tests/adapters/limits-acl.int.test.ts checks every limits-connection operation of the code base against it (S16-F11).
+# Root: the rate-limit counters `inl:rl:*` (limiter scripts, the 2FA proof nonce) with the scripts' commands; MULTI/EXEC.
+# Selector (S16-F11): server-side state that must never be evicted — Client Mode (`inl:cm:*`, S12-06) and the social
+# connect-state nonces (`inl:social:state:*`, S12-07) — with GET / SET / DEL on those keys only (no SET on counters).
+redis_limits_acl: "resetkeys ~inl:rl:* resetchannels -@all +ping +client|setname +get +incrby +pexpire +pfadd +pfcount +eval +evalsha +multi +exec (~inl:cm:* ~inl:social:state:* +get +set +del)"
 # ACL of redis-queue's `media` user (S3-F7): the media container's BullMQ keys only — its queue, its dead letters
 # and its fair-share sets — so it cannot add a job to a pool that runs as app_system. No admin, no key listing.
 # apps/worker/src/least-privilege.int.test.ts runs a media worker as it.

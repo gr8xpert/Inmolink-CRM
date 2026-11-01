@@ -1,13 +1,16 @@
 import { randomBytes } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { closeDb, withSystem } from '@inmolink/db';
 import { loadStackEnv, setupTestDb } from '@inmolink/db/testing';
+import { whenReady } from '@inmolink/platform/cache';
 import { restoreClock, useFakeClock } from '@inmolink/platform/clock';
 import { hmacSha256 } from '@inmolink/platform/crypto';
 import { hashPassword } from '@inmolink/platform/crypto/password';
 import { isAppError } from '@inmolink/platform/errors';
 import { newId } from '@inmolink/platform/ids';
 import { createAccessTokenSigner, generateAccessKeyPair, privateKeyFromBase64 } from '@inmolink/platform/jwt';
-import { closeRateLimit, configureRateLimit } from '@inmolink/platform/rate-limit';
+import { closeRateLimit, configureRateLimit, rateLimitConnection } from '@inmolink/platform/rate-limit';
 import { sql } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { authCtx, type Ctx } from '../../../context';
@@ -238,5 +241,68 @@ describe('Client Mode (S12-06)', () => {
     const rows = await auditRows(m.userId);
     expect(rows.filter((r) => r.metadata.reason === 'rate_limited')).toHaveLength(2);
     expect(rows.filter((r) => r.metadata.reason === 'wrong')).toHaveLength(identity.CLIENT_MODE_PIN_LIMITS.user.limit);
+  });
+});
+
+/** The ACL that production gives redis-queue's `limits` user (Ansible group_vars). */
+function limitsAcl(): string {
+  const vars = readFileSync(join(import.meta.dirname, '../../../../../../infra/ansible/group_vars/all.yml'), 'utf8');
+  const acl = vars.match(/^redis_limits_acl: "([^"]+)"$/m)?.[1];
+  if (!acl) throw new Error('redis_limits_acl missing from infra/ansible/group_vars/all.yml');
+  return acl;
+}
+
+describe('Client Mode under the production limits ACL (S16-F11)', () => {
+  /** Runs `fn` with the limits connection logged in as a fresh user with `acl`; the user is removed after. */
+  async function asLimitsUser(acl: string, fn: () => Promise<void>): Promise<void> {
+    const adminUrl = process.env.REDIS_LIMITS_URL as string;
+    const admin = async () => {
+      const redis = rateLimitConnection(); // the test stack's default user (configured in beforeAll)
+      await whenReady(redis);
+      return redis;
+    };
+    const user = `cm-acl-${Date.now().toString(36)}${randomBytes(3).toString('hex')}`;
+    const password = randomBytes(16).toString('hex');
+    await (await admin()).call('ACL', 'SETUSER', user, 'on', `>${password}`, ...acl.split(' '));
+    try {
+      const url = new URL(adminUrl);
+      url.username = user;
+      url.password = password;
+      await configureRateLimit({ url: url.toString(), commandTimeoutMs: 2_000 });
+      await fn();
+    } finally {
+      await configureRateLimit({ url: adminUrl, commandTimeoutMs: 2_000 });
+      await (await admin()).call('ACL', 'DELUSER', user);
+    }
+  }
+
+  it('[S16-F11] enter, login, mint, wrong and right PIN and exit work as the production limits user', async () => {
+    const m = await createFounder();
+    await asLimitsUser(limitsAcl(), async () => {
+      const { state, sessionId } = await enter(m, '4821');
+      expect(await identity.activeClientModeOf({ userId: m.userId, sessionId })).toEqual(state);
+      expect(claimsOf((await mint(m, sessionId)).token).cm).toBe(true);
+      const login = sid();
+      expect(await identity.clientModeAtLogin({ userId: m.userId, sessionId: login })).toEqual(state);
+      // The PIN check (attempt budget + per-user limits on `inl:rl:*`), wrong then right: exit ends it everywhere.
+      const check = (pin: string) => identity.checkClientModePin(auth(), { userId: m.userId, sessionId, state, pin });
+      expect(await check('0000')).toBe('wrong');
+      expect(await check('4821')).toBe('ok');
+      expect(await identity.activeClientModeOf({ userId: m.userId, sessionId })).toBeNull();
+      expect(await identity.clientModeAtLogin({ userId: m.userId, sessionId: sid() })).toBeNull();
+      expect(claimsOf((await mint(m, login)).token).cm).toBeUndefined();
+    });
+  });
+
+  it('[S16-F11] the ACL before S16-F11 (counters only) refuses Client Mode with NOPERM', async () => {
+    const old = limitsAcl().replace(/ \+multi \+exec \(.*\)$/, '');
+    expect(old).not.toContain('inl:cm');
+    const m = await createFounder();
+    await asLimitsUser(old, async () => {
+      const { proof } = await as(m, (ctx) => identity.startClientMode(ctx, { pin: '4821' }));
+      await expect(identity.activateClientMode({ userId: m.userId, sessionId: sid(), proof })).rejects.toThrow(
+        /NOPERM/,
+      );
+    });
   });
 });

@@ -100,7 +100,11 @@ const kUser = (userId: string) => `${PREFIX}:u:${userId}`;
 const NONCE_RE = /^[A-Za-z0-9_-]{16,64}$/;
 const SID_RE = /^[A-Za-z0-9_-]{16,64}$/;
 
-/** The limits Redis (never evicting), once it is ready (no offline queue: the first command would fail). */
+/**
+ * The limits Redis (never evicting), once it is ready (no offline queue: the first command would fail). Held as `redis`
+ * so tests/adapters/limits-acl.int.test.ts sees every command against the production `limits` ACL (S16-F11: GET / SET
+ * / DEL / MULTI / EXEC on `inl:cm:*`, a selector of `redis_limits_acl`).
+ */
 async function limits() {
   const redis = rateLimitConnection();
   await whenReady(redis);
@@ -113,7 +117,8 @@ const macOf = (payload: string) => hmacSha256(identityConfig().hmacKey, 'client-
 
 async function readNonce(n: string): Promise<NonceState | null> {
   if (!NONCE_RE.test(n)) return null;
-  const raw = await (await limits()).get(kNonce(n));
+  const redis = await limits();
+  const raw = await redis.get(kNonce(n));
   if (!raw) return null;
   try {
     const v = JSON.parse(raw) as NonceState;
