@@ -296,6 +296,8 @@ async function signAttachment(tx: Tx, agencyId: string, ticketId: string, attach
   if (!file?.storageKey.startsWith(`support/${agencyId}/`)) throw new AppError('NOT_FOUND');
   const url = await storage().signedGetUrl('private', file.storageKey, {
     expiresInSeconds: ATTACHMENT_URL_TTL_SECONDS,
+    // S16-03: served as the type sniffed at upload, whatever the object metadata says.
+    responseContentType: file.contentType,
     downloadName: file.fileName,
   });
   return { url, expiresAt: new Date(clock.now().getTime() + ATTACHMENT_URL_TTL_SECONDS * 1_000).toISOString() };

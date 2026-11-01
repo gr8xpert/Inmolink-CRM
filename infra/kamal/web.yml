@@ -56,6 +56,8 @@ env:
     APP_ROLE: "http"
     PORT: "3000"
     HOSTNAME: "0.0.0.0"
+    # S16-03: the dashboard CSP lets browsers load media from here (same CDN as the other apps).
+    MEDIA_CDN_URL: "https://media.inmolink.es"
   secret:
     - RELEASE
     - SENTRY_DSN
@@ -73,3 +75,5 @@ env:
     # Login challenge past the per-email ceiling (S1-F5). The site key is public, but named like a secret.
     - TURNSTILE_SITE_KEY
     - TURNSTILE_SECRET_KEY
+    # S16-03: the presigned-upload origin the dashboard CSP allows (the account endpoint, a secret like api / worker).
+    - S3_ENDPOINT

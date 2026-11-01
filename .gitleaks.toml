@@ -1,0 +1,58 @@
+# Secrets scan (S16-03): gitleaks' default rules, plus an allowlist of the known fixture values. CI scans the commits
+# of every push / pull request (`security` job); the whole history was scanned once in S16-03
+# (docs/build/reviews/security-R1.md §2).
+#
+# Values, not paths: a real secret pasted into a test file is still found. Every entry below is a throwaway test value
+# (HMAC / cursor / tag keys, fake Stripe ids, invite tokens) or a key from the committed example env files — public by
+# definition, and refused by production config (`EXAMPLE_*` checks, S0-09 / S1-F2). A real secret is never listed here:
+# rotate it instead. A new fixture that trips a rule gets a placeholder-looking value (`test-…`) or its own entry.
+title = "Inmolink gitleaks config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Known test fixture values and committed example keys (S16-03 history scan)"
+regexTarget = "secret"
+regexes = [
+  # generic-api-key: .env.example, packages/platform/src/config/config.test.ts
+  '''^MC4CAQAwBQYDK2VwBCIEIIokFZlFPiG5rY8/BikaWmui4W0LMkhhDR3/KrGI9\+cd$''',
+  # generic-api-key: .env.test.example
+  '''^MC4CAQAwBQYDK2VwBCIEIBP0MNQwneJOmX9FB1fCGzYW2m2CH/HbLPrYk6lodqUv$''',
+  # stripe-access-token: apps/api/src/billing.int.test.ts
+  '''^sk_test_apitest0123456789$''',
+  # generic-api-key: apps/api/src/billing.int.test.ts
+  '''^whsec_apitest0123456789abcdef$''',
+  # generic-api-key: apps/feed-api/src/portal-feeds.int.test.ts, apps/public/src/embed/embed.int.test.ts and 4 more
+  '''^test-edge-key-0123456789abcdef0123456789$''',
+  # generic-api-key: apps/public/src/embed/security.test.ts
+  '''^test-key-0123456789abcdef0123456789$''',
+  # generic-api-key: apps/public/src/selections/selections.int.test.ts, apps/public/src/embed/embed.int.test.ts
+  '''^test-cursor-key-0123456789abcdef$''',
+  # generic-api-key: packages/contracts/src/website-leads.test.ts
+  '''^0b9a1c2d-3e4f-4a5b-8c6d-7e8f9a0b1c2d$''',
+  # stripe-access-token: packages/core/src/modules/billing/__tests__/fake-stripe.ts
+  '''^sk_test_fake0123456789abcdef$''',
+  # generic-api-key: packages/core/src/modules/billing/__tests__/quotas.int.test.ts
+  '''^quota-test-cursor-key-0123456789abcdef$''',
+  # generic-api-key: packages/platform/src/server/server.test.ts
+  '''^invite-secret-0123456789$''',
+  # generic-api-key: tests/isolation/generated.int.test.ts
+  '''^v1\.isolation-envelope$''',
+  # generic-api-key: tests/ops/chaos.int.test.ts, packages/core/src/modules/website-api/__tests__/portal-invalidation.int.test.ts and 29 more
+  '''^test-cursor-key-0123456789abcdef0123$''',
+  # generic-api-key: tests/perf/website-limits.int.test.ts
+  '''^perf-cursor-key-0123456789abcdef0123$''',
+  # generic-api-key: tests/workspace/legacy-api.test.ts
+  '''^a1b2c3d4e5f6secretA$''',
+]
+
+[[allowlists]]
+description = "Never scanned: dependencies, build output, the lockfile, local load-test keys (gitignored or generated)"
+paths = [
+  # Load-test API keys and tokens of the local test stack (S7-08): gitignored, never committed.
+  '''(^|/)tests/load/\.data/''',
+  '''(^|/)node_modules/''',
+  '''(^|/)(dist|dist-widget|\.next|\.turbo|coverage|graphify-out)/''',
+  '''pnpm-lock\.yaml$''',
+]

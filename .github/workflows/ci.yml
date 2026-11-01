@@ -208,10 +208,31 @@ jobs:
         run: docker compose -f apps/wp-plugin/docker-compose.test.yml down --volumes
 
   # The single check branch protection requires: fails unless every job above succeeded.
+  # S16-03 (PLAN §12 "dependency scanning in CI; secrets never in the repo"): the lockfile's advisories at High and
+  # above fail the build (decided Moderate/Low ones: docs/build/reviews/security-R1.md §1), and gitleaks scans the
+  # commits this push or pull request adds (the whole history was scanned in S16-03). `.gitleaks.toml` allowlists
+  # test fixtures and the committed example env files only.
+  security:
+    name: Dependency audit, secrets scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false, fetch-depth: 0 }
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0; pnpm version from package.json "packageManager"
+      - name: Dependency audit (High and Critical fail)
+        run: pnpm audit --audit-level=high
+      - name: Secrets scan (gitleaks, new commits)
+        env:
+          RANGE: ${{ github.event_name == 'pull_request' && format('{0}..{1}', github.event.pull_request.base.sha, github.event.pull_request.head.sha) || (github.event.before != '0000000000000000000000000000000000000000' && github.event.before != '' && format('{0}..{1}', github.event.before, github.sha)) || github.sha }}
+        run: >-
+          docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/repo" zricethezav/gitleaks@sha256:cdbb7c955abce02001a9f6c9f602fb195b7fadc1e812065883f695d1eeaba854
+          git /repo --config /repo/.gitleaks.toml --redact --no-banner --log-opts="$RANGE"
+
   required:
     name: required
     if: always()
-    needs: [static, boundaries, isolation, integration, e2e, migrations, deploy-config, wp-plugin]
+    needs: [static, boundaries, isolation, integration, e2e, migrations, deploy-config, wp-plugin, security]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

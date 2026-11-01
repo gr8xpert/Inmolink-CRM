@@ -12,7 +12,9 @@ export const LIMITS = {
    * Per email from one client (identity `email|ipBucket`): guessing one account is slow, but nobody
    * can lock its owner out from elsewhere. `loginEmail` is the ceiling against distributed guessing:
    * past it each attempt needs a solved Turnstile challenge (S1-F5; a hard block when Turnstile is not
-   * configured). `loginEmailDay` is the hard cap behind it, against paid captcha solving at scale.
+   * configured). `loginEmailDay` is the hard cap behind it, against paid captcha solving at scale: it counts every
+   * attempt that reaches the password check, never one refused at the challenge (S16-03), so junk logins that never
+   * get a password check cannot use it up.
    */
   loginEmailIp: { name: 'auth.login.email-ip', scope: 'email', limit: 10, windowSeconds: 15 * 60, failClosed: true },
   loginEmail: { name: 'auth.login.email', scope: 'email', limit: 100, windowSeconds: 60 * 60, failClosed: true },

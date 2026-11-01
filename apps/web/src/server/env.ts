@@ -11,8 +11,10 @@ import {
   databaseEnv,
   httpEnv,
   loadConfig,
+  mediaCdnEnv,
   rateLimitEnv,
   redisEnv,
+  storageEnv,
   turnstileEnv,
   webUrlEnv,
 } from '@inmolink/platform/config';
@@ -63,6 +65,21 @@ export const webEnv = {
     .transform((v) => v.replace(/\/+$/, '')),
   /** MapLibre style for the staff taxonomy editor's polygon map (S2-04). The default is MapLibre's demo style; set a real one in production. */
   MAP_STYLE_URL: z.url().default('https://demotiles.maplibre.org/style.json'),
+  /**
+   * S16-03: tile, glyph and sprite hosts the map style names when they are not the style's own host (comma-separated
+   * URLs or origins) — the dashboard CSP lets the browser reach only these and `MAP_STYLE_URL`'s host.
+   */
+  MAP_TILE_ORIGINS: z.string().optional(),
+  /**
+   * S16-03, dashboard CSP: listing photos come from the media CDN (the api's value). Optional here (production's https
+   * check applies once set); unset, images load from storage (`S3_ENDPOINT`) only.
+   */
+  MEDIA_CDN_URL: mediaCdnEnv.MEDIA_CDN_URL.unwrap().optional(),
+  /**
+   * S16-03, dashboard CSP: object storage, for signed downloads and the browser's presigned uploads (the api's
+   * `S3_ENDPOINT`). Unset: the browser may reach no storage host.
+   */
+  S3_ENDPOINT: storageEnv.S3_ENDPOINT.optional(),
   /**
    * S13-04: the help centre (knowledge base) the onboarding checklist's contextual help links point into
    * (`<url>/<locale>/<article>`). Unset: the checklist shows no help links.

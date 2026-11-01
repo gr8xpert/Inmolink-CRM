@@ -2124,6 +2124,26 @@ Ref §17 · Mod ops, platform · Dep S16-05
 **Build:** every Kamal config sets `*_METRICS_PORT: "0"`, so no Prometheus job scrapes api, feed-api, realtime or the worker pools and every alert / SLO on app metrics has no data (`AppMetricsDown` fires by design). Add a scrape path that survives Kamal's rolling deploys (two containers of a role at once): e.g. each app pushes OTLP metrics to a host-local OpenTelemetry Collector (or Prometheus agent) that Prometheus scrapes, or Docker service discovery on the Kamal labels over the WireGuard network — pick the lightest consistent with PLAN §3 and the platform telemetry adapter; per-instance identity without per-tenant labels.
 **Done when:** on the local test / dev stack a running api, feed-api, realtime and worker each appear as an `up == 1` target (or collector series) and `AppMetricsDown` resolves; a rolling deploy on staging keeps the series continuous (H4); the dashboards from S16-05 show data
 
+### S16-F7 · Dependency pins after the audit (S16-03)
+Ref §12 · Mod all · Dep S16-03
+**Build:** on or after 2026-11-02 (two-week rule) pin the patched fast-uri; bump the `package.json` pins the S16-03 overrides stand in for — `zod` 4.6.5 → 4.6.7 (root, contracts, core, platform, all apps), `nodemailer` 10.1.0 → 10.1.7 (platform), `fastify` 5.12.5 → 5.12.7 (root, platform, api, feed-api, realtime, worker) — and drop the three `pnpm-workspace.yaml` overrides.
+**Done when:** `pnpm audit --audit-level=moderate` lists only the accepted dev-only advisories (security-R1.md); no overrides left for these packages; CI green
+
+### S16-F8 · Portal pages get a script policy (S16-03 M-3)
+Ref §12 · Mod public · Dep S16-03 · 🔒
+**Build:** public portal pages are ISR / CDN-cached, so a per-request nonce cannot work: give them a hash-based `script-src` (Next inline bootstrap hashes computed at build) or `strict-dynamic` with build-time hashes; start as `Content-Security-Policy-Report-Only` with a report endpoint, then enforce.
+**Done when:** every portal page sends an enforced `script-src` without `unsafe-inline`; the portal e2e passes; route JS budgets unchanged; no CSP reports from the e2e run
+
+### S16-F9 · Legacy /v1 hides network owners (S16-03 M-4)
+Ref §8 §12 · Mod legacy-api · Dep S16-03 · 🔒 · NEEDS DECISION
+**Build:** the frozen `/v1` legacy API shows the owner agency's legacy id on network listings and resolves those ids on another agency's site, which reveals the owner (white-label rule). Replace the owner id on network items with the reading site's own agency id (or an opaque per-site alias) and refuse owner-id lookups across agencies. Changes golden files and the `v1DetailNetwork` perf case — needs Shahzaib's approval (golden updates require a STATUS note).
+**Done when:** approved; no network item on `/v1` names its owner; goldens updated with the approval noted; perf case green
+
+### S16-F10 · 2FA proof bound to the session (S16-03 L-1)
+Ref §12 · Mod identity · Dep S16-03 · 🔒
+**Build:** the step-up proof can be replayed by another browser within its 2 minutes; bind it to the session (session id / version in the proof, checked on use) and make it single-use.
+**Done when:** a proof used from another session or a second time is refused (tests)
+
 ## S17 — Pilot
 
 ### S17-01 · Pilot cutover

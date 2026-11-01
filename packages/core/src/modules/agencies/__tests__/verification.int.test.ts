@@ -290,6 +290,8 @@ describe('agency verification', () => {
       agencies.getVerificationDocumentUrl(c, { id: requestId, documentId: doc.id }),
     );
     expect(new URL(link.url).searchParams.get('X-Amz-Expires')).toBe(String(agencies.DOCUMENT_URL_TTL_SECONDS));
+    // S16-03: the link forces the type sniffed at upload (never the object's stored metadata).
+    expect(new URL(link.url).searchParams.get('response-content-type')).toBe('application/pdf');
     const res = await fetch(link.url);
     expect(res.status).toBe(200);
     expect(new Uint8Array(await res.arrayBuffer())).toEqual(PDF);

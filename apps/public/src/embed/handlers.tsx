@@ -7,7 +7,7 @@ import { isAppError } from '@inmolink/platform/errors';
 import { cacheControl, etagFor, weakCompareEtag } from '@inmolink/platform/http';
 import { rateLimiter } from '@inmolink/platform/rate-limit';
 import { clientAddress, embedPageConfig, embedSiteFor, passedGate } from '@/server/embed';
-import { EMBED_GATE_HEADER, embedCsp } from './csp';
+import { DENY_FRAMING, EMBED_GATE_HEADER, embedCsp } from './csp';
 import { readFormBody } from './form-body';
 import {
   EMBED_LEAD_ERRORS,
@@ -107,7 +107,7 @@ function plain(status: number, extra: Record<string, string> = {}): Response {
     headers: {
       'Cache-Control': 'no-store',
       'X-Frame-Options': 'DENY',
-      'Content-Security-Policy': "frame-ancestors 'none'",
+      'Content-Security-Policy': DENY_FRAMING['Content-Security-Policy'] as string,
       ...extra,
     },
   });

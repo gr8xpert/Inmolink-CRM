@@ -10,5 +10,7 @@ env:
     OTEL_TRACES_SAMPLE_RATIO: "1"
     WEB_URL: "https://app.staging.inmolink.es"
     API_URL: "https://api.staging.inmolink.es"
+    # S16-03: chat / notification sockets; the dashboard CSP allows exactly this origin (wss).
+    REALTIME_PUBLIC_URL: "https://realtime.staging.inmolink.es"
     FEED_API_PUBLIC_URL: "https://feed.staging.inmolink.es"
     PUBLIC_PAGES_URL: "https://sites.staging.inmolink.es"

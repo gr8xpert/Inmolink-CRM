@@ -2,7 +2,7 @@ import { UI_LOCALES } from '@inmolink/i18n';
 import { getRedirectUrl, unstable_doesMiddlewareMatch } from 'next/experimental/testing/server';
 import { NextRequest } from 'next/server';
 import { describe, expect, it, vi } from 'vitest';
-import { EMBED_GATE_HEADER } from './embed/csp';
+import { DENY_FRAMING, EMBED_GATE_HEADER } from './embed/csp';
 import proxy, { type CodeGate, config, createProxy, type EmbedGate, type LegacyGate, type PortalGate } from './proxy';
 
 // S15-02: the default legacy lookup needs the database; these checks pass their own (`createProxy`'s third gate).
@@ -75,7 +75,7 @@ describe('iFrame embed gate (S7-F8)', () => {
       const res = await createProxy(refused)(request(path));
       expect(res.status, path).toBe(404);
       expect(res.headers.get('x-frame-options'), path).toBe('DENY');
-      expect(res.headers.get('content-security-policy'), path).toBe("frame-ancestors 'none'");
+      expect(res.headers.get('content-security-policy'), path).toBe(DENY_FRAMING['Content-Security-Policy']);
     }
     // Malformed paths never reach the site lookup.
     expect(refused).toHaveBeenCalledTimes(1);
@@ -116,7 +116,7 @@ describe('iFrame embed gate (S7-F8)', () => {
     for (const path of ['/en/search', '/es', '/en/property/x']) {
       const res = await createProxy(gate)(request(path));
       expect(res.headers.get('x-frame-options'), path).toBe('DENY');
-      expect(res.headers.get('content-security-policy'), path).toBe("frame-ancestors 'none'");
+      expect(res.headers.get('content-security-policy'), path).toBe(DENY_FRAMING['Content-Security-Policy']);
     }
     expect(gate).not.toHaveBeenCalled();
     const runs = (url: string) => unstable_doesMiddlewareMatch({ config, url });

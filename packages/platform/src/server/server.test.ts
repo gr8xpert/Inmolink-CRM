@@ -5,7 +5,15 @@ import { z } from 'zod';
 import { httpEnv, loadConfig } from '../config';
 import { AppError } from '../errors';
 import { createLogger } from '../logger';
-import { createServer, drainHttp, type FastifyZod, gracefulShutdown, healthRoutes } from './index';
+import {
+  API_SECURITY_HEADERS,
+  createServer,
+  drainHttp,
+  type FastifyZod,
+  gracefulShutdown,
+  healthRoutes,
+  securityHeadersFor,
+} from './index';
 
 const logger = createLogger({ level: 'silent' });
 const opened: FastifyZod[] = [];
@@ -308,5 +316,43 @@ describe('request logs (S7-07)', () => {
     expect(log).toContain('/v1/invites/[REDACTED]');
     expect(log).not.toContain(feedToken);
     expect(log).not.toContain(inviteToken);
+  });
+});
+
+describe('security headers (S16-03)', () => {
+  const expectHardened = (res: { headers: Record<string, unknown> }, what: string) => {
+    for (const [name, value] of Object.entries(API_SECURITY_HEADERS))
+      expect(res.headers[name], `${what}: ${name}`).toBe(value);
+  };
+
+  it('[S16-03] every answer carries the API security headers: success, 4xx/5xx errors, 404s, 503 while closing', async () => {
+    const app = await server();
+    app.get('/ok', async () => ({ ok: true }));
+    app.get('/conflict', async () => updateListing({ version: 1 }));
+    app.get('/boom', async () => {
+      throw new Error('internal');
+    });
+    app.get('/xml', async (_req, reply) => reply.type('application/xml').send('<a/>'));
+    app.get('/moved', async (_req, reply) => reply.redirect('https://cdn.example/file', 302));
+    healthRoutes(app, { checks: {} });
+    for (const url of ['/ok', '/conflict', '/boom', '/nope', '/xml', '/moved', '/healthz', '/readyz']) {
+      expectHardened(await app.inject({ method: 'GET', url }), url);
+    }
+    app.lifecycle.closing = true;
+    const closing = await app.inject({ method: 'GET', url: '/ok' });
+    expect(closing.statusCode).toBe(503);
+    expectHardened(closing, 'closing');
+  });
+
+  it('[S16-03] the dev-only Swagger UI keeps its scripts (no CSP under /docs); everything else keeps the CSP', () => {
+    expect(securityHeadersFor('/docs', true)['content-security-policy']).toBeUndefined();
+    expect(securityHeadersFor('/docs/static/index.js', true)['content-security-policy']).toBeUndefined();
+    expect(securityHeadersFor('/docs', false)['content-security-policy']).toBe(
+      API_SECURITY_HEADERS['content-security-policy'],
+    );
+    expect(securityHeadersFor('/docsx', true)['content-security-policy']).toBe(
+      API_SECURITY_HEADERS['content-security-policy'],
+    );
+    expect(securityHeadersFor('/docs', true)['x-frame-options']).toBe('DENY');
   });
 });

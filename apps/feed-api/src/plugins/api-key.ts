@@ -36,6 +36,10 @@ export interface RequireApiKeyOptions {
 }
 
 declare module 'fastify' {
+  interface FastifyContextConfig {
+    /** S16-03: set on keyed routes (`requireApiKey` in `onRequest`, `KEYED_ROUTE_LIMITS`): their limits live there. */
+    apiKeyLimited?: boolean;
+  }
   interface FastifyRequest {
     /** The website API caller, set by `requireApiKey`; null on routes without it. */
     apiKey: identity.ApiKeyPrincipal | null;
@@ -260,6 +264,20 @@ export function apiKeyPlugin(
         return undefined;
       },
   );
+  // S16-03: a route whose `onRequest` runs a `requireApiKey` hook and opts out of the plugin rules
+  // (`KEYED_ROUTE_LIMITS`) is tagged `apiKeyLimited` — the rate-limit coverage report reads the tag.
+  const keyedHooks = new WeakSet<object>();
+  const buildHook = app.requireApiKey;
+  app.requireApiKey = (scope, options) => {
+    const hook = buildHook(scope, options);
+    keyedHooks.add(hook);
+    return hook;
+  };
+  app.addHook('onRoute', (route) => {
+    const hooks =
+      route.onRequest === undefined ? [] : Array.isArray(route.onRequest) ? route.onRequest : [route.onRequest];
+    if (route.config?.rateLimit === false && hooks.some((h) => keyedHooks.has(h))) route.config.apiKeyLimited = true;
+  });
   app.decorate(
     'creditChangeFeed',
     (request: FastifyRequest, changes: readonly { ref: string; change: string; changedAt: string }[]) => {

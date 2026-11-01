@@ -5,7 +5,9 @@ import { RateLimiter } from './limiter';
 
 export {
   ipBucket,
+  type RateLimitCoverageRow,
   type RateLimitPluginOptions,
+  rateLimitCoverage,
   rateLimitPlugin,
   replyQuotaExceeded,
   replyRateLimited,

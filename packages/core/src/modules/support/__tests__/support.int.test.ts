@@ -206,6 +206,8 @@ describe('support tickets', () => {
       support.getStaffAttachmentUrl(c, { id: ticket.id, attachmentId: first.id }),
     );
     for (const link of [own, staff]) {
+      // S16-03: the link forces the type sniffed at upload (never the object's stored metadata).
+      expect(new URL(link.url).searchParams.get('response-content-type')).toBe('application/pdf');
       const res = await fetch(link.url);
       expect(res.status).toBe(200);
       expect(new Uint8Array(await res.arrayBuffer())).toEqual(PDF);

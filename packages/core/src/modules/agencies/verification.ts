@@ -272,6 +272,8 @@ export async function getVerificationDocumentUrl(
   if (!doc) throw new AppError('NOT_FOUND');
   const url = await storage().signedGetUrl('private', doc.storageKey, {
     expiresInSeconds: DOCUMENT_URL_TTL_SECONDS,
+    // S16-03: served as the type sniffed at upload, whatever the object metadata says.
+    responseContentType: doc.contentType,
     downloadName: doc.fileName,
   });
   return { url, expiresAt: new Date(clock.now().getTime() + DOCUMENT_URL_TTL_SECONDS * 1_000).toISOString() };

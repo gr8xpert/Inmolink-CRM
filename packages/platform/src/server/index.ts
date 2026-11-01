@@ -2,9 +2,10 @@
  * @inmolink/platform/server — Fastify plumbing shared by api, feed-api, realtime and the worker's
  * health server (S0-08): `createServer`, health routes, error mapping, graceful shutdown.
  */
-export { createServer, type FastifyZod, type Lifecycle, type ServerOptions } from './create';
+export { createServer, type FastifyZod, type Lifecycle, type RouteEntry, type ServerOptions } from './create';
 export { errorBody, errorHandler, sendError } from './errors';
 export { type HealthCheck, type HealthOptions, healthRoutes, httpCheck, redisCheck } from './health';
+export { API_SECURITY_HEADERS, securityHeadersFor } from './security-headers';
 export { gracefulShutdown, type Shutdown, type ShutdownOptions, type ShutdownStep } from './shutdown';
 
 import type { FastifyZod } from './create';

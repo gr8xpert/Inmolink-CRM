@@ -19,7 +19,8 @@ export const EMBED_GATE_HEADER = 'x-inmolink-embed-gate';
 
 export const DENY_FRAMING: Readonly<Record<string, string>> = {
   'X-Frame-Options': 'DENY',
-  'Content-Security-Policy': "frame-ancestors 'none'",
+  // S16-03: no plugins, no <base> rewrites, forms post to this site only (script-src: see security-R1.md M-3).
+  'Content-Security-Policy': "frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'",
 };
 
 /** The origin of a URL (`https://media.example`), or null when it is not an http(s) URL. */

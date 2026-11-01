@@ -11,6 +11,7 @@ import { newId, requestIdFrom } from '../ids';
 import { type Logger, REDACTED, stripQuery } from '../logger';
 import { registerErrorHandling, sendError } from './errors';
 import { observeRequests } from './observe';
+import { securityHeadersFor } from './security-headers';
 
 /** A Fastify instance with the Zod type provider — what route plugins receive (PATTERNS §10). */
 export type FastifyZod = FastifyInstance<Server, IncomingMessage, ServerResponse, FastifyBaseLogger, ZodTypeProvider>;
@@ -22,9 +23,18 @@ export interface Lifecycle {
   closing: boolean;
 }
 
+/** A registered route as the rate-limit coverage report reads it (S16-03). */
+export interface RouteEntry {
+  method: string;
+  url: string;
+  config: { rateLimit?: unknown } | undefined;
+}
+
 declare module 'fastify' {
   interface FastifyInstance {
     lifecycle: Lifecycle;
+    /** S16-03: every route of the app as registered (any plugin, any order) — `rateLimitCoverage` reads it. */
+    routeTable: readonly RouteEntry[];
   }
 }
 
@@ -76,11 +86,20 @@ export async function createServer(options: ServerOptions): Promise<FastifyZod> 
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
   app.decorate('lifecycle', { draining: false, closing: false });
+  const routeTable: RouteEntry[] = [];
+  app.decorate('routeTable', routeTable);
+  app.addHook('onRoute', (route) => {
+    for (const method of Array.isArray(route.method) ? route.method : [route.method]) {
+      routeTable.push({ method, url: route.url, config: route.config as RouteEntry['config'] });
+    }
+  });
   registerErrorHandling(app);
   observeRequests(app);
 
   app.addHook('onRequest', async (request, reply) => {
     reply.header('x-request-id', request.id);
+    // S16-03: first, so every answer carries them — errors, 404s, 429s and the 503 below included.
+    reply.headers(securityHeadersFor(stripQuery(request.url), options.docsUi === true));
     const clientId = request.headers['x-request-id'];
     if (typeof clientId === 'string' && clientId !== request.id && CLIENT_REQUEST_ID.test(clientId)) {
       request.log = request.log.child({ clientRequestId: clientId });

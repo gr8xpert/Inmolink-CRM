@@ -263,7 +263,11 @@ export async function listRequestDocuments(tx: Tx, requestId: string): Promise<D
 
 export async function getRequestDocument(tx: Tx, requestId: string, id: string) {
   const [row] = await tx
-    .select({ storageKey: agencyVerificationDocuments.storageKey, fileName: agencyVerificationDocuments.fileName })
+    .select({
+      storageKey: agencyVerificationDocuments.storageKey,
+      fileName: agencyVerificationDocuments.fileName,
+      contentType: agencyVerificationDocuments.contentType,
+    })
     .from(agencyVerificationDocuments)
     .where(and(eq(agencyVerificationDocuments.requestId, requestId), eq(agencyVerificationDocuments.id, id)));
   return row ?? null;

@@ -60,7 +60,6 @@ export async function attemptLogin(
       [
         [LIMITS.loginIp, ip],
         [LIMITS.loginEmailIp, `${parsed.data.email}|${ip}`],
-        [LIMITS.loginEmailDay, parsed.data.email],
       ],
       opts.limiter,
     ),
@@ -78,6 +77,12 @@ export async function attemptLogin(
         remoteIp: clientIpFromForwarded(forwardedFor, TRUST_PROXY),
       }));
     if (!solved) return { ok: false, code: 'challenge' };
+  }
+  // S16-03: the daily hard cap counts every attempt that reaches the password check (below the ceiling, or past a
+  // solved challenge) — never one refused at the challenge, so junk logins that never get a password check cannot
+  // use it up and lock the owner out.
+  if ((await checkLimits([[LIMITS.loginEmailDay, parsed.data.email]], opts.limiter)) > 0) {
+    return { ok: false, code: 'rate_limited' };
   }
   try {
     const input = { ...parsed.data, deviceToken: opts.deviceToken };

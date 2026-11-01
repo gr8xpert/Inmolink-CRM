@@ -1,7 +1,7 @@
 // @ts-expect-error — Next's own compiled path-to-regexp (what `headers()` sources are matched with) has no types.
 import { pathToRegexp } from 'next/dist/compiled/path-to-regexp';
 import { describe, expect, it } from 'vitest';
-import nextConfig, { FRAME_DENY_HEADERS, NOT_EMBED_SOURCE } from '../../next.config';
+import nextConfig, { FRAME_DENY_HEADERS, NOT_EMBED_SOURCE, PUBLIC_SECURITY_HEADERS } from '../../next.config';
 import { EMBED_SCRIPT, EMBED_SCRIPT_PATH } from './client';
 import { DENY_FRAMING, embedCsp, embedPath } from './csp';
 
@@ -69,5 +69,30 @@ describe('embed CSP and framing headers (S7-F8)', () => {
     // It posts urlencoded (the only body the route reads), never multipart.
     expect(EMBED_SCRIPT).toContain('new URLSearchParams(new FormData(');
     expect(EMBED_SCRIPT.length).toBeLessThan(4_000);
+  });
+});
+
+describe('public security headers (S16-03)', () => {
+  it('[S16-03] every path (embeds, route handlers, assets) is nosniff + HSTS; unframed pages refuse plugins, <base> and foreign form posts', async () => {
+    const rules = (await nextConfig.headers?.()) ?? [];
+    const all = rules.find((r) => r.source === '/:path*');
+    expect(all?.headers).toEqual(PUBLIC_SECURITY_HEADERS);
+    const names = Object.fromEntries(PUBLIC_SECURITY_HEADERS.map((h) => [h.key, h.value]));
+    expect(names['X-Content-Type-Options']).toBe('nosniff');
+    expect(names['Strict-Transport-Security']).toMatch(/^max-age=\d{8}; includeSubDomains$/);
+    const re: RegExp = pathToRegexp('/:path*', [], {});
+    for (const path of [
+      '/',
+      '/en/property/x',
+      '/embed/x/en',
+      '/api/portal/enquiry',
+      '/s/token',
+      '/_next/static/a.js',
+    ]) {
+      expect(re.test(path), path).toBe(true);
+    }
+    for (const directive of ["frame-ancestors 'none'", "object-src 'none'", "base-uri 'self'", "form-action 'self'"]) {
+      expect(DENY_FRAMING['Content-Security-Policy']).toContain(directive);
+    }
   });
 });

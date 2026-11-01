@@ -1,5 +1,6 @@
 import { isIPv6 } from 'node:net';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { RouteEntry } from '../server/create';
 import { assertRule, type RateLimiter, type RateLimitResult, type RateLimitRule, type RateScope } from './limiter';
 
 declare module 'fastify' {
@@ -117,6 +118,7 @@ export function rateLimitPlugin(
   } catch (err) {
     return done(err as Error);
   }
+  fastify.decorate('rateLimitDefaults', options.defaults);
 
   // Route rules are checked when the route is registered, not on its first request.
   fastify.addHook('onRoute', (route) => {
@@ -164,3 +166,34 @@ Object.assign(rateLimitPlugin, {
   [Symbol.for('skip-override')]: true,
   [Symbol.for('fastify.display-name')]: 'inmolink-rate-limit',
 });
+
+declare module 'fastify' {
+  interface FastifyInstance {
+    /** S16-03: the plugin's default rules (routes without `config.rateLimit`) — `rateLimitCoverage` reads them. */
+    rateLimitDefaults?: readonly RateLimitRule[];
+  }
+}
+
+/** One route of the coverage report: the rule names that limit it, or `off` (`config.rateLimit: false`). */
+export interface RateLimitCoverageRow {
+  method: string;
+  url: string;
+  rules: readonly string[] | 'off';
+}
+
+/**
+ * S16-03: every route of an app (`routeTable`, recorded by `createServer` from the first route on, whatever plugin
+ * registered it) mapped to the rules that limit it — its own `config.rateLimit`, else the plugin defaults. Without
+ * the plugin every route is `off`.
+ */
+export function rateLimitCoverage(
+  app: FastifyInstance & { routeTable: readonly RouteEntry[] },
+): RateLimitCoverageRow[] {
+  const defaults = app.rateLimitDefaults;
+  return app.routeTable.map((route) => {
+    const own = route.config?.rateLimit as readonly RateLimitRule[] | false | undefined;
+    const rules =
+      own === false || (own === undefined && !defaults) ? 'off' : (own ?? defaults ?? []).map((r) => r.name);
+    return { method: route.method, url: route.url, rules };
+  });
+}

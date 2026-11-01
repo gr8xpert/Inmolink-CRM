@@ -149,6 +149,75 @@ describe('login rate limits', () => {
     ).toEqual({ ok: false, code: 'rate_limited' });
   });
 
+  it('[S16-03] the daily per-email cap counts every password check, never an attempt refused at the challenge', async () => {
+    const email = uniqueEmail();
+    await identity.register(authCtx(newId()), {
+      email,
+      password: 'correct horse battery',
+      name: 'Ana',
+      locale: 'en',
+      accountKind: 'AGENCY',
+      companyName: 'Costa Homes',
+    });
+    // An attacker past the hourly ceiling sends unsolved attempts: refused at the challenge, the daily cap is untouched.
+    const counted: string[] = [];
+    const overCeiling = (dayExhausted: boolean) =>
+      ({
+        consume: async (rule: RateLimitRule) => {
+          counted.push(rule.name);
+          const denied =
+            rule.name === LIMITS.loginEmail.name || (dayExhausted && rule.name === LIMITS.loginEmailDay.name);
+          return denied
+            ? { allowed: false, limit: 1, remaining: 0, retryAfterSeconds: 600 }
+            : { allowed: true, limit: 1, remaining: 1, retryAfterSeconds: 0 };
+        },
+      }) as unknown as RateLimiter;
+    const turnstile: TurnstileVerifier = { verify: async (token) => token === 'solved' };
+    for (let i = 0; i < 3; i++) {
+      expect(
+        await attemptLogin({ email, password: 'wrong password' }, randomIp(), {
+          limiter: overCeiling(false),
+          turnstile,
+          turnstileToken: 'junk',
+        }),
+      ).toEqual({ ok: false, code: 'challenge' });
+    }
+    expect(counted).not.toContain(LIMITS.loginEmailDay.name);
+    // Every attempt that reaches the password check counts, below the ceiling too (distributed unsolved guessing
+    // stays capped at the daily total) …
+    const below: string[] = [];
+    const underCeiling = {
+      consume: async (rule: RateLimitRule) => {
+        below.push(rule.name);
+        return { allowed: true, limit: 1, remaining: 1, retryAfterSeconds: 0 };
+      },
+    } as unknown as RateLimiter;
+    expect(
+      await attemptLogin({ email, password: 'wrong password' }, randomIp(), { limiter: underCeiling, turnstile }),
+    ).toEqual({ ok: false, code: 'invalid' });
+    expect(below).toContain(LIMITS.loginEmailDay.name);
+    // … and once it is used up, no further password check happens below the ceiling either.
+    const dayUsedUp = {
+      consume: async (rule: RateLimitRule) =>
+        rule.name === LIMITS.loginEmailDay.name
+          ? { allowed: false, limit: 1, remaining: 0, retryAfterSeconds: 600 }
+          : { allowed: true, limit: 1, remaining: 1, retryAfterSeconds: 0 },
+    } as unknown as RateLimiter;
+    expect(
+      await attemptLogin({ email, password: 'correct horse battery' }, randomIp(), { limiter: dayUsedUp, turnstile }),
+    ).toEqual({ ok: false, code: 'rate_limited' });
+    // A solved challenge counts against the daily cap, which still stops paid solving at scale.
+    counted.length = 0;
+    expect(
+      await attemptLogin({ email, password: 'correct horse battery' }, randomIp(), {
+        limiter: overCeiling(true),
+        turnstile,
+        turnstileToken: 'solved',
+      }),
+    ).toEqual({ ok: false, code: 'rate_limited' });
+    expect(counted).toContain(LIMITS.loginEmailDay.name);
+  });
+
   it('[S0-09] malformed input is refused before any limit or password work', async () => {
     expect(await attemptLogin({ email: 'not-an-email', password: 'x' }, randomIp())).toEqual({
       ok: false,

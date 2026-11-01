@@ -10,7 +10,19 @@ import { ENQUIRY_NOTICE_CACHE, PORTAL_ISR_PAGE_CACHE, PORTAL_PAGE_CACHE } from '
 export const NOT_EMBED_SOURCE = '/:path((?!embed/|embed$).*)';
 export const FRAME_DENY_HEADERS = [
   { key: 'X-Frame-Options', value: 'DENY' },
-  { key: 'Content-Security-Policy', value: "frame-ancestors 'none'" },
+  {
+    key: 'Content-Security-Policy',
+    value: "frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'",
+  },
+];
+
+/**
+ * S16-03 (PLAN §12): on every path (pages, embeds, route handlers, assets). No `Referrer-Policy` here: browsers default
+ * to `strict-origin-when-cross-origin`, and the selection pages send their own `no-referrer`.
+ */
+export const PUBLIC_SECURITY_HEADERS = [
+  { key: 'X-Content-Type-Options', value: 'nosniff' },
+  { key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains' },
 ];
 
 // S15-01 / S15 review: the portal pages' CDN headers (shared with the proxy).
@@ -50,6 +62,8 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ['@inmolink/core', '@inmolink/db', '@inmolink/platform', 'pg', 'ioredis', 'bullmq'],
   async headers() {
     return [
+      // S16-03: every answer, embeds included.
+      { source: '/:path*', headers: PUBLIC_SECURITY_HEADERS },
       { source: NOT_EMBED_SOURCE, headers: FRAME_DENY_HEADERS },
       ...PORTAL_CACHED_SOURCES.map((source) => ({
         source,
