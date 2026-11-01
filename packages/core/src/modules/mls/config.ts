@@ -23,22 +23,43 @@ export interface MlsConfig {
    * Default `VIEWING_REQUEST_EXPIRY_DAYS`.
    */
   viewingRequestExpiryDays?: number;
+  /**
+   * S16-F5: days a client registration (and its viewing requests, whose terms end with it) is kept after its validity
+   * ends — the period in which a commission claim can still be brought — before the retention sweep deletes it.
+   * Default `REGISTRATION_CLAIM_DAYS`.
+   */
+  registrationClaimDays?: number;
 }
+
+/**
+ * S16-F5: the default claim period after a registration's validity — five years, the Spanish limitation period for
+ * personal actions (Código Civil art. 1964.2). ASSUMPTION until counsel confirms it (H7).
+ */
+export const REGISTRATION_CLAIM_DAYS = 1_826;
 
 /** S11-02: the default days an unanswered viewing proposal stays open (a proposed time sooner than that ends it first). */
 export const VIEWING_REQUEST_EXPIRY_DAYS = 7;
 
 let current: { keyring: Keyring; key: Buffer } | undefined;
 let viewingDays = VIEWING_REQUEST_EXPIRY_DAYS;
+let claimDays = REGISTRATION_CLAIM_DAYS;
 
 export function configureMls(config: MlsConfig): void {
   if (!config.fingerprintKey) throw new Error('mls: fingerprintKey is required');
   const days = config.viewingRequestExpiryDays ?? VIEWING_REQUEST_EXPIRY_DAYS;
   if (!Number.isInteger(days) || days < 1 || days > 90) throw new Error('mls: viewingRequestExpiryDays must be 1–90');
+  const claim = config.registrationClaimDays ?? REGISTRATION_CLAIM_DAYS;
+  if (!Number.isInteger(claim) || claim < 30 || claim > 7_300) {
+    throw new Error('mls: registrationClaimDays must be 30–7300');
+  }
   // One Buffer for the process: platform/crypto caches the HKDF subkey per key object.
   current = { keyring: config.keyring, key: Buffer.from(config.fingerprintKey) };
   viewingDays = days;
+  claimDays = claim;
 }
+
+/** S16-F5: the configured days a registration is kept after its validity ends. */
+export const registrationClaimDays = (): number => claimDays;
 
 /** The configured days an unanswered viewing proposal stays open. */
 export const viewingRequestExpiryDays = (): number => viewingDays;

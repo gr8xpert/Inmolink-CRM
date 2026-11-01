@@ -21,6 +21,8 @@ export {
   slugOf,
 } from './content';
 export { type ExportListingRow, listingsForExport } from './data-export';
+// S16-F5: an erased agency's listings leave for good (the compliance worker drives it).
+export { agencyHasDeletedListings, agencyListingsForPurge, retireAgencyListings } from './erasure';
 export { propertiesErrors } from './errors';
 export { COPY_FACT_FIELDS, IMPORTED_PER_EVENT, propertiesEvents } from './events';
 export {

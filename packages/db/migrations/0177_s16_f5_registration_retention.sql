@@ -1,0 +1,1 @@
+CREATE INDEX "client_registrations_expires_idx" ON "client_registrations" USING btree ("expires_at","id");

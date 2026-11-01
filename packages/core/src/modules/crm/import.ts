@@ -543,6 +543,21 @@ export async function importBatch(
     agencyId,
     all.map((t) => t.contactId),
   );
+  // S16-F5: what the import granted (new contacts) or changed (merged ones) is a consent record, source IMPORT
+  await compliance.recordConsents(
+    tx,
+    agencyId,
+    [
+      ...created.flatMap((t) =>
+        compliance.initialConsents(t.contactId, {
+          consentMarketing: t.data.consentMarketing,
+          consentProcessing: settings.consentProcessing,
+        }),
+      ),
+      ...repo.absorbConsentChanges(versions),
+    ],
+    { source: 'IMPORT' },
+  );
   await emit(tx, [
     ...created.map((t) => crmEvents.contactCreated({ agencyId, contactId: t.contactId, source: 'IMPORT' })),
     ...versions.map((v) => crmEvents.contactUpdated({ agencyId, contactId: v.id, version: v.version })),

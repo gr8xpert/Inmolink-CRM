@@ -31,6 +31,14 @@ export async function insertAuditLog(tx: Tx, row: AuditLogInsert): Promise<void>
   await tx.insert(auditLogs).values({ ...row, occurredAt: sql`date_trunc('milliseconds', now())` });
 }
 
+/** S16-F5: many audit rows in one statement (a system batch: an erasure of up to 100 contacts). */
+export async function insertAuditLogs(tx: Tx, rows: readonly AuditLogInsert[]): Promise<void> {
+  if (rows.length === 0) return;
+  await tx
+    .insert(auditLogs)
+    .values(rows.map((row) => ({ ...row, occurredAt: sql`date_trunc('milliseconds', now())` })));
+}
+
 const listColumns = {
   id: auditLogs.id,
   occurredAt: auditLogs.occurredAt,

@@ -18,6 +18,8 @@ export interface PortalSettings {
   map: { tileUrl: string; attribution: string } | null;
   /** S15-02: the enquiry form's Turnstile site key; null: no form (enquiries could only be refused). */
   turnstileSiteKey: string | null;
+  /** S16-F5: the dashboard's origin, which hosts the legal pages the footer links to (`WEB_URL`); null: no links. */
+  legalBase?: string | null;
 }
 
 export const portalSettings = cache(async (): Promise<PortalSettings> => {
@@ -26,6 +28,7 @@ export const portalSettings = cache(async (): Promise<PortalSettings> => {
     origin: portalOriginOf(c),
     map: c.PORTAL_MAP_TILE_URL ? { tileUrl: c.PORTAL_MAP_TILE_URL, attribution: c.PORTAL_MAP_ATTRIBUTION ?? '' } : null,
     turnstileSiteKey: c.TURNSTILE_SITE_KEY ?? null,
+    legalBase: c.WEB_URL ?? null,
   };
 });
 

@@ -5,8 +5,17 @@
  * statement per page, the identifiers aggregated per row in the same statement (no N+1).
  */
 import type { Tx } from '@inmolink/db';
-import { activities, contactNotes, contacts, leads, tasks } from '@inmolink/db/schema/crm';
-import { and, asc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
+import {
+  activities,
+  calendarEventAttendees,
+  calendarEvents,
+  contactNotes,
+  contacts,
+  leads,
+  sellerProspects,
+  tasks,
+} from '@inmolink/db/schema/crm';
+import { type AnyColumn, and, asc, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 import { type KeysetCursor, rowAfter, rowOrder } from '../../pagination';
 
 /** Most rows one page may ask for. */
@@ -98,8 +107,25 @@ export type ExportLeadRow = Awaited<ReturnType<typeof leadsForExport>>[number];
 
 // ---- one data subject (S16-04, GDPR Art. 15 / 20: `SUBJECT` exports) ----
 
-/** Most rows one subject table may hold in an export page (activities are paged; the others are bounded per person). */
+/** Rows per page of a subject table (S16-F5: every table is paged — a person past 1,000 rows gets them all). */
 export const SUBJECT_PAGE_MAX = 1_000;
+
+/**
+ * A subject page's position: the last row's sort time **as Postgres wrote it** (`cursorAt`, text with microseconds —
+ * a JS `Date` holds only milliseconds, so a cursor rebuilt from it would repeat the row) and its id; null for the
+ * first page. S16-F5 review: the raw column stays the sort key, so every page is an index range scan in order.
+ */
+export interface SubjectPage {
+  after: { at: string; id: string } | null;
+  limit?: number;
+}
+
+const pageLimit = (q: SubjectPage) => Math.max(1, Math.min(q.limit ?? SUBJECT_PAGE_MAX, SUBJECT_PAGE_MAX));
+const pageAfter = (at: AnyColumn, id: AnyColumn, q: SubjectPage) =>
+  q.after ? sql`(${at}, ${id}) > (${q.after.at}::timestamptz, ${q.after.id}::uuid)` : undefined;
+const pageOrder = (at: AnyColumn, id: AnyColumn) => [asc(at), asc(id)];
+/** The exact sort time of a row, for the next page's cursor. */
+const cursorAt = (at: AnyColumn) => sql<string>`${at}::text`;
 
 /** The subject's contact row (open contacts only), with every e-mail and phone; null when there is none. */
 export async function subjectContact(tx: Tx, agencyId: string, contactId: string) {
@@ -136,18 +162,29 @@ function contactsForExportWhere(tx: Tx, agencyId: string, where: ReturnType<type
 
 export type SubjectContactRow = NonNullable<Awaited<ReturnType<typeof subjectContact>>>;
 
-/** The subject's notes, oldest first (`contact_notes_contact_created_raw_idx`), at most `SUBJECT_PAGE_MAX`. */
-export function subjectNotes(tx: Tx, agencyId: string, contactId: string) {
+/** A page of the subject's notes, oldest first (`contact_notes_contact_created_raw_idx`). */
+export function subjectNotes(tx: Tx, agencyId: string, contactId: string, q: SubjectPage = { after: null }) {
   return tx
-    .select({ id: contactNotes.id, body: contactNotes.body, createdAt: contactNotes.createdAt })
+    .select({
+      id: contactNotes.id,
+      body: contactNotes.body,
+      createdAt: contactNotes.createdAt,
+      cursorAt: cursorAt(contactNotes.createdAt),
+    })
     .from(contactNotes)
-    .where(and(eq(contactNotes.agencyId, agencyId), eq(contactNotes.contactId, contactId)))
-    .orderBy(asc(contactNotes.createdAt), asc(contactNotes.id))
-    .limit(SUBJECT_PAGE_MAX);
+    .where(
+      and(
+        eq(contactNotes.agencyId, agencyId),
+        eq(contactNotes.contactId, contactId),
+        pageAfter(contactNotes.createdAt, contactNotes.id, q),
+      ),
+    )
+    .orderBy(...pageOrder(contactNotes.createdAt, contactNotes.id))
+    .limit(pageLimit(q));
 }
 
-/** The subject's leads with what they wrote and gave (at most `SUBJECT_PAGE_MAX`, oldest first). */
-export function subjectLeads(tx: Tx, agencyId: string, contactId: string) {
+/** A page of the subject's leads with what they wrote and gave, oldest first (`leads_contact_idx`). */
+export function subjectLeads(tx: Tx, agencyId: string, contactId: string, q: SubjectPage = { after: null }) {
   return tx
     .select({
       id: leads.id,
@@ -162,16 +199,18 @@ export function subjectLeads(tx: Tx, agencyId: string, contactId: string) {
       visitorEmail: leads.visitorEmail,
       visitorPhone: leads.visitorPhone,
       visitorMarketingConsent: leads.visitorMarketingConsent,
+      inboundLeadId: leads.inboundLeadId,
       createdAt: leads.createdAt,
+      cursorAt: cursorAt(leads.createdAt),
     })
     .from(leads)
-    .where(and(eq(leads.agencyId, agencyId), eq(leads.contactId, contactId)))
-    .orderBy(asc(leads.createdAt), asc(leads.id))
-    .limit(SUBJECT_PAGE_MAX);
+    .where(and(eq(leads.agencyId, agencyId), eq(leads.contactId, contactId), pageAfter(leads.createdAt, leads.id, q)))
+    .orderBy(...pageOrder(leads.createdAt, leads.id))
+    .limit(pageLimit(q));
 }
 
-/** The subject's tasks (at most `SUBJECT_PAGE_MAX`). */
-export function subjectTasks(tx: Tx, agencyId: string, contactId: string) {
+/** A page of the subject's tasks, oldest first (`tasks_contact_idx`). */
+export function subjectTasks(tx: Tx, agencyId: string, contactId: string, q: SubjectPage = { after: null }) {
   return tx
     .select({
       id: tasks.id,
@@ -180,11 +219,105 @@ export function subjectTasks(tx: Tx, agencyId: string, contactId: string) {
       status: tasks.status,
       dueAt: tasks.dueAt,
       completedAt: tasks.completedAt,
+      createdAt: tasks.createdAt,
+      cursorAt: cursorAt(tasks.createdAt),
     })
     .from(tasks)
-    .where(and(eq(tasks.agencyId, agencyId), eq(tasks.contactId, contactId)))
-    .orderBy(asc(tasks.id))
-    .limit(SUBJECT_PAGE_MAX);
+    .where(and(eq(tasks.agencyId, agencyId), eq(tasks.contactId, contactId), pageAfter(tasks.createdAt, tasks.id, q)))
+    .orderBy(...pageOrder(tasks.createdAt, tasks.id))
+    .limit(pageLimit(q));
+}
+
+/**
+ * S16-F5: a page of the calendar events the subject attends (`calendar_event_attendees` by contact), oldest first —
+ * the event's own text (title, description, location), type, times and status; not the members attending.
+ */
+export function subjectEvents(tx: Tx, agencyId: string, contactId: string, q: SubjectPage = { after: null }) {
+  return tx
+    .select({
+      id: calendarEvents.id,
+      type: calendarEvents.type,
+      title: calendarEvents.title,
+      description: calendarEvents.description,
+      location: calendarEvents.location,
+      startsAt: calendarEvents.startsAt,
+      endsAt: calendarEvents.endsAt,
+      status: calendarEvents.status,
+      cursorAt: cursorAt(calendarEvents.startsAt),
+    })
+    .from(calendarEventAttendees)
+    .innerJoin(
+      calendarEvents,
+      and(
+        eq(calendarEvents.agencyId, calendarEventAttendees.agencyId),
+        eq(calendarEvents.id, calendarEventAttendees.eventId),
+      ),
+    )
+    .where(
+      and(
+        eq(calendarEventAttendees.agencyId, agencyId),
+        eq(calendarEventAttendees.contactId, contactId),
+        pageAfter(calendarEvents.startsAt, calendarEvents.id, q),
+      ),
+    )
+    .orderBy(...pageOrder(calendarEvents.startsAt, calendarEvents.id))
+    .limit(pageLimit(q));
+}
+
+/**
+ * S16-F5: a page of the subject's seller prospects (the property they may sell): title, address, area, stage and the
+ * agency's confidential notes about it (free text: flagged for review), oldest first. S16-F5 review: soft-deleted ones
+ * too (still held: Art. 15), marked by `deletedAt`; not the agency's price estimate (its business). Ids of a converted
+ * listing kept as ids.
+ */
+export function subjectProspects(tx: Tx, agencyId: string, contactId: string, q: SubjectPage = { after: null }) {
+  return tx
+    .select({
+      id: sellerProspects.id,
+      title: sellerProspects.title,
+      address: sellerProspects.address,
+      area: sellerProspects.area,
+      stage: sellerProspects.stage,
+      confidentialNotes: sellerProspects.confidentialNotes,
+      listingId: sellerProspects.listingId,
+      createdAt: sellerProspects.createdAt,
+      deletedAt: sellerProspects.deletedAt,
+      cursorAt: cursorAt(sellerProspects.createdAt),
+    })
+    .from(sellerProspects)
+    .where(
+      and(
+        eq(sellerProspects.agencyId, agencyId),
+        eq(sellerProspects.contactId, contactId),
+        pageAfter(sellerProspects.createdAt, sellerProspects.id, q),
+      ),
+    )
+    .orderBy(...pageOrder(sellerProspects.createdAt, sellerProspects.id))
+    .limit(pageLimit(q));
+}
+
+/** S16-F5: a page of the website enquiries (`leads.inbound_lead_id`) the subject's leads came from, by id. */
+export async function subjectInboundLeadIds(
+  tx: Tx,
+  agencyId: string,
+  contactId: string,
+  afterId: string | null,
+  limit = SUBJECT_PAGE_MAX,
+): Promise<string[]> {
+  const rows = await tx
+    .select({ id: leads.inboundLeadId })
+    .from(leads)
+    .where(
+      and(
+        eq(leads.agencyId, agencyId),
+        eq(leads.contactId, contactId),
+        isNotNull(leads.inboundLeadId),
+        afterId ? sql`${leads.inboundLeadId} > ${afterId}::uuid` : undefined,
+      ),
+    )
+    .orderBy(asc(leads.inboundLeadId))
+    .limit(Math.min(limit, SUBJECT_PAGE_MAX));
+  return rows.map((r) => r.id).filter((id): id is string => id !== null);
 }
 
 /**
@@ -210,39 +343,41 @@ export const SUBJECT_ACTIVITY_TYPES = [
 ] as const;
 
 /**
- * A page of the subject's activities — its own and its leads' (`activities_contact_idx`, `activities_lead_idx`), of
- * `SUBJECT_ACTIVITY_TYPES` only — oldest first after `after` (`{ at: occurredAt, id }`), at most `limit`.
+ * A page of the subject's activities — its own and its leads', of `SUBJECT_ACTIVITY_TYPES` only — oldest first after
+ * `after`, at most `limit`. S16-F5 review: two branches, each an index range scan in `(occurred_at, id)` order and
+ * cut at `limit` — its own (`activities_contact_idx`) and its leads' that do not name it too (`activities_lead_idx`,
+ * the leads by subquery: a person past 1,000 leads keeps them all) — merged and cut again; on the raw `occurred_at`
+ * (`cursorAt`, exact), so a page costs `limit` rows per branch whatever the subject's size.
  */
-export function subjectActivities(
-  tx: Tx,
-  agencyId: string,
-  contactId: string,
-  leadIds: readonly string[],
-  q: ExportPageQuery,
-) {
-  const of =
-    leadIds.length > 0
-      ? or(eq(activities.contactId, contactId), inArray(activities.leadId, [...leadIds]))
-      : eq(activities.contactId, contactId);
-  return tx
-    .select({
-      id: activities.id,
-      occurredAt: activities.occurredAt,
-      type: activities.type,
-      leadId: activities.leadId,
-      body: activities.body,
-    })
-    .from(activities)
-    .where(
-      and(
-        eq(activities.agencyId, agencyId),
-        of,
-        inArray(activities.type, [...SUBJECT_ACTIVITY_TYPES]),
-        q.after
-          ? sql`(${activities.occurredAt}, ${activities.id}) > (${q.after.at.toISOString()}::timestamptz, ${q.after.id}::uuid)`
-          : undefined,
-      ),
-    )
-    .orderBy(asc(activities.occurredAt), asc(activities.id))
-    .limit(limitOf(q));
+export async function subjectActivities(tx: Tx, agencyId: string, contactId: string, q: SubjectPage) {
+  const limit = pageLimit(q);
+  const after = q.after ? sql`and (a.occurred_at, a.id) > (${q.after.at}::timestamptz, ${q.after.id}::uuid)` : sql``;
+  const types = sql`${sql.param([...SUBJECT_ACTIVITY_TYPES])}::text[]`;
+  const res = await tx.execute(sql`
+    select id, "occurredAt", type, "leadId", body, "cursorAt" from (
+      (select a.id, a.occurred_at as "occurredAt", a.type, a.lead_id as "leadId", a.body,
+              a.occurred_at::text as "cursorAt", a.occurred_at as k
+         from ${activities} a
+        where a.agency_id = ${agencyId} and a.contact_id = ${contactId} and a.type = any(${types}) ${after}
+        order by a.occurred_at, a.id limit ${limit})
+      union all
+      (select a.id, a.occurred_at, a.type, a.lead_id, a.body, a.occurred_at::text, a.occurred_at
+         from ${activities} a
+        where a.agency_id = ${agencyId}
+          and a.lead_id in (select l.id from ${leads} l where l.agency_id = ${agencyId} and l.contact_id = ${contactId})
+          and a.contact_id is distinct from ${contactId}::uuid and a.type = any(${types}) ${after}
+        order by a.occurred_at, a.id limit ${limit})
+    ) page
+    order by k, id
+    limit ${limit}`);
+  return (
+    res.rows as {
+      id: string;
+      occurredAt: string | Date;
+      type: string;
+      leadId: string | null;
+      body: string | null;
+      cursorAt: string;
+    }[]
+  ).map((r) => ({ ...r, occurredAt: new Date(r.occurredAt) }));
 }

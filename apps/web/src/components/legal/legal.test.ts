@@ -47,4 +47,27 @@ describe('legal pages', () => {
     // the placeholders that wait on the lawyer say so
     expect(JSON.stringify(loadMessages('en').legal)).toContain('H7');
   });
+
+  it('[S16-F5] sub-processor names and locations translated', () => {
+    for (const locale of ['en', 'es'] as const) {
+      const vendors = (
+        loadMessages(locale).legal as unknown as {
+          subProcessors: { vendors: Record<string, { name: string; location: string }> };
+        }
+      ).subProcessors.vendors;
+      expect(Object.keys(vendors).sort()).toEqual(SUB_PROCESSORS.map((s) => s.key).sort());
+      for (const s of SUB_PROCESSORS) {
+        expect(vendors[s.key]?.name, `${locale} ${s.key} name`).toBeTruthy();
+        expect(vendors[s.key]?.location, `${locale} ${s.key} location`).toBeTruthy();
+      }
+    }
+    // the ES list is translated, not a copy of the EN one
+    const en = loadMessages('en').legal as unknown as {
+      subProcessors: { vendors: Record<string, { location: string }> };
+    };
+    const es = loadMessages('es').legal as unknown as {
+      subProcessors: { vendors: Record<string, { location: string }> };
+    };
+    expect(es.subProcessors.vendors.stripe?.location).not.toBe(en.subProcessors.vendors.stripe?.location);
+  });
 });

@@ -24,7 +24,7 @@ export async function repointSellerContact(p: {
  * listing itself, its owner-side data and its history stay). Called by crm's `crm.eraseContactData` job for
  * `crm.contact.erased`. Idempotent: a redelivery finds nothing left to clear. Under the agency's RLS. S16-04 review:
  * each cleared listing emits `properties.listing.updated` (`changed: ['seller']`) in the same transaction, so its read
- * models and search document are rebuilt from the erased state.
+ * models and search document are rebuilt from the erased state. S16-F5: all of them in one `emit` statement.
  */
 export async function clearSellerContact(p: {
   agencyId: string;
@@ -32,17 +32,18 @@ export async function clearSellerContact(p: {
 }): Promise<{ rows: number }> {
   const rows = await withTenant({ agencyId: p.agencyId }, async (tx) => {
     const cleared = await repo.clearSeller(tx, p.agencyId, p.contactIds);
-    for (const l of cleared) {
-      await emit(
-        tx,
+    // S16-F5: one statement for every cleared listing's event (`emit` takes a batch)
+    await emit(
+      tx,
+      cleared.map((l) =>
         propertiesEvents.updated({
           listingId: l.listingId,
           agencyId: p.agencyId,
           version: l.version,
           changed: ['seller'],
         }),
-      );
-    }
+      ),
+    );
     return cleared.length;
   });
   return { rows };

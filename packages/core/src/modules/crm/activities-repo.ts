@@ -216,15 +216,22 @@ export async function contactOpen(tx: Tx, agencyId: string, contactId: string): 
  * time, subjects, actor and `data` (IDs and codes only). One statement; returns the rows cleared, so the caller repeats
  * until fewer than `limit` (a cleared row is never picked again).
  */
-export async function clearContactBodies(tx: Tx, agencyId: string, contactId: string, limit: number): Promise<number> {
+export async function clearContactBodies(
+  tx: Tx,
+  agencyId: string,
+  contactIds: readonly string[],
+  limit: number,
+): Promise<number> {
+  if (contactIds.length === 0) return 0;
+  const ids = sql`${sql.param([...contactIds])}::uuid[]`;
   const res = await tx.execute(sql`
     with batch as (
       (select id, occurred_at from ${activities}
-        where agency_id = ${agencyId} and contact_id = ${contactId} and body is not null limit ${limit})
+        where agency_id = ${agencyId} and contact_id = any(${ids}) and body is not null limit ${limit})
       union
       (select a.id, a.occurred_at from ${activities} a
         where a.agency_id = ${agencyId} and a.body is not null
-          and a.lead_id in (select l.id from ${leads} l where l.agency_id = ${agencyId} and l.contact_id = ${contactId})
+          and a.lead_id in (select l.id from ${leads} l where l.agency_id = ${agencyId} and l.contact_id = any(${ids}))
         limit ${limit})
       limit ${limit}),
     u as (update ${activities} a set body = null from batch b

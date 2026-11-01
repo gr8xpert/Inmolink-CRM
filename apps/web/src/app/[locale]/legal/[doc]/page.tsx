@@ -45,13 +45,13 @@ export default async function LegalPage({ params }: { params: Promise<{ doc: str
             {SUB_PROCESSORS.map((s) => (
               <tr key={s.key} className="border-t align-top">
                 <td className="py-2 pr-2">
-                  {s.name}
+                  {t(`subProcessors.vendors.${s.key}.name`)}
                   {s.confirmed ? null : (
                     <span className="ml-1 text-xs text-muted-foreground">({t('subProcessors.unconfirmed')})</span>
                   )}
                 </td>
                 <td className="py-2 pr-2">{s.purposes.map((p) => t(`subProcessors.purposes.${p}`)).join(', ')}</td>
-                <td className="py-2">{s.location}</td>
+                <td className="py-2">{t(`subProcessors.vendors.${s.key}.location`)}</td>
               </tr>
             ))}
           </tbody>

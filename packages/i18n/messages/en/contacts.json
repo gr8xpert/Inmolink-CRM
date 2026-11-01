@@ -39,6 +39,27 @@
     "merge": "Add to existing contact",
     "cancel": "Cancel"
   },
+  "consents": {
+    "title": "Consent history",
+    "empty": "No consent recorded yet.",
+    "load": "The consent history could not be loaded.",
+    "purposes": {
+      "MARKETING": "Marketing",
+      "PROCESSING": "Data processing"
+    },
+    "granted": "given",
+    "withdrawn": "withdrawn",
+    "sources": {
+      "DASHBOARD": "In the dashboard",
+      "WEBSITE": "Website form",
+      "PORTAL": "Portal form",
+      "IMPORT": "Contact import",
+      "MERGE": "Contact merge"
+    },
+    "byMember": "by a team member",
+    "impersonated": "by support on a team member's behalf",
+    "policy": "privacy text {version}"
+  },
   "merge": {
     "title": "Merge contacts",
     "body": "The other contact's e-mails, phones, notes, leads, activities, tasks and registrations move to this contact, and the other contact is closed. This cannot be undone.",

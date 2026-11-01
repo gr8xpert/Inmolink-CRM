@@ -84,7 +84,12 @@ function replayFilter(op: repo.OperationRow): ReplayFilter {
  */
 export type AgencyEraser = (
   agencyId: string,
-  opts: { signal?: AbortSignal; state?: unknown },
+  opts: {
+    signal?: AbortSignal;
+    state?: unknown;
+    /** S16-F5 review: throws when the agency is no longer suspended — the eraser calls it before every batch. */
+    assertSuspended?: () => Promise<void>;
+  },
 ) => Promise<{ finished: boolean; state: unknown }>;
 
 /** S16-04 review: an `ERASE_AGENCY` step found the agency no longer suspended (it ends FAILED, nothing more erased). */
@@ -127,10 +132,14 @@ async function runStep(op: repo.OperationRow, signal?: AbortSignal): Promise<Ste
     const agencyId = op.targetAgencyId;
     if (!agencyId) throw new Error('admin.runStaffOperation: ERASE_AGENCY without an agency');
     // S16-04 review: before every step, the agency must still be suspended (a reinstated agency is never erased)
-    const status = await withSystem(reason(op.id), (tx) => agencies.agencyStatusOf(tx, agencyId));
-    if (status !== 'SUSPENDED') throw new AgencyNotSuspended();
+    // S16-F5 review: and before every destructive batch within the step (the eraser calls it)
+    const assertSuspended = async () => {
+      const status = await withSystem(reason(op.id), (tx) => agencies.agencyStatusOf(tx, agencyId));
+      if (status !== 'SUSPENDED') throw new AgencyNotSuspended();
+    };
+    await assertSuspended();
     const state = op.cursor ? (JSON.parse(op.cursor) as { erasure?: unknown }).erasure : undefined;
-    const r = await agencyEraser(agencyId, { signal, state });
+    const r = await agencyEraser(agencyId, { signal, state, assertSuspended });
     return { cursor: JSON.stringify({ erasure: r.state }), doneDelta: r.finished ? 1 : 0, finished: r.finished };
   }
   const c = agencyCursor(op);

@@ -331,6 +331,29 @@ export async function auditSystem(
   );
 }
 
+/**
+ * S16-F5: `auditSystem` for many rows in **one statement** (`auditMany`): a system batch — the retention job's or an
+ * agency erasure's batch of contacts — audits each contact without a statement per contact.
+ */
+export async function auditSystemMany(
+  tx: Tx,
+  inputs: readonly {
+    type: AuditType;
+    agencyId: string | null;
+    target: AuditTarget | null;
+    requestId?: string;
+    metadata?: AuditMetadata;
+  }[],
+): Promise<void> {
+  const who = { actorKind: 'system' as const, actorUserId: null, impersonatedBy: null };
+  await repo.insertAuditLogs(
+    tx,
+    inputs.map((input) =>
+      entry(input.type, input.agencyId ?? PLATFORM_AGENCY_ID, who, input.target, input.requestId, input.metadata ?? {}),
+    ),
+  );
+}
+
 function toDto(row: repo.AuditLogRow): AuditLogEntryDto {
   const staff = row.actorKind === 'staff';
   return {

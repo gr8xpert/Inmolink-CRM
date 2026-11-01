@@ -194,7 +194,22 @@ describe('data subject export', () => {
     expect(zip).toBeDefined();
     const entries = unzip(zip as Uint8Array);
     expect([...entries.keys()].sort()).toEqual(
-      ['activities.csv', 'consents.csv', 'contact.csv', 'leads.csv', 'manifest.json', 'notes.csv', 'tasks.csv'].sort(),
+      [
+        'activities.csv',
+        'consents.csv',
+        'contact.csv',
+        'enquiries.csv',
+        'events.csv',
+        'leads.csv',
+        'manifest.json',
+        'notes.csv',
+        'prospects.csv',
+        'registrations.csv',
+        'selection_responses.csv',
+        'selections.csv',
+        'tasks.csv',
+        'viewings.csv',
+      ].sort(),
     );
     const contactRows = await sheet(entries.get('contact.csv') as Buffer);
     expect(contactRows).toHaveLength(2);

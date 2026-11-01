@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- feat(compliance,crm,mls,properties,web,public): GDPR completeness and scale — set-based batch erasure, complete paged SUBJECT export, import/merge consent records, client registration retention, full tenant purge after agency erasure (lock-safe, suspension re-checked per batch), retention and consent UI, portal legal links (`WEB_URL` for the public app); migration 0177 [S16-F5]
 - fix(e2e,sdk): e2e browsers start with the cookie choice made (the S16-04 banner covered Log out / Save / Draw area in 6 flows); OpenAPI + SDK regenerated for the S16-04 error codes [S16 CI]
 - feat(ops): app metrics into Prometheus across rolling deploys — app-metrics scraper per app host (existing pinned prom/prometheus:v3.13.4 image, no new dependency), federation job, port 9095 locked to monitoring hosts, Kamal metrics ports / aliases on, AppMetricsScraperDown alert [S16-F6]
 - fix(tests): S16-F3 sitemap-delisting test builds through the worker's path (noteDocOwner marks the shared owner set stale; a set scanned before the agency's first document left its listing in the sitemap on CI); activities plan test seeded and paged at a mid-month anchor (Nov 1: the deep cursor pruned a "filled" p20261101) [S16 CI]

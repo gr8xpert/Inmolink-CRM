@@ -483,7 +483,7 @@ export async function runDataExport(
                   // S16-04 review: what the agency's members wrote may name colleagues, other clients or owners
                   reviewBeforeSending: SUBJECT_REVIEW_TABLES,
                   reviewNote:
-                    'Notes, tasks and activity bodies are free text written by the agency: read them before sending this export to the person, and remove what concerns other people.',
+                    'Notes, tasks, activity bodies, calendar events and seller prospects are free text written by the agency: read them before sending this export to the person, and remove what concerns other people.',
                 }
               : {}),
             generatedAt: clock.now().toISOString(),

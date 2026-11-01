@@ -4,6 +4,7 @@ import { z } from 'zod';
 import * as crm from '../crm';
 import { eraseContactRegistrations } from './erasure';
 import { mlsEvents } from './events';
+import { pruneExpiredRegistrations } from './gdpr';
 import {
   agenciesToRehash,
   checkFingerprintRehash,
@@ -49,7 +50,7 @@ export const mlsJobs = {
     backoff: { type: 'exponential', delay: 5_000 },
     timeoutMs: 60_000,
     async run(p) {
-      const contactIds = await crm.erasedContactIds({ agencyId: p.agencyId, contactId: p.contactId });
+      const contactIds = await crm.erasedContactIds({ agencyId: p.agencyId, contactIds: [p.contactId] });
       return eraseContactRegistrations({ agencyId: p.agencyId, contactIds });
     },
   }),
@@ -158,6 +159,19 @@ export const mlsJobs = {
     timeoutMs: 60_000,
     async run(p) {
       return prepareViewingTermsPdf(p.change, { agencyId: p.agencyId });
+    },
+  }),
+
+  // S16-F5: registrations (and their viewing requests) past validity + the claim period leave (mls/gdpr.ts)
+  pruneRegistrations: defineJob({
+    name: 'mls.pruneRegistrations',
+    pool: 'maintenance',
+    payload: z.object({}).strict(),
+    every: 24 * HOUR_MS,
+    attempts: 3,
+    timeoutMs: 10 * 60_000,
+    async run(_p, { signal }) {
+      return pruneExpiredRegistrations({ signal });
     },
   }),
 

@@ -32,10 +32,14 @@ export {
   leadsForExport,
   SUBJECT_PAGE_MAX,
   type SubjectContactRow,
+  type SubjectPage,
   subjectActivities,
   subjectContact,
+  subjectEvents,
+  subjectInboundLeadIds,
   subjectLeads,
   subjectNotes,
+  subjectProspects,
   subjectTasks,
 } from './data-export';
 export {
@@ -45,6 +49,7 @@ export {
   eraseContact,
   eraseContactData,
   eraseContactsBySystem,
+  eraseContactsData,
   erasedContactIds,
   openContactExists,
   purgeAgencyContactImports,

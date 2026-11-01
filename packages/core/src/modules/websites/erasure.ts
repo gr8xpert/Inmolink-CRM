@@ -1,4 +1,6 @@
-import { withTenant } from '@inmolink/db';
+import { type Tx, withTenant } from '@inmolink/db';
+import { websiteLeads } from '@inmolink/db/schema/websites';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 import * as repo from './leads-repo';
 
 /**
@@ -27,4 +29,29 @@ export async function eraseAgencyLeads(p: { agencyId: string }): Promise<{ rows:
     const rows = await repo.eraseLeads(tx, p.agencyId, ids);
     return { rows, more: ids.length === AGENCY_BATCH };
   });
+}
+
+/**
+ * S16-F5, the `SUBJECT` data export: these website enquiries (ids of the subject's crm leads' `inbound_lead_id`) with
+ * what the visitor sent — name, e-mail, phone, message, kind, locale, the viewing slots asked for, their marketing
+ * consent and when. Not the page URL's query, the key tier or the hashes (technical). Under the caller's RLS (`tx`).
+ */
+export async function subjectInboundLeads(tx: Tx, agencyId: string, ids: readonly string[]) {
+  if (ids.length === 0) return [];
+  return tx
+    .select({
+      id: websiteLeads.id,
+      kind: websiteLeads.kind,
+      locale: websiteLeads.locale,
+      name: websiteLeads.name,
+      email: websiteLeads.email,
+      phone: websiteLeads.phone,
+      message: websiteLeads.message,
+      viewingSlots: websiteLeads.viewingSlots,
+      marketingConsent: websiteLeads.marketingConsent,
+      createdAt: websiteLeads.createdAt,
+    })
+    .from(websiteLeads)
+    .where(and(eq(websiteLeads.agencyId, agencyId), inArray(websiteLeads.id, [...ids])))
+    .orderBy(asc(websiteLeads.id));
 }

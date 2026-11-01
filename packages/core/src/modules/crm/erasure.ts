@@ -86,11 +86,28 @@ export async function eraseContactData(p: {
    */
   agencyErasure?: boolean;
 }): Promise<ErasureCounts> {
+  return eraseContactsData({ agencyId: p.agencyId, contactIds: [p.contactId], agencyErasure: p.agencyErasure });
+}
+
+/**
+ * S16-F5: `eraseContactData` for a batch of erased contacts (an agency erasure's `SYSTEM_ERASE_BATCH`) — every step
+ * one statement per table batch for the whole set, never one per contact: activity bodies (1,000 per statement), the
+ * inbound website leads (500 per call), the listings' seller link (one statement, its `properties.listing.updated`
+ * events one more), the members' notifications, and one `crm.contact.erasureCompleted` row per contact in one insert
+ * (`auditSystemMany`, each with the batch's totals and its size). Same idempotence and RLS as `eraseContactData`.
+ */
+export async function eraseContactsData(p: {
+  agencyId: string;
+  contactIds: readonly string[];
+  agencyErasure?: boolean;
+}): Promise<ErasureCounts> {
+  if (p.contactIds.length === 0) return { activities: 0, inboundLeads: 0, listings: 0 };
   const tenant = { agencyId: p.agencyId };
+  const contactIds = [...p.contactIds];
   let activities = 0;
   for (;;) {
     const n = await withTenant(tenant, (tx) =>
-      activitiesRepo.clearContactBodies(tx, p.agencyId, p.contactId, ERASE_BATCH),
+      activitiesRepo.clearContactBodies(tx, p.agencyId, contactIds, ERASE_BATCH),
     );
     activities += n;
     if (n < ERASE_BATCH) break;
@@ -100,14 +117,14 @@ export async function eraseContactData(p: {
   for (;;) {
     const cursor: string | null = after;
     const ids: string[] = await withTenant(tenant, (tx) =>
-      repo.inboundLeadsOf(tx, p.agencyId, p.contactId, cursor, INBOUND_BATCH),
+      repo.inboundLeadsOf(tx, p.agencyId, contactIds, cursor, INBOUND_BATCH),
     );
     inboundLeads += (await websites.eraseInboundLeads({ agencyId: p.agencyId, ids })).rows;
     if (ids.length < INBOUND_BATCH) break;
     after = ids[ids.length - 1] ?? null;
   }
-  const merged = await withTenant(tenant, (tx) => repo.mergedInto(tx, p.agencyId, p.contactId));
-  const erasedIds = [p.contactId, ...merged];
+  const merged = await withTenant(tenant, (tx) => repo.mergedIntoAny(tx, p.agencyId, contactIds));
+  const erasedIds = [...contactIds, ...merged];
   const { rows: listings } = await properties.clearSellerContact({ agencyId: p.agencyId, contactIds: erasedIds });
   // S16-04 review: members' notifications naming the person (a lead's contact name, a task's title) lose their params
   const targets = await withTenant(tenant, (tx) => repo.noticeTargetsOf(tx, p.agencyId, erasedIds));
@@ -123,13 +140,17 @@ export async function eraseContactData(p: {
     await purgeContactImportFiles({ agencyId: p.agencyId });
   }
   const counts = { activities, inboundLeads, listings };
+  const metadata = contactIds.length === 1 ? { ...counts } : { ...counts, batch: contactIds.length };
   await withTenant(tenant, (tx) =>
-    compliance.auditSystem(tx, {
-      type: 'crm.contact.erasureCompleted',
-      agencyId: p.agencyId,
-      target: { type: 'contact', id: p.contactId },
-      metadata: { ...counts },
-    }),
+    compliance.auditSystemMany(
+      tx,
+      contactIds.map((id) => ({
+        type: 'crm.contact.erasureCompleted' as const,
+        agencyId: p.agencyId,
+        target: { type: 'contact', id },
+        metadata,
+      })),
+    ),
   );
   return counts;
 }
@@ -139,10 +160,14 @@ export const SYSTEM_ERASE_BATCH = 100;
 
 /**
  * S16-04: erases contacts without a member — the retention job (`RETENTION`, audited `crm.contact.anonymized` with the
- * period) and the agency erasure (`AGENCY`, audited `crm.contact.erased`). The same erasure as `eraseContact` (one
- * statement per contact, the merged ones following), actor `system`, in one transaction under the agency's RLS for at
- * most `SYSTEM_ERASE_BATCH` contacts; each emits `crm.contact.erased`, so `crm.eraseContactData` clears the rest after
- * the commit. A contact closed meanwhile (merged, erased) is skipped. Answers how many were erased.
+ * period) and the agency erasure (`AGENCY`, audited `crm.contact.erased`). The same erasure as `eraseContact`, actor
+ * `system`, in one transaction under the agency's RLS for at most `SYSTEM_ERASE_BATCH` contacts; each emits
+ * `crm.contact.erased`, so `crm.eraseContactData` clears the rest after the commit. A contact closed meanwhile
+ * (merged, erased) is skipped. Answers how many were erased.
+ *
+ * S16-F5, set-based: one statement locks the batch, one erases all of it (`repo.eraseContacts`, the merged ones
+ * following), one inserts every audit row (`auditSystemMany`) and one every event (`emit` of the batch) — four
+ * statements whatever the batch's size.
  */
 export async function eraseContactsBySystem(p: {
   agencyId: string;
@@ -152,17 +177,25 @@ export async function eraseContactsBySystem(p: {
   const ids = p.contactIds.slice(0, SYSTEM_ERASE_BATCH);
   if (ids.length === 0) return 0;
   return withTenant({ agencyId: p.agencyId }, async (tx) => {
-    const open = await repo.lockAndLoad(tx, ids); // open contacts only, locked
-    for (const c of open) {
-      await repo.eraseContact(tx, p.agencyId, c.id);
-      await compliance.auditSystem(tx, {
-        type: p.why.kind === 'RETENTION' ? 'crm.contact.anonymized' : 'crm.contact.erased',
+    const open = (await repo.lockAndLoad(tx, ids)).map((c) => c.id); // open contacts only, locked
+    if (open.length === 0) return 0;
+    await repo.eraseContacts(tx, p.agencyId, open);
+    const retention = p.why.kind === 'RETENTION';
+    const metadata: compliance.AuditMetadata =
+      p.why.kind === 'RETENTION' ? { months: p.why.months } : { reason: 'agencyErasure' };
+    await compliance.auditSystemMany(
+      tx,
+      open.map((id) => ({
+        type: retention ? ('crm.contact.anonymized' as const) : ('crm.contact.erased' as const),
         agencyId: p.agencyId,
-        target: { type: 'contact', id: c.id },
-        metadata: p.why.kind === 'RETENTION' ? { months: p.why.months } : { reason: 'agencyErasure' },
-      });
-      await emit(tx, crmEvents.contactErased({ agencyId: p.agencyId, contactId: c.id }));
-    }
+        target: { type: 'contact', id },
+        metadata,
+      })),
+    );
+    await emit(
+      tx,
+      open.map((contactId) => crmEvents.contactErased({ agencyId: p.agencyId, contactId })),
+    );
     return open.length;
   });
 }
@@ -216,10 +249,13 @@ export async function eraseAgencyContacts(p: {
   return { erased, contactIds: ids, more: ids.length === SYSTEM_ERASE_BATCH };
 }
 
-/** S16-04 review: the erased contact and the closed contacts merged into it (their data went with it). */
-export async function erasedContactIds(p: { agencyId: string; contactId: string }): Promise<string[]> {
-  const merged = await withTenant({ agencyId: p.agencyId }, (tx) => repo.mergedInto(tx, p.agencyId, p.contactId));
-  return [p.contactId, ...merged];
+/**
+ * S16-04 review: the erased contacts and the closed contacts merged into them (their data went with them). S16-F5:
+ * any number of contacts, one query.
+ */
+export async function erasedContactIds(p: { agencyId: string; contactIds: readonly string[] }): Promise<string[]> {
+  const merged = await withTenant({ agencyId: p.agencyId }, (tx) => repo.mergedIntoAny(tx, p.agencyId, p.contactIds));
+  return [...p.contactIds, ...merged];
 }
 
 /**

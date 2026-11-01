@@ -3,9 +3,11 @@ import * as chat from '../chat';
 import * as crm from '../crm';
 import * as imports from '../imports';
 import * as matching from '../matching';
+import * as media from '../media';
 import * as mls from '../mls';
 import * as notifications from '../notifications';
 import * as presentations from '../presentations';
+import * as properties from '../properties';
 import * as websites from '../websites';
 import { expireErasedExports } from './gdpr';
 import { auditSystem } from './service';
@@ -21,17 +23,22 @@ import { auditSystem } from './service';
  *
  * 1. `imports` — feed connections removed (credentials, URLs, run history), then the uploaded sheets under
  *    `imports/sheets/<agency>/` deleted (`imports.eraseAgencyImports` → `deleteAgencySheets`, S7-F1 / S8-F4).
- * 2. `contacts` — open contacts erased, `crm.SYSTEM_ERASE_BATCH` per call (crm's erasure, actor system), and for each
- *    the after-commit work run inline, not left to queued jobs: crm's `eraseContactData` (activity bodies, website
- *    leads, listing sellers, notifications), mls's registration tombstones, presentations' selections.
+ * 2. `contacts` — open contacts erased, `crm.SYSTEM_ERASE_BATCH` per call (crm's erasure, actor system), and for the
+ *    batch the after-commit work run inline, not left to queued jobs: crm's `eraseContactsData` (activity bodies,
+ *    website leads, listing sellers, notifications), mls's registration tombstones, presentations' selections —
+ *    S16-F5: set-based, each step one call for the whole batch (no per-contact loop).
  * 3. `crmText` — what crm still holds outside contact rows (tasks, events, prospects, activities, leads, notes).
  * 4. `websiteLeads` — every website lead, promoted or not. 5. `registrations` — every client registration.
- * 6. `selections`. 7. `chat` — the agency's message copies, thread titles. 8. `savedSearches`. 9. `notifications`.
- * 10. `contactImports` — files and the `crm/contact-imports/<agency>/` prefix. 11. `exports` — every data export.
+ * 6. `selections`. 7. `listings` — S16-F5: every live listing soft-deleted with its `properties.listing.deleted`
+ * (network, websites, read models and the index drop it). 8. `listingPurge` — the soft-deleted listings purged for
+ * good (children cascade, photos recounted), then the agency's `documents/` objects. 9. `chat` — the agency's message
+ * copies, then its threads and participants (S16-F5: deleted, not only untitled). 10. `savedSearches`.
+ * 11. `notifications` — every notification and preference. 12. `contactImports` — files and the
+ * `crm/contact-imports/<agency>/` prefix. 13. `exports` — every data export.
  *
- * Then `compliance.agency.erased` is audited with the totals of all steps. Kept: listings and media (a suspended
- * agency's are not shown; listing text is the agency's, not a person's), deals (leads: ids, stages), audit rows,
- * billing, the member accounts (platform accounts, Inmolink's as controller: erased on request through identity).
+ * Then `compliance.agency.erased` is audited with the totals of all steps. Kept: deals (leads: ids, stages), audit
+ * rows, billing, the agency row, its members' accounts and memberships (platform accounts, Inmolink's as controller —
+ * PLAN §13 — erased on the person's request through identity; S16-F5 ASSUMPTION in STATUS).
  */
 
 export const AGENCY_ERASURE_PHASES = [
@@ -41,6 +48,8 @@ export const AGENCY_ERASURE_PHASES = [
   'websiteLeads',
   'registrations',
   'selections',
+  'listings',
+  'listingPurge',
   'chat',
   'savedSearches',
   'notifications',
@@ -83,10 +92,10 @@ async function runPhase(
     }
     case 'contacts': {
       const r = await crm.eraseAgencyContacts({ agencyId });
-      for (const contactId of r.contactIds) {
-        // the after-commit work of each erasure, inline: the audit below must not claim what queued jobs still owe
-        await crm.eraseContactData({ agencyId, contactId, agencyErasure: true });
-        const contactIds = await crm.erasedContactIds({ agencyId, contactId });
+      if (r.contactIds.length > 0) {
+        // the batch's after-commit work, inline and set-based: the audit below must not claim what queued jobs owe
+        await crm.eraseContactsData({ agencyId, contactIds: r.contactIds, agencyErasure: true });
+        const contactIds = await crm.erasedContactIds({ agencyId, contactIds: r.contactIds });
         await mls.eraseContactRegistrations({ agencyId, contactIds });
         await presentations.eraseContactSelections({ agencyId, contactIds });
       }
@@ -104,6 +113,12 @@ async function runPhase(
     case 'selections': {
       const r = await presentations.eraseAgencySelections({ agencyId });
       return { rows: r.selections, more: r.more };
+    }
+    case 'listings':
+      return properties.retireAgencyListings({ agencyId });
+    case 'listingPurge': {
+      const r = await media.purgeAgencyListings({ agencyId, signal });
+      return { rows: r.listings, more: r.more };
     }
     case 'chat':
       return chat.eraseAgencyChat({ agencyId });
@@ -126,16 +141,19 @@ async function runPhase(
 
 /**
  * One step of an agency's erasure: from `state` (the operation's cursor; absent on the first step) up to
- * `CALLS_PER_STEP` bounded calls. Answers the new state and whether everything is done — the last step audits
+ * `CALLS_PER_STEP` bounded calls, each preceded by `assertSuspended` (S16-F5 review: the operation re-checks the
+ * agency is still suspended before every destructive batch, not only per step). Answers the new state and whether everything is done — the last step audits
  * `compliance.agency.erased` with the totals across all steps.
  */
 export async function eraseAgencyData(
   agencyId: string,
-  opts: { signal?: AbortSignal; state?: unknown } = {},
+  opts: { signal?: AbortSignal; state?: unknown; assertSuspended?: () => Promise<void> } = {},
 ): Promise<{ finished: boolean; state: AgencyErasureState }> {
   const state = stateOf(opts.state);
   for (let calls = 0; calls < CALLS_PER_STEP && state.phase !== 'done'; calls++) {
     if (opts.signal?.aborted) return { finished: false, state };
+    // S16-F5 review: a reinstated agency is never erased further, not even by the rest of this step
+    await opts.assertSuspended?.();
     const r = await runPhase(agencyId, state, opts.signal);
     state.counts[state.phase] += r.rows;
     if (!r.more) {

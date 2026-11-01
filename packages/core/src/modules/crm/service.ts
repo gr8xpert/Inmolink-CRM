@@ -302,6 +302,11 @@ async function mergeInto(
   );
   await repo.refreshPrimaries(ctx.tx, agencyId, [targetId]);
   await repo.syncFacets(ctx.tx, agencyId, [targetId]);
+  // S16-F5: a consent the form's data merged into the existing contact changed is a consent record
+  await compliance.recordConsents(ctx.tx, agencyId, repo.absorbConsentChanges(updated ? [updated] : []), {
+    source: 'MERGE',
+    ctx,
+  });
   await emit(
     ctx.tx,
     crmEvents.contactUpdated({ agencyId, contactId: targetId, version: updated?.version ?? target.version + 1 }),
@@ -482,6 +487,11 @@ export async function mergeContacts(ctx: Ctx, survivorId: string, input: MergeCo
     ],
     CONTACT_LIMITS.tags,
   );
+  // S16-F5: a consent the survivor takes from the duplicate (the more recent choice) is a consent record
+  await compliance.recordConsents(ctx.tx, agencyId, repo.absorbConsentChanges(updated ? [updated] : []), {
+    source: 'MERGE',
+    ctx,
+  });
   await repo.closeMerged(ctx.tx, agencyId, duplicate.id, survivor.id);
   await repo.refreshPrimaries(ctx.tx, agencyId, [survivor.id]);
   await repo.syncFacets(ctx.tx, agencyId, [survivor.id, duplicate.id]);

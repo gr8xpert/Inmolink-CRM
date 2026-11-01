@@ -17,15 +17,13 @@ export const LEGAL_DRAFT = true;
 
 /** What a sub-processor does for Inmolink (the page translates it: `legal.subProcessors.purposes.<purpose>`). */
 export type SubProcessorPurpose = 'hosting' | 'cdn' | 'storage' | 'bot' | 'payments' | 'email' | 'ai' | 'errors';
+/** Stable key of a sub-processor (its name and location: `legal.subProcessors.vendors.<key>.name / location`). */
+export type SubProcessorKey = 'euHosting' | 'cloudflare' | 'stripe' | 'email' | 'anthropic' | 'sentry';
 
 export interface SubProcessor {
-  /** Stable key (i18n, tests). */
-  key: string;
-  /** The company's name, as it trades. */
-  name: string;
+  /** Stable key (i18n, tests). S16-F5: the company's name and where it processes data are translated by this key. */
+  key: SubProcessorKey;
   purposes: readonly SubProcessorPurpose[];
-  /** Where the data is processed (`EU`, or `EU + US (SCCs)` style labels until H7 confirms them). */
-  location: string;
   /** False while the vendor, its region or its DPA is not confirmed (H3 accounts, H4 servers, H7 review). */
   confirmed: boolean;
 }
@@ -33,31 +31,13 @@ export interface SubProcessor {
 /**
  * Sub-processors of personal data (PLAN §13: Cloudflare, Stripe, e-mail and AI providers; EU-only hosting). Draft:
  * vendors and regions follow the accounts the platform opens (H3) and the servers it rents (H4); the lawyer confirms
- * the list and the transfer basis of each (H7) before R1.
+ * the list and the transfer basis of each (H7) before R1. Names and locations: `packages/i18n` (`legal.subProcessors.vendors`).
  */
 export const SUB_PROCESSORS: readonly SubProcessor[] = [
-  {
-    key: 'eu-hosting',
-    name: 'EU data-centre provider (to be confirmed)',
-    purposes: ['hosting'],
-    location: 'EU',
-    confirmed: false,
-  },
-  {
-    key: 'cloudflare',
-    name: 'Cloudflare',
-    purposes: ['cdn', 'storage', 'bot'],
-    location: 'EU (R2 EU jurisdiction); CDN global',
-    confirmed: false,
-  },
-  { key: 'stripe', name: 'Stripe', purposes: ['payments'], location: 'EU + US (SCCs)', confirmed: false },
-  {
-    key: 'email',
-    name: 'Transactional e-mail provider (SMTP2Go / Resend / Amazon SES, to be confirmed)',
-    purposes: ['email'],
-    location: 'EU',
-    confirmed: false,
-  },
-  { key: 'anthropic', name: 'Anthropic', purposes: ['ai'], location: 'US (SCCs)', confirmed: false },
-  { key: 'sentry', name: 'Sentry', purposes: ['errors'], location: 'EU', confirmed: false },
+  { key: 'euHosting', purposes: ['hosting'], confirmed: false },
+  { key: 'cloudflare', purposes: ['cdn', 'storage', 'bot'], confirmed: false },
+  { key: 'stripe', purposes: ['payments'], confirmed: false },
+  { key: 'email', purposes: ['email'], confirmed: false },
+  { key: 'anthropic', purposes: ['ai'], confirmed: false },
+  { key: 'sentry', purposes: ['errors'], confirmed: false },
 ];

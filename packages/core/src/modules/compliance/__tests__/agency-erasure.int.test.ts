@@ -1,6 +1,7 @@
 import {
   CreateContactBody,
   CreateLeadBody,
+  CreateListingBody,
   CreateTaskBody,
   StartSheetImportBody,
   type XmlMappingInput,
@@ -22,7 +23,10 @@ import { scanForTokens, scanObjects } from '../../../testing/pii-scan';
 import * as admin from '../../admin';
 import * as crm from '../../crm';
 import * as imports from '../../imports';
+import * as media from '../../media';
 import * as notifications from '../../notifications';
+import * as properties from '../../properties';
+import * as taxonomy from '../../taxonomy';
 import { dataExportKey } from '../index';
 import { eraseAgencyData } from '../worker';
 
@@ -59,6 +63,7 @@ let leaving: Founder;
 let staying: Founder;
 let superAdmin: string;
 let dataOps: string;
+let ids: { city: string; villa: string };
 
 const as = <T>(m: Founder, fn: (ctx: Ctx) => Promise<T>) =>
   withMemberCtx({ userId: m.userId, agencyId: m.agencyId, requestId: newId(), locale: 'en' }, fn);
@@ -90,6 +95,27 @@ beforeAll(async () => {
   [leaving, staying] = await Promise.all([createFounder(), createFounder()]);
   superAdmin = (await createStaffUser('SUPER_ADMIN')).userId;
   dataOps = (await createStaffUser('STAFF_DATA_OPS')).userId;
+  ids = await system(async (tx) => {
+    const name = (n: string) => [{ locale: 'en', name: `${n} ${RUN}`, slug: `${n.toLowerCase()}-${RUN}` }];
+    const city = await taxonomy.createLocation(tx, {
+      level: 'COUNTRY',
+      parentId: null,
+      code: `erase-${RUN}`,
+      translations: name('Eraseland'),
+    });
+    const group = await taxonomy.createPropertyTypeGroup(tx, {
+      key: `erase-g-${RUN}`,
+      sort: 0,
+      translations: name('H'),
+    });
+    const villa = await taxonomy.createPropertyType(tx, {
+      groupId: group,
+      key: `erase-v-${RUN}`,
+      sort: 0,
+      translations: name('Villa'),
+    });
+    return { city, villa };
+  });
 }, 120_000);
 
 afterAll(async () => {
@@ -217,6 +243,20 @@ describe('agency erasure', () => {
         at: new Date(),
       });
     });
+    // S16-F5, the full tenant purge: a listing (its text names the client) and a listing document in storage
+    const listing = await as(leaving, (ctx) =>
+      properties.createListing(
+        ctx,
+        CreateListingBody.parse({ propertyTypeId: ids.villa, locationId: ids.city, priceCents: 30_000_000 }),
+      ),
+    );
+    await system((tx) =>
+      tx.execute(sql`insert into property_translations (property_id, agency_id, locale, title, description, slug)
+        values (${listing.id}, ${leaving.agencyId}, 'en', ${`Villa sold by ${T}`}, ${NOTE}, ${`villa-${RUN}`})`),
+    );
+    await store.put('private', `documents/${leaving.agencyId}/${listing.id}/${newId()}`, Buffer.from(`deed of ${T}`), {
+      contentType: 'application/pdf',
+    });
     const importFile = await crm.uploadContactImport(
       (fn) => as(leaving, fn),
       Buffer.from(`first_name,email\n${T},${MAIL}\n`),
@@ -238,6 +278,7 @@ describe('agency erasure', () => {
         'tasks.title',
         'website_leads.email',
         'chat_messages.body',
+        'property_translations.title',
         'saved_searches.name',
         'selections.title',
         'notifications.params',
@@ -269,6 +310,31 @@ describe('agency erasure', () => {
         (select count(*) from contacts where agency_id = ${leaving.agencyId} and deleted_at is null)::int as open,
         (select status from data_export_jobs where id = ${exportId}) as exports`);
     expect(left).toEqual({ connections: 0, open: 0, exports: 'EXPIRED' });
+    // S16-F5, the full tenant purge: no listing, chat thread, participant or notification of the agency is left
+    const [purged] = await rows<Record<string, number>>(sql`select
+        (select count(*) from properties where agency_id = ${leaving.agencyId})::int as listings,
+        (select count(*) from property_translations where agency_id = ${leaving.agencyId})::int as translations,
+        (select count(*) from chat_threads where agency_id = ${leaving.agencyId})::int as threads,
+        (select count(*) from chat_participants where agency_id = ${leaving.agencyId})::int as participants,
+        (select count(*) from chat_messages where agency_id = ${leaving.agencyId})::int as messages,
+        (select count(*) from notifications where agency_id = ${leaving.agencyId})::int as notifications,
+        (select count(*) from outbox_events where agency_id = ${leaving.agencyId}
+           and type = 'properties.listing.purged' and payload->>'listingId' = ${listing.id})::int as purged_events`);
+    expect(purged).toEqual({
+      listings: 0,
+      translations: 0,
+      threads: 0,
+      participants: 0,
+      messages: 0,
+      notifications: 0,
+      purged_events: 1,
+    });
+    expect([...store.objects.keys()].filter((k) => k.includes(`documents/${leaving.agencyId}/`))).toEqual([]);
+    // the other agency's listings are untouched; the member account stays (platform account, PLAN §13)
+    const [member] = await rows<{ users: number; members: number }>(sql`select
+        (select count(*) from users where id = ${leaving.userId})::int as users,
+        (select count(*) from agency_members where agency_id = ${leaving.agencyId})::int as members`);
+    expect(member).toEqual({ users: 1, members: 1 });
     // the deal stays (ids, stage), pointing at the tombstone; the audit trail: ids and counts only
     const [deal] = await rows<{ contact_id: string; message: string | null }>(
       sql`select contact_id, message from leads where id = ${lead.id}`,
@@ -291,7 +357,9 @@ describe('agency erasure', () => {
       imports: 3, // 1 connection + 2 sheets
       contacts: 1,
       websiteLeads: 1,
-      chat: 2, // the message, then the thread's title
+      chat: 2, // the message, then the thread (with its participant)
+      listings: 1,
+      listingPurge: 1,
       savedSearches: 1,
       selections: 1,
       exports: 1,
@@ -308,4 +376,62 @@ describe('agency erasure', () => {
     expect(again.finished).toBe(true);
     expect(Object.values(again.state.counts).every((n) => n === 0)).toBe(true);
   }, 180_000);
+  it('[S16-F5] a listing another transaction holds keeps the listings and purge phases going until it is retired and purged', async () => {
+    const m = await createFounder();
+    const listing = await as(m, (ctx) =>
+      properties.createListing(
+        ctx,
+        CreateListingBody.parse({ propertyTypeId: ids.villa, locationId: ids.city, priceCents: 20_000_000 }),
+      ),
+    );
+    await store.put('private', `documents/${m.agencyId}/${listing.id}/${newId()}`, Buffer.from('deed'), {
+      contentType: 'application/pdf',
+    });
+    const lockWhile = <T>(fn: () => Promise<T>) =>
+      system(async (tx) => {
+        await tx.execute(sql`select id from properties where id = ${listing.id} for update`);
+        return fn();
+      });
+    // locked: skipped, but the phase is not done
+    expect(await lockWhile(() => properties.retireAgencyListings({ agencyId: m.agencyId }))).toEqual({
+      rows: 0,
+      more: true,
+    });
+    expect(await properties.retireAgencyListings({ agencyId: m.agencyId })).toEqual({ rows: 1, more: false });
+    // the purge: a soft-deleted listing held by another transaction keeps it going, its documents stay meanwhile
+    expect(await lockWhile(() => media.purgeAgencyListings({ agencyId: m.agencyId }))).toMatchObject({
+      listings: 0,
+      documents: 0,
+      more: true,
+    });
+    expect([...store.objects.keys()].some((k) => k.includes(`documents/${m.agencyId}/`))).toBe(true);
+    expect(await media.purgeAgencyListings({ agencyId: m.agencyId })).toMatchObject({ listings: 1, more: false });
+    expect([...store.objects.keys()].some((k) => k.includes(`documents/${m.agencyId}/`))).toBe(false);
+    const [left] = await rows<{ n: number }>(
+      sql`select count(*)::int as n from properties where agency_id = ${m.agencyId}`,
+    );
+    expect(left?.n).toBe(0);
+  });
+
+  it('[S16-F5] an agency reinstated between two batches of one step: the erasure stops before the next batch', async () => {
+    const m = await createFounder();
+    const { contact } = await as(m, (ctx) =>
+      crm.createContact(ctx, CreateContactBody.parse({ firstName: `Keep${RUN}` })),
+    );
+    await setAgencyStatus(m.agencyId, 'SUSPENDED');
+    let checks = 0;
+    const assertSuspended = async () => {
+      checks += 1;
+      if (checks === 2) await setAgencyStatus(m.agencyId, 'VERIFIED'); // reinstated after the first batch
+      const [row] = await rows<{ status: string }>(sql`select status from agencies where agency_id = ${m.agencyId}`);
+      if (row?.status !== 'SUSPENDED') throw new AppError('AGENCY_ERASURE_REFUSED');
+    };
+    expect(await refusal(eraseAgencyData(m.agencyId, { assertSuspended }))).toBe('AGENCY_ERASURE_REFUSED');
+    expect(checks).toBe(2);
+    // the first batch (imports) ran; the contacts batch never did
+    const [open] = await rows<{ first_name: string | null; deleted: boolean }>(
+      sql`select first_name, deleted_at is not null as deleted from contacts where id = ${contact.id}`,
+    );
+    expect(open).toEqual({ first_name: `Keep${RUN}`, deleted: false });
+  });
 });

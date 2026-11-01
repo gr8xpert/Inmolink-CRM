@@ -187,5 +187,33 @@
         "description": "Listing Studio redacta también sus otros idiomas. Desactivada: Studio redacta solo su idioma principal."
       }
     }
+  },
+  "retention": {
+    "link": "Conservación de datos",
+    "title": "Conservación de datos",
+    "back": "Volver a la configuración",
+    "intro": "Los contactos sin cambios, consultas, tareas ni actividad durante este periodo se anonimizan automáticamente: se eliminan para siempre los nombres, los datos de contacto y los textos libres. Se conservan los contactos con una consulta abierta y los vendedores de inmuebles en el mercado.",
+    "inForce": "En vigor: los contactos inactivos durante {months} meses se anonimizan.",
+    "inForceOff": "En vigor: desactivada. Los contactos se conservan hasta que usted los borre.",
+    "pending": "El nuevo periodo de {months} meses se aplica a partir del {date}. Hasta entonces sigue en vigor el periodo anterior.",
+    "pendingOff": "La nueva configuración se aplica a partir del {date}. Hasta entonces sigue en vigor el periodo anterior.",
+    "graceHint": "Un periodo más corto espera un plazo de gracia, para poder corregir un error antes de que se anonimice a nadie. Guarde de nuevo el periodo anterior para cancelarlo.",
+    "saved": "Periodo de conservación guardado.",
+    "form": {
+      "months": "Anonimizar tras (meses)",
+      "off": "Desactivada (conservar los contactos hasta borrarlos)",
+      "monthsHint": "Entre {min} y {max} meses. Un periodo más corto, o activar la conservación, se aplica {days} días después de guardar; uno más largo se aplica en el acto.",
+      "code": "Código del autenticador",
+      "codeHint": "Introduzca un código nuevo de su app de autenticación: esta configuración decide qué clientes se borran para siempre.",
+      "submit": "Guardar periodo"
+    },
+    "errors": {
+      "generic": "No se ha podido guardar el periodo. Inténtelo de nuevo.",
+      "load": "No se ha podido cargar la configuración de conservación.",
+      "MFA_CODE_INVALID": "El código del autenticador no es válido. Introduzca un código nuevo.",
+      "VALIDATION_FAILED": "Elija un periodo de entre 6 y 240 meses, o desactive la conservación.",
+      "FORBIDDEN": "Solo un administrador de su agencia puede cambiar el periodo de conservación.",
+      "RATE_LIMITED": "Demasiados intentos. Espere un momento e inténtelo de nuevo."
+    }
   }
 }

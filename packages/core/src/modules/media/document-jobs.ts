@@ -139,28 +139,10 @@ export const mediaDocumentJobs = {
       for (let i = 0; i < PURGE_MAX_BATCHES && !signal.aborted; i++) {
         const gone = await withSystem('media.purgeDeletedListings', async (tx) => {
           const due = await properties.listingsDueForPurge(tx, clock.now(), PURGE_BATCH);
-          const hashes = await repo.hashesOfListings(
+          return purgeListingRows(
             tx,
             due.map((l) => l.id),
           );
-          const deleted = await properties.purgeListings(
-            tx,
-            due.map((l) => l.id),
-          );
-          // The rows are gone: each listing's objects are recounted under its own agency (fair share, RLS of record).
-          const byAgency = new Map<string, OutboxMessage[]>();
-          for (const l of deleted) {
-            const objects = (hashes.get(l.id) ?? []).map((sha256) => ({ sha256, upload: null }));
-            const messages = byAgency.get(l.agencyId) ?? [];
-            for (let j = 0; j < objects.length; j += OBJECTS_PER_EVENT) {
-              messages.push(
-                mediaEvents.referencesChanged({ listingId: l.id, objects: objects.slice(j, j + OBJECTS_PER_EVENT) }),
-              );
-            }
-            byAgency.set(l.agencyId, messages);
-          }
-          for (const [agencyId, messages] of byAgency) await emit(tx, messages, { agencyId });
-          return deleted;
         });
         // Queue I/O after the commit: each listing's documents leave the private bucket.
         const trigger = newId();
@@ -220,6 +202,59 @@ export const mediaDocumentJobs = {
  * The caller — the listing purge or the offboarding job — calls it after its transaction committed (queue I/O:
  * never inside one); the rows go with the listing (FK cascade). Idempotent per `trigger`.
  */
+type SystemTx = Parameters<Parameters<typeof withSystem>[1]>[0];
+
+/**
+ * Deletes these soft-deleted listings for good in `tx`: their photos' hashes are read first, then
+ * `properties.purgeListings` (children cascade), then one `media.object.referencesChanged` per listing (and per
+ * `OBJECTS_PER_EVENT` objects) under the listing's agency, so the media worker recounts them. Answers the purged ones.
+ */
+async function purgeListingRows(tx: SystemTx, ids: string[]): Promise<{ id: string; agencyId: string }[]> {
+  const hashes = await repo.hashesOfListings(tx, ids);
+  const deleted = await properties.purgeListings(tx, ids);
+  // The rows are gone: each listing's objects are recounted under its own agency (fair share, RLS of record).
+  const byAgency = new Map<string, OutboxMessage[]>();
+  for (const l of deleted) {
+    const objects = (hashes.get(l.id) ?? []).map((sha256) => ({ sha256, upload: null }));
+    const messages = byAgency.get(l.agencyId) ?? [];
+    for (let j = 0; j < objects.length; j += OBJECTS_PER_EVENT) {
+      messages.push(
+        mediaEvents.referencesChanged({ listingId: l.id, objects: objects.slice(j, j + OBJECTS_PER_EVENT) }),
+      );
+    }
+    byAgency.set(l.agencyId, messages);
+  }
+  for (const [agencyId, messages] of byAgency) await emit(tx, messages, { agencyId });
+  return deleted;
+}
+
+/**
+ * S16-F5, agency erasure (the full tenant purge): one bounded call — a batch of the erased agency's soft-deleted
+ * listings purged for good whatever their restore window (`properties.agencyListingsForPurge`, `purgeListingRows`:
+ * their photos are recounted, an orphan is deleted by the media worker as usual); once none is left, one listed page
+ * of the agency's documents under `documents/<agency>/` deleted. `more`: call again. The compliance worker calls it
+ * after `properties.retireAgencyListings`. Worker-only (`withSystem`). Idempotent.
+ */
+export async function purgeAgencyListings(p: {
+  agencyId: string;
+  signal?: AbortSignal;
+}): Promise<{ listings: number; documents: number; more: boolean }> {
+  if (!/^[0-9a-f-]{36}$/i.test(p.agencyId)) throw new Error('purgeAgencyListings: not an agency id');
+  const { gone, left } = await withSystem('media.purgeAgencyListings', async (tx) => {
+    const purged = await purgeListingRows(tx, await properties.agencyListingsForPurge(tx, p.agencyId, PURGE_BATCH));
+    return { gone: purged, left: await properties.agencyHasDeletedListings(tx, p.agencyId) };
+  });
+  // S16-F5 review: rows still there (a batch's worth more, or one another transaction holds: `skip locked`) — call
+  // again; the documents go only once no listing of the agency is left
+  if (left) return { listings: gone.length, documents: 0, more: true };
+  const listed = await storage().list('private', purgePrefix({ agencyId: p.agencyId.toLowerCase(), listingId: null }), {
+    limit: LIST_PAGE,
+  });
+  if (p.signal?.aborted) return { listings: gone.length, documents: 0, more: true };
+  await mapLimit(listed.objects, STORAGE_CONCURRENCY, (o) => storage().delete('private', o.key));
+  return { listings: gone.length, documents: listed.objects.length, more: Boolean(listed.next) };
+}
+
 export async function requestDocumentPurge(input: z.input<typeof purgePayload>): Promise<void> {
   await mediaDocumentJobs.purgeDocuments.enqueue(purgePayload.parse(input));
 }

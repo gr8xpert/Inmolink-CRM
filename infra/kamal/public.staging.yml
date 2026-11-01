@@ -8,3 +8,5 @@ env:
   clear:
     DEPLOY_ENV: "staging"
     PUBLIC_URL: "https://sites.staging.inmolink.es"
+    # S16-F5: the portal footer links the dashboard's legal pages (privacy, cookies, terms, sub-processors).
+    WEB_URL: "https://app.staging.inmolink.es"

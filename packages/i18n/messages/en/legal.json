@@ -98,6 +98,17 @@
       "location": "Where"
     },
     "unconfirmed": "to be confirmed",
+    "vendors": {
+      "euHosting": { "name": "EU data-centre provider (to be confirmed)", "location": "EU" },
+      "cloudflare": { "name": "Cloudflare", "location": "EU (R2 EU jurisdiction); CDN worldwide" },
+      "stripe": { "name": "Stripe", "location": "EU + US (standard contractual clauses)" },
+      "email": {
+        "name": "Transactional e-mail provider (SMTP2Go / Resend / Amazon SES, to be confirmed)",
+        "location": "EU"
+      },
+      "anthropic": { "name": "Anthropic", "location": "US (standard contractual clauses)" },
+      "sentry": { "name": "Sentry", "location": "EU" }
+    },
     "purposes": {
       "hosting": "Servers and databases",
       "cdn": "Content delivery",

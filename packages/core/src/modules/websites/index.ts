@@ -1,7 +1,7 @@
 /** websites — public API (PATTERNS §1). The only import path for other modules and apps. */
 
 export { configureWebsites, minCommissionEditBudget, type WebsitesConfig } from './config';
-export { eraseAgencyLeads, eraseInboundLeads } from './erasure';
+export { eraseAgencyLeads, eraseInboundLeads, subjectInboundLeads } from './erasure';
 export { websitesErrors } from './errors';
 export { websitesEvents } from './events';
 export {

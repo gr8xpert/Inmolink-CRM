@@ -7,10 +7,16 @@ export {
   viewingChatContext,
   viewingCounterpart,
 } from './chat-context';
-export { configureMls, type MlsConfig, VIEWING_REQUEST_EXPIRY_DAYS } from './config';
+export { configureMls, type MlsConfig, REGISTRATION_CLAIM_DAYS, VIEWING_REQUEST_EXPIRY_DAYS } from './config';
 export { ERASED_CLIENT, eraseAgencyRegistrations, eraseContactRegistrations } from './erasure';
 export { mlsErrors } from './errors';
 export { mlsEvents } from './events';
+export {
+  type MlsSubjectPage,
+  pruneExpiredRegistrations,
+  subjectRegistrations,
+  subjectViewings,
+} from './gdpr';
 export { mlsJobs } from './jobs';
 export {
   agenciesToRehash,

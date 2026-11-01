@@ -213,6 +213,7 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     mlsJobs.scheduleFingerprintRehash,
     mlsJobs.rehashFingerprints,
     mlsJobs.pruneFingerprints,
+    mlsJobs.pruneRegistrations,
     // S12-F8: pending fingerprint rehash near the end of an HMAC rotation window raises HmacRotationRehashPending.
     mlsJobs.checkFingerprintRehash,
     // S11-02: unanswered viewing proposals expire; each viewing request change notifies the other side.

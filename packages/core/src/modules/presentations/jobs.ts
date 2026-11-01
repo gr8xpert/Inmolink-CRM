@@ -23,7 +23,7 @@ export const presentationsJobs = {
     backoff: { type: 'exponential', delay: 5_000 },
     timeoutMs: 60_000,
     async run(p) {
-      const contactIds = await crm.erasedContactIds({ agencyId: p.agencyId, contactId: p.contactId });
+      const contactIds = await crm.erasedContactIds({ agencyId: p.agencyId, contactIds: [p.contactId] });
       return eraseContactSelections({ agencyId: p.agencyId, contactIds });
     },
   }),

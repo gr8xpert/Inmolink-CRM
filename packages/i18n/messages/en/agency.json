@@ -187,5 +187,33 @@
         "description": "Listing Studio also drafts your other languages. Off: Studio writes your main language only."
       }
     }
+  },
+  "retention": {
+    "link": "Data retention",
+    "title": "Data retention",
+    "back": "Back to settings",
+    "intro": "Contacts with no change, enquiry, task or activity for this period are anonymized automatically: names, contact details and free text are removed for good. Contacts with an open enquiry and sellers of listings on the market are kept.",
+    "inForce": "In force now: contacts inactive for {months} months are anonymized.",
+    "inForceOff": "In force now: off. Contacts are kept until you erase them.",
+    "pending": "The new period of {months} months applies on {date}. Until then the period above stays in force.",
+    "pendingOff": "The new setting applies on {date}. Until then the period above stays in force.",
+    "graceHint": "A shorter period waits out a grace window, so a mistake can be undone before anyone is anonymized. Save the previous period again to cancel it.",
+    "saved": "Retention period saved.",
+    "form": {
+      "months": "Anonymize after (months)",
+      "off": "Off (keep contacts until erased)",
+      "monthsHint": "Between {min} and {max} months. A shorter period, or turning retention on, applies {days} days after you save; a longer one applies at once.",
+      "code": "Authenticator code",
+      "codeHint": "Enter a fresh code from your authenticator app: this setting decides which clients are erased for good.",
+      "submit": "Save period"
+    },
+    "errors": {
+      "generic": "The period could not be saved. Try again.",
+      "load": "The retention settings could not be loaded.",
+      "MFA_CODE_INVALID": "The authenticator code is not valid. Enter a fresh code.",
+      "VALIDATION_FAILED": "Choose a period between 6 and 240 months, or turn retention off.",
+      "FORBIDDEN": "Only an administrator of your agency can change the retention period.",
+      "RATE_LIMITED": "Too many attempts. Wait a moment and try again."
+    }
   }
 }

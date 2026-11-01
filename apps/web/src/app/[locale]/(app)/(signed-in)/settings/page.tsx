@@ -33,6 +33,10 @@ export default async function SettingsPage() {
       <Link href="/settings/ai" className="text-sm font-medium underline-offset-4 hover:underline">
         {t('aiFeatures.link')}
       </Link>
+      {/* S16-F5: the data retention period (step-up, grace window) has its own page. */}
+      <Link href="/settings/retention" className="text-sm font-medium underline-offset-4 hover:underline">
+        {t('retention.link')}
+      </Link>
       {!res.ok ? (
         <p role="alert" className="text-sm text-destructive">
           {res.status === 403 ? t('errors.forbidden') : t('errors.generic')}

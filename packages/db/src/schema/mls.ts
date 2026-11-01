@@ -70,6 +70,8 @@ export const clientRegistrations = pgTable(
     index('client_registrations_contact_idx').on(t.agencyId, t.contactId),
     // the rehash job (S11-01, HMAC rotation): the agency's registrations still valid, by id
     index('client_registrations_agency_expires_idx').on(t.agencyId, t.expiresAt, t.id),
+    // S16-F5, the retention sweep (all agencies): where expires_at < now() - claim period order by expires_at, id
+    index('client_registrations_expires_idx').on(t.expiresAt, t.id),
     // the fingerprints' FK: a fingerprint carries exactly its registration's target and (capped) validity
     unique('client_registrations_fingerprint_key_uq').on(t.agencyId, t.id, t.targetId, t.registeredAt, t.expiresAt),
     // S11-02, the viewing requests' FK: a request carries exactly its registration's parties and target

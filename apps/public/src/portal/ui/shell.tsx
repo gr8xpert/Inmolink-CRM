@@ -1,6 +1,8 @@
 import { getTranslations } from 'next-intl/server';
 import type { ReactNode } from 'react';
+import { portalSettings } from '../data';
 import { homePath, searchPath } from '../urls';
+import { LegalLinks } from './legal-links';
 
 /**
  * A language's name in `displayLocale`, capitalized, from the platform's `Intl` data: by default the locale's own name
@@ -27,6 +29,8 @@ export async function PortalShell(props: {
   children: ReactNode;
 }) {
   const t = await getTranslations({ locale: props.locale, namespace: 'portal' });
+  const legal = await getTranslations({ locale: props.locale, namespace: 'legal' });
+  const settings = await portalSettings();
   const others = Object.entries(props.alternates).filter(([l]) => l !== props.locale);
   return (
     <div className="portal flex min-h-screen flex-col">
@@ -69,6 +73,17 @@ export async function PortalShell(props: {
       <footer className="mt-16 bg-foam">
         <div className="mx-auto max-w-6xl px-4 py-8 text-sm text-stone">
           <p className="max-w-prose">{t('footer.about')}</p>
+          <LegalLinks
+            base={settings.legalBase}
+            locale={props.locale}
+            label={t('footer.legal')}
+            names={{
+              privacy: legal('nav.privacy'),
+              cookies: legal('nav.cookies'),
+              terms: legal('nav.terms'),
+              'sub-processors': legal('nav.subProcessors'),
+            }}
+          />
         </div>
       </footer>
     </div>

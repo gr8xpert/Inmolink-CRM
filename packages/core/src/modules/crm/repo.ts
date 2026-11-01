@@ -413,13 +413,40 @@ const consentValue = (field: string) => {
 const marketing = consentValue('consent_marketing');
 const processing = consentValue('consent_processing');
 
-/** Applies absorb patches (one statement for any number of contacts); returns the new versions. */
+/** What an absorb did to one contact: its new version and its consents before and after (S16-F5: consent records). */
+export interface AbsorbResult {
+  id: string;
+  version: number;
+  wasMarketing: boolean;
+  wasProcessing: boolean;
+  marketing: boolean;
+  processing: boolean;
+}
+
+/** The consent records an absorb owes: each consent whose value changed. */
+export function absorbConsentChanges(
+  results: readonly AbsorbResult[],
+): { contactId: string; purpose: 'MARKETING' | 'PROCESSING'; granted: boolean }[] {
+  return results.flatMap((r) => [
+    ...(r.marketing !== r.wasMarketing
+      ? [{ contactId: r.id, purpose: 'MARKETING' as const, granted: r.marketing }]
+      : []),
+    ...(r.processing !== r.wasProcessing
+      ? [{ contactId: r.id, purpose: 'PROCESSING' as const, granted: r.processing }]
+      : []),
+  ]);
+}
+
+/**
+ * Applies absorb patches (one statement for any number of contacts); returns the new versions and (S16-F5) each
+ * contact's consents before (`o`, the statement's snapshot) and after.
+ */
 export async function absorb(
   tx: Tx,
   agencyId: string,
   patches: readonly AbsorbPatch[],
   maxTags: number,
-): Promise<{ id: string; version: number }[]> {
+): Promise<AbsorbResult[]> {
   if (patches.length === 0) return [];
   const res = await tx.execute(sql`
     update ${contacts} c set
@@ -439,9 +466,11 @@ export async function absorb(
       contact_id uuid, types text[], tags text[], first_name text, last_name text, language text,
       consent_marketing boolean, consent_marketing_at timestamptz, consent_processing boolean,
       consent_processing_at timestamptz, do_not_contact boolean)
-    where c.id = p.contact_id and c.agency_id = ${agencyId} and c.deleted_at is null
-    returning c.id, c.version`);
-  return res.rows as { id: string; version: number }[];
+    join ${contacts} o on o.id = p.contact_id and o.agency_id = ${agencyId}
+    where c.id = p.contact_id and c.agency_id = ${agencyId} and c.deleted_at is null and o.id = c.id
+    returning c.id, c.version, o.consent_marketing as "wasMarketing", o.consent_processing as "wasProcessing",
+      c.consent_marketing as marketing, c.consent_processing as processing`);
+  return res.rows as unknown as AbsorbResult[];
 }
 
 const toRecord = (p: AbsorbPatch) => ({
@@ -549,6 +578,22 @@ export const ERASED_TITLE = '—';
  * `crm.eraseContactData`). Returns the rows changed per table.
  */
 export async function eraseContact(tx: Tx, agencyId: string, contactId: string): Promise<Record<string, number>> {
+  return eraseContacts(tx, agencyId, [contactId]);
+}
+
+/**
+ * S16-F5: `eraseContact` for any number of contacts in **one statement** (the system paths erase a batch of
+ * `SYSTEM_ERASE_BATCH` at once; no per-contact loop). The same tombstones and clears for every contact of `contactIds`
+ * and the closed contacts merged into them; a calendar event loses its text when no contact outside the set attends.
+ * Returns the rows changed per table, summed over the set.
+ */
+export async function eraseContacts(
+  tx: Tx,
+  agencyId: string,
+  contactIds: readonly string[],
+): Promise<Record<string, number>> {
+  if (contactIds.length === 0) return {};
+  const ids = sql`${sql.param([...contactIds])}::uuid[]`;
   const res = await tx.execute(sql`
     with c as (
         update ${contacts} set
@@ -556,9 +601,9 @@ export async function eraseContact(tx: Tx, agencyId: string, contactId: string):
           tags = '{}'::text[], consent_marketing = false, consent_processing = false, do_not_contact = true,
           idempotency_hash = null,
           deleted_at = coalesce(deleted_at, now()),
-          version = case when id = ${contactId} then version + 1 else version end,
+          version = case when id = any(${ids}) then version + 1 else version end,
           updated_at = now()
-        where agency_id = ${agencyId} and (id = ${contactId} or merged_into_id = ${contactId})
+        where agency_id = ${agencyId} and (id = any(${ids}) or merged_into_id = any(${ids}))
         returning id),
       e as (delete from ${contactEmails} where agency_id = ${agencyId} and contact_id in (select id from c) returning 1),
       p as (delete from ${contactPhones} where agency_id = ${agencyId} and contact_id in (select id from c) returning 1),
@@ -566,24 +611,24 @@ export async function eraseContact(tx: Tx, agencyId: string, contactId: string):
       n as (delete from ${contactNotes} where agency_id = ${agencyId} and contact_id in (select id from c) returning 1),
       l as (update ${leads} set message = null, visitor_name = null, visitor_email = null, visitor_phone = null,
             idempotency_hash = null, request_hash = null, version = version + 1, updated_at = now()
-          where agency_id = ${agencyId} and contact_id = ${contactId}
+          where agency_id = ${agencyId} and contact_id = any(${ids})
           returning 1),
       t as (update ${tasks} set title = ${ERASED_TITLE}, description = null, version = version + 1, updated_at = now()
-          where agency_id = ${agencyId} and contact_id = ${contactId} returning 1),
+          where agency_id = ${agencyId} and contact_id = any(${ids}) returning 1),
       s as (update ${sellerProspects} set title = ${ERASED_TITLE}, contact_id = null, confidential_notes = null,
             version = version + 1, updated_at = now()
-          where agency_id = ${agencyId} and contact_id = ${contactId} returning 1),
+          where agency_id = ${agencyId} and contact_id = any(${ids}) returning 1),
       ev as (update ${calendarEvents} ce set
             title = case when sole.only then ${ERASED_TITLE} else ce.title end,
             description = case when sole.only then null else ce.description end,
             location = case when sole.only then null else ce.location end,
             version = ce.version + 1, updated_at = now()
-          from (select a.event_id, not exists (
+          from (select distinct a.event_id, not exists (
                   select 1 from ${calendarEventAttendees} o
                   where o.agency_id = ${agencyId} and o.event_id = a.event_id and o.contact_id is not null
-                    and o.contact_id <> ${contactId}) as only
+                    and o.contact_id <> all(${ids})) as only
                 from ${calendarEventAttendees} a
-                where a.agency_id = ${agencyId} and a.contact_id = ${contactId}) sole
+                where a.agency_id = ${agencyId} and a.contact_id = any(${ids})) sole
           where ce.agency_id = ${agencyId} and ce.id = sole.event_id
           returning 1)
     select (select count(*) from c)::int as contacts, (select count(*) from e)::int as emails,
@@ -594,30 +639,32 @@ export async function eraseContact(tx: Tx, agencyId: string, contactId: string):
   return res.rows[0] as Record<string, number>;
 }
 
-/** The closed contacts merged into `contactId` (an erasure clears their seller links too). One query, `contacts_merged_into_idx`. */
-export async function mergedInto(tx: Tx, agencyId: string, contactId: string): Promise<string[]> {
+/** S16-F5: the closed contacts merged into any of `contactIds` (one query, `contacts_merged_into_idx`). */
+export async function mergedIntoAny(tx: Tx, agencyId: string, contactIds: readonly string[]): Promise<string[]> {
+  if (contactIds.length === 0) return [];
   const rows = await tx
     .select({ id: contacts.id })
     .from(contacts)
-    .where(and(eq(contacts.agencyId, agencyId), eq(contacts.mergedIntoId, contactId)));
+    .where(and(eq(contacts.agencyId, agencyId), inArray(contacts.mergedIntoId, [...contactIds])));
   return rows.map((r) => r.id);
 }
 
-/** Up to `limit` inbound website leads (`leads.inbound_lead_id`) of the contact's leads after `afterId`, by id. */
+/** Up to `limit` inbound website leads (`leads.inbound_lead_id`) of the contacts' leads after `afterId`, by id. */
 export async function inboundLeadsOf(
   tx: Tx,
   agencyId: string,
-  contactId: string,
+  contactIds: readonly string[],
   afterId: string | null,
   limit: number,
 ): Promise<string[]> {
+  if (contactIds.length === 0) return [];
   const rows = await tx
     .select({ id: leads.inboundLeadId })
     .from(leads)
     .where(
       and(
         eq(leads.agencyId, agencyId),
-        eq(leads.contactId, contactId),
+        inArray(leads.contactId, [...contactIds]),
         isNotNull(leads.inboundLeadId),
         afterId ? gt(leads.inboundLeadId, afterId) : undefined,
       ),

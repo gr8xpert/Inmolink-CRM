@@ -39,6 +39,7 @@ export {
   auditAuth,
   auditStaff,
   auditSystem,
+  auditSystemMany,
   listAuditLog,
   listAuditLogForStaff,
   MAX_AUDIT_METADATA_BYTES,

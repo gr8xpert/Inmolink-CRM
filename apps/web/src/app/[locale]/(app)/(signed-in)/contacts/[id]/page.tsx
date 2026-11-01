@@ -3,10 +3,12 @@ import { getFormatter, getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
 import { sessionRef } from '@/server/api';
+import { fetchContactConsents } from '@/server/compliance-api';
 import { fetchContact, fetchContactNotes } from '@/server/contacts-api';
 import { addNoteAction } from '../actions';
 import { ContactFinder } from '../contact-finder';
 import { contactName } from '../lookup';
+import { ConsentHistory } from './consent-history';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CURSOR = /^[A-Za-z0-9_-]{1,400}$/;
@@ -40,8 +42,12 @@ export default async function ContactPage({
   const t = await getTranslations('contacts');
   const format = await getFormatter();
   const cursor = typeof q.notes === 'string' && CURSOR.test(q.notes) ? q.notes : undefined;
-  const [contact, notes] = await Promise.all([fetchContact(ref, id), fetchContactNotes(ref, id, cursor)]);
-  if (contact === 'revoked' || notes === 'revoked') redirect('/session/expired');
+  const [contact, notes, consents] = await Promise.all([
+    fetchContact(ref, id),
+    fetchContactNotes(ref, id, cursor),
+    fetchContactConsents(ref, id),
+  ]);
+  if (contact === 'revoked' || notes === 'revoked' || consents === 'revoked') redirect('/session/expired');
   const back = (
     <Link href="/contacts" className="text-sm underline-offset-4 hover:underline">
       {t('detail.back')}
@@ -107,6 +113,30 @@ export default async function ContactPage({
           </div>
         ))}
       </dl>
+
+      {/* S16-F5: the consent records (append-only, S16-04) */}
+      <ConsentHistory
+        items={consents.ok ? consents.data.items : null}
+        formatDate={(d) => format.dateTime(d, { dateStyle: 'medium', timeStyle: 'short' })}
+        labels={{
+          title: t('consents.title'),
+          empty: t('consents.empty'),
+          load: t('consents.load'),
+          purpose: { MARKETING: t('consents.purposes.MARKETING'), PROCESSING: t('consents.purposes.PROCESSING') },
+          granted: t('consents.granted'),
+          withdrawn: t('consents.withdrawn'),
+          source: {
+            DASHBOARD: t('consents.sources.DASHBOARD'),
+            WEBSITE: t('consents.sources.WEBSITE'),
+            PORTAL: t('consents.sources.PORTAL'),
+            IMPORT: t('consents.sources.IMPORT'),
+            MERGE: t('consents.sources.MERGE'),
+          },
+          byMember: t('consents.byMember'),
+          impersonated: t('consents.impersonated'),
+          policy: (version) => t('consents.policy', { version }),
+        }}
+      />
 
       <section aria-labelledby="notes" className="flex flex-col gap-2">
         <h2 id="notes" className="text-base font-semibold">

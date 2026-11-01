@@ -39,6 +39,27 @@
     "merge": "Añadir al contacto existente",
     "cancel": "Cancelar"
   },
+  "consents": {
+    "title": "Historial de consentimientos",
+    "empty": "Aún no hay consentimientos registrados.",
+    "load": "No se ha podido cargar el historial de consentimientos.",
+    "purposes": {
+      "MARKETING": "Marketing",
+      "PROCESSING": "Tratamiento de datos"
+    },
+    "granted": "otorgado",
+    "withdrawn": "retirado",
+    "sources": {
+      "DASHBOARD": "En el panel",
+      "WEBSITE": "Formulario web",
+      "PORTAL": "Formulario de portal",
+      "IMPORT": "Importación de contactos",
+      "MERGE": "Fusión de contactos"
+    },
+    "byMember": "por un miembro del equipo",
+    "impersonated": "por soporte en nombre de un miembro del equipo",
+    "policy": "texto de privacidad {version}"
+  },
   "merge": {
     "title": "Fusionar contactos",
     "body": "Los correos, teléfonos, notas, leads, actividades, tareas y registros del otro contacto pasan a este contacto, y el otro contacto se cierra. No se puede deshacer.",
