@@ -126,11 +126,17 @@ it('[S7-04] quota and anti-scraping checks add one Redis round trip, no database
   expect(publishablePaged.p95).toBeLessThan(10);
 });
 
-/** Calls of each Redis command so far (`INFO commandstats`). */
+/**
+ * Successful executions of each Redis command so far (`INFO commandstats`: calls − failed_calls). A script call that
+ * misses the script cache is an EVALSHA failing with NOSCRIPT plus ioredis's EVAL retry — one execution, not two
+ * (CI counted 401 for 400 once, e3bf24e4).
+ */
 async function commandCalls(): Promise<Record<string, number>> {
   const info = (await rateLimitConnection().info('commandstats')) as string;
   const out: Record<string, number> = {};
-  for (const m of info.matchAll(/^cmdstat_([^:]+):calls=(\d+)/gm)) out[m[1] as string] = Number(m[2]);
+  for (const m of info.matchAll(/^cmdstat_([^:]+):calls=(\d+)(?:.*?failed_calls=(\d+))?/gm)) {
+    out[m[1] as string] = Number(m[2]) - Number(m[3] ?? 0);
+  }
   return out;
 }
 
