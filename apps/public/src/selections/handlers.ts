@@ -92,6 +92,43 @@ async function gone(lang: string, status: number): Promise<Response> {
   return new Response(renderGonePage({ lang, text: textFor(lang) }), { status, headers: await headers() });
 }
 
+/** The selection headers without the config lookup (it failed): the same policy, no media host. */
+const STATIC_HEADERS: Readonly<Record<string, string>> = {
+  'Cache-Control': 'no-store',
+  'Referrer-Policy': 'no-referrer',
+  'X-Frame-Options': 'DENY',
+  'X-Robots-Tag': 'noindex, nofollow',
+  'X-Content-Type-Options': 'nosniff',
+  'Content-Security-Policy': embedCsp({ frameAncestors: [], mediaOrigin: null }),
+};
+
+/**
+ * S16-F8 (security review): every answer of `/s/<token>` — refusals (403, 413, 415), redirects and an uncaught
+ * failure (500) included — carries the selection headers (`headers()`: CSP with `script-src`, DENY, no referrer, no
+ * index, no store). An answer's own value wins (its `Cache-Control`, `Retry-After`, `Location`, cookies).
+ */
+export async function withSelectionHeaders(answer: () => Promise<Response>): Promise<Response> {
+  let res: Response;
+  try {
+    res = await answer();
+  } catch (err) {
+    log.error(failure(err), 'selection answer failed');
+    res = new Response(null, { status: 500 });
+  }
+  let base: Headers;
+  try {
+    base = await headers();
+  } catch {
+    base = new Headers(STATIC_HEADERS);
+  }
+  const merged = new Headers(res.headers);
+  for (const [k, v] of base) {
+    if (k === 'content-type' && res.body === null) continue;
+    if (!merged.has(k)) merged.set(k, v);
+  }
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers: merged });
+}
+
 /** GET `/s/<token>`. */
 export async function selectionResponse(request: Request, token: string): Promise<Response> {
   const url = new URL(request.url);

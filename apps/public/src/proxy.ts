@@ -1,5 +1,6 @@
-import { type NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import createMiddleware from 'next-intl/middleware';
+import { CSP_REPORT_DIRECTIVE, newNonce, portalScriptSrc } from '../script-policy.mjs';
 import { DENY_FRAMING, EMBED_GATE_HEADER, embedPath } from './embed/csp';
 import { routing } from './i18n/routing';
 import { ENQUIRY_NOTICE_CACHE } from './portal/cache-control';
@@ -78,6 +79,19 @@ export type CodeGate = (
 ) => Promise<'known' | 'unknown' | 'limited'>;
 
 const intl = createMiddleware(routing);
+
+/**
+ * S16-F8 (security-R1.md M-3): a page answer's CSP. Pages rendered per request carry their render's `script-src` (the
+ * CDN keeps header and HTML together). Listing and development pages are ISR: Next renders them without the nonce and
+ * serves a stored copy many times — their `script-src` (the hashes of the copy's own inline scripts) comes from the
+ * page cache entry, a second policy next to this one (`cache-handler.mjs`); an answer that has none (an error page, a
+ * render Next did not store) gets the no-inline-script fallback from the server (`server/script-fallback.ts`) — the
+ * proxy cannot tell the two apart, and a fallback next to the stored policy would refuse the page's hashed scripts.
+ */
+export function pageCsp(pathname: string, scriptSrc: string): string {
+  const base = DENY_FRAMING['Content-Security-Policy'] as string;
+  return PORTAL_ITEM_PATH.test(pathname) ? base : `${base}; ${scriptSrc}; ${CSP_REPORT_DIRECTIVE}`;
+}
 
 function refuse(status: 404 | 429, retryAfterSeconds?: number): NextResponse {
   const res = new NextResponse(null, { status });
@@ -228,8 +242,15 @@ export function createProxy(
     if (legacy?.kind === 'redirect') return movedTo(await portalOrigin(), legacy.targetPath, legacy.status);
     // An old page with an extension that names nothing now: a plain 404 (portal slugs never contain a dot).
     if (LEGACY_FILE_PATH.test(request.nextUrl.pathname)) return refuse(404);
-    const res = intl(request);
+    // S16-F8: the render's nonce, on the request (where Next reads it while rendering; any client copy replaced).
+    const nonce = newNonce();
+    const scriptSrc = portalScriptSrc(nonce, process.env.NODE_ENV === 'development');
+    const headers = new Headers(request.headers);
+    headers.delete('content-security-policy-report-only');
+    headers.set('content-security-policy', scriptSrc);
+    const res = intl(new NextRequest(request, { headers }));
     for (const [k, v] of Object.entries(DENY_FRAMING)) res.headers.set(k, v);
+    res.headers.set('Content-Security-Policy', pageCsp(pathname, scriptSrc));
     if (notice === 'notice') res.headers.set('Cache-Control', ENQUIRY_NOTICE_CACHE);
     return res;
   };

@@ -6,8 +6,10 @@ import { ENQUIRY_NOTICE_CACHE, PORTAL_ISR_PAGE_CACHE, PORTAL_PAGE_CACHE } from '
 /**
  * Every path but the iFrame embeds (S7-F8) may never be framed. The proxy sets the same on the pages it runs for; this
  * also covers route handlers and anything it skips. The embeds' own `frame-ancestors` comes from the proxy.
+ * S16-F8: a selection page (`/s/<token>`, S12-04) sends its own, stricter headers (`selections/handlers.ts`: DENY,
+ * `frame-ancestors 'none'` and a `script-src`) — a rule here would replace its CSP with this one, which has none.
  */
-export const NOT_EMBED_SOURCE = '/:path((?!embed/|embed$).*)';
+export const NOT_EMBED_SOURCE = '/:path((?!embed/|embed$|s/[^/]+/?$).*)';
 export const FRAME_DENY_HEADERS = [
   { key: 'X-Frame-Options', value: 'DENY' },
   {

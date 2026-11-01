@@ -1,4 +1,4 @@
-import { selectionActionResponse, selectionResponse } from '@/selections/handlers';
+import { selectionActionResponse, selectionResponse, withSelectionHeaders } from '@/selections/handlers';
 
 /** A selection's live page and its like / enquiry form posts (S12-04): server-rendered HTML, no JavaScript. */
 export const dynamic = 'force-dynamic';
@@ -6,9 +6,11 @@ export const dynamic = 'force-dynamic';
 type Ctx = { params: Promise<{ token: string }> };
 
 export async function GET(request: Request, ctx: Ctx): Promise<Response> {
-  return selectionResponse(request, (await ctx.params).token);
+  const { token } = await ctx.params;
+  return withSelectionHeaders(() => selectionResponse(request, token));
 }
 
 export async function POST(request: Request, ctx: Ctx): Promise<Response> {
-  return selectionActionResponse(request, (await ctx.params).token);
+  const { token } = await ctx.params;
+  return withSelectionHeaders(() => selectionActionResponse(request, token));
 }

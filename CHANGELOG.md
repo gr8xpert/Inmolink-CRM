@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Added
+- feat(public): enforced script CSP on portal pages — proxy nonce for per-request pages, SHA-256 hashes of Next inline scripts stored with ISR copies, write-time no-inline fallback for any other HTML answer, rate-limited /api/csp-report endpoint; selection pages keep their CSP on every answer; e2e CSP-violation listener [S16-F8]
 - fix(identity,ops): Client Mode and social connect-state work under the production redis-queue limits ACL (selector for inl:cm:* / inl:social:state:*: GET/SET/DEL, plus MULTI/EXEC); ACL-coverage test derives every limits-connection operation from source [S16-F11]
 - feat(identity,web): 2FA proofs are bound to the web session and single-use; a captured, replayed or raced proof is refused, and so is every proof while the limits Redis is down [S16-F10]
 - fix(tests,ops): ops tests portable to Linux CI — dashboard promtool / amtool mounts world-readable (mkdtemp 0700 vs prom/* running as nobody); app-metrics scrapes each app through a forwarder container carrying its real Kamal alias, so the template's DNS discovery runs unchanged (Prometheus ignores /etc/hosts). New test image: alpine/socat:1.8.0.3 (pinned by digest) [S16 CI]

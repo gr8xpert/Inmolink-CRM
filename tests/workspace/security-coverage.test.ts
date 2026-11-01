@@ -69,6 +69,10 @@ const HANDLER_LIMITS: Readonly<Record<string, { how: string; evidence: [file: st
     how: 'per-session token mint limits (checkLimits)',
     evidence: ['apps/web/src/app/session/token/route.ts', 'checkLimits'],
   },
+  'apps/public/src/app/api/csp-report/route.ts': {
+    how: 'S16-F8: per-IP report limit, body capped at 8 KB (CSP report service)',
+    evidence: ['apps/public/src/server/csp-report.ts', 'rateLimiter'],
+  },
   'apps/public/src/app/api/portal/enquiry/route.ts': {
     how: 'Turnstile + per-IP enquiry limits (portal enquiry service)',
     evidence: ['apps/public/src/portal/enquiry.ts', 'rateLimiter'],

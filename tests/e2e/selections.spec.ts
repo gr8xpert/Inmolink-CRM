@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { type APIRequestContext, type Browser, chromium, type Page } from '@playwright/test';
 import lighthouse from 'lighthouse';
 import { consentState } from './consent';
+import { watchCsp } from './csp';
 import { expect, test } from './fixtures';
 import { SEED_PASSWORD as password, seedListingAgent, TAXONOMY_IDS } from './seed';
 import { PORTS, PUBLIC_URL, testStackEnv } from './stack';
@@ -136,7 +137,9 @@ test('[S12-04] a selection with an own and a network listing shows both prices w
   expect(shareUrl).toBe(`${PUBLIC_URL}${created.share.path}`);
 
   // The client's view: a fresh browser, no dashboard session.
-  const visitor = await (await browser.newContext({ locale: 'en-GB' })).newPage();
+  const visitorContext = await browser.newContext({ locale: 'en-GB' });
+  const csp = await watchCsp(visitorContext);
+  const visitor = await visitorContext.newPage();
   const priceOf = (id: string) => visitor.locator(`#item-${id} .embed-price`);
   await expect
     .poll(
@@ -171,6 +174,8 @@ test('[S12-04] a selection with an own and a network listing shows both prices w
   test.info().annotations.push({ type: 'price-latency-ms', description: String(Date.now() - edited) });
   await expect(priceOf(own.id)).toHaveText('€610,000');
   expect(await visitor.content()).not.toContain(b.company);
+  // S16-F8: the client's page ran under its CSP without a violation.
+  csp.expectNone();
 });
 
 test('[S12-06] Client Mode: started with a PIN, a listing shows no commission or internal fields, no logout; the PIN ends it', async ({
@@ -267,9 +272,21 @@ test('[S13-F13] dashboard: create a selection from a bookmark folder → share l
   expect(await page.getByRole('link', { name: 'Share by e-mail' }).getAttribute('href')).toMatch(/^mailto:/);
 
   // The client opens the link: the view is counted on the selection's page in the dashboard.
-  const visitor = await (await browser.newContext({ locale: 'en-GB' })).newPage();
-  await visitor.goto(url);
+  const visitorContext = await browser.newContext({ locale: 'en-GB' });
+  const csp = await watchCsp(visitorContext);
+  const visitor = await visitorContext.newPage();
+  const opened = await visitor.goto(url);
   await expect(visitor.getByRole('heading', { level: 1, name: `Dash picks ${tag}` })).toBeVisible();
+  // S16-F8: an enforced script policy without 'unsafe-inline' (the page has no script at all), no violation.
+  const answer = (await opened?.headersArray()) ?? [];
+  const policies = answer.filter((h) => h.name.toLowerCase() === 'content-security-policy').map((h) => h.value);
+  const scriptSrc = policies
+    .flatMap((p) => p.split(';').map((d) => d.trim()))
+    .filter((d) => d.startsWith('script-src '));
+  expect(scriptSrc, policies.join(' | ')).toHaveLength(1);
+  expect(scriptSrc[0]).not.toContain('unsafe-inline');
+  expect(answer.some((h) => /report-only/i.test(h.name))).toBe(false);
+  csp.expectNone();
   await page.getByRole('link', { name: 'Open the selection' }).click();
   await expect(page.getByRole('heading', { level: 1, name: `Dash picks ${tag}` })).toBeVisible();
   await expect

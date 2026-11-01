@@ -1,8 +1,9 @@
 import { randomInt } from 'node:crypto';
 import { RENDER_MARGIN_MS } from '@inmolink/platform/cache';
-import type { APIRequestContext, Browser } from '@playwright/test';
+import type { APIRequestContext, APIResponse, Browser } from '@playwright/test';
 import { Redis } from 'ioredis';
 import { consentState } from './consent';
+import { expectEnforcedScriptPolicy, watchCsp } from './csp';
 import { expect, test } from './fixtures';
 import {
   LISTING_TAXONOMY,
@@ -95,6 +96,15 @@ async function publish(request: APIRequestContext, token: string, priceCents: nu
   return created.id;
 }
 
+/** S16-F8: no portal page the visitor opens may violate its CSP (scripts refused, inline or not). */
+let csp: Awaited<ReturnType<typeof watchCsp>>;
+test.beforeEach(async ({ context }) => {
+  csp = await watchCsp(context);
+});
+test.afterEach(() => {
+  csp.expectNone();
+});
+
 test('[S15-01] portal: a visitor finds a new listing on its location page with a filter, opens it and sees the listing agency', async ({
   browser,
   request,
@@ -158,6 +168,27 @@ test('[S15-01] portal: a visitor finds a new listing on its location page with a
   // The same listing in Spanish (its own localized URL).
   const es = await request.get(page.url().replace('/en/', '/es/'));
   expect(es.status()).toBeLessThan(500);
+
+  // S16-F8: an enforced script-src without 'unsafe-inline' on every portal page shape, allowing exactly its HTML's
+  // inline scripts — the ISR listing page by their hashes (the stored copy: the same each answer), the per-request
+  // pages by a fresh nonce each time.
+  const listingUrl = page.url();
+  const stored = await expectEnforcedScriptPolicy(await request.get(listingUrl));
+  expect(await expectEnforcedScriptPolicy(await request.get(listingUrl))).toBe(stored);
+  const esListing = await request.get(listingUrl.replace('/en/', '/es/'));
+  if (esListing.status() === 200) await expectEnforcedScriptPolicy(esListing);
+  expect(stored).toMatch(/'sha256-/);
+  const search = await expectEnforcedScriptPolicy(await request.get(location));
+  expect(search).toMatch(/'nonce-/);
+  expect(await expectEnforcedScriptPolicy(await request.get(location))).not.toBe(search);
+  for (const path of ['/en', '/en/properties', '/en/no-such-page']) {
+    await expectEnforcedScriptPolicy(await request.get(`${PUBLIC_URL}${path}`, { failOnStatusCode: false }));
+  }
+  // The listing as a document load (its stored copy): hydrated under the policy, no violation (afterEach).
+  await page.goto(listingUrl);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(title);
+  await page.goto(location);
+  await expect(page.getByRole('heading', { level: 1 })).toContainText(`for sale in ${LISTING_TAXONOMY.location}`);
 });
 
 test('[S15-03] portal: a search card leads to the agency’s profile, which lists its PUBLIC listings and opens one', async ({
@@ -356,10 +387,23 @@ test('[S15-F7] portal: a cached listing page shows a price change, 404s once wit
   const newEuros = euros + 1_000;
   let t0 = Date.now();
   await patch({ priceCents: newEuros * 100 });
+  // S16-F8 review: the first answer with the new price is a fresh render (the stored copy was dropped) — it already
+  // carries the hashes of its own scripts.
+  let rendered: APIResponse | undefined;
   await expect
-    .poll(async () => (await request.get(url)).text(), { timeout: 60_000, intervals: [1_000, 2_000] })
+    .poll(
+      async () => {
+        const res = await request.get(url);
+        const text = await res.text();
+        if (text.includes(money(newEuros))) rendered = res;
+        return text;
+      },
+      { timeout: 60_000, intervals: [1_000, 2_000] },
+    )
     .toContain(money(newEuros));
   expect(Date.now() - t0).toBeLessThan(60_000);
+  expect(rendered?.headers()['x-nextjs-cache']).not.toBe('HIT');
+  expect(await expectEnforcedScriptPolicy(rendered as APIResponse)).toMatch(/'sha256-/);
 
   // Withdrawn: its page 404s and it leaves the search, within a minute.
   t0 = Date.now();
@@ -371,6 +415,8 @@ test('[S15-F7] portal: a cached listing page shows a price change, 404s once wit
     })
     .toBe(404);
   expect(Date.now() - t0).toBeLessThan(60_000);
+  // S16-F8 review: the withdrawn listing's 404 page has its enforced script policy too.
+  await expectEnforcedScriptPolicy(await request.get(url, { maxRedirects: 0, failOnStatusCode: false }));
   await page.goto(`${PUBLIC_URL}/en/properties/e2e-listland?price_min=${newEuros}&price_max=${newEuros}`);
   await expect(page.getByRole('link', { name: title })).toHaveCount(0);
 
@@ -384,4 +430,17 @@ test('[S15-F7] portal: a cached listing page shows a price change, 404s once wit
     })
     .toBe(200);
   expect(Date.now() - t0).toBeLessThan(60_000);
+  await expectEnforcedScriptPolicy(await request.get(url));
+  // S16-F8 review: an HTML answer no policy-maker touched (a 404 outside the portal's pages, Next's static not-found)
+  // leaves with the server's no-inline-script fallback.
+  const bare = await request.get(`${PUBLIC_URL}/s/not/a-selection`, { failOnStatusCode: false });
+  expect(bare.status()).toBe(404);
+  const policies = bare
+    .headersArray()
+    .filter((h) => h.name.toLowerCase() === 'content-security-policy')
+    .map((h) => h.value);
+  expect(policies.join(' | ')).toContain(
+    "script-src 'self' https://challenges.cloudflare.com; report-uri /api/csp-report",
+  );
+  expect(policies.join(' | ')).not.toContain('unsafe-inline');
 });

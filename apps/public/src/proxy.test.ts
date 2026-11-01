@@ -2,8 +2,17 @@ import { UI_LOCALES } from '@inmolink/i18n';
 import { getRedirectUrl, unstable_doesMiddlewareMatch } from 'next/experimental/testing/server';
 import { NextRequest } from 'next/server';
 import { describe, expect, it, vi } from 'vitest';
+import { NONCE_SHAPE, PAGE_BASE_CSP, portalScriptSrc } from '../script-policy.mjs';
 import { DENY_FRAMING, EMBED_GATE_HEADER } from './embed/csp';
-import proxy, { type CodeGate, config, createProxy, type EmbedGate, type LegacyGate, type PortalGate } from './proxy';
+import proxy, {
+  type CodeGate,
+  config,
+  createProxy,
+  type EmbedGate,
+  type LegacyGate,
+  type PortalGate,
+  pageCsp,
+} from './proxy';
 
 // S15-02: the default legacy lookup needs the database; these checks pass their own (`createProxy`'s third gate).
 vi.mock('./server/legacy-redirects', () => ({ legacyRedirect: async () => null }));
@@ -116,7 +125,10 @@ describe('iFrame embed gate (S7-F8)', () => {
     for (const path of ['/en/search', '/es', '/en/property/x']) {
       const res = await createProxy(gate)(request(path));
       expect(res.headers.get('x-frame-options'), path).toBe('DENY');
-      expect(res.headers.get('content-security-policy'), path).toBe(DENY_FRAMING['Content-Security-Policy']);
+      // S16-F8: plus the page's script policy (its own directive after these).
+      expect(res.headers.get('content-security-policy'), path).toMatch(
+        new RegExp(`^${DENY_FRAMING['Content-Security-Policy']}(?:; script-src |$)`),
+      );
     }
     expect(gate).not.toHaveBeenCalled();
     const runs = (url: string) => unstable_doesMiddlewareMatch({ config, url });
@@ -379,5 +391,55 @@ describe('listing and development page misses (S15 review)', () => {
       throw new Error('db down');
     });
     expect((await broken(request('/en/property/x-yyyyyyyy'))).status).toBe(200);
+  });
+});
+
+describe('portal page script policy (S16-F8)', () => {
+  const BASE = DENY_FRAMING['Content-Security-Policy'] as string;
+  const nonceOf = (csp: string | null) => /'nonce-([^']+)'/.exec(csp ?? '')?.[1] ?? null;
+
+  it('[S16-F8] a page rendered per request sends an enforced script-src with its render’s nonce, never unsafe-inline', async () => {
+    const seen = new Set<string>();
+    for (const path of [
+      '/en',
+      '/es/properties',
+      '/en/properties/spain',
+      '/en/zone/costa',
+      '/en/agency/x/y',
+      '/en/nope',
+    ]) {
+      const res = await proxy(
+        request(path, { 'content-security-policy': "script-src 'nonce-AAAAAAAAAAAAAAAAAAAAAA=='" }),
+      );
+      const csp = res.headers.get('content-security-policy');
+      expect(res.headers.get('content-security-policy-report-only'), path).toBeNull();
+      expect(csp, path).toMatch(/script-src /);
+      expect(csp, path).not.toContain('unsafe-inline');
+      expect(csp, path).toContain(BASE);
+      const nonce = nonceOf(csp) as string;
+      expect(nonce, path).toMatch(NONCE_SHAPE);
+      expect(csp, path).toBe(`${BASE}; ${portalScriptSrc(nonce)}; report-uri /api/csp-report`);
+      expect(csp, path).not.toContain('strict-dynamic');
+      // The render reads the same nonce from the request: the client's own copy is replaced.
+      expect(forwarded(res, 'content-security-policy'), path).toBe(portalScriptSrc(nonce));
+      expect(nonce, path).not.toBe('AAAAAAAAAAAAAAAAAAAAAA==');
+      seen.add(nonce);
+    }
+    // Fresh per request.
+    expect(seen.size).toBe(6);
+  });
+
+  it('[S16-F8] an ISR page (listing, development) gets no script-src from the proxy: its stored copy carries its own', async () => {
+    for (const path of ['/en/property/villa-in-x-ab12cd34', '/es/development/residencial-x-ab12cd34']) {
+      const res = await proxy(request(path));
+      expect(res.status, path).toBe(200);
+      expect(res.headers.get('content-security-policy'), path).toBe(BASE);
+      expect(forwarded(res, 'content-security-policy'), path).toMatch(
+        /^script-src 'self' 'nonce-[A-Za-z0-9+/]{22}==' /,
+      );
+    }
+    expect(pageCsp('/en/property/x', 'script-src x')).toBe(BASE);
+    expect(pageCsp('/en/properties/x', 'script-src x')).toBe(`${BASE}; script-src x; report-uri /api/csp-report`);
+    expect(BASE).toBe(PAGE_BASE_CSP);
   });
 });

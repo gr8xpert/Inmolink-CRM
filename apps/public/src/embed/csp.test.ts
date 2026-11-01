@@ -40,6 +40,20 @@ describe('embed CSP and framing headers (S7-F8)', () => {
     }
   });
 
+  it('[S16-F8] a selection page keeps its own CSP (script-src included): no next.config rule replaces it', async () => {
+    const re: RegExp = pathToRegexp(NOT_EMBED_SOURCE, [], {});
+    for (const path of ['/s/abcDEF123_-', '/s/abcDEF123_-/']) expect(re.test(path), path).toBe(false);
+    // Anything else under `/s` (no selection route answers it) still may not be framed.
+    for (const path of ['/s', '/s/a/b', '/sitemap.xml', '/search']) expect(re.test(path), path).toBe(true);
+    const rules = (await nextConfig.headers?.()) ?? [];
+    const csp = rules.filter((r) => r.headers.some((h) => h.key.toLowerCase() === 'content-security-policy'));
+    expect(csp.map((r) => r.source)).toEqual([NOT_EMBED_SOURCE]);
+    // The page's own policy: frames nothing, runs no inline script.
+    const own = embedCsp({ frameAncestors: [], mediaOrigin: null });
+    expect(own).toMatch(/script-src 'self' https:\/\/challenges\.cloudflare\.com;/);
+    expect(own).toContain("frame-ancestors 'none'");
+  });
+
   it('[S7-F8] embed paths: a site id and a language, anything else is invalid', () => {
     const site = '01900000-0000-7000-8000-0000000000aa';
     expect(embedPath(`/embed/${site}/es/listing/X`)).toEqual({ siteId: site, lang: 'es' });
