@@ -27,7 +27,6 @@ export * from './exports';
 export * from './http';
 export * from './identity';
 export * from './imports';
-export * from './legacy-v1';
 export * from './legal'; // S16-04
 export * from './matching';
 export * from './media';

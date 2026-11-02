@@ -1,6 +1,6 @@
 import type { Logger } from '@inmolink/platform/logger';
 import type { Dispatcher } from '@inmolink/platform/outbox';
-import { type JobDef, type PoolHandle, type PoolOptions, registerPool } from '@inmolink/platform/queue';
+import { type JobDef, type PoolHandle, type PoolOptions, queueFor, registerPool } from '@inmolink/platform/queue';
 import { createServer, type FastifyZod, type HealthCheck, healthRoutes } from '@inmolink/platform/server';
 import type { Pool } from './config';
 
@@ -21,6 +21,11 @@ export interface WorkerDeps {
   poolOptions?: PoolOptions;
   /** Options of one pool over `poolOptions` (`POOL_OPTIONS`). */
   poolOverrides?: Partial<Record<Pool, PoolOptions>>;
+  /**
+   * Schedulers of recurring jobs that no longer exist, removed when their pool starts (a removed job leaves its BullMQ
+   * scheduler in Redis, which would keep adding jobs no worker runs). Idempotent: removing a missing one is a no-op.
+   */
+  retiredSchedulers?: Partial<Record<Pool, readonly string[]>>;
 }
 
 export interface WorkerApp {
@@ -48,6 +53,13 @@ export async function startWorker(deps: WorkerDeps): Promise<WorkerApp> {
     handles.push(
       registerPool(pool, jobs, { shutdownMs: POOL_SHUTDOWN_MS, ...deps.poolOptions, ...deps.poolOverrides?.[pool] }),
     );
+    for (const name of deps.retiredSchedulers?.[pool] ?? []) {
+      // Fire-and-forget: a Redis blip only leaves the stale scheduler for the next start.
+      queueFor(pool)
+        .removeJobScheduler(name)
+        .then((removed) => removed && deps.logger.info({ pool, scheduler: name }, 'retired job scheduler removed'))
+        .catch((err: unknown) => deps.logger.warn({ err, pool, scheduler: name }, 'retired job scheduler not removed'));
+    }
   }
   deps.logger.info({ pools: deps.pools, running: handles.map((h) => h.pool) }, 'worker started');
 

@@ -40,7 +40,7 @@ import { LocalLru } from '@inmolink/platform/cache';
 import { clock } from '@inmolink/platform/clock';
 import { hmacSha256, safeEqual } from '@inmolink/platform/crypto';
 import { AppError } from '@inmolink/platform/errors';
-import { type SQL, sql } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 import { compileOwner, NO_OWNER, type OwnerIdentity, type OwnerMatcher } from '../../white-label';
 import { readAiRemovals } from '../../white-label-store';
 import * as agencies from '../agencies';
@@ -170,29 +170,21 @@ async function viewFor(
   return (await viewWith(tx, site, lang, rows)).view;
 }
 
-/**
- * `viewFor`, plus one more subquery of the caller's (S8-02: the v1 shim's legacy ids of the page) in the same
- * statement: its value is `extra`. With an extra part the statement always runs (one statement either way).
- */
+/** `viewFor` for any presenting scope (S12-04: selections present as their agency's "site"); no statement without network rows. */
 export async function viewWith(
   tx: Tx,
   // S12-04: only the scope's agency, prefix and presenter are read — selections present as their agency's "site".
   site: { scope: Pick<ApiSite['scope'], 'agencyId' | 'referencePrefix' | 'presenter'> },
   lang: string,
   rows: readonly Pick<search.PublicDocRow, 'targetId' | 'ownerAgencyId' | 'doc'>[],
-  extra?: SQL,
-): Promise<{ view: websites.SiteView; extra: unknown }> {
+): Promise<{ view: websites.SiteView }> {
   const view: websites.SiteView = {
     site: { agencyId: site.scope.agencyId, referencePrefix: site.scope.referencePrefix },
     presenter: site.scope.presenter,
     mediaBaseUrl: configured().mediaBaseUrl,
   };
   const network = rows.filter((r) => r.ownerAgencyId !== site.scope.agencyId);
-  if (network.length === 0) {
-    if (extra === undefined) return { view, extra: undefined };
-    const res = await tx.execute(sql`select ${extra} as extra`);
-    return { view, extra: (res.rows[0] as { extra: unknown }).extra };
-  }
+  if (network.length === 0) return { view };
   const targets = network.flatMap((r) => {
     const doc = r.doc as Doc;
     return doc.kind === 'UNIT' ? [r.targetId, doc.development.id] : [r.targetId];
@@ -201,18 +193,16 @@ export async function viewWith(
   const owners = agencies.ownerIdentitiesQuery(network.map((r) => r.ownerAgencyId));
   // S12-03: the model pass's cached removals of the network texts (one MGET on redis-cache, alongside the statement).
   const [res, aiRemovals] = await Promise.all([
-    tx.execute(
-      sql`select ${overrides.sql} as overrides, ${owners.sql} as owners${extra === undefined ? sql`` : sql`, ${extra} as extra`}`,
-    ),
+    tx.execute(sql`select ${overrides.sql} as overrides, ${owners.sql} as owners`),
     readAiRemovals(network.map((r) => ({ agencyId: r.ownerAgencyId, targetId: r.targetId }))),
   ]);
-  const row = res.rows[0] as { overrides: unknown; owners: unknown; extra?: unknown };
+  const row = res.rows[0] as { overrides: unknown; owners: unknown };
   const identities = owners.read(row.owners);
   const matchers = new Map<string, OwnerMatcher>();
   for (const id of new Set(network.map((r) => r.ownerAgencyId))) {
     matchers.set(id, matcherOf(identities.get(id) ?? NO_OWNER));
   }
-  return { view: { ...view, overrides: overrides.read(row.overrides), matchers, aiRemovals }, extra: row.extra };
+  return { view: { ...view, overrides: overrides.read(row.overrides), matchers, aiRemovals } };
 }
 
 export const owned = <D>(r: search.PublicDocRow) => ({
@@ -237,41 +227,10 @@ export async function searchListings(
   q: WebsiteListingsQuery,
   opts: { suspicious?: boolean } = {},
 ): Promise<WebsiteListingPage> {
-  return (await searchPage(site, q, opts)).page;
-}
-
-/** A search page with what the v1 shim reshapes it from (S8-02). */
-export interface SearchPage {
-  page: WebsiteListingPage;
-  /** The value of the caller's `extra` subquery (undefined without one or on an empty page). */
-  extra: unknown;
-  /** The raw target id of each real card, by the card's (site-scoped) id; honeytokens have none. */
-  targetOf: ReadonlyMap<string, string>;
-}
-
-/**
- * `searchListings`, with one more subquery of the caller's in the page's presentation statement (`viewWith`): `extra`
- * is built from the page's public documents.
- */
-export async function searchPage(
-  site: ApiSite,
-  q: WebsiteListingsQuery,
-  opts: {
-    suspicious?: boolean;
-    extra?: (rows: readonly search.PublicDocRow[]) => SQL;
-    /**
-     * S8-02: when the Postgres fallback restarted an engine cursor at its first page (`resultsChanged`), answer no item
-     * (the total only) and read no document — the v1 shim's numbered pages cannot continue in the fallback.
-     */
-    dropRestarted?: boolean;
-  } = {},
-): Promise<SearchPage> {
   const lang = langOf(site, q.lang);
   const from = q.cursor === undefined ? undefined : unwrapSearchCursor(site.scope.siteId, q.cursor);
   const depth = from?.depth ?? 0;
-  const targetOf = new Map<string, string>();
-  const empty = { items: [], total: 0, facets: {}, nextCursor: null, degraded: false };
-  if (!site.inventory) return { page: empty, extra: undefined, targetOf };
+  if (!site.inventory) return { items: [], total: 0, facets: {}, nextCursor: null, degraded: false };
   const input: PublicListingSearch = {
     text: q.q,
     locale: lang,
@@ -297,11 +256,6 @@ export async function searchPage(
     cursor: from?.inner,
   };
   const found = await search.searchPublicListings(site.inventory, input);
-  if (opts.dropRestarted && found.resultsChanged) {
-    const page: WebsiteListingPage = { ...empty, total: found.total, degraded: found.backend === 'fallback' };
-    return { page: { ...page, resultsChanged: true }, extra: undefined, targetOf };
-  }
-  let extra: unknown;
   const cards =
     found.ids.length === 0
       ? []
@@ -311,23 +265,15 @@ export async function searchPage(
           // The engine's order; a target whose read model went in between is left out.
           const ordered = found.ids.flatMap((id) => byId.get(id) ?? []);
           for (const r of ordered) site.edge.targets.add(r.targetId);
-          const shown = await viewWith(tx, site, lang, ordered, opts.extra?.(ordered));
-          extra = shown.extra;
-          const serialized = websites.serializeCards(shown.view, ordered.map(owned<ListingCardDoc | UnitCardDoc>));
-          // Cards keep the documents' order; only R2 dedupe (`canonicalOf`) could drop one — then no card is named.
-          if (serialized.length === ordered.length) {
-            for (const [i, card] of serialized.entries()) {
-              targetOf.set(card.id, (ordered[i] as search.PublicDocRow).targetId);
-            }
-          }
-          return serialized;
+          const { view } = await viewWith(tx, site, lang, ordered);
+          return websites.serializeCards(view, ordered.map(owned<ListingCardDoc | UnitCardDoc>));
         });
   const limits = websiteLimits();
   const items =
     limits.honeytokens && opts.suspicious === true && q.cursor !== undefined && depth >= limits.honeytokenMinPage
       ? withHoneytoken(cursorSecret(), site.scope, q.cursor, cards)
       : cards;
-  const page: WebsiteListingPage = {
+  return {
     items,
     total: found.total,
     facets: found.facets,
@@ -335,7 +281,6 @@ export async function searchPage(
     degraded: found.backend === 'fallback',
     ...(found.resultsChanged ? { resultsChanged: true as const } : {}),
   };
-  return { page, extra, targetOf };
 }
 
 /**

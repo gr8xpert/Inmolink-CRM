@@ -151,7 +151,6 @@ export {
   portalSitemapPage,
   prunePublicChanges,
   publicDetailByCode,
-  publicDetailById,
   publicDetailByRef,
   publicDocs,
   type SiteChange,

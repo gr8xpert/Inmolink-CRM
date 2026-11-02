@@ -44,7 +44,7 @@ export const REDACT_KEYS = [
   'idToken',
   'key',
   'apiKey',
-  // The v1 shim's legacy key parameter (S8-02), should a parsed query ever be logged.
+  // A key sent as a query parameter (the retired v1 shim's `api_key`, S8-02 / S17-F4), should one ever be logged.
   'api_key',
   'secret',
   'clientSecret',
@@ -180,7 +180,7 @@ const SECRET_PATHS: readonly RegExp[] = [
 ];
 /**
  * The same segments anywhere in a text: a full URL, an error message, a breadcrumb (S8-F1: error reports). Also the
- * legacy `api_key` query parameter (S8-02: the v1 shim takes a flagged legacy key in the URL), which a quoted URL in a
+ * `api_key` query parameter (the retired v1 shim took a legacy key in the URL, S8-02 / S17-F4), which a quoted URL in a
  * message would otherwise carry into an error report.
  */
 const SECRET_PATHS_IN_TEXT: readonly RegExp[] = [

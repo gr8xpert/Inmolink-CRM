@@ -57,8 +57,6 @@ const taxonomy: EdgeCacheRule = {
   params: TAXONOMY_PARAMS,
 };
 
-const legacy: EdgeCacheRule = { gate: 'never', sMaxAge: null, staleIfError: 0, cursorPages: false, params: null };
-
 /**
  * The edge-cache policy of every `/v2/*` GET route (S8-F2: one table, pinned by `edge-cache.test.ts`). Lifetimes of
  * site answers come from core (`WEBSITE_API_TTL`: they set the purge horizon). What is never public whatever the table
@@ -80,10 +78,6 @@ export const EDGE_CACHE_RULES = {
   '/v2/taxonomy/catalog': taxonomy,
   '/v2/taxonomy/types': taxonomy,
   '/v2/taxonomy/features': taxonomy,
-  // The v1 shim (S8-02): legacy URLs carry the key itself (`api_key`), not the `_k` token — private, ETag revalidation.
-  '/v1/properties': legacy,
-  '/v1/properties/:id': legacy,
-  '/v1/types': legacy,
   // S8-05: the WordPress plugin's update server — the same for every site, no key; the package is immutable.
   '/v2/plugin/update': {
     gate: 'always',

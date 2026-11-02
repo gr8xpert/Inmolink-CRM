@@ -8,12 +8,11 @@
  *   listing) and, of those, the ones on their listing or still queued — a URL neither is a failed download.
  * - **Sampled field diffs**: a deterministic sample per entity (listings, contacts, leads; the same rows on every run)
  *   compared field by field with the v2 row. Field NAMES only reach the report, never values (no personal data).
- * - **URL checks** of the sampled listings: the legacy id resolves through the public legacy lookup (the v1 shim and
- *   the legacy redirects use it) to the listing it became; its legacy image URLs are on it or queued.
+ * - **URL checks** of the sampled listings: the legacy id resolves through `legacy_id_maps` to the listing it became;
+ *   its legacy image URLs are on it or queued.
  *
  * Everything runs in short `withSystem()` transactions of the operator's script, one staged batch at a time (a fixed
- * handful of statements per 1,000 rows); `withPublicRead()` for the lookup, as the shim does. Nothing is written but
- * the report itself (`recordValidationReport`).
+ * handful of statements per 1,000 rows). Nothing is written but the report itself (`recordValidationReport`).
  */
 import { createHash } from 'node:crypto';
 import {
@@ -28,7 +27,7 @@ import {
   type MigrationValidationSample,
   type MigrationValidationUrlCheck,
 } from '@inmolink/contracts';
-import { type Tx, withPublicRead, withSystem } from '@inmolink/db';
+import { type Tx, withSystem } from '@inmolink/db';
 import { clock } from '@inmolink/platform/clock';
 import { newId } from '@inmolink/platform/ids';
 import * as crm from '../crm';
@@ -383,8 +382,8 @@ export async function validateLegacyAgency(input: ValidateLegacyAgencyInput): Pr
     return out;
   });
 
-  // URL checks of the sampled listings: the public legacy lookup, then their images.
-  const lookups = await withPublicRead((tx) =>
+  // URL checks of the sampled listings: their legacy ids in the maps, then their images.
+  const lookups = await withSystem(reason, (tx) =>
     repo.listingTargetsOf(
       tx,
       listingSample.map((c) => c.legacyId),

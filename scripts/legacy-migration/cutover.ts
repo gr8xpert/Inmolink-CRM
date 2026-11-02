@@ -7,17 +7,16 @@
 //   plan      --agency <uuid> --path A --legacy <legacy agency id> [--scheduled YYYY-MM-DD]
 //   plan      --agency <uuid> --path B [--provider <name>] [--renewal YYYY-MM-DD] [--scheduled YYYY-MM-DD]
 //             [--area <location uuid>]... [--old-area-listings <n>]
-//   run       --agency <uuid> [--url <legacy postgres url> | LEGACY_DATABASE_URL] [--map <entities.json>]
+//   run       --agency <uuid> [--url <restored dump url> | LEGACY_DUMP_URL] [--map <entities.json>]
 //             [--confirm FREEZE|SWITCH_FEED|PARITY]...
 //   rollback  --agency <uuid> [--confirm FREEZE|SWITCH_FEED]... [--force]
 //   status    --agency <uuid>
 //   parity    --agency <uuid>                         (Path B: v2 network listings in the area vs the old provider's)
 //   due       [--days <n>]                            (renewal tracking: checklists scheduled within n days, default 30)
-//   dns-check                                         (legacy API hostname: migrated agencies without a PASS report)
 //
 // `--confirm` records a manual step the operator did outside v2: FREEZE (legacy set read-only by hand — or, on
 // rollback, writable again), SWITCH_FEED (the managed website switched to v2 — or back to both inventories), PARITY
-// (accept the area without the count). The legacy database is only opened read-only (the final delta).
+// (accept the area without the count). The restored legacy dump is only opened read-only (the final delta).
 import { parseArgs } from 'node:util';
 import * as migration from '@inmolink/core/modules/migration';
 import { closeDb, configureDb, dbEnv } from '@inmolink/db';
@@ -112,7 +111,7 @@ try {
     }
     case 'run': {
       const agencyId = agency();
-      const url = values.url ?? process.env.LEGACY_DATABASE_URL;
+      const url = values.url ?? process.env.LEGACY_DUMP_URL;
       const entities = readEntityMap(values.map);
       const r = await migration.runCutover({
         agencyId,
@@ -149,16 +148,8 @@ try {
       log.info({ days, due: due.map(summary) }, `${due.length} cutover(s) scheduled within ${days} days`);
       break;
     }
-    case 'dns-check': {
-      const r = await migration.legacyDnsReadiness();
-      if (!r.ready) {
-        log.warn(r, 'legacy hostname NOT ready: every migrated agency needs a PASS validation report');
-        process.exitCode = 1;
-      } else log.info(r, 'legacy hostname ready for the DNS switch');
-      break;
-    }
     default:
-      throw new TypeError('command: plan | run | rollback | status | parity | due | dns-check');
+      throw new TypeError('command: plan | run | rollback | status | parity | due');
   }
 } catch (err) {
   const error =

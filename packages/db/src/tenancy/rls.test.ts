@@ -166,11 +166,11 @@ describe('RLS generator', () => {
   });
 
   it('[S1-08] partition maintenance is a SECURITY DEFINER helper executable by app_system only (the other: [S7-03])', () => {
-    // S8-02 adds the two legacy-id lookups (app_public), S9-03 the portal feed token lookup (app_public), S10-06 the
+    // S9-03 adds the portal feed token lookup (app_public), S10-06 the
     // calendar feed token lookup (app_public), S11-F7 the calendar feed fingerprint (app_public), S13-F17 the AI toggles
     // lookup (app_public), S13-F1 the selection token lookup (app_public), S15-03 the agency profile lookup (app_public),
     // S15-F10 the member profile and agency team lookups (app_public).
-    expect(out.match(/security definer/gi)).toHaveLength(12);
+    expect(out.match(/security definer/gi)).toHaveLength(10);
     expect(out).toContain(
       'create or replace function app_partition_maintenance() returns void language plpgsql security definer',
     );
@@ -207,24 +207,18 @@ describe('RLS generator', () => {
     expect(table).not.toMatch(/grant select[^;]*to [^;]*app_(?:user|public)/);
   });
 
-  it('[S8-02] legacy_id_maps: app_public reads taxonomy maps only; listing ids through two SECURITY DEFINER lookups', () => {
+  it('[S17-F4] legacy_id_maps: no app role reads it; the v1 shim lookups are dropped, not helpers, never granted', () => {
     const table = tablesSql(registry).split('-- legacy_id_maps: GLOBAL')[1]?.split('\n\n')[0] ?? '';
-    expect(table).toContain(
-      `create policy global_read on public."legacy_id_maps" for select to app_public using (entity in ('location', 'propertyType', 'feature'));`,
-    );
-    expect(table).toContain(
-      'create policy definer_read on public."legacy_id_maps" for select to app_owner using (true);',
-    );
-    expect(table).not.toMatch(/grant select[^;]*to [^;]*app_user/);
-    for (const fn of ['legacy_target_ids', 'legacy_ids_of']) {
-      expect(HELPER_FUNCTIONS as readonly string[]).toContain(fn);
-      const body = out.split(`create or replace function ${fn}(`)[1]?.split('$$;')[0] ?? '';
-      expect(body).toContain('security definer set search_path = pg_catalog, pg_temp');
-      expect(body).toContain("in ('listing', 'unit')");
+    expect(table).not.toMatch(/create policy [^;]* to app_(?:user|public|owner)/);
+    expect(table).not.toMatch(/grant select[^;]*to [^;]*app_(?:user|public)/);
+    for (const [fn, args] of [
+      ['legacy_target_ids', 'text[]'],
+      ['legacy_ids_of', 'uuid[]'],
+    ] as const) {
+      expect(HELPER_FUNCTIONS as readonly string[]).not.toContain(fn);
+      expect(out).toContain(`drop function if exists ${fn}(${args});`);
+      expect(out.split(`${fn}(`)).toHaveLength(2);
     }
-    expect(out).toContain('grant execute on function legacy_target_ids(text[]), legacy_ids_of(uuid[]) to app_public;');
-    expect(out).toContain('alter function legacy_target_ids(text[]) owner to app_owner;');
-    expect(out).toContain('alter function legacy_ids_of(uuid[]) owner to app_owner;');
     expect(() =>
       generateRlsSql({
         ...registry,
@@ -980,13 +974,10 @@ describe('portal worker tables (S10-F4)', () => {
 });
 
 describe('userNoUpdateColumns', () => {
-  it('[S8-F26] api_keys: app_user gets UPDATE on a column list without legacy_query_key; other privileges unchanged', () => {
-    const sqlOut = tablesSql(registry);
-    const part = sqlOut.split('-- api_keys:')[1]?.split('\n\n')[0] ?? '';
-    expect(part).toContain("attname <> all (array['legacy_query_key'])");
-    expect(part).toContain(`grant update (%s) on table public."api_keys" to app_user`);
-    expect(part).not.toMatch(/grant [^;]*\bupdate\b[^;(]* on table public\."api_keys" to app_user;/);
-    expect(registry.tenant.api_keys?.userNoUpdateColumns).toEqual(['legacy_query_key']);
+  it('[S17-F4] api_keys: the legacy-query-key column lock is gone with the column (no userNoUpdateColumns)', () => {
+    const part = tablesSql(registry).split('-- api_keys:')[1]?.split('\n\n')[0] ?? '';
+    expect(part).not.toContain('legacy_query_key');
+    expect(registry.tenant.api_keys?.userNoUpdateColumns).toBeUndefined();
   });
 
   it('[S11-F3] userAppendRead: app_user selects and inserts only (no UPDATE, no DELETE); app_system keeps DML', () => {

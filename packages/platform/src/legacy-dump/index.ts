@@ -1,9 +1,10 @@
 import pg from 'pg';
-import { z } from 'zod';
 
 /**
- * Legacy database adapter (S15-F4, PLAN §14 Path A): the one door to the legacy Inmolink database (a PostgreSQL
- * dump restored or replicated read-only, H1). It can only read:
+ * Legacy dump reader (S15-F4 → S17-F4, PLAN §14 Path A): the one door to a restored copy of the legacy Inmolink
+ * database dump (H1) for the one-time import (`pnpm legacy:extract`, and the final delta of `pnpm legacy:delta` /
+ * `pnpm legacy:cutover run`). The old system never runs beside v2: no app or worker opens it; it is configured only
+ * from the operator's shell (`--url` / `LEGACY_DUMP_URL`), no app or worker env. It can only read:
  *
  * - the session default is read-only (`default_transaction_read_only=on`) and every snapshot is one
  *   `REPEATABLE READ READ ONLY` transaction, so a stray write is refused by the server (25006);
@@ -16,20 +17,11 @@ import { z } from 'zod';
  * - at most `maxConnections` snapshots are open per process (more wait, up to `acquireTimeoutMs`);
  * - large reads stream through a server-side cursor in batches, never as one result set;
  * - in production the connection must use TLS with a verified server certificate (`sslmode=verify-full`, or
- *   `verify-ca` with `sslrootcert`): the legacy database is reached over the network (H1), and an unverified
+ *   `verify-ca` with `sslrootcert`): the restored copy may sit on another host (H1), and an unverified
  *   certificate (`require`) is open to a man in the middle;
  * - failures surface as `LegacyDbError` carrying a code only: a database or driver message may quote row data or
  *   the URL, and nothing in here logs a credential, a statement parameter or a row.
  */
-
-/** Settings (env). `LEGACY_DATABASE_URL` unset: no legacy access, the hourly delta queues nothing. */
-export const legacyDbEnv = {
-  LEGACY_DATABASE_URL: z.string().trim().min(1).optional(),
-  /** Longest a single legacy statement may run. */
-  LEGACY_DB_STATEMENT_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(3_600_000).default(600_000),
-  /** Snapshots open at once in this process (each holds one connection and a transaction). */
-  LEGACY_DB_MAX_CONNECTIONS: z.coerce.number().int().min(1).max(10).default(2),
-};
 
 export interface LegacyDbConfig {
   /** Connection string of the legacy database: `postgres://` of a dedicated SELECT-only role, without `options`. */

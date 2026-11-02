@@ -5,14 +5,13 @@ import { apiKeyPlugin, type LocalFailedChecks } from './plugins/api-key';
 import { edgeSafeErrors, websiteCors } from './plugins/site-response';
 import { calendarFeedRoutes, calendarTokenIdentity } from './routes/crm/calendar-feed';
 import { portalFeedRoutes } from './routes/exports/portal-feeds';
-import { legacyV1Routes } from './routes/legacy-v1/routes';
 import { pluginUpdateRoutes } from './routes/plugin-updates/routes';
 import { taxonomyRoutes } from './routes/taxonomy/routes';
 import { feedTokenIdentity, websiteFeedRoutes } from './routes/website-api/feeds';
 import { websiteLeadRoutes } from './routes/website-api/leads';
 import { websiteApiRoutes } from './routes/website-api/routes';
 
-/** Website API (v1 shim, v2, XML feeds) — reads, plus website form intake (S7-05); isolated. Transport only. */
+/** Website API (v2, XML feeds) — reads, plus website form intake (S7-05); isolated. Transport only. */
 export const APP_NAME = 'feed-api';
 
 /**
@@ -74,7 +73,6 @@ export async function buildApp(deps: FeedApiDeps): Promise<FastifyZod> {
   await app.register(websiteLeadRoutes);
   await app.register(websiteFeedRoutes);
   await app.register(portalFeedRoutes, { ipPerMinute: deps.portalFeedIpPerMinute });
-  await app.register(legacyV1Routes);
   await app.register(pluginUpdateRoutes);
   await app.register(calendarFeedRoutes);
   return app;

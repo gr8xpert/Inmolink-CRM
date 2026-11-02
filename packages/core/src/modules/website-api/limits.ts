@@ -21,12 +21,7 @@
  *   is flagged.
  */
 
-import {
-  LegacyPropertiesQuery,
-  WebsiteAiSearchQuery,
-  WebsiteDevelopmentsQuery,
-  WebsiteListingsQuery,
-} from '@inmolink/contracts';
+import { WebsiteAiSearchQuery, WebsiteDevelopmentsQuery, WebsiteListingsQuery } from '@inmolink/contracts';
 import { clock } from '@inmolink/platform/clock';
 import {
   LocalFixedWindows,
@@ -119,8 +114,6 @@ const SLICE_FIELDS = {
     'bbox',
   ],
   developments: ['locations'],
-  // S8-02: the v1 shim's `/v1/properties` (legacy parameter names; `sort` is added like listings).
-  'legacy-properties': ['q', 'type', 'location', 'feature', 'transaction', 'min_price', 'max_price', 'beds', 'baths'],
   // S12-08: `/v2/search/ai` — the sentence is the filter (in its normalized form, so respellings count as one slice).
   'search-ai': ['q'],
 } as const;
@@ -142,18 +135,15 @@ function canonical(field: string, value: unknown): string {
  * contract's Zod schema), only the fields that filter the inventory, in canonical form (`0100000` = `100000`,
  * `types=b,a` = `types=a,b`, text case-folded), plus the sort for listings. Unknown parameters cannot inflate it: the
  * schemas are strict, so such a request is refused (400) and has no signature; nor can `limit`, `lang`, `facets`, `_k`.
- * The v1 shim's legacy schema (S8-02) drops unknown parameters instead: they are not in its field list either.
  * Undefined without a filter (an unfiltered first page slices nothing).
  */
 export function sliceSignature(endpoint: SliceEndpoint, rawQuery: unknown): string | undefined {
   const schema =
     endpoint === 'listings'
       ? WebsiteListingsQuery
-      : endpoint === 'legacy-properties'
-        ? LegacyPropertiesQuery
-        : endpoint === 'search-ai'
-          ? WebsiteAiSearchQuery
-          : WebsiteDevelopmentsQuery;
+      : endpoint === 'search-ai'
+        ? WebsiteAiSearchQuery
+        : WebsiteDevelopmentsQuery;
   const parsed = schema.safeParse(rawQuery ?? {});
   if (!parsed.success) return undefined;
   const query = parsed.data as Record<string, unknown>;

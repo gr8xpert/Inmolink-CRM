@@ -52,6 +52,7 @@ final class MultisiteTest extends TestCase {
 			Settings::save( array( 'api_base' => 'https://api.inmolink.test', 'locales' => 'en' ) );
 			update_option( DeltaSync::STATE_OPTION, array( 'cursor' => 'cur_' . $id ), false );
 			update_option( Cache::GENERATION_OPTION, 7, true );
+			update_option( 'inmolink_legacy_migration', array( 'key' => 'migrated' ), false ); // S17-F4: an older install's marker.
 			set_transient( Cache::PREFIX . 'abc', array( 'body' => array() ), 300 );
 			set_transient( Client::PROBE_TRANSIENT, array( 'ok' => true ), 300 );
 			set_transient( Client::DOWN_TRANSIENT . '_' . Client::SYNC, 'retry_after', 300 );
@@ -73,6 +74,7 @@ final class MultisiteTest extends TestCase {
 			$this->assertFalse( get_option( Settings::OPTION ), "site $id settings removed" );
 			$this->assertFalse( get_option( DeltaSync::STATE_OPTION ), "site $id sync state removed" );
 			$this->assertFalse( get_option( Cache::GENERATION_OPTION ), "site $id cache generation removed" );
+			$this->assertFalse( get_option( 'inmolink_legacy_migration' ), "site $id legacy migration marker removed" );
 			$this->assertFalse( get_transient( Cache::PREFIX . 'abc' ), "site $id cached answers removed" );
 			$this->assertFalse( get_transient( Client::PROBE_TRANSIENT ), "site $id probe removed" );
 			$this->assertFalse( get_transient( Client::DOWN_TRANSIENT . '_' . Client::SYNC ), "site $id sync back-off removed" );

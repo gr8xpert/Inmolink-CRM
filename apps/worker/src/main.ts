@@ -6,7 +6,6 @@ import * as exportsWorker from '@inmolink/core/modules/exports/worker';
 import * as identity from '@inmolink/core/modules/identity';
 import * as imports from '@inmolink/core/modules/imports';
 import * as media from '@inmolink/core/modules/media';
-import * as migration from '@inmolink/core/modules/migration';
 import * as mls from '@inmolink/core/modules/mls';
 import * as search from '@inmolink/core/modules/search';
 import * as social from '@inmolink/core/modules/social';
@@ -25,7 +24,7 @@ import { configureStorage, storageConfigFromEnv } from '@inmolink/platform/stora
 import { reportError, startObservability } from '@inmolink/platform/telemetry';
 import { startWorker } from './app';
 import { emailConfig, loadWorkerConfig } from './config';
-import { POOL_JOBS, POOL_OPTIONS } from './processors';
+import { POOL_JOBS, POOL_OPTIONS, RETIRED_SCHEDULERS } from './processors';
 import { registerSubscriptions } from './subscriptions';
 
 loadStackEnv('dev', { allowExample: false });
@@ -162,20 +161,6 @@ try {
   }
   // S7-06: the indexing pool purges the website API's edge cache (same tag key as feed-api); without a zone and token
   // there is nothing to purge and cached answers expire with their TTL.
-  // S15-F4: the hourly legacy delta reads the legacy database read-only (H1); without a URL the job queues nothing.
-  if (config.WORKER_POOLS.includes('maintenance')) {
-    const legacy = migration.configureLegacyDelta({
-      url: config.LEGACY_DATABASE_URL,
-      db: {
-        ...(config.LEGACY_DB_STATEMENT_TIMEOUT_MS ? { statementTimeoutMs: config.LEGACY_DB_STATEMENT_TIMEOUT_MS } : {}),
-        ...(config.LEGACY_DB_MAX_CONNECTIONS ? { maxConnections: config.LEGACY_DB_MAX_CONNECTIONS } : {}),
-      },
-    });
-    logger.info(
-      { legacyDelta: legacy },
-      legacy ? 'legacy delta reader registered' : 'legacy delta reader not configured',
-    );
-  }
   if (config.HMAC_KEY) websiteApi.configureEdgeCache({ tagKey: config.HMAC_KEY });
   // S8-F1: the network feed sweep's window (the outbox subscriber throttles one sweep per window).
   if (config.SITE_FEED_NETWORK_WINDOW_MINUTES) {
@@ -239,6 +224,7 @@ try {
     pools: config.WORKER_POOLS,
     jobs: POOL_JOBS,
     poolOverrides: POOL_OPTIONS,
+    retiredSchedulers: RETIRED_SCHEDULERS,
     createDispatcher: () => createOutboxDispatcher({ logger }),
     trustProxy: config.TRUST_PROXY,
     checks: { db: () => pingDb(mediaOnly ? 'app_media' : 'app_system'), redisQueue: redisCheck(producerConnection) },

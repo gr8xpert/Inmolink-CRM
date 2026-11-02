@@ -183,9 +183,6 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     developmentsJobs.purgeDeletedDevelopments,
     // S14-05: the legacy-redirect hit counters buffered in memory.
     migrationJobs.flushRedirectHits,
-    // S14-04: the hourly legacy → v2 delta of the parallel run (no-op until a legacy reader is registered, H1).
-    migrationJobs.scheduleLegacyDeltas,
-    migrationJobs.syncLegacyDelta,
     importsJobs.pruneRuns,
     // S12-F6: the nightly full rebuild of the CRM stage counts (the day's deltas checked against `leads`).
     crmJobs.sweepStageCounts,
@@ -277,4 +274,12 @@ export const DIGEST_CONCURRENCY = 4;
 export const POOL_OPTIONS: Partial<Record<Exclude<Pool, 'outbox'>, PoolOptions>> = {
   email: { groupRetryMs: 100, groupRetryMaxMs: 1_000 },
   digest: { concurrency: DIGEST_CONCURRENCY },
+};
+
+/**
+ * Recurring jobs removed from the code whose BullMQ schedulers a deployed Redis may still hold (`startWorker` removes
+ * them when the pool starts). S17-F4: the hourly legacy delta of the retired parallel run (S14-04 / S15-F4).
+ */
+export const RETIRED_SCHEDULERS: Partial<Record<Exclude<Pool, 'outbox'>, readonly string[]>> = {
+  maintenance: ['migration.scheduleLegacyDeltas'],
 };

@@ -130,8 +130,6 @@ export interface SiteJsonOptions {
   noStore?: boolean;
   /** The request's site: what its answer showed names its `Cache-Tag`s (S7-06). Without it: never edge-cached. */
   site?: websiteApi.ApiSite;
-  /** The `Cache-Control` of a private answer (S8-02: the v1 shim's `private, no-cache`). */
-  privateCacheControl?: string;
   /** S12-08: a public answer's CDN lifetime is at most this (seconds) — a degraded answer is kept briefly. */
   maxSMaxAge?: number;
 }
@@ -173,7 +171,7 @@ export function sendSiteJson<S extends z.ZodType>(
               ? { ...rule, sMaxAge: Math.min(rule.sMaxAge, options.maxSMaxAge) }
               : rule,
           )
-        : (options.privateCacheControl ?? SITE_CACHE_POLICY.private),
+        : SITE_CACHE_POLICY.private,
       vary: tags ? SITE_CACHE_POLICY.publicVary : SITE_CACHE_POLICY.vary,
     })
   ) {

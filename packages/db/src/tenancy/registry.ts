@@ -519,8 +519,6 @@ export const tenantTables: Record<string, TenantTable> = {
   api_keys: {
     kind: 'PUBLIC_READ',
     guardedInsert: true,
-    // S8-F26: the legacy-query-key mark (S8-02) is set by the key import / `pnpm legacy:key-flag` (app_system) only.
-    userNoUpdateColumns: ['legacy_query_key'],
     triggers: ['api_keys_guard'],
     publicReadSql: 'revoked_at is null and agency_active',
     samples: {
@@ -1794,19 +1792,10 @@ export const globalTables: Record<string, GlobalTable> = {
   // Legacy migration (S2-06): old ID → new ID, written by import scripts via withSystem().
   legacy_id_maps: {
     reason: 'every legacy ID and the v2 ID it became (ADR 0006), permanent',
-    // Written by import scripts only; tenant entity maps (S14) must not be readable across agencies (S3-F1), so no
-    // `app_user` read. S8-02 (narrows S3-F1's "app_system only"): the v1 shim (feed-api, `app_public`) reads the
-    // taxonomy maps (location, property type, feature: platform reference data) to resolve legacy filter ids. Listing
-    // and unit maps stay unreadable by every app role: the shim reaches them only through the SECURITY DEFINER lookups
-    // `legacy_target_ids` / `legacy_ids_of` (owner `app_owner`, `definerRead`), which answer ids for given ids only.
+    // Written and read by the one-time import scripts only (`app_system`); tenant entity maps (S14) must not be readable
+    // across agencies (S3-F1), so no app role reads it. S17-F4: the v1 shim's `app_public` taxonomy read and its two
+    // SECURITY DEFINER lookups (S8-02) are retired with the shim.
     noUserRead: true,
-    publicRead: true,
-    publicReadSql: `entity in ('location', 'propertyType', 'feature')`,
-    publicSamples: {
-      visible: [{ entity: 'location' }, { entity: 'propertyType' }, { entity: 'feature' }],
-      hidden: [{ entity: 'listing' }, { entity: 'unit' }, { entity: 'contact' }],
-    },
-    definerRead: true,
     base: { entity: 'location', method: 'exact' },
   },
   // S14-02: checkpoints of the legacy load (operator data: legacy ids, counts, issues), written by the load script via

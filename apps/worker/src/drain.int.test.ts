@@ -74,3 +74,29 @@ describe('worker shutdown', () => {
     }
   }, 60_000);
 });
+
+describe('retired job schedulers (S17-F4)', () => {
+  it('[S17-F4] a pool start removes the BullMQ scheduler of a retired recurring job (idempotent)', async () => {
+    const retired = 'test.retiredHourly';
+    const queue = queueFor('imports');
+    await queue.upsertJobScheduler(retired, { every: 3_600_000 }, { name: retired, data: { p: {} } });
+    expect(await queue.getJobScheduler(retired)).toBeTruthy();
+    const keep = defineJob({ name: 'test.keepImport', pool: 'imports', payload: z.object({}), async run() {} });
+    const start = () =>
+      startWorker({
+        logger,
+        pools: ['imports'],
+        jobs: { imports: [keep] },
+        trustProxy: false,
+        checks: {},
+        retiredSchedulers: { imports: [retired] },
+      });
+    const worker = await start();
+    await vi.waitFor(async () => expect(await queue.getJobScheduler(retired)).toBeFalsy(), { timeout: 10_000 });
+    await worker.drain();
+    // Already gone: a second start removes nothing and does not fail.
+    const again = await start();
+    await again.drain();
+    expect(await queue.getJobScheduler(retired)).toBeFalsy();
+  }, 60_000);
+});

@@ -251,6 +251,15 @@ describe('website API v2 over HTTP (S7-03)', () => {
     expect((await get('/v2/listings', { 'x-api-key': 'inl_test_nope' })).statusCode).toBe(401);
   });
 
+  it('[S17-F4] a valid key in ?api_key= without a header is 401: keys never come from the query string', async () => {
+    expect((await get('/v2/listings')).statusCode).toBe(200); // the same key by header works
+    for (const param of ['api_key', 'apiKey', 'key']) {
+      const res = await app.inject({ method: 'GET', url: `/v2/listings?${param}=${encodeURIComponent(key)}` });
+      expect(res.statusCode, param).toBe(401);
+      expect(res.json().error.code, param).toBe('API_KEY_INVALID');
+    }
+  });
+
   it('[S7-03] browser widgets: preflight, and an allowlisted origin echoed for publishable keys only', async () => {
     const origin = 'https://www.feed-site.example';
     const pre = await app.inject({

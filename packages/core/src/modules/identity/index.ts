@@ -14,7 +14,6 @@ export {
   revokeApiKey,
   rotateApiKey,
   setApiKeyRateTier,
-  setLegacyQueryKey,
 } from './api-keys';
 // S12-06: Client Mode — enter (tenant ctx), the session callback's proof check and the exit PIN (app_auth).
 export {

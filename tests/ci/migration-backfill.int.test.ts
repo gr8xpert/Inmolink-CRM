@@ -23,6 +23,7 @@ const dirs: string[] = [];
 let cfg: ReturnType<typeof loadConfig<typeof migrateEnv>>;
 const quiet = { info: () => {} };
 const BACKFILL = '0033_agency_commission_defaults';
+const RUN = newId().slice(-8);
 
 /** The migrations folder cut just before the migration tagged `tag` (journal entries and SQL files). */
 function migrationsBefore(tag: string): string {
@@ -96,5 +97,39 @@ describe('migration backfills', () => {
     });
     expect(rows.get(unset)).toMatchObject({ type: 'PCT', bp: 500, cents: null, split: 5000 });
     expect(rows.get(fixed)).toMatchObject({ type: 'FIXED', bp: null, cents: '300000', split: 5000 });
+  });
+  it('[S17-F4] keys flagged for the legacy query parameter are revoked before the flag is dropped', async () => {
+    const db = await freshDatabase(cfg, DB);
+    await runMigrations(db, quiet, migrationsBefore('0181_s17_f4_drop_legacy_query_key'));
+    const agency = newId();
+    const [flagged, flaggedRevoked, plain] = [newId(), newId(), newId()];
+    const earlier = '2026-10-01T00:00:00.000Z';
+    await asAdmin(db.DATABASE_URL_ADMIN as string, async (c) => {
+      await c.query(`insert into agencies (agency_id, kind, name) values ($1, 'AGENCY', 'Legacy keys')`, [agency]);
+      await c.query(
+        `insert into api_keys (id, agency_id, name, kind, prefix, key_hash, scopes, created_by, legacy_query_key, revoked_at)
+         values ($1, $4, 'flagged', 'SECRET', $6, 'h1', '{listings:read}', $4, true, null),
+                ($2, $4, 'flagged, revoked', 'SECRET', $7, 'h2', '{listings:read}', $4, true, $5),
+                ($3, $4, 'plain', 'SECRET', $8, 'h3', '{listings:read}', $4, false, null)`,
+        [flagged, flaggedRevoked, plain, agency, earlier, `p1${RUN}`, `p2${RUN}`, `p3${RUN}`],
+      );
+    });
+
+    await runMigrations(db, quiet);
+
+    const rows = await asAdmin(db.DATABASE_URL_ADMIN as string, async (c) => {
+      const cols = await c.query(
+        `select 1 from information_schema.columns where table_name = 'api_keys' and column_name = 'legacy_query_key'`,
+      );
+      expect(cols.rowCount).toBe(0);
+      const r = await c.query<{ id: string; revoked_at: Date | null }>(
+        'select id, revoked_at from api_keys where id = any($1::uuid[])',
+        [[flagged, flaggedRevoked, plain]],
+      );
+      return new Map(r.rows.map((x) => [x.id, x.revoked_at]));
+    });
+    expect(rows.get(flagged)).toBeInstanceOf(Date);
+    expect(rows.get(flaggedRevoked)?.toISOString()).toBe(earlier);
+    expect(rows.get(plain)).toBeNull();
   });
 });

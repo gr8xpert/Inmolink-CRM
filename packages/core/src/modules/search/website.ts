@@ -263,7 +263,7 @@ const MAX_SORT_VALUE = 1e15;
 const encode = (c: CursorState) => Buffer.from(JSON.stringify(c)).toString('base64url');
 
 /**
- * The engine cursor of the page starting `offset` results down (S8-02: the v1 shim's legacy `page` numbers). Undefined
+ * The engine cursor of the page starting `offset` results down (numbered pages, e.g. the portal's). Undefined
  * for the first page. Past `SEARCH_RESULT_CAP` there is no page (null). In the Postgres fallback an engine cursor
  * restarts at the first keyset page with `resultsChanged` (the fallback never runs an SQL OFFSET, S6-F2).
  */

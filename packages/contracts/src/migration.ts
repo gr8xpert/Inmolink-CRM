@@ -407,8 +407,8 @@ export const MigrationValidationFieldStat = z.object({
 });
 
 /**
- * URL checks of a sampled listing: its legacy id resolves through the public legacy lookup (what the v1 shim and the
- * legacy redirects use) to the listing it became, and its legacy image URLs are on the listing or queued.
+ * URL checks of a sampled listing: its legacy id resolves through `legacy_id_maps` to the listing it became, and its
+ * legacy image URLs are on the listing or queued.
  */
 export const MigrationValidationUrlCheck = z.object({
   legacyId: z.string(),

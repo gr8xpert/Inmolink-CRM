@@ -1,4 +1,4 @@
-// pnpm legacy:extract --out <dir outside the repo> [--url <postgres url> | LEGACY_DATABASE_URL] [--agency <id>]...
+// pnpm legacy:extract --out <dir outside the repo> [--url <postgres url> | LEGACY_DUMP_URL] [--agency <id>]...
 //   [--map <entities.json>] [--batch 1000]
 //
 // Read-only extract of the restored legacy dump into NDJSON staging files per agency + inventory.json (S14-01).
@@ -18,8 +18,8 @@ const { values } = parseArgs({
 });
 
 try {
-  const url = values.url ?? process.env.LEGACY_DATABASE_URL;
-  if (!url) throw new TypeError('--url or LEGACY_DATABASE_URL is required (a restored COPY of the legacy dump)');
+  const url = values.url ?? process.env.LEGACY_DUMP_URL;
+  if (!url) throw new TypeError('--url or LEGACY_DUMP_URL is required (a restored COPY of the legacy dump)');
   if (!values.out) throw new TypeError('--out <dir> is required (outside the repository)');
   const entities = readEntityMap(values.map) ?? DEFAULT_ENTITIES;
   const inv = await runExtract({

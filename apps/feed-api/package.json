@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Fastify website API (v1 shim, v2, XML feeds) — read-only, isolated.",
+  "description": "Fastify website API (v2, XML feeds) — read-only, isolated.",
   "scripts": {
     "build": "tsdown",
     "dev": "tsx watch --conditions=@inmolink/source --import @inmolink/platform/telemetry/register src/main.ts",

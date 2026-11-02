@@ -36,8 +36,6 @@ export const HELPER_FUNCTIONS = [
   'app_partition_maintenance',
   'website_network_open',
   'agency_ai_features',
-  'legacy_target_ids',
-  'legacy_ids_of',
   'portal_feed_by_token',
   'calendar_feed_by_token',
   'calendar_feed_tag',
@@ -633,20 +631,9 @@ end $$;`,
                     and exists (select 1 from public.website_sites w
                                  where w.agency_id = a_id and (w.plan_ends_at is null or w.plan_ends_at > now())))
                then array['WEBSITE_SEARCH']::text[] else '{}'::text[] end $$;`,
-    // S8-02: the v1 shim's listing and unit legacy ids. feed-api (app_public) reads only the taxonomy maps; these two
-    // answer, for the ids a request names, the matching ids and nothing else (no scan: at most 1,000 inputs, each an
-    // index probe). Owned by app_owner (its `definer_read` policy on legacy_id_maps).
-    `create or replace function legacy_target_ids(legacy_ids text[]) returns table(entity text, legacy_id text, new_id uuid)
-  language sql stable security definer set search_path = pg_catalog, pg_temp
-  as $$ select m.entity, m.legacy_id, m.new_id
-          from (select distinct x from unnest(legacy_ids[1:1000]) x) k
-          join public.legacy_id_maps m on m.entity in ('listing', 'unit') and m.legacy_id = k.x $$;`,
-    `create or replace function legacy_ids_of(new_ids uuid[]) returns table(new_id uuid, legacy_id text)
-  language sql stable security definer set search_path = pg_catalog, pg_temp
-  as $$ select m.new_id, min(m.legacy_id)
-          from public.legacy_id_maps m
-         where m.entity in ('listing', 'unit') and m.new_id = any(new_ids[1:1000])
-         group by m.new_id $$;`,
+    // S17-F4: the v1 shim's two legacy-id lookups (S8-02) are retired with the shim.
+    `drop function if exists legacy_target_ids(text[]);`,
+    `drop function if exists legacy_ids_of(uuid[]);`,
     // S9-03: a portal feed URL's served file. feed-api (app_public) cannot read agency_portal_connections (credentials,
     // selection, names): for one token hash it gets the live connection's id, portal, served run and content hash —
     // enabled, token not revoked, its agency VERIFIED — and nothing else (S9-03 review: not even the agency or the hash).
@@ -793,7 +780,7 @@ end $$;`,
                         where d.agency_id = a_id and d.listed)
          order by p.display_name, p.id
          limit 100 $$;`,
-    `revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), website_network_open(uuid, integer, integer), agency_ai_features(uuid), legacy_target_ids(text[]), legacy_ids_of(uuid[]), portal_feed_by_token(text), calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer), calendar_feed_tag(text), selection_by_token(text[]), agency_public_profile(uuid, text[]), member_public_profile(uuid), agency_public_members(uuid) from public;`,
+    `revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), website_network_open(uuid, integer, integer), agency_ai_features(uuid), portal_feed_by_token(text), calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer), calendar_feed_tag(text), selection_by_token(text[]), agency_public_profile(uuid, text[]), member_public_profile(uuid), agency_public_members(uuid) from public;`,
     `grant execute on function member_public_profile(uuid), agency_public_members(uuid) to app_public;`,
     `grant execute on function agency_public_profile(uuid, text[]) to app_public;`,
     `grant execute on function calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer) to app_public;`,
@@ -804,11 +791,6 @@ end $$;`,
     `grant execute on function agency_ai_features(uuid) to app_public;`,
     // S13-F17: reads agency_settings through its `definer_read` policy (app_owner), whichever role ran the SQL.
     `alter function agency_ai_features(uuid) owner to app_owner;`,
-    `grant execute on function legacy_target_ids(text[]), legacy_ids_of(uuid[]) to app_public;`,
-    // S8-F26: both lookups read legacy_id_maps through its `definer_read` policy (app_owner), so they must be OWNED by
-    // app_owner whichever role ran the migration (a function runs as its owner).
-    `alter function legacy_target_ids(text[]) owner to app_owner;`,
-    `alter function legacy_ids_of(uuid[]) owner to app_owner;`,
     // S9 review: the portal feed token lookup reads agency_portal_connections through its `definer_read` policy
     // (app_owner) and is recreated (dropped first) on every run, so it is owned by whichever role ran the SQL unless set.
     `alter function portal_feed_by_token(text) owner to app_owner;`,

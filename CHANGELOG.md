@@ -4,6 +4,9 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 
 ## [Unreleased]
 
+### Removed
+- chore(website-api,feed-api,migration,platform,worker,wp-plugin,contracts,db): legacy system bridge — `/v1` shim + `?api_key=` path, goldens / recorder scripts / `test:golden`, hourly legacy delta jobs + `LEGACY_DATABASE_URL` / `LEGACY_DB_*` env, `LEGACY_V1_HIDE_NETWORK_OWNER`, WP legacy settings migration; migration 0181 revokes legacy-query keys and drops `api_keys.legacy_query_key`; `platform/legacy-db` renamed `platform/legacy-dump` (one-time import only; type / error names unchanged); worker removes retired schedulers at start [S17-F4]
+
 ### Added
 - feat(developments,search,mls,contracts,web): per-development commission split `commission_split_bp` (default 5000 = 50/50, owner admins set 0–10000; network search and new viewing terms use it, viewing requests keep their snapshot); migration 0180; replaces `UNIT_SPLIT_BP` [S17-F5]
 - fix(ci): rate-limit perf tests count the limiter's own script calls (client-side; server-wide commandstats also saw probe calls); Redis containers capped at 1 CPU (0.5 tailed the limiter p95); CI e2e + integration keep ephemeral ports above the stack's (EADDRINUSE :54110) [S7-04 CI]

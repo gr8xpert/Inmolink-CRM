@@ -5,7 +5,7 @@
 // staging directory (S14-01: `agency-<id>/<entity>.ndjson`, `inventory.json`): per agency, legacy / staged / loaded
 // counts per entity (what the load listed with a reason is explained), image counts (legacy, queued, on the listing,
 // still downloading), a deterministic sample of listings, contacts and leads compared field by field, and URL checks
-// of the sampled listings (the legacy id lookup the v1 shim and redirects use; their image URLs). PASS when every
+// of the sampled listings (their legacy ids in `legacy_id_maps`; their image URLs). PASS when every
 // unexplained rate is under 0.5 %. Each report is stored as the agency's latest (staff console: Migration) unless
 // `--dry-run`; `--report` also writes them to a file outside the repo (ids, counts and field names only). `--strict`
 // exits 1 when an agency fails. An agency without a v2 agency (never loaded) is listed as not validated.

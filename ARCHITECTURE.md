@@ -34,7 +34,7 @@ Short map of how Inmolink v2 fits together. The reasoning lives in [PLAN.md](PLA
 | `apps/web` | Agent, agency, developer and staff dashboard (Next.js) | — (calls `api`) | Auth.js sessions; signs 15-minute access tokens (ADR 0004) |
 | `apps/public` | inmolink.es portal, selections, client portal, iFrame embeds | — (calls `feed-api`/`api`) | Public pages: LCP < 2.0 s, JS ≤ 120 KB |
 | `apps/api` | Dashboard API, staff API, inbound webhooks | `app_user`, `app_staff`, `app_auth` | p95 < 300 ms, ≤ 10 queries |
-| `apps/feed-api` | Website API `/v2`, legacy `/v1` shim, XML feeds | `app_public` only | Read models + search, CDN-cached (ADR 0012) |
+| `apps/feed-api` | Website API `/v2`, XML feeds (legacy `/v1` shim removed, S17-F4) | `app_public` only | Read models + search, CDN-cached (ADR 0012) |
 | `apps/realtime` | Chat and notifications (Socket.io + Redis adapter) | `app_user` (from S11) | JWT handshake, origin allowlist |
 | `apps/worker` | BullMQ pools selected by `WORKER_POOLS` | `app_system` | One process per pool in production; per-tenant fair share |
 | `apps/wp-plugin` | WordPress plugin v2 (PHP) | — | Local cache with stale fallback |
@@ -75,7 +75,7 @@ dependency-cruiser enforces these rules in CI (`pnpm check:boundaries`, ADR 0010
 | `mls` · `network` · `chat` · `notifications` | registrations, viewings, terms · AMS board · chat · notifications | R1 | S11 |
 | `ai-features` · `presentations` · `documents` · `social` | Listing Studio, sanitizer, AI search · selections, PDFs · social posting | R1 | S12 |
 | `billing` · `onboarding` · `support` · `admin` | Stripe, plans, seats · onboarding · tickets · staff console | R1 | S13 |
-| `migration` | legacy ETL, delta sync, redirects (ADR 0006) | R1 | S14 |
+| `migration` | one-time legacy ETL (import, validation, cutover checklist), redirects (ADR 0006) | R1 | S14 |
 | `matching` · `dedupe` · `quality` · `reports` · `client-portal` · `referrals` | — | R2 | later |
 | `marketing` · `compliance` | — | R3 | later |
 

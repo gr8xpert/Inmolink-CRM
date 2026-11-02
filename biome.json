@@ -18,8 +18,7 @@
       "!apps/wp-plugin",
       "!graphify-out",
       "!packages/db/migrations",
-      "!**/*.generated.ts",
-      "!tests/golden/**/*.json"
+      "!**/*.generated.ts"
     ]
   }
 }

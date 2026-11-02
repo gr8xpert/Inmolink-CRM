@@ -225,44 +225,10 @@ hop, feed-api under tsx, leftover rows of other suites): the acceptance numbers 
 6. Clean up: `NODE_ENV=production DEPLOY_ENV=staging pnpm perf:load:setup --teardown --staging`, delete
    `/secure/website-keys.json`.
 
-## Legacy v1 shim (S8-02)
+## Legacy v1 shim — removed (S17-F4)
 
-`/v1/*` on feed-api answers legacy client websites unchanged (PLAN §9.3): `GET /v1/properties`, `/v1/properties/{id}`
-(a legacy property id or a site reference) and `/v1/types`. Answers are `private, no-cache` with a strong ETag; errors
-are `{ "status": "error", "message": … }`.
-
-- **Keys.** A key may come as the legacy `api_key` query parameter only when it is marked as a migrated legacy key
-  (`api_keys.legacy_query_key`, set by the legacy key import or `pnpm legacy:key-flag --agency <id> --prefix <prefix>
-  --on --reason <code>`); any other key there is a 401. Header keys work for every key. App logs never carry query
-  strings and redact `api_key`.
-- **Legacy ids.** Taxonomy maps (location, property type, feature) are loaded whole into each feed-api process at boot
-  and reloaded in the background every 5 min: a new migration batch's filter ids work within 5 min, no restart.
-  Listing and unit ids go through the SECURITY DEFINER lookups `legacy_target_ids` / `legacy_ids_of`; `app_public`
-  cannot read those maps.
-- **Network owners (S16-F9, security review M-4, decision pending).** By default `/v1` names a network listing by its
-  owner's legacy id and resolves that id on any site showing it (the frozen legacy output). `LEGACY_V1_HIDE_NETWORK_OWNER=true`
-  (feed-api) names network listings by the site reference (`<prefix>-<public code>`) instead and resolves legacy ids
-  among the site agency's own listings only (any other: the usual 404). Turning it on changes `/v1` output for sites
-  with network listings: legacy plugins that cached an owner id get a 404 for it and find the listing by its reference.
-- **Shapes are assumed** until H2: `tests/golden/synthetic/` holds hand-derived golden files for the assumed contract
-  (contracts `legacy-v1.ts`). Recorded files (`pnpm legacy:record`) go to `tests/golden/<endpoint>/` with
-  `tests/golden/fixture.json` (the test account's read-path rows after its migration); `pnpm test:golden` replays all
-  of them byte for byte (and checks `traffic.json`'s 99% set is covered); CI runs it in `test:int:root`.
-- **Paging.** Legacy `page` numbers are engine offsets (≤ 10,000 results). While the search engine is down (the
-  Postgres fallback answers, keyset only), pages after the first are empty rather than repeating page 1.
-- **Capacity.** `/v1` is never edge-cached (the URL carries the key): every legacy request reaches the origin, ETag
-  revalidation saves only the body. Size feed-api for the legacy sites' full request rate until they move to v2/the
-  plugin (load test: add `/v1` to `tests/load` before cutover).
-
-### Cutover checklist (legacy hostname)
-
-1. Mark every migrated site's key as a legacy key (the import does it; check `select count(*) from api_keys where
-   legacy_query_key`).
-2. Cloudflare on the legacy hostname: a transform rule rewriting `/api/*` to `/v1/*` (`legacyShimPath`), and **strip
-   `api_key` from logs**: Logpush/log fields exclude the query string (or `ClientRequestURI`), and the origin proxy
-   (kamal-proxy) logs no query strings.
-3. Flip DNS to feed-api; rollback is the DNS flip (cutover.md › DNS switch: `pnpm legacy:cutover dns-check` first;
-   each agency's own cutover is `pnpm legacy:cutover run`).
-4. After cutover, as each site moves to the plugin or header keys: rotate its key (the old one has lived in URLs) and
-   clear its legacy flag (`pnpm legacy:key-flag … --off`).
-5. Change a `/v1` answer only with an approved golden update in STATUS.
+The legacy website API shim (`/v1/*`, S8-02), its golden files, the legacy hostname cutover (S8-F10), the
+`api_key` query-parameter keys and the network-owner flag (S16-F9) are gone (decision 2026-11-01: the old Inmolink
+system never runs beside v2). feed-api answers `/v1/*` with 404; every website uses the v2 API with an `X-Api-Key` /
+`Authorization: Bearer` key. Keys never travel in URLs (`api_key` stays a redacted log key as defence in depth).
+The legacy API hostname is retired with the old system; do not point it at feed-api.

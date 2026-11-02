@@ -16,7 +16,7 @@ import {
   scope,
   validateSpecs,
 } from '@inmolink/core/modules/migration';
-import { type LegacySnapshot, openLegacySnapshot, stableJson } from '@inmolink/platform/legacy-db';
+import { type LegacySnapshot, openLegacySnapshot, stableJson } from '@inmolink/platform/legacy-dump';
 
 const REPO_ROOT = resolve(import.meta.dirname, '..', '..');
 

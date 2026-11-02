@@ -10,7 +10,7 @@ import { importsJobs } from '@inmolink/core/modules/imports';
 import { notificationsJobs } from '@inmolink/core/modules/notifications';
 import { socialJobs } from '@inmolink/core/modules/social';
 import { describe, expect, it } from 'vitest';
-import { DIGEST_CONCURRENCY, POOL_JOBS, POOL_OPTIONS } from './index';
+import { DIGEST_CONCURRENCY, POOL_JOBS, POOL_OPTIONS, RETIRED_SCHEDULERS } from './index';
 
 const poolOf = (name: string) =>
   Object.entries(POOL_JOBS)
@@ -18,6 +18,12 @@ const poolOf = (name: string) =>
     .map(([pool]) => pool);
 
 describe('worker pools (S11 review)', () => {
+  it('[S17-F4] the retired hourly legacy delta scheduler is removed at maintenance start; no live job keeps that name', () => {
+    expect(RETIRED_SCHEDULERS.maintenance).toContain('migration.scheduleLegacyDeltas');
+    const live = new Set(Object.values(POOL_JOBS).flatMap((jobs) => jobs.map((j) => j.name)));
+    for (const name of Object.values(RETIRED_SCHEDULERS).flat()) expect(live.has(name), name).toBe(false);
+  });
+
   it('[S13-03] staff bulk operations and their lost-job sweep run in the maintenance pool', () => {
     expect(poolOf(adminJobs.runStaffOperation.name)).toEqual(['maintenance']);
     expect(poolOf(adminJobs.sweepStaffOperations.name)).toEqual(['maintenance']);

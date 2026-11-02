@@ -135,15 +135,8 @@ afterAll(async () => {
 });
 
 describe('legacy delta sync (S14-04)', () => {
-  it('[S14-04] a change in legacy appears in v2 after the next hourly delta (within 70 minutes)', async () => {
+  it('[S14-04] a change in a later legacy dump appears in v2 after the next delta', async () => {
     const l = await loaded('a');
-    // The schedule: one tick an hour, each run bounded well inside the next tick.
-    expect(migration.DELTA.INTERVAL_MS).toBeLessThanOrEqual(60 * 60_000);
-    expect(migrationJobs.scheduleLegacyDeltas.spec.every).toBe(migration.DELTA.INTERVAL_MS);
-    expect(migration.DELTA.INTERVAL_MS + migrationJobs.syncLegacyDelta.timeoutMs).toBeLessThan(
-      2 * migration.DELTA.INTERVAL_MS,
-    );
-
     // First delta (no watermark yet): everything is read; nothing changed, nothing is written again.
     const first = snapshot(l.db, at(5));
     const r1 = await sync(l, first);
@@ -268,67 +261,13 @@ describe('legacy delta sync (S14-04)', () => {
     expect(dueAgain).toContain(l.legacyAgencyId);
   });
 
-  it('[S14-04] the hourly job queues nothing until a legacy reader is registered (H1)', async () => {
-    migration.registerLegacyDeltaSource(null);
-    const log = { info: () => {}, warn: () => {}, error: () => {} } as never;
-    const ctx = { log, signal: new AbortController().signal, attempt: 1 } as never;
-    await expect(migrationJobs.scheduleLegacyDeltas.spec.run({}, ctx)).resolves.toEqual({
-      queued: 0,
-      skipped: 'NO_SOURCE',
-    });
-    await expect(
-      migrationJobs.syncLegacyDelta.spec.run({ legacyAgencyId: 'x', agencyId: newId(), slot: 1 }, ctx),
-    ).resolves.toEqual({ skipped: 'NO_SOURCE' });
-  });
-
-  it('[S14-04] the job runs a delta through the registered reader and closes it', async () => {
-    const l = await loaded('f');
-    const first = l.db.listings[0] as Row;
-    Object.assign(first, { price: 150_000, updated_at: at(30).toISOString() });
-    let closed = 0;
-    migration.registerLegacyDeltaSource(async () => ({
-      ...snapshot(l.db, at(35)).source,
-      close: async () => {
-        closed += 1;
-      },
-    }));
-    try {
-      const log = { info: () => {}, warn: () => {}, error: () => {} } as never;
-      const ctx = { log, signal: new AbortController().signal, attempt: 1 } as never;
-      const out = await migrationJobs.syncLegacyDelta.spec.run(
-        { legacyAgencyId: l.legacyAgencyId, agencyId: l.founder.agencyId, slot: 1 },
-        ctx,
-      );
-      expect(out).toMatchObject({ skipped: null, stopped: false });
-      expect(closed).toBe(1);
-      expect((await listing(l.founder.agencyId, first.id))?.price).toBe(150_000);
-    } finally {
-      migration.registerLegacyDeltaSource(null);
-    }
-  });
-  it('[S15-F4] with a legacy URL configured the hourly job queues one delta per non-cut-over agency', async () => {
-    const open = await loaded('g');
-    const done = await loaded('h');
-    await migration.markLegacyAgencyCutOver({
-      legacyAgencyId: done.legacyAgencyId,
-      agencyId: done.founder.agencyId,
-      cutOver: true,
-    });
-    expect(migration.configureLegacyDelta({ url: undefined })).toBe(false);
-    expect(migration.legacyDeltaSourceFactory()).toBeNull();
-    // The URL is only used when a delta runs; the schedule needs a registered reader.
-    expect(migration.configureLegacyDelta({ url: 'postgres://legacy.invalid:5432/legacy' })).toBe(true);
-    try {
-      const due: string[] = [];
-      for await (const page of migration.deltaAgencies()) due.push(...page.map((a) => a.legacyAgencyId));
-      expect(due).toContain(open.legacyAgencyId);
-      expect(due).not.toContain(done.legacyAgencyId);
-      const log = { info: () => {}, warn: () => {}, error: () => {} } as never;
-      const ctx = { log, signal: new AbortController().signal, attempt: 1 } as never;
-      const out = (await migrationJobs.scheduleLegacyDeltas.spec.run({}, ctx)) as { queued: number };
-      expect(out.queued).toBe(due.length);
-    } finally {
-      migration.registerLegacyDeltaSource(null);
+  it('[S17-F4] no hourly legacy delta: no delta job, no reader can be registered', () => {
+    expect(Object.keys(migrationJobs)).not.toContain('scheduleLegacyDeltas');
+    expect(Object.keys(migrationJobs)).not.toContain('syncLegacyDelta');
+    expect(Object.keys(migrationJobs)).toContain('flushRedirectHits');
+    const api = migration as Record<string, unknown>;
+    for (const gone of ['registerLegacyDeltaSource', 'legacyDeltaSourceFactory', 'configureLegacyDelta']) {
+      expect(api[gone], gone).toBeUndefined();
     }
   });
 });

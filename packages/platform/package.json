@@ -82,10 +82,10 @@
       "types": "./dist/jwt/index.d.ts",
       "default": "./dist/jwt/index.js"
     },
-    "./legacy-db": {
-      "@inmolink/source": "./src/legacy-db/index.ts",
-      "types": "./dist/legacy-db/index.d.ts",
-      "default": "./dist/legacy-db/index.js"
+    "./legacy-dump": {
+      "@inmolink/source": "./src/legacy-dump/index.ts",
+      "types": "./dist/legacy-dump/index.d.ts",
+      "default": "./dist/legacy-dump/index.js"
     },
     "./logger": {
       "@inmolink/source": "./src/logger/index.ts",

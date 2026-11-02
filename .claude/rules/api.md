@@ -32,7 +32,6 @@ paths:
 - Always set `Cache-Control: public, s-maxage=<ttl>, stale-while-revalidate=<ttl>, stale-if-error=86400` and a strong `ETag`; honour `If-None-Match` with 304.
 - Cache keys must include site scope and locale; never cache responses containing per-visitor data.
 - Apply white-label serialization (presenting agency, reference prefix, overrides) in the website serializer only.
-- `/v1/*` legacy routes are frozen: they must match golden files byte-for-byte (after normalization). Change them only with a golden-file update approved in STATUS.
 
 ## Realtime
 - Socket.io namespaces per feature (`/chat`, `/notifications`); auth via the same short-lived JWT; rooms per thread/user; Redis adapter. Never send PII to rooms the user is not a member of.

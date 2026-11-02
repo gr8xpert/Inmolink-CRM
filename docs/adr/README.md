@@ -14,7 +14,7 @@ One file per decision: `NNNN-short-title.md` with **Status**, **Context**, **Dec
 | [0003](0003-password-hashing-and-encryption.md) | Password hashing (Argon2id parameters) and secret encryption | Accepted |
 | [0004](0004-authentication.md) | Authentication: Auth.js sessions, access tokens, `app_auth` | Accepted |
 | [0005](0005-search-adapter-and-fallback.md) | Search: one adapter, one listings index, Postgres fallback | Accepted (design) |
-| [0006](0006-legacy-migration.md) | Legacy migration: golden-file shim, idempotent ETL, DNS cutover | Accepted (design) |
+| [0006](0006-legacy-migration.md) | Legacy migration: golden-file shim, idempotent ETL, DNS cutover | Accepted (design); amended by S17-F4 (shim, golden files, DNS cutover, delta sync withdrawn) |
 | [0007](0007-backups-and-ha.md) | Backups and high availability | Accepted |
 | [0008](0008-ai-gateway-and-model-defaults.md) | AI gateway and model defaults | Accepted (design) |
 | [0009](0009-drizzle-orm.md) | Drizzle ORM on node-postgres | Accepted |

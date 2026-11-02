@@ -3,6 +3,11 @@
 - **Status:** Accepted (design; implemented in S8-01, S8-02 and S14-01 to S14-06; needs H1, H2, H11)
 - **Date:** 2026-10-11
 - **Task:** S0-16 (PLAN §2 #8, §9.3, §14)
+- **Amended 2026-11-01 (S17-F4, product-owner decision):** the old Inmolink system never runs beside v2. Decisions 1,
+  2, 3 and 5 are withdrawn: no golden files, no `/v1` shim (feed-api answers `/v1/*` with 404), no DNS cutover of the
+  legacy API hostname, no parallel run or hourly delta. Decisions 4, 6, 7 and 8 stand: the one-time import from a
+  restored dump (`legacy_id_maps`, validation report), the legacy URL 301s, Path B. A later restored dump may still be
+  loaded once by hand (`legacy:delta`, the cutover's `FINAL_DELTA`). Legacy client websites move to the v2 API.
 
 ## Context
 

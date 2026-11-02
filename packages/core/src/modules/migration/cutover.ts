@@ -3,12 +3,12 @@
  * (`pnpm legacy:cutover`) moves one agency to v2 as an audited, idempotent, resumable sequence of steps, and rolls it
  * back step by step within the cutover window.
  *
- * **Path A — a legacy Inmolink agency** (its legacy API traffic already reaches the v1 shim once the legacy hostname's
- * DNS is flipped — a platform event, runbook `cutover.md`):
+ * **Path A — a legacy Inmolink agency** (S17-F4: the old system is retired, never run beside v2 — its data arrives by
+ * the one-time import of a restored dump; the agency's websites move to the v2 API with v2 keys, runbook `cutover.md`):
  * 1. `FREEZE` — the agency becomes read-only in legacy (the registered `LegacyControl`; without one the operator does
  *    it in legacy and confirms). Reversible: unfrozen.
- * 2. `FINAL_DELTA` — one last delta (S14-04) from the frozen legacy: it must complete (no failed batch, no withdrawal
- *    guard). Not reversible (idempotent data); re-done after a rollback.
+ * 2. `FINAL_DELTA` — one last delta (S14-04) from the freeze-day restored dump: it must complete (no failed batch, no
+ *    withdrawal guard). Not reversible (idempotent data); re-done after a rollback.
  * 3. `VALIDATE` — the gate: the agency's latest validation report (S14-03, `pnpm legacy:validate`) is PASS and newer
  *    than the final delta. Re-done after a rollback.
  * 4. `STOP_DELTA` — the delta stops (`markLegacyAgencyCutOver`): nothing from legacy overwrites the agents' v2 work.
@@ -43,12 +43,7 @@ import * as identity from '../identity';
 import * as notifications from '../notifications';
 import * as properties from '../properties';
 import * as crepo from './cutover-repo';
-import {
-  legacyDeltaSourceFactory,
-  markLegacyAgencyCutOver,
-  type OpenedLegacyDeltaSource,
-  syncLegacyDelta,
-} from './delta';
+import { markLegacyAgencyCutOver, type OpenedLegacyDeltaSource, syncLegacyDelta } from './delta';
 import { agencyOfLegacy } from './legacy-rows';
 import { failureOf } from './load';
 
@@ -226,25 +221,11 @@ async function parityOf(
   return { v2, old, ratio, reached: ratio >= CUTOVER.PARITY_MIN };
 }
 
-/** DNS readiness of the legacy API hostname: migrated legacy agencies without a PASS report (first `limit`). */
-export async function legacyDnsReadiness(limit = 100): Promise<{
-  agencies: number;
-  cutOver: number;
-  notReady: { legacyAgencyId: string; agencyId: string; status: 'PASS' | 'FAIL' | null }[];
-  ready: boolean;
-}> {
-  return withSystem('legacy-migration.cutover.dns-check', async (tx) => {
-    const totals = await crepo.cutoverTotals(tx);
-    const notReady = await crepo.notReadyPage(tx, null, limit);
-    return { ...totals, notReady, ready: totals.agencies > 0 && notReady.length === 0 };
-  });
-}
-
 export interface RunCutoverInput {
   agencyId: string;
   /** Manual steps the operator has done (see `CutoverConfirmation`). */
   confirm?: readonly CutoverConfirmation[];
-  /** Opens the frozen legacy snapshot for the final delta (default: the registered delta reader). */
+  /** Opens the freeze-day restored dump for the final delta (`pnpm legacy:cutover run --url`); none: the step stops. */
   openSource?: (legacyAgencyId: string) => Promise<OpenedLegacyDeltaSource>;
   /** Starts the agency's image downloads after the final delta (default: the media queue). */
   requestMedia?: (agencyId: string) => Promise<void>;
@@ -323,7 +304,7 @@ async function freeze(run: Run): Promise<StepOutcome> {
 
 async function finalDelta(run: Run, input: RunCutoverInput): Promise<StepOutcome> {
   const legacyAgencyId = run.row.legacyAgencyId as string;
-  const open = input.openSource ?? legacyDeltaSourceFactory();
+  const open = input.openSource;
   if (!open) return { ok: false, reason: 'NO_LEGACY_SOURCE' };
   const source = await open(legacyAgencyId);
   try {

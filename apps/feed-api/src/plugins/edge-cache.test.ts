@@ -19,7 +19,7 @@ const req = (url: string, edgeCache: boolean, edgeKeyToken: string | null = 'tok
   ({ url, edgeKeyToken, server: { websiteEdgeCache: edgeCache } }) as unknown as FastifyRequest;
 
 describe('edge-cache rules (S8-F2)', () => {
-  it('[S8-F2] [S8-02] one table pins the edge-cache policy of every /v2 and /v1 GET route', async () => {
+  it('[S8-F2] one table pins the edge-cache policy of every /v2 GET route', async () => {
     const T = websiteApi.WEBSITE_API_TTL;
     const keyed = (ttl: number) => `key ${ttl}s sie=86400 cursor:no params:schema`;
     const pin = (r: EdgeCacheRule) =>
@@ -45,10 +45,6 @@ describe('edge-cache rules (S8-F2)', () => {
       // S8-05: plugin updates, public for everyone (no key, no parameters).
       '/v2/plugin/update': 'always 60s sie=86400 cursor:no params:[]',
       '/v2/plugin/package/:version': 'always 31536000s sie=86400 cursor:no params:[]',
-      // S8-02: the v1 shim's URLs carry the key itself — never public.
-      '/v1/properties': 'never sie=0 cursor:no params:schema',
-      '/v1/properties/:id': 'never sie=0 cursor:no params:schema',
-      '/v1/types': 'never sie=0 cursor:no params:schema',
       // S10-06: a member's ICS feed — personal data, never public.
       '/v2/calendars/:token/calendar.ics': 'never sie=0 cursor:no params:schema',
     });
@@ -57,7 +53,7 @@ describe('edge-cache rules (S8-F2)', () => {
     );
     expect(() => publicCacheControl(EDGE_CACHE_RULES['/v2/changes'])).toThrow();
 
-    // Every GET route the app serves under /v2 (and the v1 shim, S8-02) has its row, and every row is a served route.
+    // Every GET route the app serves under /v2 has its row, and every row is a served route.
     const app = await buildApp({
       logger: createLogger({ level: 'silent' }),
       trustProxy: 1,

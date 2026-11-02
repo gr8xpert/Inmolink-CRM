@@ -100,7 +100,7 @@ describe('feed-api rate-limit coverage (S16-03)', () => {
     expect(pre.statusCode).toBe(204);
     expect(pre.headers['access-control-allow-credentials']).toBeUndefined();
     expect(String(pre.headers['access-control-allow-headers'])).not.toMatch(/authorization|cookie/i);
-    for (const url of ['/v1/properties', '/healthz']) {
+    for (const url of ['/nope', '/healthz']) {
       const res = await app.inject({
         method: 'OPTIONS',
         url,

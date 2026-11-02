@@ -84,7 +84,7 @@ packages/   core (all business logic) · db (Drizzle, registry, RLS) · platform
             i18n · ui · sdk · config
 infra/      Postgres image, Ansible, Kamal, monitoring, Grafana
 scripts/    ops · seed · ci · gen · boundaries
-tests/      workspace, isolation, boundaries, e2e, ops, golden
+tests/      workspace, isolation, boundaries, e2e, ops
 docs/       adr · runbooks · build (plan execution) · api
 ```
 

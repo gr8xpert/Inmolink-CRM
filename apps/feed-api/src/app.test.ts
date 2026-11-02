@@ -132,3 +132,31 @@ describe('feed-api app', () => {
     }
   });
 });
+
+describe('legacy /v1 shim removed (S17-F4)', () => {
+  it('[S17-F4] no route answers the legacy /v1 paths: /v1/properties, /v1/properties/{id} and /v1/types are 404', async () => {
+    const app = await buildApp({
+      logger: createLogger({ level: 'silent' }),
+      trustProxy: 1,
+      docsUi: false,
+      limiter: allowAll,
+      checks: {},
+    });
+    try {
+      await app.ready();
+      for (const url of [
+        '/v1/properties',
+        '/v1/properties?api_key=k&page=2',
+        '/v1/properties/123',
+        '/v1/types?lang=es',
+      ]) {
+        const res = await app.inject({ method: 'GET', url, headers: { 'x-api-key': 'ilk_test_x' } });
+        expect(res.statusCode, url).toBe(404);
+      }
+      const spec = app.swagger() as { paths: Record<string, unknown> };
+      expect(Object.keys(spec.paths).filter((p) => p.startsWith('/v1/'))).toEqual([]);
+    } finally {
+      await app.close();
+    }
+  }, 30_000);
+});

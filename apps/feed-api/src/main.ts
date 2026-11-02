@@ -2,7 +2,6 @@ import { closeDb, configureAiRequestRuntime, configureDb, loadStackEnv, pingDb }
 import * as crm from '@inmolink/core/modules/crm';
 import * as exportsModule from '@inmolink/core/modules/exports';
 import * as identity from '@inmolink/core/modules/identity';
-import * as migration from '@inmolink/core/modules/migration';
 import * as search from '@inmolink/core/modules/search';
 import * as websiteApi from '@inmolink/core/modules/website-api';
 import * as websites from '@inmolink/core/modules/websites';
@@ -59,8 +58,6 @@ try {
       : null,
     // S13-F21: the website API cut-off of a site whose plan lost it applies only while plans are enforced.
     enforcePlans: config.BILLING_ENFORCE_PLANS === 'true',
-    // S16-F9: /v1 hides network listings' owners only once the M-4 decision turns it on (off: frozen legacy output).
-    legacyV1HideNetworkOwner: config.LEGACY_V1_HIDE_NETWORK_OWNER === 'true',
   });
   // S12-08: AI search — the request-safe AI gateway (budget from the cached month spend, usage recorded by queued
   // jobs: no `withSystem` here), after the cache and the queue. Without AI (`AI_PROVIDER=none`, the default) or a
@@ -158,10 +155,6 @@ try {
   });
   // S12-08: AI search's taxonomy vocabulary, loaded before traffic (no request pays the cold load).
   await websiteApi.warmAiSearch();
-  // S8-02: the v1 shim's legacy taxonomy maps, loaded before traffic (a failure is retried at first use).
-  await migration
-    .reloadLegacyTaxonomy()
-    .catch((err: unknown) => logger.warn({ err }, 'legacy taxonomy maps not loaded'));
   await app.listen({ host: config.HOST, port: config.FEED_API_PORT });
 } catch (err) {
   logger.fatal({ err }, 'feed-api failed to start');

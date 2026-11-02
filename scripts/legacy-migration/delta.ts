@@ -1,10 +1,10 @@
-// pnpm legacy:delta [--url <postgres url> | LEGACY_DATABASE_URL] [--agency <legacy id>]... [--map <entities.json>]
+// pnpm legacy:delta [--url <postgres url> | LEGACY_DUMP_URL] [--agency <legacy id>]... [--map <entities.json>]
 //   [--dry-run] [--cutover | --reopen] [--target <db host> | --test]
 //
-// Legacy → v2 delta sync, a manual run (S14-04, PLAN §14 Path A step 5; the worker runs it hourly once a legacy reader
-// is registered). For each legacy agency already loaded (`legacy:load`) and not cut over — every one, or the given
-// `--agency` ids — reads the legacy rows changed since the agency's watermark in one read-only snapshot and loads them
-// through the S14-02 load paths; migrated listings whose legacy row is gone are withdrawn (never deleted; guarded).
+// Legacy → v2 delta load from a later restored dump (S14-04; S17-F4: manual only — no parallel run, no hourly job,
+// no live legacy connection). For each legacy agency already loaded (`legacy:load`) and not cut over — every one, or
+// the given `--agency` ids — reads the legacy rows changed since the agency's watermark in one read-only snapshot and
+// loads them through the S14-02 load paths; migrated listings whose legacy row is gone are withdrawn (never deleted; guarded).
 // `--cutover` marks the given agencies cut over (their delta stops: agents now work in v2); `--reopen` undoes it
 // within the cutover window (rollback). The legacy database is only ever opened read-only.
 import { parseArgs } from 'node:util';
@@ -57,8 +57,9 @@ try {
       );
     }
   } else {
-    const url = values.url ?? process.env.LEGACY_DATABASE_URL;
-    if (!url) throw new TypeError('--url or LEGACY_DATABASE_URL is required (read-only legacy access)');
+    const url = values.url ?? process.env.LEGACY_DUMP_URL;
+    if (!url)
+      throw new TypeError('--url or LEGACY_DUMP_URL is required (a restored COPY of the legacy dump, read-only)');
     const entities = readEntityMap(values.map);
     const agencies: { legacyAgencyId: string; agencyId: string }[] = [];
     if (values.agency?.length) {

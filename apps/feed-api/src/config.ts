@@ -70,11 +70,6 @@ export const feedApiEnv = {
   /** S13-F21: plans enforced: a site past its plan cut-off answers 402. */
   BILLING_ENFORCE_PLANS: planEnv.BILLING_ENFORCE_PLANS,
   /**
-   * S16-F9 (security review M-4, decision pending): `/v1` names network listings by the site's reference instead of
-   * their owner's legacy id, and resolves legacy ids among the agency's own listings only. Off: the frozen legacy output.
-   */
-  LEGACY_V1_HIDE_NETWORK_OWNER: z.enum(['true', 'false']).default('false'),
-  /**
    * S9-03: portal feed requests per minute per IP. Portals crawl many agencies' feeds from a few addresses, and a
    * nightly regeneration purges them all, so the origin sees every feed of a portal from one address at once; the
    * per-token limit (60 / hour) protects each feed. Raise it for a portal that fetches more feeds than this per

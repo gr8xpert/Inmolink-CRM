@@ -1116,9 +1116,6 @@ const FALLBACK_FIELDS: Readonly<Record<string, FieldSpec>> = {
   // rows (half really match), so a network sitemap page took a bitmap over every coded document then a sort (844 ms
   // on the 770k-row test table: statement timeouts under load) instead of the code index walked to `limit + 1` (9 ms).
   kind: { column: 'kind', type: 'kind' },
-  // A target by its id (S8-02: the v1 shim's legacy property ids, resolved first): fallback statements only, never sent
-  // to the engine (the index's id is its primary key, not a filterable field).
-  targetId: { column: 'target_id', type: 'uuid' },
   ownerAgencyId: { column: 'owner_agency_id', type: 'uuid' },
   developmentId: { column: 'development_id', type: 'uuid' },
   status: { column: 'status', type: 'text' },

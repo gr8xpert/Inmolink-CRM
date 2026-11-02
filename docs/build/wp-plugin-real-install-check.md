@@ -1,32 +1,13 @@
-# WordPress plugin — real-install checks (H15: S8-F11, S8-F21)
+# WordPress plugin — real-install checks (S8-F21)
 
-PHPUnit covers these against fakes of the documented Polylang / WPML behaviours and an **assumed** legacy-options
-fixture. Nothing here has been run on a real install yet. A person runs this list on throwaway test sites and records
-the result in STATUS (S8-F11 / S8-F21 rows). Use a staging WordPress 6.4+ with PHP 8.1+, pretty permalinks
+PHPUnit covers these against fakes of the documented Polylang / WPML behaviours. (S17-F4: the legacy settings
+migration, S8-F11, and its section A are removed — the old Inmolink plugin's settings are not migrated; a v2 site is
+set up with a v2 key.) Nothing here has been run on a real install yet. A person runs this list on throwaway test
+sites and records the result in STATUS (S8-F21 rows). Use a staging WordPress 6.4+ with PHP 8.1+, pretty permalinks
 (`/%postname%/`), the v2 plugin from the current commit, `INMOLINK_API_BASE` + a **test** secret key for a test agency
 that has at least one published listing and one development.
 
 Record for each site: WordPress, Polylang / WPML versions, URL mode, and pass / fail per line (with the URL you saw).
-
-## A. Legacy settings migration (S8-F11)
-
-1. On a site that runs the **legacy** plugin with a working key, export its options:
-   `wp option list --search='*inmolink*' --format=json` (and any other option the legacy source names).
-2. Compare names and array keys with `apps/wp-plugin/src/Migration/legacy-map.php` (marked ASSUMED). Fix the table,
-   set `status` to `CONFIRMED`, replace `apps/wp-plugin/tests/fixtures/legacy/options.json` with the anonymised
-   export (fake key in v2 format), run `pnpm wp:test`.
-3. Check the legacy key's format: the v2 plugin only stores `inl_(live|test)_sk…` secret keys. If legacy keys are
-   different, the migration reports `key: invalid` and the admin must enter a v2 key — decide whether a key exchange
-   is needed (new task) before turning the migration on by default.
-4. On a staging copy of that site: deactivate the legacy plugin, add
-   `define( 'INMOLINK_MIGRATE_LEGACY_SETTINGS', true );` to wp-config.php, activate v2.
-   - [ ] Settings → Inmolink shows the migrated locales / default locale / cache lifetime / listing base, and "a key is
-     stored" without typing one.
-   - [ ] `wp option get inmolink_legacy_migration` shows `key: migrated`.
-   - [ ] `wp inmolink sync` succeeds; `wp inmolink status` shows a cursor.
-   - [ ] The legacy options are unchanged (`wp option list --search='*inmolink*'` before / after).
-   - [ ] Deactivate + reactivate v2 after clearing the key on the settings page: the key stays cleared.
-5. When all pass: flip the default in `LegacySettings::enabled()` (or keep the constant as the opt-in) and record it.
 
 ## B. Polylang (S8-F21)
 

@@ -1,10 +1,12 @@
 /**
- * Delta sync (S14-04, PLAN §14 Path A step 5): during the parallel run, every hour, what changed in a legacy agency since
- * the last delta reaches v2 through the same load paths as the full load (S14-02 `migrateLegacyAgency`).
+ * Delta load (S14-04; S17-F4: the old system never runs beside v2 — no parallel run, no hourly schedule, no live
+ * connection): what changed in a legacy agency between the restored dump its full load read and a later restored dump
+ * (the freeze-day dump of its cutover's `FINAL_DELTA`, or `pnpm legacy:delta`) reaches v2 through the same load paths
+ * as the full load (S14-02 `migrateLegacyAgency`).
  *
- * - **Change detection.** The legacy reader (`LegacyDeltaSource`; the read-only legacy database, H1) answers the rows
- *   changed since a watermark — by the legacy `updated_at` where the table has one, else every row of the agency (the
- *   full-compare fallback: an unchanged listing writes nothing, its import hash is the same; a migrated contact or lead
+ * - **Change detection.** The legacy reader (`LegacyDeltaSource`; a restored copy of the legacy dump, opened
+ *   read-only, H1) answers the rows changed since a watermark — by the legacy `updated_at` where the table has one,
+ *   else every row of the agency (the full-compare fallback: an unchanged listing writes nothing, its import hash is the same; a migrated contact or lead
  *   is kept as v2 has it). Developments and units are always read whole (units must meet their development). The
  *   watermark is the legacy clock when the read snapshot began, minus `DELTA.OVERLAP_MS` on the next read (a legacy
  *   transaction that committed late is read again: every load is idempotent). It moves only when the load completed.
@@ -32,8 +34,6 @@ import {
 import * as repo from './repo';
 
 export const DELTA = {
-  /** The schedule: a legacy change reaches v2 within one interval plus one run (< 70 minutes). */
-  INTERVAL_MS: 3_600_000,
   /** Each read starts this much before the watermark (late commits, clock skew between legacy and v2). */
   OVERLAP_MS: 10 * 60_000,
   /** Checkpoint keys of the delta's batches and state. */
@@ -45,7 +45,7 @@ export const DELTA = {
   WITHDRAW_MIN_ALLOWED: 10,
   /** Migrated listings read, and withdrawn, per statement / transaction. */
   PAGE: 1_000,
-  /** Legacy agencies read per statement by the scheduler. */
+  /** Legacy agencies read per statement by `deltaAgencies` (`pnpm legacy:delta --all`). */
   AGENCY_PAGE: 500,
 } as const;
 
@@ -54,8 +54,8 @@ const WHOLE: ReadonlySet<LegacyStagingEntity> = new Set(['developments', 'units'
 const SEQ = { watermark: 0, cutover: 1 } as const;
 
 /**
- * The legacy side of one delta (one read-only snapshot of the legacy database): the script's and the worker's reader
- * (`scripts/legacy-migration/delta-lib.ts`), fixtures in tests.
+ * The legacy side of one delta (one read-only snapshot of a restored legacy dump): the operator scripts' reader
+ * (`openLegacyDeltaReader`), fixtures in tests.
  */
 export interface LegacyDeltaSource {
   /** The legacy database's clock when the read snapshot began (the next watermark). */
@@ -70,27 +70,10 @@ export interface OpenedLegacyDeltaSource extends LegacyDeltaSource {
   close(): Promise<void>;
 }
 
-/** Opens the reader of one legacy agency (its snapshot) for the worker job. */
-export type LegacyDeltaSourceFactory = (legacyAgencyId: string) => Promise<OpenedLegacyDeltaSource>;
-
-let sourceFactory: LegacyDeltaSourceFactory | null = null;
-
-/**
- * Registers the legacy reader the hourly job uses (at worker start, once the legacy connection is configured — H1).
- * Without one the job queues nothing.
- */
-export function registerLegacyDeltaSource(factory: LegacyDeltaSourceFactory | null): void {
-  sourceFactory = factory;
-}
-
-export function legacyDeltaSourceFactory(): LegacyDeltaSourceFactory | null {
-  return sourceFactory;
-}
-
 export interface LegacyDeltaState {
   /** The legacy clock the last completed delta read from; null before the first. */
   watermark: Date | null;
-  /** When the agency was cut over (the delta stops); null while the parallel run lasts. */
+  /** When the agency was cut over (the delta stops); null before it. */
   cutOverAt: Date | null;
 }
 

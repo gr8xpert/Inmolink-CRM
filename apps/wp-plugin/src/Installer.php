@@ -35,11 +35,9 @@ final class Installer {
 	}
 
 	/**
-	 * Activation work of one site: the legacy settings migration (off by default, S8-F11), its mirror table, cron event
-	 * and rewrite rules.
+	 * Activation work of one site: its mirror table, cron event and rewrite rules.
 	 */
 	private static function activate_site(): void {
-		Migration\LegacySettings::migrate();
 		Mirror::install();
 		self::schedule();
 		Routing\Router::schedule_flush();
@@ -135,7 +133,8 @@ final class Installer {
 		if ( is_string( $host ) ) {
 			delete_transient( 'inmolink_dns_' . md5( strtolower( $host ) ) );
 		}
-		foreach ( array( Settings::OPTION, Settings::KEY_OPTION, DeltaSync::STATE_OPTION, Cache\Cache::GENERATION_OPTION, ConfigGuard::OPTION, Forms\Turnstile::SECRET_OPTION, Net\Counter::OPTION, Migration\LegacySettings::MARKER_OPTION ) as $option ) {
+		// `inmolink_legacy_migration`: the marker of the retired legacy settings migration (S8-F11, removed in S17-F4).
+		foreach ( array( Settings::OPTION, Settings::KEY_OPTION, DeltaSync::STATE_OPTION, Cache\Cache::GENERATION_OPTION, ConfigGuard::OPTION, Forms\Turnstile::SECRET_OPTION, Net\Counter::OPTION, 'inmolink_legacy_migration' ) as $option ) {
 			delete_option( $option );
 		}
 		Client::reset_backoff();

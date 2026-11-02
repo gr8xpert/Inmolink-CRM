@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { migrateEnv } from '@inmolink/db/migrate';
 import { loadStackEnv } from '@inmolink/db/testing';
 import { loadConfig } from '@inmolink/platform/config';
-import { openLegacySnapshot } from '@inmolink/platform/legacy-db';
+import { openLegacySnapshot } from '@inmolink/platform/legacy-dump';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createFixtureReader, type FixtureReader } from '../../scripts/ci/legacy-fixture';

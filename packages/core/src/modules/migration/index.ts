@@ -14,7 +14,6 @@ export {
   dueCutovers,
   getCutover,
   type LegacyControl,
-  legacyDnsReadiness,
   planCutover,
   type RollbackCutoverInput,
   type RunCutoverInput,
@@ -26,13 +25,10 @@ export {
   DELTA,
   deltaAgencies,
   type LegacyDeltaSource,
-  type LegacyDeltaSourceFactory,
   type LegacyDeltaState,
-  legacyDeltaSourceFactory,
   legacyDeltaState,
   markLegacyAgencyCutOver,
   type OpenedLegacyDeltaSource,
-  registerLegacyDeltaSource,
   type SyncLegacyDeltaInput,
   type SyncLegacyDeltaResult,
   syncLegacyDelta,
@@ -61,16 +57,7 @@ export {
   transformLegacyDevelopments,
 } from './legacy-developments';
 export {
-  type LegacyTaxonomy,
-  legacyIdsQuery,
-  legacyTarget,
-  legacyTaxonomy,
-  reloadLegacyTaxonomy,
-  resetLegacyIdCache,
-} from './legacy-ids';
-export {
   assertIdent,
-  configureLegacyDelta,
   DEFAULT_ENTITIES,
   type DeltaMode,
   type EntitySpec,

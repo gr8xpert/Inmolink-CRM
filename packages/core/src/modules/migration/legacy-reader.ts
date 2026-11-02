@@ -1,6 +1,7 @@
 /**
- * Legacy delta reader (S14-04 → S15-F4, PLAN §14 Path A step 5): one read-only snapshot of a legacy agency for the
- * hourly delta (`syncLegacyDelta`), on the `platform/legacy-db` adapter (read-only session and transaction, statement
+ * Legacy delta reader (S14-04 → S15-F4 → S17-F4): one read-only snapshot of a legacy agency in a restored legacy dump
+ * for the operator's delta (`syncLegacyDelta`: `pnpm legacy:delta`, the cutover's `FINAL_DELTA`), on the
+ * `platform/legacy-dump` adapter (read-only session and transaction, statement
  * timeout, connection limit, server-side cursor). Every statement is a SELECT built from validated identifiers; rows
  * stream in cursor batches (no OFFSET, no whole-table result). Rows are normalized as the extract writes them
  * (`stableJson`), so the load sees the same shapes.
@@ -15,8 +16,8 @@ import {
   legacyIdent,
   openLegacySnapshot,
   stableJson,
-} from '@inmolink/platform/legacy-db';
-import { type LegacyDeltaSourceFactory, type OpenedLegacyDeltaSource, registerLegacyDeltaSource } from './delta';
+} from '@inmolink/platform/legacy-dump';
+import type { OpenedLegacyDeltaSource } from './delta';
 import { LEGACY_STAGING, type LegacyStagingEntity, type StagedSource } from './legacy-agency';
 
 const IDENT_AGENCY = /^[A-Za-z0-9_.-]{1,100}$/;
@@ -207,32 +208,4 @@ async function hasColumn(snapshot: LegacySnapshot, spec: EntitySpec, column: str
     [spec.schema ?? 'public', spec.table, column],
   );
   return rows.length > 0;
-}
-
-export interface ConfigureLegacyDeltaInput {
-  /** `LEGACY_DATABASE_URL`; absent: no reader is registered and the hourly job queues nothing. */
-  url: string | undefined;
-  entities?: EntitySpec[];
-  db?: Omit<LegacyDbConfig, 'url'>;
-}
-
-/**
- * Registers the legacy reader the hourly delta job uses (worker start). Returns whether one is registered; the URL is
- * never logged.
- */
-export function configureLegacyDelta(input: ConfigureLegacyDeltaInput): boolean {
-  const { url } = input;
-  if (!url) {
-    registerLegacyDeltaSource(null);
-    return false;
-  }
-  const factory: LegacyDeltaSourceFactory = (legacyAgencyId) =>
-    openLegacyDeltaReader({
-      url,
-      legacyAgencyId,
-      ...(input.entities ? { entities: input.entities } : {}),
-      ...(input.db ? { db: input.db } : {}),
-    });
-  registerLegacyDeltaSource(factory);
-  return true;
 }

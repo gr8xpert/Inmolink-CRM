@@ -35,7 +35,7 @@ import { type RateLimitCheck, type RateLimiter, rateLimiter } from '@inmolink/pl
 import * as agencies from '../agencies';
 import * as taxonomy from '../taxonomy';
 import { aiQueryHash, cleanAnswer, normalizeAiQuery, SearchAiAnswer, toFilters } from './ai-search-parse';
-import { type ApiSite, langOf, searchPage } from './service';
+import { type ApiSite, langOf, searchListings } from './service';
 
 export const AI_SEARCH_FEATURE = 'website-api.search-ai';
 export const AI_SEARCH_PROMPT: PromptRef = { id: 'search-ai', version: 1 };
@@ -345,7 +345,7 @@ export async function aiSearch(
   }
   const source = filters ? 'AI' : 'KEYWORD';
   filters ??= { q: q.q.trim().replace(/\s+/g, ' ').slice(0, KEYWORD_MAX).trim() };
-  const { page } = await searchPage(
+  const page = await searchListings(
     site,
     { ...filters, sort: filters.sort ?? 'newest', lang, limit: q.limit, cursor: q.cursor, facets: q.facets },
     { suspicious: opts.suspicious },

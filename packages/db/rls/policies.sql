@@ -62,17 +62,8 @@ create or replace function agency_ai_features(a_id uuid) returns text[]
                     and exists (select 1 from public.website_sites w
                                  where w.agency_id = a_id and (w.plan_ends_at is null or w.plan_ends_at > now())))
                then array['WEBSITE_SEARCH']::text[] else '{}'::text[] end $$;
-create or replace function legacy_target_ids(legacy_ids text[]) returns table(entity text, legacy_id text, new_id uuid)
-  language sql stable security definer set search_path = pg_catalog, pg_temp
-  as $$ select m.entity, m.legacy_id, m.new_id
-          from (select distinct x from unnest(legacy_ids[1:1000]) x) k
-          join public.legacy_id_maps m on m.entity in ('listing', 'unit') and m.legacy_id = k.x $$;
-create or replace function legacy_ids_of(new_ids uuid[]) returns table(new_id uuid, legacy_id text)
-  language sql stable security definer set search_path = pg_catalog, pg_temp
-  as $$ select m.new_id, min(m.legacy_id)
-          from public.legacy_id_maps m
-         where m.entity in ('listing', 'unit') and m.new_id = any(new_ids[1:1000])
-         group by m.new_id $$;
+drop function if exists legacy_target_ids(text[]);
+drop function if exists legacy_ids_of(uuid[]);
 drop function if exists portal_feed_by_token(text);
 create function portal_feed_by_token(hash text) returns table(connection_id uuid, channel_code text, run_id uuid, sha256 text)
   language sql stable security definer set search_path = pg_catalog, pg_temp
@@ -200,7 +191,7 @@ create function agency_public_members(a_id uuid)
                         where d.agency_id = a_id and d.listed)
          order by p.display_name, p.id
          limit 100 $$;
-revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), website_network_open(uuid, integer, integer), agency_ai_features(uuid), legacy_target_ids(text[]), legacy_ids_of(uuid[]), portal_feed_by_token(text), calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer), calendar_feed_tag(text), selection_by_token(text[]), agency_public_profile(uuid, text[]), member_public_profile(uuid), agency_public_members(uuid) from public;
+revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), website_network_open(uuid, integer, integer), agency_ai_features(uuid), portal_feed_by_token(text), calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer), calendar_feed_tag(text), selection_by_token(text[]), agency_public_profile(uuid, text[]), member_public_profile(uuid), agency_public_members(uuid) from public;
 grant execute on function member_public_profile(uuid), agency_public_members(uuid) to app_public;
 grant execute on function agency_public_profile(uuid, text[]) to app_public;
 grant execute on function calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer) to app_public;
@@ -210,9 +201,6 @@ grant execute on function selection_by_token(text[]) to app_public;
 grant execute on function website_network_open(uuid, integer, integer) to app_public;
 grant execute on function agency_ai_features(uuid) to app_public;
 alter function agency_ai_features(uuid) owner to app_owner;
-grant execute on function legacy_target_ids(text[]), legacy_ids_of(uuid[]) to app_public;
-alter function legacy_target_ids(text[]) owner to app_owner;
-alter function legacy_ids_of(uuid[]) owner to app_owner;
 alter function portal_feed_by_token(text) owner to app_owner;
 alter function calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer) owner to app_owner;
 alter function calendar_feed_tag(text) owner to app_owner;
@@ -467,14 +455,7 @@ create policy own_rows on public."api_keys" to app_user
 create policy public_read on public."api_keys" for select to app_public
   using (revoked_at is null and agency_active);
 revoke all on table public."api_keys" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
-grant select, insert, delete on table public."api_keys" to app_user;
-do $$
-declare cols text;
-begin
-  select string_agg(format('%I', attname), ', ' order by attnum) into cols from pg_attribute
-   where attrelid = 'public."api_keys"'::regclass and attnum > 0 and not attisdropped and attname <> all (array['legacy_query_key']);
-  execute format('grant update (%s) on table public."api_keys" to app_user', cols);
-end $$;
+grant select, insert, update, delete on table public."api_keys" to app_user;
 grant select, insert, update, delete on table public."api_keys" to app_system;
 grant select on table public."api_keys" to app_public;
 
@@ -1158,10 +1139,7 @@ grant select, insert, update, delete on table public."leads" to app_system;
 -- legacy_id_maps: GLOBAL
 alter table public."legacy_id_maps" enable row level security;
 alter table public."legacy_id_maps" force row level security;
-create policy definer_read on public."legacy_id_maps" for select to app_owner using (true);
-create policy global_read on public."legacy_id_maps" for select to app_public using (entity in ('location', 'propertyType', 'feature'));
 revoke all on table public."legacy_id_maps" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
-grant select on table public."legacy_id_maps" to app_public;
 grant select, insert, update, delete on table public."legacy_id_maps" to app_system;
 
 -- legacy_url_redirects: GLOBAL

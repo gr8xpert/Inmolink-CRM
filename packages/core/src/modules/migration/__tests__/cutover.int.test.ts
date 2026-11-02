@@ -9,7 +9,7 @@ import * as migration from '../index';
 
 /**
  * Per-agency cutover checklists (S14-06) against fixture legacy snapshots (the legacy database is H1; the staging
- * rehearsal with real agencies and DNS is H11 / H4).
+ * rehearsal with real agencies is H11).
  */
 
 const RUN = newId().slice(-8).toLowerCase();
@@ -393,14 +393,17 @@ describe('cutover checklist (S14-06)', () => {
     });
   });
 
-  it('[S14-06] DNS readiness lists migrated legacy agencies without a PASS report', async () => {
+  it('[S14-06] a Path A plan must name the target agency the legacy agency was loaded into', async () => {
     const l = await loaded('d');
-    const ids = async () => (await migration.legacyDnsReadiness(100_000)).notReady.map((a) => a.legacyAgencyId);
-    expect(await ids()).toContain(l.legacyAgencyId);
-    await report(l.legacyAgencyId, l.founder.agencyId, 'PASS');
-    expect(await ids()).not.toContain(l.legacyAgencyId);
     await expect(
       migration.planCutover({ agencyId: newId(), path: 'A', legacyAgencyId: l.legacyAgencyId }),
     ).rejects.toMatchObject({ code: 'LEGACY_AGENCY_MISMATCH' });
+  });
+
+  it('[S17-F4] the final delta reads only the dump the operator names: without one it stops (no live legacy reader)', async () => {
+    const l = await loaded('e');
+    await migration.planCutover({ agencyId: l.founder.agencyId, path: 'A', legacyAgencyId: l.legacyAgencyId });
+    const r = await migration.runCutover({ agencyId: l.founder.agencyId, confirm: ['FREEZE'], requestMedia });
+    expect(r).toMatchObject({ stoppedAt: 'FINAL_DELTA', reason: 'NO_LEGACY_SOURCE', steps: ['FREEZE'] });
   });
 });
