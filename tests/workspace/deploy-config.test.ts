@@ -375,7 +375,7 @@ describe('Ansible inventory and images', () => {
     expect(new Set(wg).size).toBe(wg.length);
 
     const staging = loadInventory('staging');
-    expect(groupHosts(staging, 'db_primary')[0]?.vars.ansible_host).toBe('203.0.113.50');
+    expect(groupHosts(staging, 'db_primary')[0]?.vars.ansible_host).toBe('79.99.44.167');
     expect(groupHosts(staging, 'db_replica')).toEqual([]);
   });
 

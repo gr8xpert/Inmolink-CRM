@@ -19,8 +19,8 @@ redis_queue_maxmemory: 1gb
 # (infra/monitoring/status-page.yml) monitors the same production URLs from outside. `host`: the app host serving it
 # (inventory group `app`; NodeDown of that host inhibits EndpointDown).
 endpoint_probes:
-  - { service: api, url: "https://api.staging.inmolink.es/readyz", host: staging-1 }
-  - { service: feed-api, url: "https://feed.staging.inmolink.es/readyz", host: staging-1 }
-  - { service: realtime, url: "https://realtime.staging.inmolink.es/readyz", host: staging-1 }
-  - { service: web, url: "https://app.staging.inmolink.es/healthz", host: staging-1 }
-  - { service: public, url: "https://sites.staging.inmolink.es/healthz", host: staging-1 }
+  - { service: api, url: "https://staging-api.inmolink.es/readyz", host: staging-1 }
+  - { service: feed-api, url: "https://staging-feed.inmolink.es/readyz", host: staging-1 }
+  - { service: realtime, url: "https://staging-realtime.inmolink.es/readyz", host: staging-1 }
+  - { service: web, url: "https://staging-app.inmolink.es/healthz", host: staging-1 }
+  - { service: public, url: "https://staging-sites.inmolink.es/healthz", host: staging-1 }

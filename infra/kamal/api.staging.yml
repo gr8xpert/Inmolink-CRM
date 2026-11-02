@@ -1,19 +1,19 @@
-# staging overrides for api.yml (PLACEHOLDER host until H4/H5), merged over the base by `-d staging`.
+# staging overrides for api.yml, merged over the base by `-d staging`.
 servers:
   web:
-    hosts: [203.0.113.50]
+    hosts: [79.99.44.167]
 proxy:
-  host: api.staging.inmolink.es
+  host: staging-api.inmolink.es
 env:
   clear:
     DEPLOY_ENV: "staging"
     OTEL_TRACES_SAMPLE_RATIO: "1"
 accessories:
   redis-cache:
-    host: 203.0.113.50
+    host: 79.99.44.167
   redis-cache-exporter:
-    host: 203.0.113.50
+    host: 79.99.44.167
     # staging-1's WireGuard address (infra/ansible/inventories/staging/hosts.yml) : redis_cache_exporter_port.
     port: "10.20.0.11:9122:9121"
   meilisearch:
-    host: 203.0.113.50
+    host: 79.99.44.167

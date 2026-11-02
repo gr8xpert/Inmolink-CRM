@@ -20,7 +20,7 @@ describe('operator target guards (S17-F2)', () => {
     ]) {
       expect(hosts.isProduction(h), h).toBe(true);
     }
-    for (const h of ['203.0.113.50', '10.20.0.11', 'api.staging.inmolink.es', 'staging.inmolink.es']) {
+    for (const h of ['79.99.44.167', '10.20.0.11', 'staging-api.inmolink.es', 'staging-feed.inmolink.es']) {
       expect(hosts.isProduction(h), h).toBe(false);
       expect(hosts.isStaging(h), h).toBe(true);
     }
@@ -41,11 +41,11 @@ describe('operator target guards (S17-F2)', () => {
   });
 
   it('[S17-F2] ops:drill refuses a production host (only test / staging targets)', () => {
-    const env = { CHAOS_STAGING_HOSTS: 'ssh://deploy@203.0.113.50,ssh://deploy@203.0.113.10' };
+    const env = { CHAOS_STAGING_HOSTS: 'ssh://deploy@79.99.44.167,ssh://deploy@203.0.113.10' };
     const staging = (t: { sshHosts?: string[]; urls?: string[] }, e: Record<string, string> = env) =>
       assertDrillTargets({ local: false, env: e, ...t }, hosts);
     expect(() =>
-      staging({ sshHosts: ['ssh://deploy@203.0.113.50'], urls: ['https://feed.staging.inmolink.es/x'] }),
+      staging({ sshHosts: ['ssh://deploy@79.99.44.167'], urls: ['https://staging-feed.inmolink.es/x'] }),
     ).not.toThrow();
     // Listed by the operator, but a production server: refused all the same.
     expect(() => staging({ sshHosts: ['ssh://deploy@203.0.113.10'] })).toThrow(/production host/);
@@ -56,7 +56,7 @@ describe('operator target guards (S17-F2)', () => {
     expect(() => staging({ urls: ['https://example.com/'] })).toThrow(/not a staging host/);
     expect(() => staging({ urls: ['redis://127.0.0.1:16380'] })).not.toThrow();
     expect(() => staging({ sshHosts: ['ssh://deploy@203.0.113.99'] })).toThrow(/not in CHAOS_STAGING_HOSTS/);
-    expect(() => staging({ sshHosts: ['203.0.113.50'] })).toThrow(/ssh:\/\//);
+    expect(() => staging({ sshHosts: ['79.99.44.167'] })).toThrow(/ssh:\/\//);
     // The environment itself.
     expect(() => staging({}, { ...env, DEPLOY_ENV: 'production' })).toThrow(/DEPLOY_ENV=production/);
     expect(() => staging({}, { ...env, NODE_ENV: 'production' })).toThrow(/NODE_ENV=production/);

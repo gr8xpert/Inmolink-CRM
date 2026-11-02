@@ -1,16 +1,16 @@
-# staging overrides for web.yml (PLACEHOLDER host until H4/H5), merged over the base by `-d staging`.
+# staging overrides for web.yml, merged over the base by `-d staging`.
 servers:
   web:
-    hosts: [203.0.113.50]
+    hosts: [79.99.44.167]
 proxy:
-  host: app.staging.inmolink.es
+  host: staging-app.inmolink.es
 env:
   clear:
     DEPLOY_ENV: "staging"
     OTEL_TRACES_SAMPLE_RATIO: "1"
-    WEB_URL: "https://app.staging.inmolink.es"
-    API_URL: "https://api.staging.inmolink.es"
+    WEB_URL: "https://staging-app.inmolink.es"
+    API_URL: "https://staging-api.inmolink.es"
     # S16-03: chat / notification sockets; the dashboard CSP allows exactly this origin (wss).
-    REALTIME_PUBLIC_URL: "https://realtime.staging.inmolink.es"
-    FEED_API_PUBLIC_URL: "https://feed.staging.inmolink.es"
-    PUBLIC_PAGES_URL: "https://sites.staging.inmolink.es"
+    REALTIME_PUBLIC_URL: "https://staging-realtime.inmolink.es"
+    FEED_API_PUBLIC_URL: "https://staging-feed.inmolink.es"
+    PUBLIC_PAGES_URL: "https://staging-sites.inmolink.es"

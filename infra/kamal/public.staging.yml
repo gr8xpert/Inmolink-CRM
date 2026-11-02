@@ -1,12 +1,12 @@
-# staging overrides for public.yml (PLACEHOLDER host until H4/H5), merged over the base by `-d staging`.
+# staging overrides for public.yml, merged over the base by `-d staging`.
 servers:
   web:
-    hosts: [203.0.113.50]
+    hosts: [79.99.44.167]
 proxy:
-  host: sites.staging.inmolink.es
+  host: staging-sites.inmolink.es
 env:
   clear:
     DEPLOY_ENV: "staging"
-    PUBLIC_URL: "https://sites.staging.inmolink.es"
+    PUBLIC_URL: "https://staging-sites.inmolink.es"
     # S16-F5: the portal footer links the dashboard's legal pages (privacy, cookies, terms, sub-processors).
-    WEB_URL: "https://app.staging.inmolink.es"
+    WEB_URL: "https://staging-app.inmolink.es"

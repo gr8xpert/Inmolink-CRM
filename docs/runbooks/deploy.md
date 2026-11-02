@@ -28,8 +28,10 @@ Blocked on H3 (accounts), H4 (servers), H5 (DNS) — `docs/build/HUMAN-ACTIONS.m
 2. `cp infra/ansible/inventories/<env>/group_vars/all/vault.example.yml …/vault.yml`, fill it in,
    `ansible-vault encrypt …/vault.yml`. Keep `vault_walg_libsodium_key` in the password manager too:
    **without it no backup can be read.**
-3. Cloudflare: DNS for `app`, `api`, `feed`, `realtime`, `sites` (`.staging`) → app host, proxied;
-   SSL mode **Full (strict)**; create an origin certificate for `*.inmolink.es` + `*.staging.inmolink.es`.
+3. Cloudflare: DNS for `app`, `api`, `feed`, `realtime`, `sites` (staging: `staging-app` etc., one level deep so the
+   free edge certificate covers them) → app host, proxied; SSL mode **Full (strict)**. `inmolink.es` has other live hosts,
+   so on staging set that per hostname with a Configuration Rule, never zone-wide, and make the origin certificate for the
+   5 staging names only. Production: origin certificate for `*.inmolink.es`.
    R2: bucket `inmolink-backups-<env>`, one read/write token for the db hosts, one **read-only**
    token for the restore drill.
 4. `cp .kamal/secrets.example .kamal/secrets.<env>` (references only, `KEY=$KEY`); the values come from
@@ -139,7 +141,7 @@ While a deploy runs, from another terminal:
 
 ```sh
 while true; do
-  code=$(curl -s -o /dev/null -w '%{http_code}' https://api.staging.inmolink.es/healthz)
+  code=$(curl -s -o /dev/null -w '%{http_code}' https://staging-api.inmolink.es/healthz)
   [ "$code" = 200 ] || echo "$(date +%T) $code"; sleep 0.2
 done
 ```
