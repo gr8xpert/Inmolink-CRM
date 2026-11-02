@@ -5,7 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Changed
-- docs(status): R2 starts before the pilot go/no-go, staging moves to a new server (owner decision 2026-11-03); Docker rules added to CLAUDE.md
+- docs(status): finish R1 before R2, staging moves to a new server (owner decisions 2026-11-03); Docker rules added to CLAUDE.md
 - feat(developments,web,contracts): `DevelopmentDto.canSetCommission` from the policy; agents see commission / split read-only; create and update need the commission permission only for a changed value; `DEFAULT_COMMISSION_SPLIT_BP` shared by schema and service [S17-F5]
 - chore(deps): zod 4.6.7, nodemailer 10.1.7, fastify 5.12.7 pinned directly (were 4.6.5 / 10.1.0 / 5.12.5 lifted by overrides); fast-uri 3.1.9 / 4.2.3 in the lockfile; the three S16-03 overrides removed; `pnpm audit` only the accepted dev / docs-UI Moderates [S16-F7]
 
