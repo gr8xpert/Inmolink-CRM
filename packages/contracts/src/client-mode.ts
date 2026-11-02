@@ -90,6 +90,7 @@ export const CLIENT_MODE_REVIEWED_FIELDS: Readonly<Record<string, string>> = {
   ownerUserId: 'the agent of an own record; serializers null it on network records',
   ownerAcceptedAt: 'a timestamp of an MLS viewing (MLS routes are refused in Client Mode)',
   introducerAcceptedAt: 'a timestamp of an MLS viewing (MLS routes are refused in Client Mode)',
+  canSetCommission: 'a boolean permission flag, always false for Client Mode tokens (S17-F5); no commission value',
 };
 
 /**
