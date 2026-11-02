@@ -13,9 +13,20 @@ alter role pgbouncer_auth with login nosuperuser nocreatedb nocreaterole passwor
 alter role postgres_exporter with login nosuperuser password '{{ vault_postgres_exporter_password }}';
 grant pg_monitor to postgres_exporter;
 
+-- Nobody connects to the maintenance databases by default.
+revoke connect on database postgres from public;
+revoke connect on database template1 from public;
+grant connect on database postgres to replicator;
+grant connect on database {{ postgres_db }} to postgres_exporter;
+grant connect on database postgres to pgbouncer_auth;
+
 -- PgBouncer looks up app roles through this function instead of reading pg_shadow as a superuser
 -- (STATUS Decisions 2026-10-10). Only the pooled runtime roles: never app_owner (migrations connect
 -- directly from the db host) and never a superuser.
+-- It lives in the maintenance database, not the app's: the tenancy guard (packages/db/src/tenancy/guard.ts) allows no
+-- SECURITY DEFINER function in the app database outside its generated helpers. Keep this block last: \connect ends the session.
+drop schema if exists pgbouncer cascade;
+\connect postgres
 create schema if not exists pgbouncer authorization postgres;
 revoke all on schema pgbouncer from public;
 grant usage on schema pgbouncer to pgbouncer_auth;
@@ -28,9 +39,3 @@ as $$
 $$;
 revoke all on function pgbouncer.get_auth(text) from public;
 grant execute on function pgbouncer.get_auth(text) to pgbouncer_auth;
-
--- Nobody connects to the maintenance databases by default.
-revoke connect on database postgres from public;
-revoke connect on database template1 from public;
-grant connect on database postgres to replicator;
-grant connect on database {{ postgres_db }} to postgres_exporter;

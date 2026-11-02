@@ -300,7 +300,23 @@ describe('cluster bootstrap (Ansible role postgres)', () => {
     await apply(); // idempotent: every Ansible run re-applies it
 
     await psql(PRIMARY, "create role app_user login password 'x'; create role app_owner login password 'y'");
-    const asAuth = (q: string) => psql(PRIMARY, `set role pgbouncer_auth; ${q}`);
+    // The lookup function lives in the maintenance database, so the tenancy guard never sees it in the app database.
+    const asAuth = async (q: string) =>
+      (
+        await docker([
+          'exec',
+          '-u',
+          'postgres',
+          PRIMARY,
+          'psql',
+          '-h',
+          '/var/run/postgresql',
+          '-d',
+          'postgres',
+          '-XAtqc',
+          `set role pgbouncer_auth; ${q}`,
+        ])
+      ).trim();
     expect(await asAuth("select usename from pgbouncer.get_auth('app_user')")).toBe('app_user');
     expect(await asAuth("select count(*) from pgbouncer.get_auth('postgres')")).toBe('0');
     expect(await asAuth("select count(*) from pgbouncer.get_auth('replicator')")).toBe('0');

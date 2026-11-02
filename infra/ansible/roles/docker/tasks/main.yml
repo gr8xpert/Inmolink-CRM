@@ -33,6 +33,12 @@
     enabled: true
     state: started
 
+- name: Drop-in directory for the Docker unit
+  ansible.builtin.file:
+    path: /etc/systemd/system/docker.service.d
+    state: directory
+    mode: "0755"
+
 - name: Docker starts after WireGuard (containers bind to the wg0 address)
   ansible.builtin.copy:
     dest: /etc/systemd/system/docker.service.d/10-after-wireguard.conf
