@@ -19,6 +19,9 @@ AI-native MLS + CRM + website engine for Spanish estate agencies and developers.
 ## Commands (created in S0-01; add new ones to root `package.json`)
 - `pnpm dev` (starts the docker `dev` stack, then apps) · `pnpm build` · `pnpm verify` (typecheck + lint + boundaries + unit + integration + isolation for affected packages; needs Docker)
 - `pnpm infra:up` · `pnpm infra:down` · `pnpm infra:health` · `pnpm infra:up:test` · `pnpm infra:health:test`
+  - Docker on this machine is capped at 6 CPUs / 8 GB: run one profile at a time. Tests need only `test` — stop `dev` first (`docker compose --profile dev stop`) unless the task runs the apps.
+  - Reuse a running stack: `infra:up:test` is a no-op when it is already healthy; never `down`/`up` between test runs, never `down -v` (wipes data).
+  - Check `docker ps` before starting anything; leave the stack running at the end of a task (the user stops it).
 - `pnpm db:generate` · `pnpm db:migrate` · `pnpm db:rls` · `pnpm db:seed` · `pnpm db:seed:scale --agencies=5000`
 - `pnpm gen:module <name>` · `pnpm test` · `pnpm test:int` · `pnpm test:isolation` · `pnpm test:e2e` · `pnpm perf:smoke`
 - `pnpm i18n:draft` · `pnpm ai:eval <feature>` · `pnpm sdk:generate`

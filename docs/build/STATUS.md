@@ -3,8 +3,9 @@
 Single source of truth for progress. Claude updates this at the end of every task. Keep **Now**, **Current sprint** and **Blocked** short — the session-start hook injects them.
 
 ## Now
-- **Task:** S17-01 Pilot cutover (S17-F5, S17-F4, S16-F7 DONE 2026-11-02). S17-01 Pilot cutover needs H11 (and the H4 staging runs before it). H1 / H3 / H4 / H11: no date yet.
+- **Task:** R2-01 Embeddings pipeline, waiting on the embeddings provider choice (owner, 2026-11-03: start R2 now; see Decisions). In parallel: S17-01 Pilot cutover waits on the new staging server (a separate DevOps session prepares it: `D:\VirtualOffice\_Shared\briefs\inmolinkcrm-new-server-deploy.md`) and H11. Once that server hands back, run the R1 staging tests before new R2 work.
 - **Started:** —
+- **End-of-S17 full gate:** NOT passed yet. First run 2026-11-03 crashed on host memory, not on a test result (see Decisions); CI is green on 85106c9d.
 - **Load it with:** `node scripts/task-brief.mjs --next`. Longer notes and open human steps: **Handover** below (not injected at session start).
 - **Waiting on Shahzaib:** the H items (HUMAN-ACTIONS.md). The Anthropic key is in the local `.env` (AI is off unless `AI_PROVIDER=anthropic`, the tier models and `AI_PRICING` are set too). `UNIT_SPLIT_BP` deferred to the end of development (S17).
 ## Current sprint
@@ -1028,6 +1029,9 @@ Single source of truth for progress. Claude updates this at the end of every tas
 - 2026-11-02 · S17-F4 · ASSUMPTION — reverse if you disagree: `api_keys.legacy_query_key` and the two SECURITY DEFINER lookups are dropped in the same release (no expand / contract) because R1 is not live; 0181 revokes every flagged key first (a key seen in legacy `?api_key=` URLs may sit in CDN / proxy logs). The audit type `identity.apiKey.legacyQueryKeyChanged` is dropped from the write list (audit reads use a plain string, old rows still read). The adapter keeps its `LegacyDb*` / `LEGACY_DB_*` type and error names (no churn).
 - 2026-11-02 · S17-F4 · **PLAN.md not edited:** §9.3 (legacy shim), §14 Path A steps 2 / 5 / 7 (goldens, hourly delta, hostname cutover), the SLO table and the S8 row still describe the removed bridge — ADR 0006 carries the amendment; PLAN text is Shahzaib's to change.
 - 2026-11-02 · S16-F7 · fast-uri is held at 3.1.9 / 4.2.3 by the lockfile (patched versions fit the dependents' ranges), not by an override; `pnpm update` was not used (it would also bump rolldown / postcss under two weeks old). next-auth's optional nodemailer peer is left unresolved (Credentials provider only) — an email provider would need a scoped override (comment in pnpm-workspace.yaml).
+- 2026-11-03 · Owner decision (Shahzaib): **R2 starts before the pilot go/no-go**, overriding the BACKLOG-R2-R4 rule "Start R2 only after S17-02". Staging moves from 77.68.115.185 to a server the owner already has (replaces the H4 staging line of the 2026-11-02 owner answers); a separate DevOps session prepares it, the owner whitelists its IP at Resales. Then the build session runs the R1 staging tests and the pilot, and deploys each finished R2 phase to staging. R1 staging should pass before R2 Phase 2 starts (recommendation accepted with the order; no date for the server yet). Risk accepted: R2 is built without pilot feedback, so R1 fixes may interrupt it.
+- 2026-11-03 · Proposed R2 order (not in the backlog; owner has not overridden it): Phase 1 R2-01 → R2-03; Phase 2 R2-04 → R2-06; Phase 3 R2-07, R2-08; Phase 4 R2-14, R2-13, R2-12; Phase 5 R2-09, R2-10, R2-11, R2-15, R2-16.
+- 2026-11-03 · End-of-S17 full gate, first run: every stage aborted within 9 minutes, host commit at the limit (4.5 GB free of 43.8 GB). Crashes: V8 out of memory in `sdk` and `core` tests, biome exit 0xC000012D. Turbo stops at the first crash, so most tests did not run: this is no pass or fail for the code. `db` `[S1-F3]` failed once on a cached PgBouncer login error for `app_system`; the file passes alone (13/13). The cause of that login error was not established. Retry with `--concurrency=1 --continue` once memory is free.
 
 ## Human actions
 <!-- H-number · date done · details (see HUMAN-ACTIONS.md) -->
