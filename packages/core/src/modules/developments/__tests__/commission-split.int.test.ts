@@ -192,4 +192,99 @@ describe('development commission split (S17-F5)', () => {
     );
     expect(row?.commission_split_bp).toBe(5000);
   });
+
+  it('[S17-F5] creating with the default split needs no admin, like an update that leaves it alone; another split does', async () => {
+    // An agent may create a development; naming the default 50/50 changes nothing, so it is not refused.
+    const dev = await createDev(agent, { commission: null, commissionSplitBp: 5000 });
+    expect(dev.commissionSplitBp).toBe(5000);
+    // Any other split is the deal offered to collaborating agencies: the owner's admins only — nothing is written.
+    const ref = code('agent-split');
+    expect(await refusal(createDev(agent, { ref, commission: null, commissionSplitBp: 4999 }))).toBe('FORBIDDEN');
+    const written = await rows<{ n: number }>(
+      sql`select count(*)::int as n from developments where agency_id = ${owner.agencyId} and ref = ${ref}`,
+    );
+    expect(written[0]?.n).toBe(0);
+    // The admin path is unchanged: the default or another split.
+    expect((await createDev(owner, { commissionSplitBp: 5000 })).commissionSplitBp).toBe(5000);
+    expect((await createDev(owner, { commissionSplitBp: 4999 })).commissionSplitBp).toBe(4999);
+  });
+
+  it('[S17-F5] a create with a non-default split by staff acting as the admin, or in Client Mode, is refused', async () => {
+    const createAs = (wrap: (ctx: Ctx) => Promise<Ctx> | Ctx, ref: string) =>
+      refusal(
+        as(owner, async (ctx) =>
+          developments.createDevelopment(
+            await wrap(ctx),
+            CreateDevelopmentBody.parse({
+              ref,
+              name: 'Split Heights',
+              locationId: ids.location,
+              commissionSplitBp: 8000,
+            }),
+          ),
+        ),
+      );
+    const refs = [code('imp-split'), code('cm-split')] as const;
+    // The deal is the agency's: staff may create a development for it, never set its split.
+    expect(await createAs((ctx) => impersonatedCtx(ctx, staffId), refs[0])).toBe('FORBIDDEN');
+    // Client Mode is read-only.
+    expect(await createAs((ctx) => ({ ...ctx, clientMode: true }), refs[1])).toBe('FORBIDDEN');
+    const written = await rows<{ n: number }>(sql`select count(*)::int as n from developments
+      where agency_id = ${owner.agencyId} and ref in (${refs[0]}, ${refs[1]})`);
+    expect(written[0]?.n).toBe(0);
+  });
+
+  it('[S17-F5] an update sending the stored commission or split needs no admin; a changed value does', async () => {
+    const dev = await createDev();
+    const update = (body: Omit<Parameters<typeof developments.updateDevelopment>[2], 'version'>, version: number) =>
+      as(agent, (ctx) => developments.updateDevelopment(ctx, dev.id, { version, ...body }));
+    // An agent saves the form with the deal as stored (4 %, no VAT, 50/50) and another field changed: accepted.
+    const saved = await update(
+      {
+        name: 'Split Heights II',
+        commission: { type: 'PCT', basisPoints: 400, includesVat: false },
+        commissionSplitBp: 5000,
+      },
+      dev.version,
+    );
+    expect(saved).toMatchObject({ name: 'Split Heights II', commissionSplitBp: 5000 });
+    expect(saved.commission).toMatchObject({ type: 'PCT', basisPoints: 400, includesVat: false });
+    // Any change of the deal is the admins': the split, the rate, the VAT flag, or removing it.
+    for (const body of [
+      { commissionSplitBp: 5001 },
+      { commission: { type: 'PCT' as const, basisPoints: 401, includesVat: false } },
+      { commission: { type: 'PCT' as const, basisPoints: 400, includesVat: true } },
+      { commission: null },
+    ]) {
+      expect(await refusal(update(body, saved.version)), JSON.stringify(body)).toBe('FORBIDDEN');
+    }
+    const [row] = await rows<{ commission_bp: number; commission_split_bp: number; audits: number }>(sql`
+      select commission_bp, commission_split_bp, (select count(*)::int from audit_logs where target_id = ${dev.id}
+        and type in ('developments.development.commissionChanged', 'developments.development.commissionSplitChanged'))
+        as audits
+      from developments where id = ${dev.id}`);
+    expect(row).toEqual({ commission_bp: 400, commission_split_bp: 5000, audits: 0 });
+    // The owner's admin still changes it.
+    const changed = await as(owner, (ctx) =>
+      developments.updateDevelopment(ctx, dev.id, { version: saved.version, commissionSplitBp: 5001 }),
+    );
+    expect(changed.commissionSplitBp).toBe(5001);
+  });
+
+  it('[S17-F5] the development says whether the caller may change the commission and split', async () => {
+    const dev = await shareWithAllowed(await createDev());
+    const flag = (m: Member, wrap: (ctx: Ctx) => Promise<Ctx> | Ctx = (c) => c) =>
+      as(m, async (ctx) => (await developments.getDevelopment(await wrap(ctx), dev.id)).canSetCommission);
+    expect(dev.canSetCommission).toBe(true);
+    expect(await flag(owner)).toBe(true);
+    // The owner agency's agent (shown read-only), another agency, staff acting as the admin, Client Mode: false.
+    expect(await flag(agent)).toBe(false);
+    expect(await flag(allowed)).toBe(false);
+    expect(await flag(owner, (ctx) => impersonatedCtx(ctx, staffId))).toBe(false);
+    const client = await as(owner, (ctx) => developments.getDevelopment({ ...ctx, clientMode: true }, dev.id));
+    expect(client).toMatchObject({ canSetCommission: false, commission: null, commissionSplitBp: null });
+    // The list carries it too.
+    const listed = await as(agent, (ctx) => developments.listDevelopments(ctx, { limit: 100 }));
+    expect(listed.items.find((d) => d.id === dev.id)?.canSetCommission).toBe(false);
+  });
 });

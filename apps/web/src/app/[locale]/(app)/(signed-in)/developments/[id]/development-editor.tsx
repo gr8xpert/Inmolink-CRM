@@ -53,7 +53,9 @@ const draftOf = (d: DevelopmentDto): Draft => ({
 /**
  * The development's details (S4-03): saved with one button (the changed fields and the version held), and the
  * maintainer's "units and prices are current" confirmation (`verified`, the freshness SLA). The commission is a
- * percentage here; a fixed amount set elsewhere is shown and kept unless the field is used. On a feed development
+ * percentage here; a fixed amount set elsewhere is shown and kept unless the field is used. It and its split (S17-F5)
+ * are editable where the API says the caller may change them (`canSetCommission`: the owner's admins); the owner's
+ * other members read them as text. On a feed development
  * (S8-F5) the fields the feed keeps current carry a lock: editing one turns its lock on, and the owner may turn it off.
  */
 export function DevelopmentEditor({ development, locations, readOnly, messages }: Props) {
@@ -243,47 +245,80 @@ export function DevelopmentEditor({ development, locations, readOnly, messages }
         ) : null}
         {readOnly ? null : (
           <>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor={`${ids}-commissionPct`}>{t('fields.commission')}</Label>
-              <Input
-                {...field('commissionPct')}
-                inputMode="decimal"
-                value={draft.commissionPct}
-                onChange={(e) => setDraft({ ...draft, commissionPct: e.target.value })}
-              />
-              {dev.commission?.type === 'FIXED' ? (
-                <p className="text-xs text-muted-foreground">
-                  {t('editor.fixedCommission', {
-                    amount: format.number(dev.commission.amount.amountCents / 100, {
-                      style: 'currency',
-                      currency: dev.commission.amount.currency,
-                    }),
-                  })}
-                </p>
-              ) : null}
-            </div>
-            <label className="flex items-center gap-2 self-end pb-2 text-sm">
-              <input
-                type="checkbox"
-                disabled={pending}
-                checked={draft.includesVat}
-                onChange={(e) => setDraft({ ...draft, includesVat: e.target.checked })}
-              />
-              {t('fields.commissionIncludesVat')}
-            </label>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor={`${ids}-splitPct`}>{t('fields.commissionSplit')}</Label>
-              <Input
-                {...field('splitPct')}
-                inputMode="decimal"
-                aria-describedby={`${ids}-splitPct-hint`}
-                value={draft.splitPct}
-                onChange={(e) => setDraft({ ...draft, splitPct: e.target.value })}
-              />
-              <p id={`${ids}-splitPct-hint`} className="text-xs text-muted-foreground">
-                {t('editor.commissionSplitHint')}
-              </p>
-            </div>
+            {dev.canSetCommission ? (
+              <>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor={`${ids}-commissionPct`}>{t('fields.commission')}</Label>
+                  <Input
+                    {...field('commissionPct')}
+                    inputMode="decimal"
+                    value={draft.commissionPct}
+                    onChange={(e) => setDraft({ ...draft, commissionPct: e.target.value })}
+                  />
+                  {dev.commission?.type === 'FIXED' ? (
+                    <p className="text-xs text-muted-foreground">
+                      {t('editor.fixedCommission', {
+                        amount: format.number(dev.commission.amount.amountCents / 100, {
+                          style: 'currency',
+                          currency: dev.commission.amount.currency,
+                        }),
+                      })}
+                    </p>
+                  ) : null}
+                </div>
+                <label className="flex items-center gap-2 self-end pb-2 text-sm">
+                  <input
+                    type="checkbox"
+                    disabled={pending}
+                    checked={draft.includesVat}
+                    onChange={(e) => setDraft({ ...draft, includesVat: e.target.checked })}
+                  />
+                  {t('fields.commissionIncludesVat')}
+                </label>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor={`${ids}-splitPct`}>{t('fields.commissionSplit')}</Label>
+                  <Input
+                    {...field('splitPct')}
+                    inputMode="decimal"
+                    aria-describedby={`${ids}-splitPct-hint`}
+                    value={draft.splitPct}
+                    onChange={(e) => setDraft({ ...draft, splitPct: e.target.value })}
+                  />
+                  <p id={`${ids}-splitPct-hint`} className="text-xs text-muted-foreground">
+                    {t('editor.commissionSplitHint')}
+                  </p>
+                </div>
+              </>
+            ) : (
+              <div className="flex flex-col gap-1 md:col-span-2" data-testid="commission-read-only">
+                <dl className="grid gap-x-4 gap-y-1 text-sm sm:grid-cols-[auto_1fr]">
+                  <dt className="text-muted-foreground">{t('fields.commission')}</dt>
+                  <dd>
+                    {dev.commission === null
+                      ? t('editor.commissionNotSet')
+                      : dev.commission.type === 'PCT'
+                        ? format.number(dev.commission.basisPoints / 100)
+                        : format.number(dev.commission.amount.amountCents / 100, {
+                            style: 'currency',
+                            currency: dev.commission.amount.currency,
+                          })}
+                  </dd>
+                  {dev.commission === null ? null : (
+                    <>
+                      <dt className="text-muted-foreground">{t('fields.commissionIncludesVat')}</dt>
+                      <dd>{dev.commission.includesVat ? t('editor.yes') : t('editor.no')}</dd>
+                    </>
+                  )}
+                  <dt className="text-muted-foreground">{t('fields.commissionSplit')}</dt>
+                  <dd>
+                    {dev.commissionSplitBp === null
+                      ? t('editor.commissionNotSet')
+                      : format.number(dev.commissionSplitBp / 100)}
+                  </dd>
+                </dl>
+                <p className="text-xs text-muted-foreground">{t('editor.commissionAdminsOnly')}</p>
+              </div>
+            )}
             <div className="flex flex-wrap items-center gap-2 md:col-span-2">
               <Button type="submit" size="sm" disabled={pending}>
                 {t('editor.save')}

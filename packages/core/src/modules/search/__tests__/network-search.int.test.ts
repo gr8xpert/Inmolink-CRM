@@ -397,6 +397,16 @@ describe('commission', () => {
   it("[S17-F5] a development's new split shows in network results at once, with no reindex", async () => {
     const unitCommission = async () =>
       ok(await net(v, { newBuilds: true })).items.find((i) => i.id === U.shared)?.commission;
+    // The split comes from the row the unit terms statement already joins: one statement reads it, and a page costs
+    // what it cost at the default split — measured here, not just under the ≤ 10 budget.
+    const splitReads = { match: /"developments"\."commission_split_bp"/ };
+    const statements = async () => ({
+      all: await countQueries(() => net(v)),
+      units: await countQueries(() => net(v, { newBuilds: true })),
+      splitReads: await countQueries(() => net(v, { newBuilds: true }), splitReads),
+    });
+    const baseline = await statements();
+    expect(baseline.splitReads).toBe(1);
     const dev = await as(d, (ctx) => developments.getDevelopment(ctx, DEV.shared as string));
     const changed = await as(d, (ctx) =>
       developments.updateDevelopment(ctx, dev.id, { version: dev.version, commissionSplitBp: 7000 }),
@@ -404,7 +414,7 @@ describe('commission', () => {
     try {
       // €250,000 × 4 % × 70 % = €7,000, read with the terms at hydration (the index document is unchanged).
       expect(await unitCommission()).toMatchObject({ splitBp: 7000, viewerEarnings: { amountCents: 700_000 } });
-      expect(await countQueries(() => net(v))).toBeLessThanOrEqual(10);
+      expect(await statements()).toEqual(baseline);
     } finally {
       await as(d, (ctx) =>
         developments.updateDevelopment(ctx, dev.id, { version: changed.version, commissionSplitBp: 5000 }),

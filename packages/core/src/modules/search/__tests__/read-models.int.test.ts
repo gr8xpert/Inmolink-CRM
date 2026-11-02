@@ -657,6 +657,40 @@ describe('unit read models', () => {
     await run(await deliver(a));
     expect(await docs(unitId)).toEqual([]);
   });
+
+  it('[S17-F5] a split-only development update rebuilds nothing; a commission change still rebuilds its units', async () => {
+    const dev = await as(a, (ctx) =>
+      developments.createDevelopment(
+        ctx,
+        CreateDevelopmentBody.parse({ ref: code('SPLIT'), name: `Split ${RUN}`, locationId: ids.city }),
+      ),
+    );
+    await as(a, (ctx) =>
+      developments.createUnits(
+        ctx,
+        dev.id,
+        CreateUnitsBody.parse({ units: [{ ref: 'S-1', propertyTypeId: ids.type, bedrooms: 1, priceCents: 1 }] }),
+      ),
+    );
+    await run(await deliver(a));
+    const split = await as(a, (ctx) =>
+      developments.updateDevelopment(ctx, dev.id, { version: dev.version, commissionSplitBp: 6500 }),
+    );
+    // The event is written (others react to it) and delivered, but names only an ignored field: no rebuild queued.
+    const pending = await rows<{ changed: string[] }>(sql`select payload->'changed' as changed from outbox_events
+      where agency_id = ${a.agencyId} and processed_at is null and type = 'developments.development.updated'
+        and payload->>'developmentId' = ${dev.id}`);
+    expect(pending.map((e) => e.changed)).toEqual([['commissionSplitBp']]);
+    expect(await deliver(a)).toEqual([]);
+    // The commission itself is in the units' index documents (S7-F4): it rebuilds them.
+    await as(a, (ctx) =>
+      developments.updateDevelopment(ctx, dev.id, {
+        version: split.version,
+        commission: { type: 'PCT', basisPoints: 350, includesVat: false },
+      }),
+    );
+    expect((await deliver(a)).map((q) => q.job)).toEqual(['buildDevelopmentReadModels']);
+  });
 });
 
 describe('listings search index (S5-02)', () => {

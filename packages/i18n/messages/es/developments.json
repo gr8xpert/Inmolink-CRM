@@ -58,6 +58,10 @@
     "verifiedAt": "Verificada por última vez el {date}",
     "notVerified": "Nunca verificada",
     "commissionSplitHint": "Lo que recibe la agencia que vende una unidad; el resto es para ti. 50 significa 50/50. Las solicitudes ya hechas mantienen el reparto con el que se hicieron.",
+    "commissionNotSet": "Sin definir",
+    "yes": "Sí",
+    "no": "No",
+    "commissionAdminsOnly": "Solo los administradores de tu agencia pueden cambiar la comisión y su reparto.",
     "fixedCommission": "Hay una comisión fija ({amount}); vacía el campo para quitarla o escribe un porcentaje para sustituirla.",
     "readOnly": "Promoción de otra agencia: puedes consultarla y escribir tus propios textos para tus canales.",
     "feed": {

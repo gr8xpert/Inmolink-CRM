@@ -11,6 +11,7 @@
  * development's own `agency_id`, enforced by a composite foreign key to `developments (id, agency_id)`.
  */
 
+import { DEFAULT_COMMISSION_SPLIT_BP } from '@inmolink/contracts/values';
 import { sql } from 'drizzle-orm';
 import {
   bigint,
@@ -90,7 +91,7 @@ export const developments = pgTable(
      * with the development's owner agency. 5000 (50/50) unless the owner's admins set another. Agent side only:
      * never in a read model, an index document or any client-facing output.
      */
-    commissionSplitBp: integer('commission_split_bp').notNull().default(5000),
+    commissionSplitBp: integer('commission_split_bp').notNull().default(DEFAULT_COMMISSION_SPLIT_BP),
     currency: char('currency', { length: 3 }).notNull().default('EUR'),
     managedBy: developmentManagerEnum('managed_by').notNull().default('DEVELOPER'),
     /** When the maintainer last confirmed units and prices (freshness SLA 24 h). */

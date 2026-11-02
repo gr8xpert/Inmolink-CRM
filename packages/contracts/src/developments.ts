@@ -62,6 +62,11 @@ export const DevelopmentDto = z.object({
   commission: Commission.nullable(),
   /** S17-F5: the selling agency's share of the commission (basis points); null in Client Mode. */
   commissionSplitBp: CommissionSplitBp.nullable(),
+  /**
+   * S17-F5: whether the caller may change the commission and its split (`development.commission`: the owner agency's
+   * admins; never in Client Mode or while staff act as the member). The dashboard shows them read-only otherwise.
+   */
+  canSetCommission: z.boolean(),
   currency: CurrencyCode,
   managedBy: DevelopmentManager,
   lastVerifiedAt: z.iso.datetime().nullable(),
@@ -92,7 +97,7 @@ export const CreateDevelopmentBody = z
     locationId: z.uuid(),
     coordinates: Coordinates.nullable().optional(),
     commission: Commission.nullable().optional(),
-    /** S17-F5: the selling agency's share of the commission (admins); left out, 5000 (50/50). */
+    /** S17-F5: the selling agency's share of the commission (admins, unless the default); left out, 5000 (50/50). */
     commissionSplitBp: CommissionSplitBp.optional(),
     currency: CurrencyCode.optional(),
     managedBy: DevelopmentManager.optional(),

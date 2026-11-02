@@ -230,3 +230,9 @@ export const SUPER_ADMIN_ROLES = ['SUPER_ADMIN'] as const satisfies readonly Sta
 export const STAFF_OPERATION_ROLES = ['SUPER_ADMIN', 'STAFF_DATA_OPS'] as const satisfies readonly StaffRoleName[];
 /** Who replies to, triages and keeps internal notes on support tickets (S13-05); every staff role reads them. */
 export const SUPPORT_AGENT_ROLES = ['SUPER_ADMIN', 'STAFF_SUPPORT'] as const satisfies readonly StaffRoleName[];
+
+/**
+ * S17-F5: a new development's commission split for the selling agency (basis points, 50/50) — the
+ * `developments.commission_split_bp` column default; setting another needs `development.commission`.
+ */
+export const DEFAULT_COMMISSION_SPLIT_BP = 5000;

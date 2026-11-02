@@ -58,6 +58,10 @@
     "verifiedAt": "Last verified {date}",
     "notVerified": "Never verified",
     "commissionSplitHint": "What the agency that sells a unit gets; the rest stays with you. 50 means 50/50. Requests already made keep the share they were made with.",
+    "commissionNotSet": "Not set",
+    "yes": "Yes",
+    "no": "No",
+    "commissionAdminsOnly": "Only your agency's admins can change the commission and its split.",
     "fixedCommission": "A fixed commission is set ({amount}); clear the field to remove it or enter a percentage to replace it.",
     "readOnly": "Another agency's development: you can read it and write your own texts for your channels.",
     "feed": {

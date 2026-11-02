@@ -4,15 +4,16 @@
  * (S4-01). Every change is optimistic on `version` (bulk unit edits excepted), writes unit price and status
  * history, and emits `developments.*` events in the same transaction.
  */
-import type {
-  Commission,
-  CreateDevelopmentBody,
-  DevelopmentDto,
-  DevelopmentPage,
-  ListDevelopmentsQuery,
-  LockableDevelopmentField,
-  SetDevelopmentAccessBody,
-  UpdateDevelopmentBody,
+import {
+  type Commission,
+  type CreateDevelopmentBody,
+  DEFAULT_COMMISSION_SPLIT_BP,
+  type DevelopmentDto,
+  type DevelopmentPage,
+  type ListDevelopmentsQuery,
+  type LockableDevelopmentField,
+  type SetDevelopmentAccessBody,
+  type UpdateDevelopmentBody,
 } from '@inmolink/contracts';
 import { clock } from '@inmolink/platform/clock';
 import { AppError } from '@inmolink/platform/errors';
@@ -23,7 +24,7 @@ import { decodeCursor, encodeCursor } from '../../pagination';
 import * as agencies from '../agencies';
 import * as compliance from '../compliance';
 import { developmentsEvents } from './events';
-import { assertCan, type DevelopmentsAction } from './policy';
+import { assertCan, can, type DevelopmentsAction } from './policy';
 import * as repo from './repo';
 
 export const num = (v: string | null) => (v === null ? null : Number(v));
@@ -116,6 +117,8 @@ export function toDevelopmentDto(ctx: Ctx, row: repo.DevelopmentListRow, allowed
     coordinates: lat === null || lng === null ? null : { lat, lng },
     commission: ctx.clientMode ? null : commissionOf(row, row.currency),
     commissionSplitBp: ctx.clientMode ? null : row.commissionSplitBp,
+    // S17-F5: pure policy over ctx (no query); false in Client Mode and while staff act as the member.
+    canSetCommission: can(ctx, 'development.commission', { agencyId: row.agencyId }),
     currency: row.currency,
     managedBy: row.managedBy,
     lastVerifiedAt: row.lastVerifiedAt?.toISOString() ?? null,
@@ -181,7 +184,11 @@ const point = (c: { lat: number; lng: number } | null | undefined) =>
  */
 export async function createDevelopment(ctx: Ctx, input: CreateDevelopmentBody): Promise<DevelopmentDto> {
   assertCan(ctx, 'development.create');
-  if (input.commission != null || input.commissionSplitBp !== undefined) assertCan(ctx, 'development.commission');
+  // The deal offered to collaborating agencies is the admins' (as on update, S17-F5): a commission, or a split other
+  // than the default every new development gets anyway — sending the default 5000 changes nothing.
+  const split = input.commissionSplitBp ?? DEFAULT_COMMISSION_SPLIT_BP;
+  const customSplit = split !== DEFAULT_COMMISSION_SPLIT_BP;
+  if (input.commission != null || customSplit) assertCan(ctx, 'development.commission');
   const currency = input.currency ?? (await agencies.getAgencySettings(ctx)).currency;
   assertCommissionCurrency(input.commission, currency);
   const agencyId = ctx.tenant.agencyId;
@@ -196,8 +203,8 @@ export async function createDevelopment(ctx: Ctx, input: CreateDevelopmentBody):
       locationId: input.locationId,
       ...point(input.coordinates ?? null),
       ...commissionColumns(input.commission ?? null),
-      // S17-F5: left out, the column's default (5000, 50/50).
-      ...(input.commissionSplitBp !== undefined ? { commissionSplitBp: input.commissionSplitBp } : {}),
+      // S17-F5: left out or the default, the column's default (5000, 50/50).
+      ...(customSplit ? { commissionSplitBp: split } : {}),
       currency,
       managedBy: input.managedBy ?? 'DEVELOPER',
     }),
@@ -257,14 +264,29 @@ export function lockedFieldsAfter(
   return [...new Set([...current.lockedFields, ...add])].sort();
 }
 
+/** Whether `next` (a body's commission; undefined: not sent) differs from the development's stored commission. */
+function commissionChanged(current: repo.DevelopmentRow, next: Commission | null | undefined): boolean {
+  if (next === undefined) return false;
+  const cols = commissionColumns(next);
+  return (
+    cols.commissionBp !== current.commissionBp ||
+    cols.commissionFixedCents !== current.commissionFixedCents ||
+    cols.commissionIncludesVat !== current.commissionIncludesVat
+  );
+}
+
+const splitChanged = (current: repo.DevelopmentRow, next: number | undefined) =>
+  next !== undefined && next !== current.commissionSplitBp;
+
 /**
  * `PATCH /v1/developments/:id`: fields, commission (admins), the "units and prices are current" mark, and the feed
  * field locks (a hand edit of a feed-owned field locks it).
  */
 export async function updateDevelopment(ctx: Ctx, id: string, input: UpdateDevelopmentBody): Promise<DevelopmentDto> {
   const current = await ownForChange(ctx, id, 'development.update');
-  // The commission and its split are the deal offered to collaborating agencies: the owner's admins only.
-  if (input.commission !== undefined || input.commissionSplitBp !== undefined) {
+  // The commission and its split are the deal offered to collaborating agencies: changing either is the owner's
+  // admins' (S17-F5, as on create). Sending the value already stored changes nothing, so it needs no admin.
+  if (commissionChanged(current, input.commission) || splitChanged(current, input.commissionSplitBp)) {
     assertCan(ctx, 'development.commission', current);
   }
   assertCommissionCurrency(input.commission, current.currency);
