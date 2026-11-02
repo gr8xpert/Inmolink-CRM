@@ -4,6 +4,9 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 
 ## [Unreleased]
 
+### Changed
+- chore(deps): zod 4.6.7, nodemailer 10.1.7, fastify 5.12.7 pinned directly (were 4.6.5 / 10.1.0 / 5.12.5 lifted by overrides); fast-uri 3.1.9 / 4.2.3 in the lockfile; the three S16-03 overrides removed; `pnpm audit` only the accepted dev / docs-UI Moderates [S16-F7]
+
 ### Removed
 - chore(website-api,feed-api,migration,platform,worker,wp-plugin,contracts,db): legacy system bridge — `/v1` shim + `?api_key=` path, goldens / recorder scripts / `test:golden`, hourly legacy delta jobs + `LEGACY_DATABASE_URL` / `LEGACY_DB_*` env, `LEGACY_V1_HIDE_NETWORK_OWNER`, WP legacy settings migration; migration 0181 revokes legacy-query keys and drops `api_keys.legacy_query_key`; `platform/legacy-db` renamed `platform/legacy-dump` (one-time import only; type / error names unchanged); worker removes retired schedulers at start [S17-F4]
 

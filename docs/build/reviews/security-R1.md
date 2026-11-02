@@ -11,20 +11,23 @@ and white-label leaks/logs/crypto/authorization).
 
 ## 1. Dependency audit (`pnpm audit`, lockfile)
 
-Before: 1 High, 10 Moderate, 5 Low, 0 Critical. After: **0 High / 0 Critical**, 7 Moderate, 4 Low.
+Before: 1 High, 10 Moderate, 5 Low, 0 Critical. After S16-03: **0 High / 0 Critical**, 7 Moderate, 4 Low. After S16-F7 (2026-11-02): 0 High / 0 Critical, 3 Moderate, 0 Low (see the end of this section).
 
 | Advisory | Package (path) | Severity | Decision |
 |---|---|---|---|
-| GHSA-mrhx-c7xc-m3w5 — memory exhaustion on oversized constrained collections | zod 4.6.5 (every app, contracts) | **High** | **Fixed**: override `"zod@<4.6.7": 4.6.7` (2026-10-12) in `pnpm-workspace.yaml`. Request bodies were also capped at 1 MiB, but the parse runs on every route. |
-| GHSA-8c8m-p3m8-cjg8, GHSA-m943-m63m-w62w, GHSA-85x2-q946-cp5h — addressparser recipient confusion | nodemailer 10.1.0 (platform email) | Moderate | **Fixed**: override `"nodemailer@>=3.0.0 <10.1.7": 10.1.7` (2026-10-18). Recipients are Zod-validated emails, so not reachable today. |
-| GHSA-389g-gv7q-r4x8 — header validation bypass (case-sensitive `propertyNames`) | fastify 5.12.5 | Low | **Fixed**: override `"fastify@>=5.12.2 <5.12.7": 5.12.7` (2026-10-13). |
-| GHSA-w74x-v6f9-j3xg, GHSA-wjr9-j795-jxcr (Moderate); GHSA-xhq7-xmqj-769h, GHSA-333x-w4r6-6crp (Low) | fast-uri 4.2.1 / 3.1.8 (fastify → ajv-compiler, ajv) | Moderate / Low | **Follow-up S16-F7**: the patched 4.2.3 / 3.1.9 (2026-10-19) are 13 days old (the repo pins releases ≥ 14 days old); pin them on or after 2026-11-02. Only `format: uri` checks in Fastify's own schemas use it; our routes validate with Zod. |
+| GHSA-mrhx-c7xc-m3w5 — memory exhaustion on oversized constrained collections | zod 4.6.5 (every app, contracts) | **High** | **Fixed**: override `"zod@<4.6.7": 4.6.7` (2026-10-12) in `pnpm-workspace.yaml`; since S16-F7 the `package.json` pins are 4.6.7 and the override is gone. Request bodies were also capped at 1 MiB, but the parse runs on every route. |
+| GHSA-8c8m-p3m8-cjg8, GHSA-m943-m63m-w62w, GHSA-85x2-q946-cp5h — addressparser recipient confusion | nodemailer 10.1.0 (platform email) | Moderate | **Fixed**: override `"nodemailer@>=3.0.0 <10.1.7": 10.1.7` (2026-10-18); S16-F7 pins 10.1.7 in platform and drops the override. Recipients are Zod-validated emails, so not reachable today. |
+| GHSA-389g-gv7q-r4x8 — header validation bypass (case-sensitive `propertyNames`) | fastify 5.12.5 | Low | **Fixed**: override `"fastify@>=5.12.2 <5.12.7": 5.12.7` (2026-10-13); S16-F7 pins 5.12.7 and drops the override. |
+| GHSA-w74x-v6f9-j3xg, GHSA-wjr9-j795-jxcr (Moderate); GHSA-xhq7-xmqj-769h, GHSA-333x-w4r6-6crp (Low) | fast-uri 4.2.1 / 3.1.8 (fastify → ajv-compiler, ajv) | Moderate / Low | **Fixed (S16-F7, 2026-11-02)**: the lockfile resolves the patched 4.2.3 / 3.1.9 (2026-10-19, 14 days old) inside the existing `^4` / `^3` ranges of `@fastify/ajv-compiler`, `fast-json-stringify`, `ajv` and `json-schema-resolver`, so no override is needed. Only `format: uri` checks in Fastify's own schemas use it; our routes validate with Zod. |
 | GHSA-67mh-4wv8-2f99 — dev server answers any website | esbuild 0.18.20 (db → drizzle-kit → @esbuild-kit) | Moderate | **Accepted**: dev-only CLI dependency; drizzle-kit never starts esbuild's dev server. Goes with the next drizzle-kit major. |
 | GHSA-g3hv-75wg-m249 (minimatch), GHSA-3g3m-2fjr-6pw4 (glob) | @fastify/swagger-ui → @fastify/static | Moderate | **Accepted**: Swagger UI is registered only with `docsUi` (development); production processes never load it. |
 
-The overrides are scoped to the vulnerable ranges (peers such as next-auth / @auth/core keep resolving their own
-range; they get the patched nodemailer too) and lift the `package.json` pins (4.6.5 / 10.1.0 / 5.12.5) without editing
-them: bumping the pins is part of S16-F7. **CI** now fails on any High or Critical advisory (`security` job, `pnpm audit --audit-level=high`).
+The S16-03 overrides were scoped to the vulnerable ranges and lifted the `package.json` pins (4.6.5 / 10.1.0 /
+5.12.5) without editing them. **S16-F7 (2026-11-02)** bumped the pins — zod 4.6.7 (root, contracts, core, platform,
+every app), nodemailer 10.1.7 (platform), fastify 5.12.7 (root, platform, api, feed-api, realtime, worker) — and
+removed the three overrides (only `libheif-js` is left); next-auth / @auth/core keep `nodemailer` as an unresolved
+optional peer (the dashboard uses only the Credentials provider). `pnpm audit` (no level) after S16-F7: **3 Moderate, 0 Low,
+0 High / Critical** — exactly the accepted esbuild (dev-only, drizzle-kit) and minimatch / glob (Swagger UI, only with `docsUi`) advisories above. fast-uri 3.1.9 / 4.2.3 are held by the lockfile inside the dependents' `^3` / `^4` ranges, not by an override. If a next-auth email (magic-link) provider is ever enabled, its nodemailer peer (`^7.0.7 || ^8.0.5`) would pull a separate, older nodemailer: add a scoped override or wait for next-auth to accept ≥ 10.1.7. **CI** now fails on any High or Critical advisory (`security` job, `pnpm audit --audit-level=high`).
 
 ## 2. Secrets scan (gitleaks 8.28.0, `zricethezav/gitleaks@sha256:cdbb7c95…`)
 

@@ -9,15 +9,9 @@ allowBuilds:
   esbuild: true
 
 # Pinned transitive versions (each at least two weeks old when pinned).
+# next-auth / @auth/core leave their optional nodemailer peer (^7 || ^8) unresolved: the dashboard uses only the
+# Credentials provider. Enabling an email provider needs a scoped nodemailer override (>= 10.1.7, S16-F7).
 overrides:
   # A direct dependency of core since S8-F7 (was through heic-decode 2.1.0); 1.23.2 (2026-09-05) was the newest
   # release older than two weeks (S3-04).
   libheif-js: 1.23.2
-  # S16-03 dependency audit (docs/build/reviews/security-R1.md §1): patched releases over the pins in package.json, scoped
-  # to the vulnerable ranges (so peers such as next-auth / @auth/core keep resolving their own nodemailer range)
-  # until those are bumped. zod 4.6.7 (2026-10-12): GHSA-mrhx-c7xc-m3w5 (High, memory exhaustion on oversized
-  # constrained collections). nodemailer 10.1.7 (2026-10-18): GHSA-8c8m-p3m8-cjg8, GHSA-m943-m63m-w62w,
-  # GHSA-85x2-q946-cp5h (address parser). fastify 5.12.7 (2026-10-13): GHSA-389g-gv7q-r4x8 (header validation).
-  "zod@<4.6.7": 4.6.7
-  "nodemailer@>=3.0.0 <10.1.7": 10.1.7
-  "fastify@>=5.12.2 <5.12.7": 5.12.7
