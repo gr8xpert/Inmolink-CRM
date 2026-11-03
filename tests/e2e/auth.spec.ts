@@ -76,6 +76,18 @@ test('[S0-09] sign-up → verify email → log in → call an authenticated API 
   expect((await page.request.get('/session/token?aud=api')).status()).toBe(401);
 });
 
+test('[S17-F11] a refused signup keeps what the user typed', async ({ page }) => {
+  await page.goto('/signup');
+  await page.getByLabel('Company name').fill('Joan Inmobiliaria');
+  await page.getByLabel('Your name').fill('Joan');
+  await page.getByLabel('Email').fill('not-an-email');
+  await page.getByLabel('Password').fill('short');
+  await page.getByRole('button', { name: 'Create account' }).click();
+  await expect(page.getByTestId('form-error')).toBeVisible();
+  await expect(page.getByLabel('Company name')).toHaveValue('Joan Inmobiliaria');
+  await expect(page.getByLabel('Email')).toHaveValue('not-an-email');
+});
+
 test('[S0-09] password reset: the emailed link works once and the new password logs in', async ({ page }) => {
   const email = uniqueEmail();
   await page.goto('/signup');

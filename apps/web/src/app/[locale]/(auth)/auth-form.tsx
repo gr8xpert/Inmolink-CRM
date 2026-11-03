@@ -1,7 +1,7 @@
 'use client';
 
 import { Button, Input, Label } from '@inmolink/ui';
-import { useActionState, useState } from 'react';
+import { type FormEvent, useActionState, useState, useTransition } from 'react';
 import type { FormState } from './actions';
 import { Turnstile } from './turnstile';
 
@@ -34,6 +34,14 @@ interface Props {
 /** Progressive-enhancement form: works without JS (server action), shows server errors by code. */
 export function AuthForm({ action, fields, hidden, submitLabel, errors, doneMessage, intro, challenge }: Props) {
   const [state, formAction, pending] = useActionState(action, {});
+  const [, startTransition] = useTransition();
+  // React clears a form posted through its `action` prop, so an error would wipe what the user typed. With JavaScript
+  // the form calls the action itself and keeps its values; without it, the `action` prop still posts.
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    startTransition(() => formAction(data));
+  };
   // Once challenged, keep the widget: past the ceiling every attempt needs a fresh token, even after a
   // wrong password (which the action reports without `challenge`).
   const [challenged, setChallenged] = useState(false);
@@ -46,7 +54,7 @@ export function AuthForm({ action, fields, hidden, submitLabel, errors, doneMess
     );
   }
   return (
-    <form action={formAction} className="flex flex-col gap-4" noValidate>
+    <form action={formAction} onSubmit={submit} className="flex flex-col gap-4" noValidate>
       {intro ? <p className="text-sm text-muted-foreground">{intro}</p> : null}
       {state.error ? (
         <p
