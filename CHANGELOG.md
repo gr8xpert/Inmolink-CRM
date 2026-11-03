@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Changed
+- fix(web): log API refusals that did not come from the API, so edge blocks are visible [S17-F7]
 - fix(api,web,contracts): upload file names move from the query to the `x-file-name` header, because Cloudflare challenges queries containing `.pdf` [S17-F6]
 - docs(status): finish R1 before R2, staging moves to a new server (owner decisions 2026-11-03); Docker rules added to CLAUDE.md
 - feat(developments,web,contracts): `DevelopmentDto.canSetCommission` from the policy; agents see commission / split read-only; create and update need the commission permission only for a changed value; `DEFAULT_COMMISSION_SPLIT_BP` shared by schema and service [S17-F5]

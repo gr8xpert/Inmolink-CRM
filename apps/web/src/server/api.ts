@@ -144,6 +144,7 @@ import { getLocale } from 'next-intl/server';
 import { cache } from 'react';
 import { z } from 'zod';
 import { getPathname } from '@/i18n/navigation';
+import { refusalLogFields } from './api-refusal';
 import { webConfig } from './env';
 import { readImpersonation } from './impersonation';
 import { requestAuthCtx } from './request-id';
@@ -305,8 +306,9 @@ async function apiCall<S extends z.ZodType>(
     });
     const json: unknown = await res.json().catch(() => null);
     if (!res.ok) {
-      if (res.status >= 500 || res.status === 401) logger.warn({ status: res.status, path }, 'api refused the call');
       const parsed = ErrorBody.safeParse(json);
+      const refusal = refusalLogFields(path, res, parsed.success);
+      if (refusal) logger.warn(refusal, 'api refused the call');
       return { ok: false, status: res.status, error: parsed.success ? parsed.data.error : null };
     }
     return { ok: true, data: schema.parse(json) };
