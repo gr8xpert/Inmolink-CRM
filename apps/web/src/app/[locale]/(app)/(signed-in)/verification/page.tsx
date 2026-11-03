@@ -1,11 +1,12 @@
 import { VERIFICATION_DOCUMENT_TYPES, VerificationDocumentKind } from '@inmolink/contracts';
-import { Button, EmptyState, Label } from '@inmolink/ui';
+import { Button, EmptyState } from '@inmolink/ui';
 import { redirect } from 'next/navigation';
 import { getFormatter, getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
 import { fetchVerification, sessionRef } from '@/server/api';
 import { removeAction, submitAction } from './actions';
+import { UploadForm } from './upload-form';
 
 const NOTICES = ['uploaded', 'removed', 'submitted'] as const;
 const ERRORS = [
@@ -125,42 +126,21 @@ export default async function VerificationPage({ searchParams }: { searchParams:
             <h2 id="upload-heading" className="font-medium">
               {t('upload.title')}
             </h2>
-            {/* A route handler, not a server action: only this path accepts 10 MB bodies. */}
-            <form
-              action="/api/verification/documents"
-              method="post"
-              encType="multipart/form-data"
-              className="flex flex-col gap-3 sm:flex-row sm:items-end"
-            >
-              <input type="hidden" name="locale" value={locale} />
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="doc-kind">{t('upload.kind')}</Label>
-                <select
-                  id="doc-kind"
-                  name="kind"
-                  defaultValue="TAX_ID"
-                  className="h-9 rounded-md border bg-background px-2 text-sm"
-                >
-                  {VerificationDocumentKind.options.map((k) => (
-                    <option key={k} value={k}>
-                      {t(`kinds.${k}`)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex flex-1 flex-col gap-2">
-                <Label htmlFor="doc-file">{t('upload.file')}</Label>
-                <input
-                  id="doc-file"
-                  name="file"
-                  type="file"
-                  required
-                  accept={VERIFICATION_DOCUMENT_TYPES.join(',')}
-                  className="text-sm"
-                />
-              </div>
-              <Button type="submit">{t('upload.submit')}</Button>
-            </form>
+            <UploadForm
+              locale={locale}
+              accept={VERIFICATION_DOCUMENT_TYPES.join(',')}
+              kinds={VerificationDocumentKind.options.map((k) => ({ value: k, label: t(`kinds.${k}`) }))}
+              labels={{
+                kind: t('upload.kind'),
+                file: t('upload.file'),
+                submit: t('upload.submit'),
+                uploaded: t('notices.uploaded'),
+              }}
+              errors={{
+                ...Object.fromEntries(ERRORS.map((e) => [e, t(`errors.${e}`)])),
+                generic: t('errors.generic'),
+              }}
+            />
           </section>
 
           <section aria-labelledby="submit-heading" className="flex flex-col gap-2">

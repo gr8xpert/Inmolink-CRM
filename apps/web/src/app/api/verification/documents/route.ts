@@ -26,12 +26,18 @@ const KNOWN_ERRORS = new Set([
  * A route handler instead of a server action, so the 10 MB limit applies to this path alone (server
  * actions keep Next's 1 MB default). Before reading the body it checks the origin (the session cookie
  * is SameSite=Strict as well), the declared length and the session. The API checks the file's real
- * type and size. Answers with a 303 back to the page and a notice or an error code.
+ * type and size. Answers with a 303 back to the page and a notice or an error code, or the same as JSON for the
+ * page's form (`accept: application/json`), which keeps what the user chose when an upload is refused.
  */
 export async function POST(request: Request): Promise<Response> {
   const config = await webConfig();
+  // The page's form asks for JSON so it can stay on the page; without JavaScript it follows the redirects.
+  const wantsJson = request.headers.get('accept') === 'application/json';
+  const go = (url: string) => (wantsJson ? Response.json({ redirect: url }) : Response.redirect(url, 303));
   const back = (locale: string, query: Record<string, string>) =>
-    Response.redirect(`${config.WEB_URL}/${locale}/verification?${new URLSearchParams(query)}`, 303);
+    wantsJson
+      ? Response.json(query)
+      : Response.redirect(`${config.WEB_URL}/${locale}/verification?${new URLSearchParams(query)}`, 303);
 
   if (request.headers.get('origin') !== new URL(config.WEB_URL).origin) {
     return new Response(null, { status: 403 });
@@ -43,14 +49,14 @@ export async function POST(request: Request): Promise<Response> {
     return back(DEFAULT_UI_LOCALE, { error: 'PAYLOAD_TOO_LARGE' });
   }
   const session = await auth();
-  if (!session?.user?.id) return Response.redirect(`${config.WEB_URL}/session/expired`, 303);
+  if (!session?.user?.id) return go(`${config.WEB_URL}/session/expired`);
   // A session that still owes 2FA (S1-04) would be refused at the mint: send it to the challenge with
   // a 303 before reading the body (a 307 from the shared API helper would re-post the file there).
   if (!session.user.mfaVerified) {
     const status = await identity.getTwoFactorStatus(await requestAuthCtx(), { userId: session.user.id });
     if (status.enabled || status.required) {
       const path = getPathname({ href: '/two-factor', locale: DEFAULT_UI_LOCALE });
-      return Response.redirect(`${config.WEB_URL}${path}`, 303);
+      return go(`${config.WEB_URL}${path}`);
     }
   }
 
@@ -69,7 +75,7 @@ export async function POST(request: Request): Promise<Response> {
     { kind: kind.data, fileName: name.success ? name.data : 'document' },
     { bytes: new Uint8Array(await file.arrayBuffer()), contentType: file.type },
   );
-  if (res === 'revoked') return Response.redirect(`${config.WEB_URL}/session/expired`, 303);
+  if (res === 'revoked') return go(`${config.WEB_URL}/session/expired`);
   if (res.ok) return back(locale, { notice: 'uploaded' });
   const code = res.error?.code;
   return back(locale, { error: code && KNOWN_ERRORS.has(code) ? code : 'generic' });

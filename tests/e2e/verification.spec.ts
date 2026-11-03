@@ -92,12 +92,16 @@ test('[S1-03] an agency uploads and submits; staff approve; the agency is verifi
   await expect(page.getByRole('status')).toContainText('Document uploaded.');
   await expect(page.getByTestId('verification-documents')).toContainText('cif.pdf');
   // A file that only claims to be a PDF is refused by its content.
+  await page.getByLabel('Document type').selectOption('REGISTER');
   await page
     .getByLabel(/^File/)
     .setInputFiles({ name: 'fake.pdf', mimeType: 'application/pdf', buffer: Buffer.from('<html></html>') });
   await page.getByRole('button', { name: 'Upload' }).click();
   // The page's own alert, not Next's route announcer (also role=alert).
   await expect(page.getByRole('main').getByRole('alert')).toContainText('not a PDF, PNG, JPEG or WebP');
+  // [S17-F8] A refused upload stays on the page and keeps the chosen type and file.
+  await expect(page.getByLabel('Document type')).toHaveValue('REGISTER');
+  await expect(page.getByLabel(/^File/)).toHaveJSProperty('files.0.name', 'fake.pdf');
   await page.getByRole('button', { name: 'Send for verification' }).click();
   await expect(page.getByRole('status')).toContainText('Sent.');
   await page.goto('/en');

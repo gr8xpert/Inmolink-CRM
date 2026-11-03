@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Changed
+- fix(web): a refused verification upload keeps the chosen type and file [S17-F8]
 - fix(web): log API refusals that did not come from the API, so edge blocks are visible [S17-F7]
 - fix(api,web,contracts): upload file names move from the query to the `x-file-name` header, because Cloudflare challenges queries containing `.pdf` [S17-F6]
 - docs(status): finish R1 before R2, staging moves to a new server (owner decisions 2026-11-03); Docker rules added to CLAUDE.md
