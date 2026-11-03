@@ -499,6 +499,7 @@ Single source of truth for progress. Claude updates this at the end of every tas
 | S17-F7 | DONE | 2026-11-03 | Staging bug 4: a refused API call without the API's error body (an edge block such as the Cloudflare challenge) is now logged by the web app with status, path without query, content type and `cf-mitigated` (`server/api-refusal.ts`); the API's own expected refusals stay quiet. |
 | S17-F8 | DONE | 2026-11-03 | Staging bug 3: the verification upload form posts in the background (`verification/upload-form.tsx`, route answers JSON on `accept: application/json`), so a refused upload keeps the chosen type and file. The form still works without JavaScript through the redirects. e2e check added in `verification.spec.ts`. |
 | S17-F9 | DONE | 2026-11-03 | Staging bug 2: saving company details no longer says the team will review them, since nothing reaches staff until documents are sent. The message (EN, ES) now names the next step and links to `/verification`. |
+| S17-F10 | DONE | 2026-11-03 | Signup uses Turnstile on every attempt when the keys are set (owner decision 2026-11-03): widget on `/signup`, `passesSignupChallenge` after the rate limits, own `signup` action, new error `challengeFailed` (EN, ES). Without keys, only the rate limits apply. The verifier moved to `server/turnstile.ts`. The live widget needs `staging-app.inmolink.es` on its hostnames: check after the deploy. |
 
 *(Add the next sprint's rows when a sprint closes in `/sprint-review`.)*
 

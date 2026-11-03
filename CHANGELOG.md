@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Changed
+- feat(web): signup requires Turnstile when the keys are set [S17-F10]
 - fix(web): onboarding names the real next step instead of promising a review [S17-F9]
 - fix(web): a refused verification upload keeps the chosen type and file [S17-F8]
 - fix(web): log API refusals that did not come from the API, so edge blocks are visible [S17-F7]

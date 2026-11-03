@@ -17,6 +17,7 @@ import { getPathname, redirect } from '@/i18n/navigation';
 import { webConfig } from '@/server/env';
 import { checkLimits, clientIp, LIMITS } from '@/server/limits';
 import { requestAuthCtx } from '@/server/request-id';
+import { passesSignupChallenge } from '@/server/turnstile';
 
 /**
  * Auth form actions (transport only): validate with the contracts, rate-limit, call identity. The
@@ -27,6 +28,7 @@ export interface FormState {
     | 'invalidInput'
     | 'rateLimited'
     | 'challengeRequired'
+    | 'challengeFailed'
     | 'invalidCredentials'
     | 'emailNotVerified'
     | 'tokenInvalid'
@@ -71,6 +73,10 @@ export async function signupAction(_prev: FormState, form: FormData): Promise<Fo
     [LIMITS.signupEmail, parsed.data.email],
   ]);
   if (wait > 0) return { error: 'rateLimited' };
+  const forwardedFor = (await headers()).get('x-forwarded-for');
+  if (!(await passesSignupChallenge(field(form, 'cf-turnstile-response'), forwardedFor))) {
+    return { error: 'challengeFailed' };
+  }
   await identity.register(await requestAuthCtx(), parsed.data);
   return { done: true };
 }

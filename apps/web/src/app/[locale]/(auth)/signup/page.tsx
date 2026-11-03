@@ -1,12 +1,15 @@
 import { PASSWORD_MIN_LENGTH } from '@inmolink/contracts';
 import { getTranslations } from 'next-intl/server';
 import { Link } from '@/i18n/navigation';
+import { webConfig } from '@/server/env';
 import { formErrors } from '@/server/form-errors';
+import { TURNSTILE_SIGNUP_ACTION } from '@/server/turnstile';
 import { signupAction } from '../actions';
 import { AuthForm } from '../auth-form';
 
 export default async function SignupPage() {
   const t = await getTranslations('auth');
+  const siteKey = (await webConfig()).TURNSTILE_SITE_KEY;
   return (
     <>
       <h1 className="mb-4 text-xl font-semibold">{t('signup.title')}</h1>
@@ -14,6 +17,7 @@ export default async function SignupPage() {
         action={signupAction}
         submitLabel={t('signup.submit')}
         errors={await formErrors()}
+        challenge={siteKey ? { siteKey, action: TURNSTILE_SIGNUP_ACTION, always: true } : undefined}
         doneMessage={`${t('signup.checkEmailTitle')}. ${t('signup.checkEmailBody')}`}
         fields={[
           {

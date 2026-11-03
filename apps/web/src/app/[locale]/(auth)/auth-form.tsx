@@ -27,8 +27,8 @@ interface Props {
   doneMessage?: string;
   /** Short instruction above the fields. */
   intro?: string;
-  /** Login: the Turnstile widget shown once the action asks for a challenge (S1-F5). */
-  challenge?: { siteKey: string; action: string };
+  /** The Turnstile widget. Login shows it once the action asks (S1-F5); `always` shows it from the start (signup). */
+  challenge?: { siteKey: string; action: string; always?: boolean };
 }
 
 /** Progressive-enhancement form: works without JS (server action), shows server errors by code. */
@@ -95,7 +95,7 @@ export function AuthForm({ action, fields, hidden, submitLabel, errors, doneMess
           </div>
         );
       })}
-      {challenge && challenged ? (
+      {challenge && (challenge.always || challenged) ? (
         <Turnstile siteKey={challenge.siteKey} action={challenge.action} resetKey={state} />
       ) : null}
       <Button type="submit" disabled={pending}>

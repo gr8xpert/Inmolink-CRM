@@ -111,7 +111,9 @@ Blocked on H3 (accounts), H4 (servers), H5 (DNS) — `docs/build/HUMAN-ACTIONS.m
    dashboard's "Connect a portal" list is empty.
 
    Turnstile (H3): create a widget for `app.inmolink.es` (+ staging) and set `TURNSTILE_SITE_KEY` /
-   `TURNSTILE_SECRET_KEY` for web. Without them, the per-email login ceiling is a hard block again.
+   `TURNSTILE_SECRET_KEY` for web. Without them, the per-email login ceiling is a hard block again and signup has
+   only its rate limits. With them, every signup needs the widget, so the widget's hostnames must include this
+   environment's app host, or nobody can sign up.
 7. First deploy creates the app roles: export `DATABASE_URL_ADMIN=postgres://postgres:<superuser
    password>@127.0.0.1:5432/inmolink` in your shell, then `scripts/ops/deploy.sh staging --bootstrap-roles`.
    The URL travels over SSH stdin into the one-off container; it is never written to the hosts.
