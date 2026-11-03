@@ -2,6 +2,7 @@
 
 import {
   AddAliasInput,
+  CreateCatalogItemInput,
   CreateLocationInput,
   ReorderCatalogInput,
   ReorderLocationsInput,
@@ -99,6 +100,12 @@ export async function loadCatalogItemAction(
   const i = Id.safeParse(id);
   if (!k.success || !s.success || !i.success) return invalid;
   return settle(await api.fetchStaffCatalogItem(await session(), k.data, s.data, i.data));
+}
+
+export async function createCatalogItemAction(input: unknown): Promise<ActionResult<StaffCatalogItemDto>> {
+  const parsed = CreateCatalogItemInput.safeParse(input);
+  if (!parsed.success) return invalid;
+  return settle(await api.createStaffCatalogItem(await session(), parsed.data));
 }
 
 export async function updateCatalogItemAction(id: unknown, input: unknown): Promise<ActionResult<StaffCatalogItemDto>> {

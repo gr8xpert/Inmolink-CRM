@@ -281,6 +281,20 @@ export const UpdateCatalogItemInput = z.object({
 });
 export type UpdateCatalogItemInput = z.infer<typeof UpdateCatalogItemInput>;
 
+/**
+ * A new property type or feature (`groupId`: its group), or a new group (`groupId: null`), added last in its list.
+ * The server derives the key from the slug. `icon` only counts for a feature.
+ */
+export const CreateCatalogItemInput = z
+  .object({
+    kind: CatalogKind,
+    groupId: z.uuid().nullable(),
+    icon: LucideIcon.optional(),
+    translations: Translations,
+  })
+  .strict();
+export type CreateCatalogItemInput = z.infer<typeof CreateCatalogItemInput>;
+
 export const AddAliasInput = z.object({ alias: z.string().trim().min(1).max(200) });
 export type AddAliasInput = z.infer<typeof AddAliasInput>;
 

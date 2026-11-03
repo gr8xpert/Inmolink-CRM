@@ -1,7 +1,7 @@
 'use client';
 
 import type { LocationLevel, StaffCatalogItemDto, StaffLocationDto, StaffTaxonomyDto } from '@inmolink/contracts';
-import { Button, Input } from '@inmolink/ui';
+import { Button, Input, Label } from '@inmolink/ui';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import { type ReactNode, useState, useTransition } from 'react';
@@ -9,6 +9,7 @@ import {
   type ActionResult,
   addCatalogAliasAction,
   addLocationAliasAction,
+  createCatalogItemAction,
   createLocationAction,
   loadCatalogItemAction,
   loadLocationAction,
@@ -43,6 +44,9 @@ interface LocationNode extends Row {
 type Selection =
   | { kind: 'location'; id: string }
   | { kind: CatalogKind; scope: 'group' | 'item'; id: string; name: string };
+
+/** A Lucide icon name; staff can type another. */
+const DEFAULT_ICON = 'check';
 
 const NEXT_LEVEL: Record<LocationLevel, LocationLevel | null> = {
   COUNTRY: 'REGION',
@@ -244,6 +248,8 @@ export function TaxonomyEditor({ tree, canWrite, locales, defaultLocale, mapStyl
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [loaded, setLoaded] = useState<Map<string, LocationNode[]>>(new Map());
   const [creating, setCreating] = useState<{ parentId: string | null; level: LocationLevel } | null>(null);
+  const [creatingCatalog, setCreatingCatalog] = useState<{ kind: CatalogKind; groupId: string | null } | null>(null);
+  const [icon, setIcon] = useState(DEFAULT_ICON);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
   const disabled = !canWrite;
@@ -284,6 +290,7 @@ export function TaxonomyEditor({ tree, canWrite, locales, defaultLocale, mapStyl
 
   const selectCatalog = async (kind: CatalogKind, scope: 'group' | 'item', row: Row) => {
     setSelection({ kind, scope, id: row.id, name: row.name });
+    setCreatingCatalog(null);
     setCatalogItem(null);
     setStatus(null);
     const res = await loadCatalogItemAction(kind, scope, row.id);
@@ -374,9 +381,68 @@ export function TaxonomyEditor({ tree, canWrite, locales, defaultLocale, mapStyl
       setLocation,
     );
 
+  const startCatalog = (kind: CatalogKind, groupId: string | null) => {
+    setCreatingCatalog({ kind, groupId });
+    setIcon(DEFAULT_ICON);
+    setSelection(null);
+    setStatus(null);
+  };
+
   const detail = (
     <>
-      {creating ? (
+      {creatingCatalog ? (
+        <section className="flex flex-col gap-3">
+          <h2 className="text-lg font-semibold">
+            {t(creatingCatalog.groupId === null ? 'catalog.newGroup' : `catalog.new.${creatingCatalog.kind}`)}
+          </h2>
+          {creatingCatalog.kind === 'feature' && creatingCatalog.groupId !== null ? (
+            <div className="flex flex-col gap-1">
+              <Label htmlFor="catalog-icon" className="text-xs">
+                {t('catalog.icon')}
+              </Label>
+              <Input
+                id="catalog-icon"
+                value={icon}
+                maxLength={60}
+                aria-describedby="catalog-icon-hint"
+                onChange={(e) => setIcon(e.target.value)}
+              />
+              <p id="catalog-icon-hint" className="text-xs text-muted-foreground">
+                {t('catalog.iconHint')}
+              </p>
+            </div>
+          ) : null}
+          <TranslationEditor
+            key={`${creatingCatalog.kind}:${creatingCatalog.groupId}`}
+            initial={[{ locale: defaultLocale, name: '', slug: '' }]}
+            locales={locales}
+            disabled={disabled}
+            busy={busy}
+            submitLabel={t('create')}
+            t={t}
+            onSubmit={(translations) =>
+              run(
+                () =>
+                  createCatalogItemAction({
+                    ...creatingCatalog,
+                    ...(creatingCatalog.kind === 'feature' && creatingCatalog.groupId !== null ? { icon } : {}),
+                    translations,
+                  }),
+                () => setCreatingCatalog(null),
+              )
+            }
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="self-start"
+            onClick={() => setCreatingCatalog(null)}
+          >
+            {t('cancel')}
+          </Button>
+        </section>
+      ) : creating ? (
         <section className="flex flex-col gap-3">
           <h2 className="text-lg font-semibold">{t('createTitle', { level: t(`levels.${creating.level}`) })}</h2>
           <TranslationEditor
@@ -524,6 +590,11 @@ export function TaxonomyEditor({ tree, canWrite, locales, defaultLocale, mapStyl
                 onReorder={(orderedIds) => run(() => reorderCatalogAction({ kind, groupId: group.id, orderedIds }))}
                 onSelect={(item) => selectCatalog(kind, 'item', item)}
               />
+              {!disabled ? (
+                <button type="button" className="text-xs underline" onClick={() => startCatalog(kind, group.id)}>
+                  {t(`catalog.add.${kind}`)}
+                </button>
+              ) : null}
             </div>
           );
         }}
@@ -547,6 +618,7 @@ export function TaxonomyEditor({ tree, canWrite, locales, defaultLocale, mapStyl
               setTab(id);
               setSelection(null);
               setCreating(null);
+              setCreatingCatalog(null);
             }}
           >
             {t(`tabs.${id}`)}
@@ -582,7 +654,23 @@ export function TaxonomyEditor({ tree, canWrite, locales, defaultLocale, mapStyl
               ) : null}
             </>
           ) : (
-            renderCatalog(tab === 'propertyTypes' ? 'propertyType' : 'feature')
+            <>
+              {catalogGroups(tab === 'propertyTypes' ? 'propertyType' : 'feature').length === 0 ? (
+                <p className="text-sm text-muted-foreground">{t('noChildren')}</p>
+              ) : null}
+              {renderCatalog(tab === 'propertyTypes' ? 'propertyType' : 'feature')}
+              {!disabled ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="self-start"
+                  onClick={() => startCatalog(tab === 'propertyTypes' ? 'propertyType' : 'feature', null)}
+                >
+                  {t('catalog.addGroup')}
+                </Button>
+              ) : null}
+            </>
           )}
         </nav>
         <div>{detail}</div>

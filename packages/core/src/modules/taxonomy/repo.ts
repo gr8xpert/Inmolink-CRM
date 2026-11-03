@@ -247,6 +247,19 @@ export async function catalogGroupExists(tx: Tx, kind: CatalogKind, id: string):
   return rows.length > 0;
 }
 
+/** The sort value that puts a new group (`groupId` null) or a new item of a group last. */
+export async function nextCatalogSort(tx: Tx, kind: CatalogKind, groupId: string | null): Promise<number> {
+  const f = FAMILIES[kind];
+  const [row] =
+    groupId === null
+      ? await tx.select({ n: sql<number>`coalesce(max(${f.groups.sort}) + 1, 0)` }).from(f.groups)
+      : await tx
+          .select({ n: sql<number>`coalesce(max(${f.items.sort}) + 1, 0)` })
+          .from(f.items)
+          .where(eq(f.items.groupId, groupId));
+  return Math.min(Number(row?.n ?? 0), 32000);
+}
+
 /** How many items a group holds (the cap check at save, S15-F8). */
 export async function countCatalogItems(tx: Tx, kind: CatalogKind, groupId: string): Promise<number> {
   const f = FAMILIES[kind];

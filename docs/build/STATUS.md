@@ -3,7 +3,7 @@
 Single source of truth for progress. Claude updates this at the end of every task. Keep **Now**, **Current sprint** and **Blocked** short — the session-start hook injects them.
 
 ## Now
-- **Task:** S17-01 Pilot cutover: finish R1 first, R2 on hold (owner, 2026-11-03; see Decisions). Waits on the new staging server, expected 2026-11-04 (a separate DevOps session prepares it: `D:\VirtualOffice\_Shared\briefs\inmolinkcrm-new-server-deploy.md`), the owner's Resales IP whitelist, then H11. On handback: run the R1 staging tests (Blocked › H4 items), then the real Resales import, then the pilot.
+- **Task:** S17-01 Pilot cutover: finish R1 first, R2 on hold (owner, 2026-11-03; see Decisions). The new staging server is live (`4f38aed8`, rollback test passed, DevOps handoff 2026-11-03). Waits on the owner's Resales IP whitelist for `79.99.44.167` and the real import (owner, 2026-11-05), then H11. On handback: run the R1 staging tests (Blocked › H4 items), then the real Resales import, then the pilot.
 - **Started:** —
 - **End-of-S17 full gate:** NOT passed yet. First run 2026-11-03 crashed on host memory, not on a test result (see Decisions); CI is green on 85106c9d.
 - **Load it with:** `node scripts/task-brief.mjs --next`. Longer notes and open human steps: **Handover** below (not injected at session start).
@@ -502,6 +502,7 @@ Single source of truth for progress. Claude updates this at the end of every tas
 | S17-F10 | DONE | 2026-11-03 | Signup uses Turnstile on every attempt when the keys are set (owner decision 2026-11-03): widget on `/signup`, `passesSignupChallenge` after the rate limits, own `signup` action, new error `challengeFailed` (EN, ES). Without keys, only the rate limits apply. The verifier moved to `server/turnstile.ts`. The live widget needs `staging-app.inmolink.es` on its hostnames: check after the deploy. |
 | S17-F11 | DONE | 2026-11-03 | Staging finding: every auth form (signup, login, reset, invite) cleared its fields on an error, because React resets a form posted through its `action` prop. `AuthForm` now calls the action from `onSubmit` and keeps the values; it still posts without JavaScript. e2e check in `auth.spec.ts`. |
 | S17-F12 | DONE | 2026-11-03 | Staging: after opening a file, the next action on the page was posted to the file store and failed silently (found on staff Approve). The verification, support (agency and staff) and data-export file buttons now use `OpenFileForm`: the action returns the link. Staff no longer see a Notifications bell, whose page can only fail without an agency. Guard test plus e2e step. |
+| S17-F13 | DONE | 2026-11-04 | A fresh server had no taxonomy and the staff console could not create catalog entries, so no listing could be created. `POST /v1/staff/taxonomy/catalog` and the taxonomy editor now create property types, features and their groups, last in their list; the key comes from the English slug; duplicate key 409, unknown group 404, support staff 403; audited. |
 
 *(Add the next sprint's rows when a sprint closes in `/sprint-review`.)*
 

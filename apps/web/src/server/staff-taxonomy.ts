@@ -1,5 +1,6 @@
 import {
   type AddAliasInput,
+  type CreateCatalogItemInput,
   type CreateLocationInput,
   type ReorderCatalogInput,
   type ReorderLocationsInput,
@@ -63,6 +64,12 @@ export const fetchStaffCatalogItem = (
   id: string,
 ): Promise<ApiResult<StaffCatalogItemDto>> =>
   apiRequest(s, `${base}/catalog/${seg(kind)}/${seg(scope)}/${seg(id)}`, StaffCatalogItemDto);
+
+export const createStaffCatalogItem = (
+  s: SessionRef,
+  body: CreateCatalogItemInput,
+): Promise<ApiResult<StaffCatalogItemDto>> =>
+  apiRequest(s, `${base}/catalog`, StaffCatalogItemDto, { method: 'POST', body });
 
 export const updateStaffCatalogItem = (
   s: SessionRef,

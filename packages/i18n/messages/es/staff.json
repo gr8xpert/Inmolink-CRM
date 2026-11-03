@@ -35,6 +35,14 @@
       "CITY": "Ciudad",
       "AREA": "Zona"
     },
+    "catalog": {
+      "addGroup": "Añadir grupo",
+      "add": { "propertyType": "Añadir tipo de propiedad", "feature": "Añadir característica" },
+      "newGroup": "Nuevo grupo",
+      "new": { "propertyType": "Nuevo tipo de propiedad", "feature": "Nueva característica" },
+      "icon": "Icono",
+      "iconHint": "Nombre de un icono de Lucide en minúsculas, como check o waves."
+    },
     "addRoot": "Añadir un país",
     "addChild": "Añadir {level}",
     "createTitle": "Nuevo elemento: {level}",

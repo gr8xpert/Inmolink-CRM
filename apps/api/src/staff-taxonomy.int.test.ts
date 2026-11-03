@@ -375,6 +375,73 @@ describe('staff taxonomy admin', () => {
     expect(gone.json().aliases).toEqual([]);
   });
 
+  it('[S17-F13] staff create property types, features and groups; each lands last; support staff get 403', async () => {
+    const ops = await bearer((await createStaffUser('STAFF_DATA_OPS')).userId);
+    const post = (headers: Record<string, string>, payload: object) =>
+      app.inject({ method: 'POST', url: '/v1/staff/taxonomy/catalog', headers, payload });
+
+    const g = await post(ops, { kind: 'propertyType', groupId: null, translations: [tr('en', 'Houses', 'f13-grp')] });
+    expect(g.statusCode).toBe(201);
+    expect(g.json()).toMatchObject({ kind: 'propertyType', scope: 'group' });
+    const groupId: string = g.json().id;
+
+    const body = (s: string) => ({
+      kind: 'propertyType',
+      groupId,
+      translations: [tr('es', s, `f13-${s}`), tr('en', s, `f13-${s}`)],
+    });
+    const first = await post(ops, body('uno'));
+    const second = await post(ops, body('dos'));
+    expect([first.statusCode, second.statusCode]).toEqual([201, 201]);
+    expect(first.json()).toMatchObject({ scope: 'item' });
+    const rows = await adminQuery<{ key: string; sort: number }>(
+      `select key, sort from property_types where group_id = $1 order by sort`,
+      [groupId],
+    );
+    expect(rows).toEqual([
+      { key: slug('f13-uno'), sort: 0 },
+      { key: slug('f13-dos'), sort: 1 },
+    ]);
+
+    // The same key again is a conflict, not a second row; a group that does not exist is a 404.
+    expect((await post(ops, body('uno'))).statusCode).toBe(409);
+    expect((await post(ops, { ...body('tres'), groupId: newId() })).statusCode).toBe(404);
+
+    const fg = await post(ops, { kind: 'feature', groupId: null, translations: [tr('en', 'Outdoor', 'f13-fg')] });
+    expect(fg.statusCode).toBe(201);
+    const fgId: string = fg.json().id;
+    const pool = await post(ops, {
+      kind: 'feature',
+      groupId: fgId,
+      icon: 'waves',
+      translations: [tr('en', 'Pool', 'f13-pool')],
+    });
+    const lift = await post(ops, { kind: 'feature', groupId: fgId, translations: [tr('en', 'Lift', 'f13-lift')] });
+    expect([pool.statusCode, lift.statusCode]).toEqual([201, 201]);
+    const icons = await adminQuery<{ icon: string }>(`select icon from features where group_id = $1 order by sort`, [
+      fgId,
+    ]);
+    expect(icons.map((r) => r.icon)).toEqual(['waves', 'check']);
+
+    // The editor sees them at once.
+    const tree = StaffTaxonomyDto.parse(
+      (await app.inject({ method: 'GET', url: '/v1/staff/taxonomy', headers: ops })).json(),
+    );
+    expect(tree.propertyTypes.find((x) => x.id === groupId)?.types.map((x) => x.key)).toEqual([
+      slug('f13-uno'),
+      slug('f13-dos'),
+    ]);
+
+    const audits = await adminQuery<{ action: string }>(
+      `select metadata->>'action' as action from audit_logs where type = 'staff.taxonomy.changed' and target_id = $1`,
+      [pool.json().id],
+    );
+    expect(audits.map((a) => a.action)).toEqual(['createCatalogItem']);
+
+    const support = await bearer((await createStaffUser('STAFF_SUPPORT')).userId);
+    expect((await post(support, body('cuatro'))).statusCode).toBe(403);
+  });
+
   it('[S2-04] reading is for all staff; writing for super admins and data ops; everyone else gets 403', async () => {
     const support = await bearer((await createStaffUser('STAFF_SUPPORT')).userId);
     const f = await createFounder();

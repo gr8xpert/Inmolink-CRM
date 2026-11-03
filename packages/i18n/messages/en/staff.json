@@ -35,6 +35,14 @@
       "CITY": "City",
       "AREA": "Area"
     },
+    "catalog": {
+      "addGroup": "Add group",
+      "add": { "propertyType": "Add property type", "feature": "Add feature" },
+      "newGroup": "New group",
+      "new": { "propertyType": "New property type", "feature": "New feature" },
+      "icon": "Icon",
+      "iconHint": "A Lucide icon name in lowercase, such as check or waves."
+    },
     "addRoot": "Add a country",
     "addChild": "Add {level}",
     "createTitle": "New {level}",

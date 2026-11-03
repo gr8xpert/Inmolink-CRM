@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Changed
+- Staff can create property types, features and their groups in the taxonomy console [S17-F13]
 - Opening a file no longer breaks the next action on the page; staff no longer get a Notifications bell [S17-F12]
 - fix(web): auth forms keep what the user typed after an error [S17-F11]
 - feat(web): signup requires Turnstile when the keys are set [S17-F10]

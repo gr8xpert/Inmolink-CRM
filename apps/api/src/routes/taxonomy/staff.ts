@@ -4,6 +4,7 @@ import {
   CatalogAliasParams,
   CatalogItemParams,
   CatalogKindParams,
+  CreateCatalogItemInput,
   CreateLocationInput,
   LocationParams,
   MapUnmatchedInput,
@@ -219,6 +220,27 @@ export async function staffTaxonomyRoutes(app: FastifyZod): Promise<void> {
       return app.withStaffCtx(req, 'taxonomy.staffGetCatalogItem', (ctx) =>
         taxonomy.getStaffCatalogItem(ctx, req.params.kind, req.params.scope, req.params.id),
       );
+    },
+  );
+
+  app.post(
+    '/v1/staff/taxonomy/catalog',
+    {
+      schema: {
+        tags,
+        operationId: 'taxonomy.staffCreateCatalogItem',
+        summary: 'Create a property type, a feature or one of their groups (last in its list)',
+        body: CreateCatalogItemInput,
+        response: { 201: StaffCatalogItemDto },
+      },
+      onRequest: staff,
+      config: { rateLimit: WRITE_LIMITS },
+    },
+    async (req, reply) => {
+      const dto = await app.withStaffCtx(req, 'taxonomy.staffCreateCatalogItem', (ctx) =>
+        taxonomy.createStaffCatalogItem(ctx, req.body),
+      );
+      return reply.code(201).send(dto);
     },
   );
 

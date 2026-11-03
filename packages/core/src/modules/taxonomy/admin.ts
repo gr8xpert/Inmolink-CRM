@@ -7,6 +7,7 @@
  */
 import type {
   AddAliasInput,
+  CreateCatalogItemInput,
   CreateLocationInput,
   MapUnmatchedInput,
   ReorderCatalogInput,
@@ -37,7 +38,11 @@ import {
   addPropertyTypeAlias,
   assertContentLocales,
   changed,
+  createFeature,
+  createFeatureGroup,
   createLocation,
+  createPropertyType,
+  createPropertyTypeGroup,
   uniqueOr,
 } from './service';
 import { loadStaffChildren, loadStaffTop } from './tree';
@@ -187,6 +192,36 @@ export async function reorderStaffCatalog(ctx: StaffCtx, input: ReorderCatalogIn
     await repo.setCatalogSorts(tx, input.kind, input.groupId, input.orderedIds);
     return changed(tx, input.groupId === null ? `${input.kind}Group` : input.kind, input.orderedIds[0] as string);
   });
+}
+
+/** Keys are stable identifiers: the English slug when there is one, else the first. At most 80 characters. */
+const catalogKey = (translations: CreateCatalogItemInput['translations']): string => {
+  const slug = (translations.find((t) => t.locale === 'en') ?? translations[0])?.slug ?? '';
+  return slug.slice(0, 80).replace(/-+$/, '');
+};
+
+/** Icon of a feature created without one; the name is a Lucide icon. */
+const DEFAULT_FEATURE_ICON = 'check';
+
+/** Creates a group (`groupId` null) or an item of a group, last in its list (S17-F13). */
+export async function createStaffCatalogItem(
+  ctx: StaffCtx,
+  input: CreateCatalogItemInput,
+): Promise<StaffCatalogItemDto> {
+  const { kind, groupId, translations } = input;
+  const id = await write(ctx, 'createCatalogItem', kind, null, async (tx) => {
+    const key = catalogKey(translations);
+    const sort = await repo.nextCatalogSort(tx, kind, groupId);
+    if (groupId === null) {
+      const group = { key, sort, translations };
+      return kind === 'propertyType' ? createPropertyTypeGroup(tx, group) : createFeatureGroup(tx, group);
+    }
+    const item = { key, sort, groupId, translations };
+    return kind === 'propertyType'
+      ? createPropertyType(tx, item)
+      : createFeature(tx, { ...item, icon: input.icon ?? DEFAULT_FEATURE_ICON });
+  });
+  return getStaffCatalogItem(ctx, kind, groupId === null ? 'group' : 'item', id);
 }
 
 export async function updateStaffCatalogItem(

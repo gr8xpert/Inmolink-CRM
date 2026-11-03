@@ -4,6 +4,7 @@ export {
   addStaffCatalogAlias,
   addStaffLocationAlias,
   countStaffUnmatched,
+  createStaffCatalogItem,
   createStaffLocation,
   getStaffCatalogItem,
   getStaffLocation,
