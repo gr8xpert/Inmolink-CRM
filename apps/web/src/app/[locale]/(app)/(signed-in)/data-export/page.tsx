@@ -4,6 +4,7 @@ import { EmptyState } from '@inmolink/ui';
 import { redirect } from 'next/navigation';
 import { getFormatter, getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
+import { OpenFileForm } from '@/components/open-file-form';
 import { redirect as localeRedirect } from '@/i18n/navigation';
 import { sessionRef } from '@/server/api';
 import { fetchContact, fetchDataExports } from '@/server/contacts-api';
@@ -207,12 +208,12 @@ export default async function DataExportPage({ searchParams }: { searchParams: P
                     </div>
                     <span className="rounded-md border px-2 py-0.5 text-xs">{t(`status.${e.status}`)}</span>
                     {e.status === 'SUCCEEDED' ? (
-                      <form action={downloadExportAction}>
+                      <OpenFileForm action={downloadExportAction}>
                         <input type="hidden" name="id" value={e.id} />
                         <button type="submit" className="h-8 rounded-md border px-3">
                           {t('list.download')}
                         </button>
-                      </form>
+                      </OpenFileForm>
                     ) : null}
                   </li>
                 );

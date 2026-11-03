@@ -63,9 +63,9 @@ export async function requestExportAction(form: FormData): Promise<void> {
 
 /**
  * "Get download link" (a POST, because it mints a signed URL and writes an audit entry): asks the API for the link and
- * sends the browser straight to it, so the signed URL is never rendered into a page. Back to the list on any failure.
+ * hands it to `OpenFileForm`, so the signed URL is never rendered into a page. Back to the list on any failure.
  */
-export async function downloadExportAction(form: FormData): Promise<void> {
+export async function downloadExportAction(form: FormData): Promise<{ url: string }> {
   const s = await auth();
   if (!s?.user?.id) redirect('/session/expired');
   const id = text(form, 'id');
@@ -74,5 +74,5 @@ export async function downloadExportAction(form: FormData): Promise<void> {
   if (res === 'revoked') redirect('/session/expired');
   if (!res.ok) return back({ error: res.error?.code ?? 'generic' });
   if (!res.data.download) return back({ error: 'DATA_EXPORT_NOT_FOUND' });
-  redirect(res.data.download.url);
+  return { url: res.data.download.url };
 }

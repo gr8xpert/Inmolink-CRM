@@ -3,6 +3,7 @@ import { Button, EmptyState, Label } from '@inmolink/ui';
 import { notFound, redirect } from 'next/navigation';
 import { getFormatter, getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
+import { OpenFileForm } from '@/components/open-file-form';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
 import { sessionRef } from '@/server/api';
 import { fetchSupportTicket } from '@/server/support-api';
@@ -123,13 +124,13 @@ export default async function SupportTicketPage({
                 <span className="truncate">
                   {a.fileName} · {format.number(a.sizeBytes / 1024, { maximumFractionDigits: 0 })} KB
                 </span>
-                <form action={openAttachmentAction}>
+                <OpenFileForm action={openAttachmentAction}>
                   <input type="hidden" name="id" value={ticket.id} />
                   <input type="hidden" name="attachmentId" value={a.id} />
                   <Button type="submit" variant="outline" size="sm">
                     {t('attachments.open')}
                   </Button>
-                </form>
+                </OpenFileForm>
               </li>
             ))}
           </ul>

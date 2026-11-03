@@ -71,12 +71,12 @@ export async function resolveAction(form: FormData): Promise<void> {
   return to(`/support/${params.data.id}`, res.ok ? { notice: 'resolved' } : { error: errorOf(res.error?.code) });
 }
 
-/** Mints a 5-minute download link on demand and sends the browser to it (never rendered into the page). */
-export async function openAttachmentAction(form: FormData): Promise<void> {
+/** Mints a 5-minute download link on demand for `OpenFileForm` (never rendered into the page). */
+export async function openAttachmentAction(form: FormData): Promise<{ url: string }> {
   const params = SupportAttachmentParams.safeParse({ id: text(form, 'id'), attachmentId: text(form, 'attachmentId') });
   if (!params.success) redirect('/');
   const res = await fetchSupportAttachmentUrl(await session(), params.data.id, params.data.attachmentId);
   if (res === 'revoked') redirect('/session/expired');
   if (!res.ok) return to(`/support/${params.data.id}`, { error: errorOf(res.error?.code) });
-  redirect(res.data.url);
+  return { url: res.data.url };
 }

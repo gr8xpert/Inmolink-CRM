@@ -2,6 +2,7 @@ import { SupportTicketParams, SupportTicketPriority, SupportTicketStatus } from 
 import { Button, EmptyState, Label } from '@inmolink/ui';
 import { notFound, redirect } from 'next/navigation';
 import { getFormatter, getTranslations } from 'next-intl/server';
+import { OpenFileForm } from '@/components/open-file-form';
 import { Link } from '@/i18n/navigation';
 import { requireStaff } from '@/server/staff';
 import { fetchStaffSupportTicket } from '@/server/support-api';
@@ -124,13 +125,13 @@ export default async function StaffSupportTicketPage({
                 <span className="truncate">
                   {a.fileName} · {format.number(a.sizeBytes / 1024, { maximumFractionDigits: 0 })} KB
                 </span>
-                <form action={openAttachmentAction}>
+                <OpenFileForm action={openAttachmentAction}>
                   <input type="hidden" name="id" value={ticket.id} />
                   <input type="hidden" name="attachmentId" value={a.id} />
                   <Button type="submit" variant="outline" size="sm">
                     {t('attachments.open')}
                   </Button>
-                </form>
+                </OpenFileForm>
               </li>
             ))}
           </ul>

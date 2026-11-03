@@ -501,6 +501,7 @@ Single source of truth for progress. Claude updates this at the end of every tas
 | S17-F9 | DONE | 2026-11-03 | Staging bug 2: saving company details no longer says the team will review them, since nothing reaches staff until documents are sent. The message (EN, ES) now names the next step and links to `/verification`. |
 | S17-F10 | DONE | 2026-11-03 | Signup uses Turnstile on every attempt when the keys are set (owner decision 2026-11-03): widget on `/signup`, `passesSignupChallenge` after the rate limits, own `signup` action, new error `challengeFailed` (EN, ES). Without keys, only the rate limits apply. The verifier moved to `server/turnstile.ts`. The live widget needs `staging-app.inmolink.es` on its hostnames: check after the deploy. |
 | S17-F11 | DONE | 2026-11-03 | Staging finding: every auth form (signup, login, reset, invite) cleared its fields on an error, because React resets a form posted through its `action` prop. `AuthForm` now calls the action from `onSubmit` and keeps the values; it still posts without JavaScript. e2e check in `auth.spec.ts`. |
+| S17-F12 | DONE | 2026-11-03 | Staging: after opening a file, the next action on the page was posted to the file store and failed silently (found on staff Approve). The verification, support (agency and staff) and data-export file buttons now use `OpenFileForm`: the action returns the link. Staff no longer see a Notifications bell, whose page can only fail without an agency. Guard test plus e2e step. |
 
 *(Add the next sprint's rows when a sprint closes in `/sprint-review`.)*
 

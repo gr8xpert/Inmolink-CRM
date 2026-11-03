@@ -70,18 +70,21 @@ export async function DashboardShell({ shell, children }: { shell: Shell; childr
               close: t('search.close'),
             }}
           />
-          <NotificationsBell
-            labels={{
-              open: t('notifications.open'),
-              title: t('notifications.title'),
-              empty: t('notifications.empty'),
-              emptyBody: t('notifications.emptyBody'),
-              viewAll: t('notifications.viewAll'),
-              unread: t('notifications.unread'),
-            }}
-            unread={shell.unread}
-            realtimeUrl={realtimeUrl}
-          />
+          {/* Notifications belong to an agency member: staff have no feed, and the page could only show an error. */}
+          {caps ? (
+            <NotificationsBell
+              labels={{
+                open: t('notifications.open'),
+                title: t('notifications.title'),
+                empty: t('notifications.empty'),
+                emptyBody: t('notifications.emptyBody'),
+                viewAll: t('notifications.viewAll'),
+                unread: t('notifications.unread'),
+              }}
+              unread={shell.unread}
+              realtimeUrl={realtimeUrl}
+            />
+          ) : null}
           <div className="hidden sm:block">
             <LocaleSwitcher label={t('locale.label')} current={locale} locales={locales} />
           </div>

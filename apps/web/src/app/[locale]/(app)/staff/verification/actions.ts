@@ -50,12 +50,12 @@ export async function decideAction(form: FormData): Promise<void> {
   return back(params.data.id, { error: KNOWN_ERRORS.find((c) => c === res.error?.code) ?? 'generic' });
 }
 
-/** Mints a 5-minute download link on demand and sends the browser to it (never rendered into the page). */
-export async function openDocumentAction(form: FormData): Promise<void> {
+/** Mints a 5-minute download link on demand for `OpenFileForm` (never rendered into the page). */
+export async function openDocumentAction(form: FormData): Promise<{ url: string }> {
   const params = VerificationDocumentParams.safeParse({ id: text(form, 'id'), documentId: text(form, 'documentId') });
   if (!params.success) redirect('/');
   const res = await fetchVerificationDocumentUrl(await session(), params.data.id, params.data.documentId);
   if (res === 'revoked') redirect('/session/expired');
   if (!res.ok) return back(params.data.id, { error: KNOWN_ERRORS.find((c) => c === res.error?.code) ?? 'generic' });
-  redirect(res.data.url);
+  return { url: res.data.url };
 }

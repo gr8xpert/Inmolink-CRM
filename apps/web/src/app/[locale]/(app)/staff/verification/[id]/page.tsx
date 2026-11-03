@@ -2,6 +2,7 @@ import { VerificationRequestParams } from '@inmolink/contracts';
 import { Button, Label } from '@inmolink/ui';
 import { notFound, redirect } from 'next/navigation';
 import { getFormatter, getTranslations } from 'next-intl/server';
+import { OpenFileForm } from '@/components/open-file-form';
 import { Link } from '@/i18n/navigation';
 import { fetchVerificationRequest } from '@/server/api';
 import { requireStaff } from '@/server/staff';
@@ -104,13 +105,13 @@ export default async function VerificationRequestPage({
                   {tv(`kinds.${d.kind}`)} · {d.contentType}
                 </p>
               </div>
-              <form action={openDocumentAction} target="_blank" rel="noopener">
+              <OpenFileForm action={openDocumentAction}>
                 <input type="hidden" name="id" value={r.id} />
                 <input type="hidden" name="documentId" value={d.id} />
                 <Button type="submit" variant="outline" size="sm">
                   {t('request.download')}
                 </Button>
-              </form>
+              </OpenFileForm>
             </li>
           ))}
         </ul>

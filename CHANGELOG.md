@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Changed
+- Opening a file no longer breaks the next action on the page; staff no longer get a Notifications bell [S17-F12]
 - fix(web): auth forms keep what the user typed after an error [S17-F11]
 - feat(web): signup requires Turnstile when the keys are set [S17-F10]
 - fix(web): onboarding names the real next step instead of promising a review [S17-F9]

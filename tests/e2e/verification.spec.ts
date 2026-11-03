@@ -122,6 +122,10 @@ test('[S1-03] an agency uploads and submits; staff approve; the agency is verifi
   // page, so open it by id rather than by its position in the queue.
   await page.goto(`/en/staff/verification/${await openRequestId(company)}`);
   await expect(page.getByRole('heading', { level: 1 })).toContainText(company);
+  // [S17-F12] Staff read the document first: the decision after it must still reach the app.
+  const opened = page.context().waitForEvent('page');
+  await page.getByRole('button', { name: /^Open/ }).first().click();
+  await (await opened).close();
   await page.getByLabel('Reason (shown to the agency)').fill('CIF checked against AEAT\nDeeds match');
   await page.getByRole('button', { name: 'Approve' }).click();
   await expect(page.getByRole('status')).toContainText('Approved. The agency is verified.');
