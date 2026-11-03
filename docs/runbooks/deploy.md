@@ -118,6 +118,34 @@ Blocked on H3 (accounts), H4 (servers), H5 (DNS) — `docs/build/HUMAN-ACTIONS.m
    password>@127.0.0.1:5432/inmolink` in your shell, then `scripts/ops/deploy.sh staging --bootstrap-roles`.
    The URL travels over SSH stdin into the one-off container; it is never written to the hosts.
 
+## First staff login
+
+A fresh environment has no staff. After the first deploy, from where you run ops jobs (a checkout with
+`DATABASE_URL_*` pointing at this environment):
+
+```sh
+pnpm staff:bootstrap --email <address> --role SUPER_ADMIN --reason "first login of <env>"
+```
+
+1. The command creates a confirmed account with no agency and an unusable password, then grants the role, with the
+   same audit row as `pnpm staff:grant`. Running it again changes nothing. It refuses an address that belongs to an
+   agency, so do not sign up with a staff address first. It takes no password and prints no link.
+2. On an account the command created, the person uses **Forgot password** on the login page to set a password. The
+   worker and SMTP must be up, and the address must receive mail. An existing confirmed account with no agency gets the
+   role and keeps its password. Do this straight away: whoever controls that inbox can claim the account, and the claim
+   does not expire. Check the domain the command logs. If the address was mistyped or no mail arrives, run
+   `pnpm staff:revoke` on it.
+3. On first sign-in they enrol 2FA. It is mandatory for staff.
+
+A role's powers differ, and only `SUPER_ADMIN` has all of them. `STAFF_DATA_OPS` has taxonomy writes and import resume,
+but not verification, impersonation, support replies or the audit log.
+
+## Starting taxonomy
+
+A fresh environment has an empty taxonomy, and no listing can be created until it has entries. Staff with
+`STAFF_DATA_OPS` or `SUPER_ADMIN` add locations, property types and features in the staff console (S17-F13). There is
+no seed or import for this.
+
 ## Every deploy
 
 ```sh

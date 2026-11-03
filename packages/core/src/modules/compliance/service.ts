@@ -43,6 +43,8 @@ export const AUDIT_TYPES = [
   'identity.member.migrated',
   'identity.member.roleChanged',
   'identity.member.deactivated',
+  /** S17-F14: `pnpm staff:bootstrap` made a confirmed account, without proof of the inbox. */
+  'identity.staff.accountCreated',
   'identity.staff.granted',
   'identity.staff.revoked',
   'identity.apiKey.created',

@@ -1,8 +1,12 @@
+import { Email } from '@inmolink/contracts';
 import { type Tx, withAuth } from '@inmolink/db';
+import { DEFAULT_UI_LOCALE } from '@inmolink/i18n';
 import { clock } from '@inmolink/platform/clock';
 import { AppError } from '@inmolink/platform/errors';
+import { newId } from '@inmolink/platform/ids';
 import * as compliance from '../compliance';
 import { endImpersonationsOf } from './impersonation';
+import { legacyPasswordPlaceholder } from './legacy';
 import * as repo from './repo';
 
 /**
@@ -27,7 +31,7 @@ export async function getStaffRole(tx: Tx, userId: string): Promise<StaffRole | 
 }
 
 /**
- * Grants a staff role to an existing, confirmed account (`pnpm staff:grant`, `withSystem`). A member of
+ * Grants a staff role to an existing, active account (`pnpm staff:grant`, `withSystem`). A member of
  * an agency cannot be staff: one user has one tenant, and staff have none. Audited (S1-08).
  */
 export async function grantStaff(tx: Tx, input: { email: string; role: StaffRole }): Promise<{ userId: string }> {
@@ -45,6 +49,70 @@ export async function grantStaff(tx: Tx, input: { email: string; role: StaffRole
     metadata: { role: input.role, reasonProvided: true },
   });
   return { userId: user.id };
+}
+
+/** Display name of an account made by `bootstrapStaff`: the operator gives none, and it must not repeat the address. */
+const BOOTSTRAP_STAFF_NAME = 'Inmolink staff';
+
+export type StaffBootstrapOutcome = 'created' | 'granted' | 'unchanged';
+
+/**
+ * The first staff login of a fresh server (`pnpm staff:bootstrap`, `withSystem`; S17-F14): creates a confirmed account
+ * with no agency and an unusable password when the address is free, then grants the role through `grantStaff`. A
+ * created account gets its own audit row, because it was confirmed without proof of the inbox; the grant's row is the
+ * same as ever. The person sets a password through Forgot password, which proves the inbox; no password or link passes
+ * through here, and no confirmation email goes out. Staff must then enrol 2FA, as always (S1-04).
+ *
+ * The same role on the same active staff account again changes nothing and records nothing. Any other staff row is
+ * refused: a re-run must not restore a revoked person or change a role, which is `pnpm staff:grant`'s job. Also refuses
+ * a member of an agency (as `grantStaff`), a disabled account, and a never-confirmed one: its password was chosen by
+ * whoever signed up with that address, so a role on it could hand staff access to them. There is no member acting, so no policy check; the operator
+ * with database credentials is the authority, as for `grantStaff`. Hashes inside the transaction, only on a free
+ * address, before it writes anything: a one-off command, and no caller can pass a hash in.
+ */
+export async function bootstrapStaff(
+  tx: Tx,
+  input: { email: string; role: StaffRole },
+): Promise<{ userId: string; outcome: StaffBootstrapOutcome }> {
+  if (!STAFF_ROLES.includes(input.role)) throw new AppError('VALIDATION_FAILED', { field: 'role' });
+  const parsed = Email.safeParse(input.email);
+  if (!parsed.success) throw new AppError('VALIDATION_FAILED', { field: 'email' });
+  const email = parsed.data;
+  let user = await repo.findSignupState(tx, email);
+  let created = false;
+  if (!user) {
+    const inserted = await repo.insertUserIfAbsent(tx, {
+      id: newId(),
+      email,
+      passwordHash: await legacyPasswordPlaceholder(),
+      name: BOOTSTRAP_STAFF_NAME,
+      locale: DEFAULT_UI_LOCALE,
+      emailVerifiedAt: clock.now(),
+    });
+    created = inserted !== null;
+    // A sign-up that won the race is read back, and refused like any other existing account.
+    user = await repo.findSignupState(tx, email);
+  }
+  if (!user) throw new AppError('NOT_FOUND', { entity: 'user' });
+  if (user.status !== 'ACTIVE') throw new AppError('FORBIDDEN', { reason: 'account_disabled' });
+  if (await repo.hasMembership(tx, user.id)) throw new AppError('FORBIDDEN', { reason: 'agency_member' });
+  if (!user.emailVerifiedAt) throw new AppError('FORBIDDEN', { reason: 'email_not_confirmed' });
+  const staff = await repo.findStaffRecord(tx, user.id);
+  if (staff) {
+    if (staff.deactivatedAt) throw new AppError('FORBIDDEN', { reason: 'staff_revoked' });
+    if (staff.role !== input.role) throw new AppError('FORBIDDEN', { reason: 'staff_role_differs' });
+    return { userId: user.id, outcome: 'unchanged' };
+  }
+  if (created) {
+    await compliance.auditSystem(tx, {
+      type: 'identity.staff.accountCreated',
+      agencyId: null,
+      target: { type: 'user', id: user.id },
+      metadata: { reasonProvided: true },
+    });
+  }
+  await grantStaff(tx, { email, role: input.role });
+  return { userId: user.id, outcome: created ? 'created' : 'granted' };
 }
 
 /**

@@ -34,7 +34,7 @@ vault_r2_secret_access_key: ""
 # 32 random bytes as hex (openssl rand -hex 32). LOSING THIS KEY MAKES EVERY BACKUP UNREADABLE:
 # store a copy in the password manager, outside the servers.
 vault_walg_libsodium_key: ""
-# GitHub user + fine-grained token with read:packages, for pulling ghcr.io/gr8xpert/inmolink-* images.
+# GitHub user + classic token with read:packages (a fine-grained token does not work against GHCR), for pulling ghcr.io/gr8xpert/inmolink-* images.
 vault_ghcr_user: ""
 vault_ghcr_token: ""
 vault_smtp_url: "smtp://user:pass@email-smtp.eu-west-1.amazonaws.com:587"

@@ -108,6 +108,7 @@ export {
   activeClientMembersAcross,
   activeClientMembersAmong,
   agencyAdminsOf,
+  bootstrapStaff,
   getStaffRole,
   grantStaff,
   isUserActive,
@@ -115,6 +116,7 @@ export {
   memberRecipient,
   revokeStaff,
   STAFF_ROLES,
+  type StaffBootstrapOutcome,
   type StaffRole,
   teamContacts,
 } from './staff';

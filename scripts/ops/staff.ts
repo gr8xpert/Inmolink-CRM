@@ -1,9 +1,16 @@
 // pnpm staff:grant --email <email> --role <SUPER_ADMIN|STAFF_SUPPORT|STAFF_DATA_OPS> --reason <text> [--test]
 // pnpm staff:revoke --email <email> --reason <text> [--test]
+// pnpm staff:bootstrap --email <email> --role <SUPER_ADMIN|STAFF_SUPPORT|STAFF_DATA_OPS> --reason <text> [--test]
 //
-// Grants or withdraws Inmolink staff access (S1-03, ADR 0015). The account must exist, be confirmed
+// Grants or withdraws Inmolink staff access (S1-03, ADR 0015). For a grant the account must exist, be active
 // and belong to no agency (staff have none). Staff sign in like anyone else; their access token has no
 // agency, and the staff API checks `staff_users` on every request, so a revoke applies at once.
+//
+// bootstrap (S17-F14) is the first login of a fresh server: it also creates the account when the address is free,
+// confirmed, with no agency and an unusable password, and does nothing when the account already has that role. It
+// refuses a revoked person or a different role: those are for grant. The person sets a password through Forgot
+// password. It takes no password and prints none, nor any reset link. It logs the database host it wrote to and the
+// address's domain, so a mistyped address shows.
 import { parseArgs } from 'node:util';
 import * as identity from '@inmolink/core/modules/identity';
 import { closeDb, configureDb, dbEnv, withSystem } from '@inmolink/db';
@@ -30,21 +37,36 @@ const log = createLogger({ service: 'ops:staff', level: process.env.LOG_LEVEL })
 
 try {
   const command = positionals[0];
-  if (command !== 'grant' && command !== 'revoke')
-    throw new TypeError('usage: staff.ts grant|revoke --email … --reason …');
+  if (command !== 'grant' && command !== 'revoke' && command !== 'bootstrap')
+    throw new TypeError('usage: staff.ts grant|revoke|bootstrap --email … --reason …');
   if (!values.email) throw new TypeError('--email is required');
   // The grant or revocation is an audit_logs row (S1-08, same transaction; it records that a reason was
   // given). Who asked and why goes to the withSystem log line.
   if (!values.reason || values.reason.trim().length < 3) throw new TypeError('--reason is required');
   await configureDb(loadConfigOrExit(dbEnv));
   const reason = `ops.staff.${command}: ${values.reason.trim()}`;
-  if (command === 'grant') {
+  if (command === 'grant' || command === 'bootstrap') {
     const role = values.role as identity.StaffRole | undefined;
     if (!role || !identity.STAFF_ROLES.includes(role)) {
       throw new TypeError(`--role must be one of ${identity.STAFF_ROLES.join(', ')}`);
     }
-    const { userId } = await withSystem(reason, (tx) => identity.grantStaff(tx, { email: values.email ?? '', role }));
-    log.info({ userId, role }, 'staff access granted');
+    if (command === 'grant') {
+      const { userId } = await withSystem(reason, (tx) => identity.grantStaff(tx, { email: values.email ?? '', role }));
+      log.info({ userId, role }, 'staff access granted');
+    } else {
+      const done = await withSystem(reason, (tx) => identity.bootstrapStaff(tx, { email: values.email ?? '', role }));
+      log.info(
+        // The host only: the URL holds the role's password. Without it, a forgotten env falls back to the local stack
+        // and looks like success on the real server.
+        {
+          ...done,
+          role,
+          database: new URL(process.env.DATABASE_URL_APP_SYSTEM ?? 'postgres://unset').host,
+          addressDomain: values.email.split('@').at(-1),
+        },
+        done.outcome === 'unchanged' ? 'staff access already in place' : 'staff access granted',
+      );
+    }
   } else {
     const revoked = await withSystem(reason, (tx) => identity.revokeStaff(tx, { email: values.email ?? '' }));
     log.info({ revoked }, revoked ? 'staff access withdrawn' : 'no active staff access for that email');

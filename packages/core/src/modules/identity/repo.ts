@@ -528,6 +528,15 @@ export async function findStaffRole(tx: Tx, userId: string): Promise<StaffRole |
   return row?.role ?? null;
 }
 
+/** `pnpm staff:bootstrap` (`app_system`): the user's staff row, withdrawn or not. */
+export async function findStaffRecord(tx: Tx, userId: string) {
+  const [row] = await tx
+    .select({ role: staffUsers.role, deactivatedAt: staffUsers.deactivatedAt })
+    .from(staffUsers)
+    .where(eq(staffUsers.userId, userId));
+  return row ?? null;
+}
+
 /** `pnpm staff:grant` (`app_system`): grants or changes a role, re-activating a withdrawn one. */
 export async function upsertStaff(tx: Tx, userId: string, role: StaffRole): Promise<void> {
   await tx

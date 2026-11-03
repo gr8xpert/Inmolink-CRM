@@ -45,6 +45,7 @@
     "ops:wp-plugin-release": "tsx --conditions=@inmolink/source scripts/ops/wp-plugin-release.ts",
     "staff:grant": "tsx --conditions=@inmolink/source scripts/ops/staff.ts grant",
     "staff:revoke": "tsx --conditions=@inmolink/source scripts/ops/staff.ts revoke",
+    "staff:bootstrap": "tsx --conditions=@inmolink/source scripts/ops/staff.ts bootstrap",
     "db:generate": "pnpm --filter @inmolink/db db:generate",
     "db:migrate": "pnpm --filter @inmolink/db db:migrate",
     "db:migrate:test": "pnpm --filter @inmolink/db db:migrate --test",
