@@ -2,6 +2,7 @@
 
 import { Button, Input, Label } from '@inmolink/ui';
 import { useActionState, useEffect } from 'react';
+import { Link } from '@/i18n/navigation';
 import { type OnboardingState, saveDetailsAction } from './actions';
 
 type TextField = 'name' | 'taxId' | 'addressLine' | 'city' | 'postalCode' | 'registerNumber';
@@ -18,6 +19,7 @@ interface Props {
   languages: { value: string; label: string }[];
   errors: Record<NonNullable<OnboardingState['error']>, string>;
   savedMessage: string;
+  savedNext: string;
   loginHref: string;
 }
 
@@ -59,7 +61,10 @@ export function OnboardingForm(props: Props) {
       ) : null}
       {state.done ? (
         <p role="status" data-testid="form-saved" className="rounded-md bg-muted p-3 text-sm">
-          {props.savedMessage}
+          {props.savedMessage}{' '}
+          <Link href="/verification" className="font-medium underline underline-offset-4">
+            {props.savedNext}
+          </Link>
         </p>
       ) : null}
       {TEXT_FIELDS.map((f) => (

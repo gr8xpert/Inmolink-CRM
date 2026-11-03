@@ -72,6 +72,7 @@ export default async function OnboardingPage() {
           generic: t('errors.generic'),
         }}
         savedMessage={t('saved')}
+        savedNext={t('savedNext')}
         loginHref={getPathname({ href: '/login', locale })}
       />
     </div>

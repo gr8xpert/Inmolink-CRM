@@ -48,7 +48,8 @@
     "sv": "Swedish"
   },
   "submit": "Save company details",
-  "saved": "Saved. Our team will review your company shortly.",
+  "saved": "Saved. Next, upload your documents and send them for verification.",
+  "savedNext": "Go to verification",
   "errors": {
     "invalidInput": "Please check the highlighted fields.",
     "taxIdFormat": "This is not a Spanish CIF, NIF or NIE. Example: B12345674.",

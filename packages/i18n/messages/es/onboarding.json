@@ -48,7 +48,8 @@
     "sv": "Sueco"
   },
   "submit": "Guardar datos de la empresa",
-  "saved": "Guardado. Nuestro equipo revisará tu empresa en breve.",
+  "saved": "Guardado. Ahora sube tus documentos y envíalos para su verificación.",
+  "savedNext": "Ir a verificación",
   "errors": {
     "invalidInput": "Revisa los campos marcados.",
     "taxIdFormat": "No es un CIF, NIF o NIE español. Ejemplo: B12345674.",
