@@ -16,7 +16,7 @@ import {
   SupportTicketPage,
   SupportTicketParams,
   SupportTicketQuery,
-  UploadSupportAttachmentQuery,
+  UploadSupportAttachmentHeaders,
 } from '@inmolink/contracts';
 import * as support from '@inmolink/core/modules/support';
 import { AppError } from '@inmolink/platform/errors';
@@ -271,7 +271,7 @@ async function uploadRoute(upload: FastifyZod): Promise<void> {
         operationId: 'support.uploadSupportAttachment',
         summary: 'Attach one file to a ticket (raw PDF/PNG/JPEG/WebP body, max 10 MB, 5 per ticket)',
         params: SupportTicketParams,
-        querystring: UploadSupportAttachmentQuery,
+        headers: UploadSupportAttachmentHeaders,
         response: { 201: SupportAttachmentDto },
       },
       bodyLimit: SUPPORT_ATTACHMENT_MAX_BYTES,
@@ -283,7 +283,7 @@ async function uploadRoute(upload: FastifyZod): Promise<void> {
       const body = new Uint8Array(req.body.buffer, req.body.byteOffset, req.body.byteLength);
       const file = await support.uploadAttachment(upload.ctxRunner(req), {
         id: req.params.id,
-        ...req.query,
+        fileName: req.headers['x-file-name'],
         body,
       });
       return reply.status(201).send(file);

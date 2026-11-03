@@ -4,6 +4,7 @@ import {
   DocumentParams,
   SignedUrlDto,
   SubmitVerificationBody,
+  UploadVerificationDocumentHeaders,
   UploadVerificationDocumentQuery,
   VERIFICATION_DOCUMENT_MAX_BYTES,
   VERIFICATION_DOCUMENT_TYPES,
@@ -198,6 +199,7 @@ async function uploadRoute(upload: FastifyZod): Promise<void> {
         operationId: 'agencies.uploadVerificationDocument',
         summary: 'Upload one verification document (raw PDF/PNG/JPEG/WebP body, max 10 MB)',
         querystring: UploadVerificationDocumentQuery,
+        headers: UploadVerificationDocumentHeaders,
         response: { 201: VerificationDocumentDto },
       },
       bodyLimit: VERIFICATION_DOCUMENT_MAX_BYTES,
@@ -207,7 +209,11 @@ async function uploadRoute(upload: FastifyZod): Promise<void> {
     async (req, reply) => {
       if (!Buffer.isBuffer(req.body)) throw new AppError('UNSUPPORTED_MEDIA_TYPE');
       const body = new Uint8Array(req.body.buffer, req.body.byteOffset, req.body.byteLength);
-      const doc = await agencies.uploadVerificationDocument(upload.ctxRunner(req), { ...req.query, body });
+      const doc = await agencies.uploadVerificationDocument(upload.ctxRunner(req), {
+        kind: req.query.kind,
+        fileName: req.headers['x-file-name'],
+        body,
+      });
       return reply.status(201).send(doc);
     },
   );

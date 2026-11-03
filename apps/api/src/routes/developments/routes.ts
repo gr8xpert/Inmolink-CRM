@@ -26,6 +26,7 @@ import {
   UpdateDevelopmentBody,
   UpdateDevelopmentDocumentBody,
   UpdateUnitBody,
+  UploadDevelopmentDocumentHeaders,
   UploadDevelopmentDocumentQuery,
 } from '@inmolink/contracts';
 import * as developments from '@inmolink/core/modules/developments';
@@ -432,6 +433,7 @@ async function documentUploadRoute(upload: FastifyZod): Promise<void> {
         summary: 'Upload one development document (raw PDF body, max 20 MB); owner-only unless shared=true',
         params: DevelopmentParams,
         querystring: UploadDevelopmentDocumentQuery,
+        headers: UploadDevelopmentDocumentHeaders,
         response: { 201: DevelopmentDocumentDto },
       },
       bodyLimit: DEVELOPMENT_DOCUMENT_MAX_BYTES,
@@ -443,7 +445,7 @@ async function documentUploadRoute(upload: FastifyZod): Promise<void> {
       const body = new Uint8Array(req.body.buffer, req.body.byteOffset, req.body.byteLength);
       const doc = await developments.uploadDevelopmentDocument(upload.ctxRunner(req), {
         developmentId: req.params.id,
-        fileName: req.query.fileName,
+        fileName: req.headers['x-file-name'],
         kind: req.query.kind,
         shared: req.query.shared === 'true',
         body,

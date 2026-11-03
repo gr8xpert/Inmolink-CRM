@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { AgencyDto } from './agencies';
 import { Cursor, pageOf } from './common';
+import { fileNameHeaders } from './file-name-header';
 
 /**
  * Agency verification DTOs (S1-03, PLAN §3 #3). The agency uploads documents and submits its
@@ -28,11 +29,10 @@ export const DocumentFileName = z
   .max(120)
   .regex(/^[^\p{Cc}<>/\\:"*?|]+$/u, 'no control characters, paths or < > : " * ? |');
 
-/** `POST /v1/agency/verification/documents?kind=&fileName=` — the body is the raw file. */
-export const UploadVerificationDocumentQuery = z
-  .object({ kind: VerificationDocumentKind, fileName: DocumentFileName })
-  .strict();
+/** `POST /v1/agency/verification/documents?kind=` — the body is the raw file, its name in `x-file-name`. */
+export const UploadVerificationDocumentQuery = z.object({ kind: VerificationDocumentKind }).strict();
 export type UploadVerificationDocumentQuery = z.infer<typeof UploadVerificationDocumentQuery>;
+export const UploadVerificationDocumentHeaders = fileNameHeaders(DocumentFileName);
 
 export const VerificationDocumentDto = z.object({
   id: z.uuid(),

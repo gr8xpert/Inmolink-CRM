@@ -26,7 +26,6 @@ import {
   type SupportTicketPage,
   type SupportTicketQuery,
   type SupportTicketSummaryDto,
-  type UploadSupportAttachmentQuery,
 } from '@inmolink/contracts';
 import type { Tx } from '@inmolink/db';
 import { clock } from '@inmolink/platform/clock';
@@ -221,7 +220,7 @@ export async function resolveTicket(ctx: Ctx, input: { id: string }): Promise<Su
  */
 export async function uploadAttachment(
   run: CtxRunner,
-  input: UploadSupportAttachmentQuery & { id: string; body: Uint8Array },
+  input: { id: string; fileName: string; body: Uint8Array },
 ): Promise<SupportAttachmentDto> {
   if (input.body.byteLength === 0) throw new AppError('VALIDATION_FAILED', { field: 'body', reason: 'empty' });
   if (input.body.byteLength > SUPPORT_ATTACHMENT_MAX_BYTES) {

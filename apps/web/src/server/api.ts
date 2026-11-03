@@ -37,6 +37,7 @@ import {
   FeedItemErrorPage,
   FeedRunDto,
   FeedRunPage,
+  fileNameHeader,
   type InvitableRole,
   InviteDto,
   type InviteMemberInput,
@@ -543,10 +544,10 @@ export function fetchVerification(session: SessionRef): Promise<ApiResult<Agency
 /** The file goes to the API as the raw body; the API checks its real type and size. */
 export function uploadVerificationDocument(
   session: SessionRef,
-  query: UploadVerificationDocumentQuery,
+  query: UploadVerificationDocumentQuery & { fileName: string },
   file: { bytes: Uint8Array; contentType: string },
 ): Promise<ApiResult<VerificationDocumentDto>> {
-  const qs = new URLSearchParams({ kind: query.kind, fileName: query.fileName });
+  const qs = new URLSearchParams({ kind: query.kind });
   // Only types the API's body parser accepts; anything else is sent as octet-stream and sniffed.
   const contentType = (VERIFICATION_DOCUMENT_TYPES as readonly string[]).includes(file.contentType)
     ? file.contentType
@@ -554,6 +555,7 @@ export function uploadVerificationDocument(
   return apiRequest(session, `/v1/agency/verification/documents?${qs}`, VerificationDocumentDto, {
     method: 'POST',
     raw: { bytes: file.bytes, contentType },
+    headers: fileNameHeader(query.fileName),
     timeoutMs: 30_000,
   });
 }
@@ -934,10 +936,10 @@ export function uploadListingDocument(
   fileName: string,
   bytes: Uint8Array,
 ): Promise<ApiResult<ListingDocumentDto>> {
-  const qs = new URLSearchParams({ fileName });
-  return apiRequest(session, `/v1/listings/${encodeURIComponent(id)}/documents?${qs}`, ListingDocumentDto, {
+  return apiRequest(session, `/v1/listings/${encodeURIComponent(id)}/documents`, ListingDocumentDto, {
     method: 'POST',
     raw: { bytes, contentType: 'application/pdf' },
+    headers: fileNameHeader(fileName),
     timeoutMs: 60_000,
   });
 }
@@ -1207,10 +1209,11 @@ export function uploadDevelopmentDocument(
   query: { fileName: string; kind: string; shared: boolean },
   bytes: Uint8Array,
 ): Promise<ApiResult<DevelopmentDocumentDto>> {
-  const qs = new URLSearchParams({ fileName: query.fileName, kind: query.kind, shared: String(query.shared) });
+  const qs = new URLSearchParams({ kind: query.kind, shared: String(query.shared) });
   return apiRequest(session, `${developmentPath(id)}/documents?${qs}`, DevelopmentDocumentDto, {
     method: 'POST',
     raw: { bytes, contentType: 'application/pdf' },
+    headers: fileNameHeader(query.fileName),
     timeoutMs: 60_000,
   });
 }

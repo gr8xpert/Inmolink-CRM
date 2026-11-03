@@ -2,6 +2,7 @@
 import { z } from 'zod';
 import { Commission } from './agency-profile';
 import { CurrencyCode, Money, PageQuery, pageOf } from './common';
+import { fileNameHeaders } from './file-name-header';
 import {
   DEVELOPMENT_DOCUMENT_KINDS,
   LOCKABLE_DEVELOPMENT_FIELDS,
@@ -304,9 +305,9 @@ export const DEVELOPMENT_DOCUMENTS_MAX = 100;
 /** How long an opened document's signed URL works. */
 export const DEVELOPMENT_DOCUMENT_URL_TTL_SECONDS = 300;
 
+export const UploadDevelopmentDocumentHeaders = fileNameHeaders(z.string().trim().min(1).max(200));
 export const UploadDevelopmentDocumentQuery = z
   .object({
-    fileName: z.string().trim().min(1).max(200),
     kind: DevelopmentDocumentKind.optional(),
     /** Readable by the agencies the development is shared with; owner-only when false (the default). */
     shared: z.enum(['true', 'false']).optional(),

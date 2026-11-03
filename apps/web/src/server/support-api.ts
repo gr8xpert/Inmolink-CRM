@@ -1,5 +1,6 @@
 import {
   type CreateSupportTicketBody,
+  fileNameHeader,
   SignedUrlDto,
   type StaffPostSupportMessageBody,
   StaffSupportQueuePage,
@@ -68,12 +69,12 @@ export function uploadSupportAttachment(
   const contentType = (SUPPORT_ATTACHMENT_TYPES as readonly string[]).includes(file.contentType)
     ? file.contentType
     : 'application/octet-stream';
-  return apiRequest(
-    session,
-    `${ticketPath(id)}/attachments?${new URLSearchParams({ fileName })}`,
-    SupportAttachmentDto,
-    { method: 'POST', raw: { bytes: file.bytes, contentType }, timeoutMs: 30_000 },
-  );
+  return apiRequest(session, `${ticketPath(id)}/attachments`, SupportAttachmentDto, {
+    method: 'POST',
+    raw: { bytes: file.bytes, contentType },
+    headers: fileNameHeader(fileName),
+    timeoutMs: 30_000,
+  });
 }
 
 export function fetchSupportAttachmentUrl(

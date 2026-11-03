@@ -21,8 +21,6 @@ describe('verification contracts', () => {
     for (const bad of ['../../etc/passwd', 'a\\b.pdf', 'C:evil', '<img>.png', 'a\nb.pdf', '', 'x'.repeat(121)]) {
       expect(DocumentFileName.safeParse(bad).success, bad).toBe(false);
     }
-    expect(UploadVerificationDocumentQuery.safeParse({ kind: 'TAX_ID', fileName: 'cif.pdf', extra: 1 }).success).toBe(
-      false,
-    );
+    expect(UploadVerificationDocumentQuery.safeParse({ kind: 'TAX_ID', fileName: 'cif.pdf' }).success).toBe(false);
   });
 });

@@ -112,8 +112,12 @@ describe('listing routes', () => {
 
   it('[S3-F10] a user over the buffered-upload cap gets 429 before the body is read; the slot frees after', async () => {
     const f = await createFounder();
-    const headers = { ...(await bearer(f.userId, f.agencyId)), 'content-type': 'application/pdf' };
-    const url = `/v1/listings/${newId()}/documents?fileName=a.pdf`;
+    const headers = {
+      ...(await bearer(f.userId, f.agencyId)),
+      'content-type': 'application/pdf',
+      'x-file-name': 'a.pdf',
+    };
+    const url = `/v1/listings/${newId()}/documents`;
     const payload = Buffer.from('%PDF-1.7\n%%EOF\n');
     const held = [listingDocumentUploads.take(f.userId), listingDocumentUploads.take(f.userId)];
     try {

@@ -72,7 +72,7 @@ async function assertCanAddDocuments(ctx: Ctx): Promise<void> {
  */
 export async function uploadVerificationDocument(
   run: CtxRunner,
-  input: UploadVerificationDocumentQuery & { body: Uint8Array },
+  input: UploadVerificationDocumentQuery & { fileName: string; body: Uint8Array },
 ): Promise<VerificationDocumentDto> {
   if (input.body.byteLength === 0) throw new AppError('VALIDATION_FAILED', { field: 'body', reason: 'empty' });
   if (input.body.byteLength > VERIFICATION_DOCUMENT_MAX_BYTES) {

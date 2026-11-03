@@ -1,5 +1,6 @@
 /** media DTOs (PATTERNS §9): Zod schemas and inferred types for params, bodies and responses. */
 import { z } from 'zod';
+import { fileNameHeaders } from './file-name-header';
 import {
   LISTING_DOCUMENT_MAX_BYTES,
   LISTING_ROOM_TYPES,
@@ -221,8 +222,8 @@ export const LISTING_DOCUMENTS_MAX = 50;
 /** How long an opened document's signed URL works. */
 export const LISTING_DOCUMENT_URL_TTL_SECONDS = 300;
 
-export const UploadListingDocumentQuery = z.object({ fileName: z.string().trim().min(1).max(200) }).strict();
-export type UploadListingDocumentQuery = z.infer<typeof UploadListingDocumentQuery>;
+/** `POST /v1/listings/:id/documents` — the body is the raw PDF, its name in `x-file-name`. */
+export const UploadListingDocumentHeaders = fileNameHeaders(z.string().trim().min(1).max(200));
 
 export const ListingDocumentDto = z.object({
   id: z.uuid(),

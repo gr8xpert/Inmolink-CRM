@@ -24,6 +24,7 @@ export * from './developments-csv';
 export * from './documents'; // S12-05
 export * from './errors';
 export * from './exports';
+export * from './file-name-header';
 export * from './http';
 export * from './identity';
 export * from './imports';

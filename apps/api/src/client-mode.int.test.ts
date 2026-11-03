@@ -382,13 +382,12 @@ describe('Client Mode refusals, S13 member routes (S13 review)', () => {
     const notRefused: string[] = [];
     for (const [route, body] of Object.entries(S13_CLIENT_MODE_REFUSED)) {
       const [method, pattern] = route.split(' ') as [string, string];
-      let url = urlFor(pattern.replace(':feature', 'LISTING_STUDIO'), ids.ownListing);
+      const url = urlFor(pattern.replace(':feature', 'LISTING_STUDIO'), ids.ownListing);
       const upload = pattern.endsWith('/attachments');
-      if (upload) url += '?fileName=shot.png';
       const res = await app.inject({
         method: method as 'GET',
         url,
-        headers: upload ? { ...cm, 'content-type': 'image/png' } : cm,
+        headers: upload ? { ...cm, 'content-type': 'image/png', 'x-file-name': 'shot.png' } : cm,
         ...(upload ? { payload: Buffer.from(PNG) } : body ? { payload: body() as object } : {}),
       });
       if (res.statusCode !== 403 || res.json().error?.code !== 'FORBIDDEN') {

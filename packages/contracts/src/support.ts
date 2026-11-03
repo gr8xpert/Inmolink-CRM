@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { Cursor, pageOf } from './common';
+import { fileNameHeaders } from './file-name-header';
 import { DocumentFileName } from './verification';
 
 /**
@@ -76,9 +77,8 @@ export type CreateSupportTicketBody = z.infer<typeof CreateSupportTicketBody>;
 export const PostSupportMessageBody = z.object({ body: SupportBody }).strict();
 export type PostSupportMessageBody = z.infer<typeof PostSupportMessageBody>;
 
-/** `POST /v1/support/tickets/:id/attachments?fileName=` — the raw file is the body. */
-export const UploadSupportAttachmentQuery = z.object({ fileName: DocumentFileName }).strict();
-export type UploadSupportAttachmentQuery = z.infer<typeof UploadSupportAttachmentQuery>;
+/** `POST /v1/support/tickets/:id/attachments` — the raw file is the body, its name in `x-file-name`. */
+export const UploadSupportAttachmentHeaders = fileNameHeaders(DocumentFileName);
 
 export const SupportTicketListQuery = z
   .object({

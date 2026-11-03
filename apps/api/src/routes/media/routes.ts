@@ -13,7 +13,7 @@ import {
   RegisterMediaBody,
   ReorderListingMediaBody,
   UpdateListingMediaBody,
-  UploadListingDocumentQuery,
+  UploadListingDocumentHeaders,
 } from '@inmolink/contracts';
 import * as media from '@inmolink/core/modules/media';
 import { AppError } from '@inmolink/platform/errors';
@@ -279,7 +279,7 @@ async function documentUploadRoute(upload: FastifyZod): Promise<void> {
         operationId: 'media.uploadListingDocument',
         summary: 'Upload one listing document (raw PDF body, max 20 MB)',
         params: ListingParams,
-        querystring: UploadListingDocumentQuery,
+        headers: UploadListingDocumentHeaders,
         response: { 201: ListingDocumentDto },
       },
       bodyLimit: LISTING_DOCUMENT_MAX_BYTES,
@@ -291,7 +291,7 @@ async function documentUploadRoute(upload: FastifyZod): Promise<void> {
       const body = new Uint8Array(req.body.buffer, req.body.byteOffset, req.body.byteLength);
       const doc = await media.uploadListingDocument(upload.ctxRunner(req), {
         listingId: req.params.id,
-        fileName: req.query.fileName,
+        fileName: req.headers['x-file-name'],
         body,
       });
       return reply.status(201).send(doc);

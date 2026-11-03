@@ -1,3 +1,4 @@
+import { fileNameHeader } from '@inmolink/contracts';
 import { closeDb, pingDb } from '@inmolink/core';
 import { createFounder } from '@inmolink/core/test';
 import { createStaffUser, loadStackEnv, setupTestDb } from '@inmolink/db/testing';
@@ -82,12 +83,32 @@ async function onboarded() {
 const upload = (headers: Record<string, string>, body: Buffer, contentType = 'application/pdf') =>
   app.inject({
     method: 'POST',
-    url: '/v1/agency/verification/documents?kind=TAX_ID&fileName=cif.pdf',
-    headers: { ...headers, 'content-type': contentType },
+    url: '/v1/agency/verification/documents?kind=TAX_ID',
+    headers: { ...headers, 'content-type': contentType, 'x-file-name': 'cif.pdf' },
     payload: body,
   });
 
 describe('verification routes', () => {
+  it('[S17-F6] the file name travels in a header: accents survive, and the old query parameter is refused', async () => {
+    const { headers } = await onboarded();
+    const name = 'Escritura nº 2 (copia) ñ.pdf';
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/agency/verification/documents?kind=TAX_ID',
+      headers: { ...headers, 'content-type': 'application/pdf', ...fileNameHeader(name) },
+      payload: PDF,
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().fileName).toBe(name);
+    const inQuery = await app.inject({
+      method: 'POST',
+      url: '/v1/agency/verification/documents?kind=TAX_ID&fileName=cif.pdf',
+      headers: { ...headers, 'content-type': 'application/pdf' },
+      payload: PDF,
+    });
+    expect(inQuery.statusCode).toBe(422);
+  });
+
   it('[S1-03] an agency uploads and submits; staff review, download and approve; the agency is VERIFIED at once', async () => {
     const { f, headers } = await onboarded();
     const doc = await upload(headers, PDF);
@@ -187,16 +208,16 @@ describe('verification routes', () => {
     expect(tooBig.statusCode).toBe(413);
     const badName = await app.inject({
       method: 'POST',
-      url: '/v1/agency/verification/documents?kind=TAX_ID&fileName=..%2F..%2Fetc%2Fpasswd',
-      headers: { ...headers, 'content-type': 'application/pdf' },
+      url: '/v1/agency/verification/documents?kind=TAX_ID',
+      headers: { ...headers, 'content-type': 'application/pdf', 'x-file-name': '..%2F..%2Fetc%2Fpasswd' },
       payload: PDF,
     });
     expect(badName.statusCode).toBe(422);
     // A JSON body never reaches the upload as a file.
     const json = await app.inject({
       method: 'POST',
-      url: '/v1/agency/verification/documents?kind=TAX_ID&fileName=cif.pdf',
-      headers,
+      url: '/v1/agency/verification/documents?kind=TAX_ID',
+      headers: { ...headers, 'x-file-name': 'cif.pdf' },
       payload: { not: 'a file' },
     });
     expect(json.statusCode).toBe(415);
