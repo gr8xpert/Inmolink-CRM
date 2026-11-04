@@ -51,16 +51,27 @@ export async function sitemapResponse(request: Request, name: string): Promise<R
 /** `robots.txt`: everything but the form posts, the iFrame embeds and private selection links; the sitemap index. */
 export async function robotsResponse(): Promise<Response> {
   const { origin } = await portalSettings();
+  // S17-F39: the sitemap line is there only while the index exists (the worker writes it once `PORTAL_URL` is set); a
+  // robots.txt that names a 404 sends crawlers to an error. Not known (storage down): kept, and read again soon.
+  let sitemap: boolean | 'unknown' = 'unknown';
+  try {
+    sitemap = (await websiteApi.portalSitemapFile(websiteApi.PORTAL_SITEMAP_INDEX)) !== null;
+  } catch {
+    sitemap = 'unknown';
+  }
   const body = [
     'User-agent: *',
     'Disallow: /api/',
     'Disallow: /embed/',
     'Disallow: /s/',
     '',
-    `Sitemap: ${origin}/${websiteApi.PORTAL_SITEMAP_INDEX}`,
+    ...(sitemap === false ? [] : [`Sitemap: ${origin}/${websiteApi.PORTAL_SITEMAP_INDEX}`]),
     '',
   ].join('\n');
   return new Response(body, {
-    headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=86400' },
+    headers: {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Cache-Control': sitemap === true ? 'public, max-age=86400' : 'public, max-age=3600',
+    },
   });
 }

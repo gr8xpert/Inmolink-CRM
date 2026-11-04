@@ -509,19 +509,31 @@ async function readManifest(): Promise<PortalSitemapManifest | null> {
 /** How long a process trusts the manifest it read (a new run is picked up within this). */
 const MANIFEST_TTL_MS = 60_000;
 let manifestCache: { at: number; manifest: Promise<PortalSitemapManifest | null> } | undefined;
+/**
+ * S17-F39: a failed manifest read (storage slow or down) is remembered this long: requests in the window fail at once
+ * (the caller answers 503) instead of each waiting for the storage timeout — a crawler burst never queues up behind a
+ * dead store.
+ */
+const FAILURE_TTL_MS = 10_000;
+let manifestFailedAt: number | undefined;
 
 /** Tests: forget the cached manifest. */
 export function resetPortalSitemapCache(): void {
   manifestCache = undefined;
+  manifestFailedAt = undefined;
 }
 
 function currentManifest(): Promise<PortalSitemapManifest | null> {
   const now = Date.now();
+  if (manifestFailedAt !== undefined && now - manifestFailedAt < FAILURE_TTL_MS) {
+    return Promise.reject(new Error('portal sitemaps: storage unavailable'));
+  }
   if (!manifestCache || now - manifestCache.at > MANIFEST_TTL_MS) {
     const manifest = readManifest();
     manifestCache = { at: now, manifest };
     manifest.catch(() => {
       manifestCache = undefined;
+      manifestFailedAt = Date.now();
     });
   }
   return manifestCache.manifest;

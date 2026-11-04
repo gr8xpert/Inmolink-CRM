@@ -47,10 +47,24 @@ describe('portal sitemaps and robots.txt (S15-02)', () => {
   });
 
   it('[S15-02] robots.txt names the sitemap index on the portal origin and keeps crawlers off posts and private pages', async () => {
+    core.portalSitemapFile.mockResolvedValue(stored());
     const res = await robotsResponse();
     const text = await res.text();
+    expect(res.headers.get('cache-control')).toBe('public, max-age=86400');
     expect(text).toContain('Sitemap: https://inmolink.test/sitemap.xml');
     for (const path of ['/api/', '/embed/', '/s/']) expect(text).toContain(`Disallow: ${path}`);
     expect(text).not.toMatch(/Disallow: \/\s*$/m);
+  });
+
+  it('[S17-F39] robots.txt names no sitemap while there is none (a 404 is no sitemap), and is read again within the hour', async () => {
+    core.portalSitemapFile.mockResolvedValue(null);
+    const res = await robotsResponse();
+    expect(await res.text()).not.toContain('Sitemap:');
+    expect(res.headers.get('cache-control')).toBe('public, max-age=3600');
+    // The store cannot be asked: the line stays (nothing is known), for an hour only.
+    core.portalSitemapFile.mockRejectedValue(new Error('storage down'));
+    const unknown = await robotsResponse();
+    expect(await unknown.text()).toContain('Sitemap: https://inmolink.test/sitemap.xml');
+    expect(unknown.headers.get('cache-control')).toBe('public, max-age=3600');
   });
 });

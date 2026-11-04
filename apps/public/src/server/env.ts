@@ -148,15 +148,19 @@ function storageOf(config: PublicConfig) {
   if (!config.S3_ENDPOINT || !config.S3_REGION || !config.S3_ACCESS_KEY_ID || !config.S3_SECRET_ACCESS_KEY || !bucket) {
     return null;
   }
-  return storageConfigForBuckets(
-    {
-      S3_ENDPOINT: config.S3_ENDPOINT,
-      S3_REGION: config.S3_REGION,
-      S3_ACCESS_KEY_ID: config.S3_ACCESS_KEY_ID,
-      S3_SECRET_ACCESS_KEY: config.S3_SECRET_ACCESS_KEY,
-    },
-    { feeds: bucket },
-  );
+  return {
+    ...storageConfigForBuckets(
+      {
+        S3_ENDPOINT: config.S3_ENDPOINT,
+        S3_REGION: config.S3_REGION,
+        S3_ACCESS_KEY_ID: config.S3_ACCESS_KEY_ID,
+        S3_SECRET_ACCESS_KEY: config.S3_SECRET_ACCESS_KEY,
+      },
+      { feeds: bucket },
+    ),
+    // S17-F39: the portal only reads (a manifest, a stream): a slow store is an answer in seconds, not 15 s a request.
+    timeoutMs: 5_000,
+  };
 }
 
 async function setup(): Promise<PublicConfig> {
