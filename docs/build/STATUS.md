@@ -3,7 +3,7 @@
 Single source of truth for progress. Claude updates this at the end of every task. Keep **Now**, **Current sprint** and **Blocked** short — the session-start hook injects them.
 
 ## Now
-- **Task:** S17-01 Pilot cutover: finish R1 first, R2 on hold (owner, 2026-11-03; see Decisions). The new staging server is live (`4f38aed8`, rollback test passed, DevOps handoff 2026-11-03). Waits on the owner's Resales IP whitelist for `79.99.44.167` and the real import (owner, 2026-11-05), then H11. On handback: run the R1 staging tests (Blocked › H4 items), then the real Resales import, then the pilot.
+- **Task:** S17-01 Pilot cutover: finish R1 first, R2 on hold (owner, 2026-11-03; see Decisions). The new staging server is live (`177232a6`, deployed 2026-11-04; rollback last tested at `4f38aed8`, DevOps handoff). Waits on the owner's Resales IP whitelist for `79.99.44.167` and the real import (owner, 2026-11-05), then H11. On handback: run the R1 staging tests (Blocked › H4 items), then the real Resales import, then the pilot.
 - **Started:** —
 - **End-of-S17 full gate:** NOT clean locally (2026-11-04, see Decisions). Typecheck, lint, boundaries and unit passed; all but 5 failed files pass when rerun alone; those 5 are local perf or plan checks. CI Integration and throughput green on 030c9a7b; its E2E failed on the Postgres health check race fixed by S17-F15.
 - **Load it with:** `node scripts/task-brief.mjs --next`. Longer notes and open human steps: **Handover** below (not injected at session start).
