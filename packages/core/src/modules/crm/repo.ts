@@ -397,8 +397,9 @@ export async function updateWithVersion(
  * names and language where it has none, do-not-contact (once set by either side it stays: the safe reading).
  *
  * Consents (S10-01 review): a recorded choice (`consent_*_at` set) is never overturned by a claim without a time —
- * a form tick or an import default only records consent for a contact who never chose. A choice with a time (the
- * closed side of a merge) replaces the contact's only when it is more recent.
+ * a form tick or an import default only records consent for a contact who never chose. When both sides of a merge have
+ * a recorded choice, a withdrawal wins whichever is newer (S17-F33), like do-not-contact: a newer "yes" may be a form
+ * anyone filled in with a new address, and a member can tick it again after the merge.
  */
 export interface AbsorbPatch {
   contactId: string;
@@ -420,10 +421,13 @@ const consentValue = (field: string) => {
   const inc = sql.raw(`p.${field}`);
   const incAt = sql.raw(`p.${field}_at`);
   return {
-    value: sql`case when ${incAt} is not null and (${curAt} is null or ${incAt} > ${curAt}) then ${inc}
-      when ${incAt} is null and ${curAt} is null and ${inc} then true else ${cur} end`,
-    at: sql`case when ${incAt} is not null and (${curAt} is null or ${incAt} > ${curAt}) then ${incAt}
-      when ${incAt} is null and ${curAt} is null and ${inc} then now() else ${curAt} end`,
+    value: sql`case when ${incAt} is not null and ${curAt} is not null then ${cur} and ${inc}
+      when ${incAt} is not null then ${inc}
+      when ${curAt} is null and ${inc} then true else ${cur} end`,
+    at: sql`case when ${incAt} is not null and ${curAt} is not null then
+        case when ${cur} = ${inc} then greatest(${curAt}, ${incAt}) when ${inc} then ${curAt} else ${incAt} end
+      when ${incAt} is not null then ${incAt}
+      when ${curAt} is null and ${inc} then now() else ${curAt} end`,
   };
 };
 const marketing = consentValue('consent_marketing');

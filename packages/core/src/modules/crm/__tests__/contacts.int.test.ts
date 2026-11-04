@@ -240,7 +240,7 @@ describe('duplicate detection', () => {
 });
 
 describe('consent', () => {
-  it('[S10-01] a recorded choice is never overturned by a form tick or an import default; a merge keeps the most recent', async () => {
+  it('[S10-01] a recorded choice is never overturned by a form tick or an import default; a merge keeps a withdrawal', async () => {
     const withdrawn = await create(a, { firstName: 'Cons', emails: [email('cons')], consentMarketing: true });
     const off = await as(a, (ctx) =>
       crm.updateContact(ctx, withdrawn.id, { version: withdrawn.version, consentMarketing: false }),
@@ -251,13 +251,24 @@ describe('consent', () => {
       .contact;
     expect(merged).toMatchObject({ consentMarketing: false, consentMarketingAt: off.consentMarketingAt });
 
-    // merge: the more recent recorded choice wins (the duplicate consented after the survivor withdrew)
+    // [S17-F33] merge: a withdrawal wins even when the duplicate's "yes" is newer (it may be a form anyone filled in)
     const later = await create(a, { firstName: 'Cons2', emails: [email('cons2')], consentMarketing: true });
     const survivor = await as(a, (ctx) => crm.getContact(ctx, withdrawn.id));
     const result = await as(a, (ctx) =>
       crm.mergeContacts(ctx, survivor.id, { duplicateId: later.id, version: survivor.version }),
     );
-    expect(result).toMatchObject({ consentMarketing: true, consentMarketingAt: later.consentMarketingAt });
+    expect(result).toMatchObject({ consentMarketing: false, consentMarketingAt: off.consentMarketingAt });
+
+    // Either way round: the survivor said yes, the closed duplicate had withdrawn earlier.
+    const earlierOff = await create(a, { firstName: 'Cons3', emails: [email('cons3')], consentMarketing: true });
+    const closedOff = await as(a, (ctx) =>
+      crm.updateContact(ctx, earlierOff.id, { version: earlierOff.version, consentMarketing: false }),
+    );
+    const yes = await create(a, { firstName: 'Cons4', emails: [email('cons4')], consentMarketing: true });
+    const kept = await as(a, (ctx) =>
+      crm.mergeContacts(ctx, yes.id, { duplicateId: earlierOff.id, version: yes.version }),
+    );
+    expect(kept).toMatchObject({ consentMarketing: false, consentMarketingAt: closedOff.consentMarketingAt });
   });
 });
 

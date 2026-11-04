@@ -264,9 +264,9 @@ const languageOf = (locale: string): string | null => (/^[a-z]{2}(-[A-Z]{2})?$/.
  * address); the form's details stay on the lead (`visitor_*`) for the agent to compare. Otherwise a new contact is
  * created from them (source `WEBSITE`, type `BUYER`).
  * S17-F33: every inbound lead carries the form's required privacy tick (`recordInboundLead`), which is consent to
- * processing. A new contact starts with it. An existing contact's history gains the record, dated when the form was
- * sent, and its current consent stays as it is, so a withdrawal is never overwritten and a typed address cannot turn
- * consent on.
+ * processing. A new contact starts with it. An existing contact gets no record and no change: the address is unverified,
+ * so a typed one must not add consent evidence to someone else's history, and a public form must not be able to push a
+ * withdrawal out of the capped history. The tick stays on the lead.
  * Identifiers another writer takes meanwhile fail the transaction;
  * the job's retry then finds that contact.
  * S13-F21: exempt from the plan's contact quota (`crm_contacts`, Free 100) by design — an inbound website or portal
@@ -279,13 +279,7 @@ async function contactForVisitor(tx: Tx, agencyId: string, visitor: websites.Lea
   const phone = visitor.phone ? normalizePhone(visitor.phone, DEFAULT_PHONE_COUNTRY) : null;
   const owners = await repo.identifierOwners(tx, agencyId, email ? [email] : [], phone ? [phone] : []);
   const match = owners.find((o) => o.on === 'email') ?? owners[0];
-  // The form showed the published privacy text of this version (S16-04 review), when the visitor sent it.
-  const form = { source, policyVersion: LEGAL_TEXT_VERSION, at: visitor.createdAt } as const;
-  if (match) {
-    const consent = { contactId: match.contactId, purpose: 'PROCESSING', granted: true } as const;
-    await compliance.recordConsents(tx, agencyId, [consent], form);
-    return match.contactId;
-  }
+  if (match) return match.contactId;
 
   const id = newId();
   await repo.insertContacts(tx, [
@@ -321,7 +315,8 @@ async function contactForVisitor(tx: Tx, agencyId: string, visitor: websites.Lea
     tx,
     agencyId,
     compliance.initialConsents(id, { consentMarketing: visitor.marketingConsent, consentProcessing: true }),
-    form,
+    // The form showed the published privacy text of this version (S16-04 review), when the visitor sent it.
+    { source, policyVersion: LEGAL_TEXT_VERSION, at: visitor.createdAt },
   );
   await emit(tx, crmEvents.contactCreated({ agencyId, contactId: id, source }));
   return id;

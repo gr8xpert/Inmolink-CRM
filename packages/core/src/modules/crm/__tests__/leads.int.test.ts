@@ -374,7 +374,7 @@ describe('the privacy tick of a lead', () => {
     ]);
   });
 
-  it('[S17-F33] an existing contact gains the record; its current consent stays as it is', async () => {
+  it('[S17-F33] an existing contact gets no record and no change: anyone can type its address', async () => {
     const visitor = email('tick-existing');
     const existing = await createContact(a, { firstName: 'Eva', emails: [visitor] });
     expect(await processingHistory(existing.id)).toEqual([]);
@@ -382,9 +382,7 @@ describe('the privacy tick of a lead', () => {
     expect(lead.contact.id).toBe(existing.id);
     // An address anyone can type does not turn consent on (S10-02), marketing included.
     expect(await contactOf(existing.id)).toEqual(existing);
-    expect(await processingHistory(existing.id)).toEqual([
-      expect.objectContaining({ granted: true, source: 'WEBSITE', policyVersion: LEGAL_TEXT_VERSION }),
-    ]);
+    expect(await processingHistory(existing.id)).toEqual([]);
     const all = await as(a, (ctx) => crm.listContactConsents(ctx, existing.id));
     expect(all.items.filter((r) => r.purpose === 'MARKETING')).toEqual([]);
   });
@@ -403,12 +401,12 @@ describe('the privacy tick of a lead', () => {
     expect(withdrawn.consentProcessing).toBe(false);
 
     await promote(queued);
-    expect((await processingHistory(id)).map((r) => r.granted)).toEqual([false, true, true]);
+    expect((await processingHistory(id)).map((r) => r.granted)).toEqual([false, true]);
     expect(await contactOf(id)).toEqual(withdrawn);
 
-    // A new form after it: the history shows it, the current state stays withdrawn for the agent to decide.
+    // A new form after it: nothing pushes the withdrawal out of the history, the current state stays withdrawn.
     await promote(await inbound({ email: visitor }));
-    expect((await processingHistory(id)).map((r) => r.granted)).toEqual([true, false, true, true]);
+    expect((await processingHistory(id)).map((r) => r.granted)).toEqual([false, true]);
     expect(await contactOf(id)).toEqual(withdrawn);
   });
 
