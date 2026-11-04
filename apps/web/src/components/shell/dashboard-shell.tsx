@@ -98,44 +98,46 @@ export async function DashboardShell({ shell, children }: { shell: Shell; childr
             openLabel={t('nav.open')}
             closeLabel={t('nav.close')}
             items={shell.nav.map((item) => ({ href: item.href, label: t(`nav.${item.key}`) }))}
+            account={
+              <section
+                aria-label={t('account.label')}
+                className="flex flex-col gap-2 border-b p-4 text-sm md:border-t md:border-b-0"
+              >
+                <p className="truncate font-medium">{shell.user.name || shell.user.email}</p>
+                <p className="truncate text-muted-foreground">
+                  {shell.user.email}
+                  {roleLabel ? ` · ${roleLabel}` : ''}
+                </p>
+                <div className="sm:hidden">
+                  <LocaleSwitcher label={t('locale.label')} current={locale} locales={locales} />
+                </div>
+                {caps && !caps.clientMode ? (
+                  <ClientModeStart action={enterClientModeAction} labels={clientModeLabels} />
+                ) : null}
+                {/* S16-04 review: the legal pages and the cookie choice, from every dashboard page */}
+                <nav
+                  aria-label={legal('nav.label')}
+                  className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground"
+                >
+                  <Link href="/legal/privacy" className="underline">
+                    {legal('nav.privacy')}
+                  </Link>
+                  <Link href="/legal/terms" className="underline">
+                    {legal('nav.terms')}
+                  </Link>
+                  <CookieSettingsButton label={legal('consent.settings')} />
+                </nav>
+                {/* S12-06 review: no sign-out in Client Mode — the PIN ends it (and a new login resumes it anyway). */}
+                {caps?.clientMode ? null : (
+                  <form action={logoutAction}>
+                    <Button type="submit" variant="outline" size="sm" className="w-full">
+                      {t('account.logout')}
+                    </Button>
+                  </form>
+                )}
+              </section>
+            }
           />
-          <section
-            aria-label={t('account.label')}
-            className="flex flex-col gap-2 border-b p-4 text-sm md:mt-auto md:border-t md:border-b-0"
-          >
-            <p className="truncate font-medium">{shell.user.name || shell.user.email}</p>
-            <p className="truncate text-muted-foreground">
-              {shell.user.email}
-              {roleLabel ? ` · ${roleLabel}` : ''}
-            </p>
-            <div className="sm:hidden">
-              <LocaleSwitcher label={t('locale.label')} current={locale} locales={locales} />
-            </div>
-            {caps && !caps.clientMode ? (
-              <ClientModeStart action={enterClientModeAction} labels={clientModeLabels} />
-            ) : null}
-            {/* S16-04 review: the legal pages and the cookie choice, from every dashboard page */}
-            <nav
-              aria-label={legal('nav.label')}
-              className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground"
-            >
-              <Link href="/legal/privacy" className="underline">
-                {legal('nav.privacy')}
-              </Link>
-              <Link href="/legal/terms" className="underline">
-                {legal('nav.terms')}
-              </Link>
-              <CookieSettingsButton label={legal('consent.settings')} />
-            </nav>
-            {/* S12-06 review: no sign-out in Client Mode — the PIN ends it (and a new login resumes it anyway). */}
-            {caps?.clientMode ? null : (
-              <form action={logoutAction}>
-                <Button type="submit" variant="outline" size="sm" className="w-full">
-                  {t('account.logout')}
-                </Button>
-              </form>
-            )}
-          </section>
         </div>
         <main id="main" tabIndex={-1} className="min-w-0 flex-1 focus:outline-none">
           {children}

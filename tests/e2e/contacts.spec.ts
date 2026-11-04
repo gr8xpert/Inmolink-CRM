@@ -144,3 +144,105 @@ test('[S17-F29] import a CSV: confirm columns, see errors and duplicates, import
   await page.goto(knownUrl);
   await expect(page.getByRole('heading', { level: 1, name: 'Known' })).toBeVisible();
 });
+
+/** No horizontal page scroll: the document is never wider than the window. */
+async function expectNoPageScroll(page: Page, where: string): Promise<void> {
+  const { scrollWidth, clientWidth } = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }));
+  expect(scrollWidth, `${where}: ${scrollWidth}px wide in a ${clientWidth}px window`).toBeLessThanOrEqual(clientWidth);
+}
+
+test('[S17-F38] at 390 px no page scrolls sideways, and the closed menu is one row', async ({ page }) => {
+  test.setTimeout(180_000);
+  const admin = await seedImportAdmin();
+  await login(page, admin.email);
+  await page.setViewportSize({ width: 390, height: 844 });
+
+  // The account block is inside the menu: closed, its sign-out is not on the page; opened, it is, with the toggle's state.
+  await page.goto('/en');
+  const toggle = page.getByRole('button', { name: 'Open menu' });
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByRole('button', { name: 'Log out' })).toBeHidden();
+  const mainTop = (await page.getByRole('main').boundingBox())?.y ?? 9_999;
+  expect(mainTop, 'content starts near the top, not under an account block').toBeLessThan(200);
+  await toggle.click();
+  await expect(page.getByRole('button', { name: 'Close menu' })).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByRole('button', { name: 'Log out' })).toBeVisible();
+
+  // Contacts: a contact with a phone number; the table scrolls inside its own wrapper.
+  await page.goto('/en/contacts/new');
+  await page.getByLabel('First name').fill('Wide');
+  await page.getByLabel('E-mail').fill(`wide-${randomBytes(4).toString('hex')}@example.com`);
+  await page.getByRole('button', { name: 'Create contact' }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Wide' })).toBeVisible();
+  await page.goto('/en/contacts');
+  await expect(page.getByTestId('contact-list')).toBeVisible();
+  await expectNoPageScroll(page, '/contacts');
+
+  // Tasks: a title of 200 letters without a space wraps.
+  await page.goto('/en/tasks');
+  await page.getByLabel('Title').fill('W'.repeat(200));
+  await page.getByRole('button', { name: 'Add task' }).click();
+  await expect(page.getByTestId('task-list')).toBeVisible();
+  await expectNoPageScroll(page, '/tasks');
+
+  // Pipeline stages: a stage name of 60 letters without a space wraps.
+  await page.goto('/en/pipeline/stages');
+  await page.locator('#stage-add-name').fill('S'.repeat(60));
+  await page.getByRole('button', { name: 'Add stage' }).click();
+  await expect(
+    page
+      .getByTestId('pipeline-stage')
+      .filter({ hasText: 'S'.repeat(60) })
+      .first(),
+  ).toBeVisible();
+  await expectNoPageScroll(page, '/pipeline/stages');
+
+  // Listings: the column chooser opens inside the window.
+  await page.goto('/en/listings');
+  await page.getByText('Columns', { exact: true }).click();
+  await expect(page.getByRole('group', { name: 'Columns' })).toBeVisible();
+  await expectNoPageScroll(page, '/listings with the columns open');
+});
+
+test('[S17-F37] an empty contact file is refused in words, not "Something went wrong"', async ({ page }) => {
+  test.setTimeout(120_000);
+  const admin = await seedImportAdmin();
+  await login(page, admin.email);
+  await page.goto('/en/contacts/import');
+  await page
+    .getByTestId('contact-import-file')
+    .setInputFiles({ name: 'empty.csv', mimeType: 'text/csv', buffer: Buffer.alloc(0) });
+  await expect(page.getByRole('alert')).toContainText('This file has no rows under its column names.');
+  await expect(page.getByText('Something went wrong')).toBeHidden();
+});
+
+test('[S17-F40] an unknown or foreign id is the same "Page not found" on every detail page (no hint whether it exists)', async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  const admin = await seedImportAdmin();
+  await login(page, admin.email);
+  const unknown = '01900000-0000-7000-8000-00000000dead';
+  const bodies = new Set<string>();
+  for (const path of [
+    'contacts',
+    'inbox',
+    'listings',
+    'selections',
+    'developments',
+    'websites',
+    'portals',
+    'imports',
+  ]) {
+    await page.goto(`/en/${path}/${unknown}`);
+    await expect(page.getByRole('heading', { level: 1, name: 'Page not found' }), path).toBeVisible();
+    // The page says it is not to be indexed. Its status is 200 where the member skeleton (loading.tsx) has already
+    // streamed: Next cannot change a status after the first byte (documented on the app's loading boundary).
+    await expect(page.locator('meta[name="robots"][content*="noindex"]'), path).toHaveCount(1);
+    bodies.add(await page.getByRole('main').innerText());
+  }
+  expect(bodies.size, 'the same page for every kind of record').toBe(1);
+});

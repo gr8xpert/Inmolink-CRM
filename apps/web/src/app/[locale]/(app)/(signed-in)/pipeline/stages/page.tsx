@@ -44,9 +44,9 @@ export default async function PipelineStagesPage({ searchParams }: { searchParam
   const labels = new Map(await Promise.all(stages.map(async (s) => [s.id, await stageLabel(s)] as const)));
 
   const row = (s: PipelineStageDto, i: number) => (
-    <li key={s.id} className="flex flex-col gap-2 rounded-md border p-3" data-testid="pipeline-stage">
+    <li key={s.id} className="flex min-w-0 flex-col gap-2 rounded-md border p-3" data-testid="pipeline-stage">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="font-medium">{labels.get(s.id)}</span>
+        <span className="min-w-0 font-medium [overflow-wrap:anywhere]">{labels.get(s.id)}</span>
         <span className="rounded-full bg-muted px-2 text-xs">{t(`kinds.${s.kind}`)}</span>
         {s.entry ? <span className="text-xs text-muted-foreground">{t('settings.entry')}</span> : null}
       </div>

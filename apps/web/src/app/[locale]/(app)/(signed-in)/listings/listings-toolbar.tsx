@@ -273,7 +273,7 @@ export function ListingsToolbar(props: ListingsToolbarProps) {
         </div>
         <details className="relative">
           <summary className="cursor-pointer rounded-md border px-3 py-2 text-sm">{t('columns.choose')}</summary>
-          <fieldset className="absolute z-10 mt-1 grid w-56 gap-1 rounded-md border bg-background p-3 shadow">
+          <fieldset className="z-10 mt-1 grid w-56 max-w-full gap-1 rounded-md border bg-background p-3 shadow sm:absolute">
             <legend className="sr-only">{t('columns.choose')}</legend>
             {LISTING_COLUMNS.map((c) => (
               <label key={c} className="flex items-center gap-2 text-sm">

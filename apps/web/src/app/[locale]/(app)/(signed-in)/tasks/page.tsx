@@ -142,7 +142,7 @@ export default async function TasksPage({ searchParams }: { searchParams: Promis
         <ul className="divide-y rounded-md border" data-testid="task-list">
           {res.data.items.map((task: TaskDto) => (
             <li key={task.id} className="flex flex-wrap items-center gap-3 p-3 text-sm">
-              <div className="flex min-w-60 flex-1 flex-col">
+              <div className="flex min-w-60 max-w-full flex-1 flex-col [overflow-wrap:anywhere]">
                 <span className={task.status === 'DONE' ? 'font-medium line-through' : 'font-medium'}>
                   {task.title}
                 </span>

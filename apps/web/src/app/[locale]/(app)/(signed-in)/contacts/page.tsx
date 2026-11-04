@@ -104,8 +104,8 @@ export default async function ContactsPage({ searchParams }: { searchParams: Pro
       ) : items === null ? null : items.length === 0 ? (
         <EmptyState title={t('empty')} />
       ) : (
-        <div className="overflow-x-auto rounded-md border">
-          <table className="w-full text-left text-sm" data-testid="contact-list">
+        <div className="max-w-full overflow-x-auto rounded-md border">
+          <table className="w-full min-w-[40rem] text-left text-sm" data-testid="contact-list">
             <thead className="border-b text-muted-foreground">
               <tr>
                 <th className="p-2 font-medium">{t('list.columns.name')}</th>
@@ -126,7 +126,7 @@ export default async function ContactsPage({ searchParams }: { searchParams: Pro
                     ) : null}
                   </td>
                   <td className="p-2">{c.primaryEmail ?? ''}</td>
-                  <td className="p-2">{c.primaryPhone ?? ''}</td>
+                  <td className="whitespace-nowrap p-2">{c.primaryPhone ?? ''}</td>
                   <td className="p-2">{c.types.map((v) => t(`types.${v}`)).join(', ')}</td>
                 </tr>
               ))}

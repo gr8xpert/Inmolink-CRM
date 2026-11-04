@@ -217,7 +217,7 @@ export function UnitsPanel({ developmentId, currency, initial, propertyTypes, re
       {page.items.length === 0 ? (
         <p className="text-sm text-muted-foreground">{t('units.empty')}</p>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="relative overflow-x-auto">
           <table className="w-full text-sm" data-testid="units-table">
             <thead className="text-left">
               <tr className="border-b">
