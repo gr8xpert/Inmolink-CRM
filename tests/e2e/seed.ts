@@ -113,6 +113,24 @@ export async function seedListingTaxonomy(): Promise<void> {
   }
 }
 
+/**
+ * A feed value in the staff mapping queue (S17-F22), seen often enough to be on the queue's first page whatever earlier
+ * runs left. `candidateId`: the resolver's hint.
+ */
+export async function seedUnmatched(
+  kind: 'location' | 'propertyType' | 'feature',
+  value: string,
+  candidateId: string | null = null,
+): Promise<void> {
+  await asOwner((admin) =>
+    admin.query(
+      `insert into taxonomy_unmatched (id, kind, value_key, value, count, examples, candidate_id, candidate_score)
+       values ($1, $2, $3, $4, 1000000, '["REF-1"]'::jsonb, $5, $6)`,
+      [randomUUID(), kind, value.toLowerCase(), value, candidateId, candidateId ? 0.6 : null],
+    ),
+  );
+}
+
 /** A verified agency (it may share listings) with one agent, and the names of `LISTING_TAXONOMY` to list in. */
 export async function seedListingAgent(): Promise<{
   email: string;

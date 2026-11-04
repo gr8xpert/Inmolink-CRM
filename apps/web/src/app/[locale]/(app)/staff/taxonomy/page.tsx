@@ -1,6 +1,7 @@
 import { CONTENT_LOCALES, DEFAULT_CONTENT_LOCALE } from '@inmolink/i18n';
 import { notFound, redirect } from 'next/navigation';
 import { getMessages, getTranslations } from 'next-intl/server';
+import { Link } from '@/i18n/navigation';
 import { webConfig } from '@/server/env';
 import { requireStaff } from '@/server/staff';
 import { fetchStaffTaxonomy } from '@/server/staff-taxonomy';
@@ -25,6 +26,9 @@ export default async function StaffTaxonomyPage() {
       <div>
         <h1 className="text-xl font-semibold">{t('title')}</h1>
         <p className="text-sm text-muted-foreground">{t('intro')}</p>
+        <Link href="/staff/taxonomy/unmatched" className="text-sm font-medium underline-offset-4 hover:underline">
+          {t('queueLink')}
+        </Link>
       </div>
       {!res.ok ? (
         <p role="alert" className="text-sm text-destructive">

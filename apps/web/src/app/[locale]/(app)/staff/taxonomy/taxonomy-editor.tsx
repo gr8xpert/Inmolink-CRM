@@ -21,7 +21,7 @@ import {
   updateCatalogItemAction,
   updateLocationAction,
 } from './actions';
-import { type T, type Translation, TranslationEditor } from './translation-editor';
+import { makeT, type T, type Translation, TranslationEditor } from './translation-editor';
 
 // MapLibre and Terra Draw only load once an item is opened (frontend rules: heavy UI via next/dynamic).
 const PolygonMap = dynamic(() => import('./polygon-map'), {
@@ -62,15 +62,6 @@ export interface EditorProps {
   defaultLocale: string;
   mapStyleUrl: string;
   messages: Record<string, unknown>;
-}
-
-function makeT(messages: Record<string, unknown>): T {
-  return (key, vars) => {
-    let v: unknown = messages;
-    for (const part of key.split('.')) v = (v as Record<string, unknown> | undefined)?.[part];
-    const s = typeof v === 'string' ? v : key;
-    return vars ? s.replace(/\{(\w+)\}/g, (_, k: string) => vars[k] ?? '') : s;
-  };
 }
 
 /** Moves one id to the position of another; null when nothing changes. */

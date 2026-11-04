@@ -4,19 +4,27 @@ import {
   AddAliasInput,
   CreateCatalogItemInput,
   CreateLocationInput,
+  type LocationLevel,
+  MapUnmatchedInput,
   ReorderCatalogInput,
   ReorderLocationsInput,
   type StaffCatalogItemDto,
   type StaffLocationChildrenDto,
   type StaffLocationDto,
+  type UnmatchedDto,
+  UnmatchedListQuery,
+  type UnmatchedPageDto,
   UpdateCatalogItemInput,
   UpdateLocationInput,
 } from '@inmolink/contracts';
+import { DEFAULT_CONTENT_LOCALE } from '@inmolink/i18n';
 import { redirect } from 'next/navigation';
+import { getLocale } from 'next-intl/server';
 import { z } from 'zod';
 import { auth } from '@/auth';
 import { type ApiResult, sessionRef } from '@/server/api';
 import * as api from '@/server/staff-taxonomy';
+import { translatedName } from './unmatched/queue-logic';
 
 /**
  * Taxonomy editor actions (S2-04, transport only). The client component calls them with plain objects; each is
@@ -131,6 +139,52 @@ export async function addCatalogAliasAction(
   const parsed = AddAliasInput.safeParse(input);
   if (!k.success || !i.success || !parsed.success) return invalid;
   return settle(await api.addStaffCatalogAlias(await session(), k.data, i.data, parsed.data));
+}
+
+/** The next page of the mapping queue (S17-F22). */
+export async function loadUnmatchedAction(input: unknown): Promise<ActionResult<UnmatchedPageDto>> {
+  const parsed = UnmatchedListQuery.safeParse(input);
+  if (!parsed.success || !parsed.data.kind) return invalid;
+  const { kind, cursor, limit } = parsed.data;
+  return settle(await api.fetchStaffUnmatched(await session(), { kind, limit, ...(cursor ? { cursor } : {}) }));
+}
+
+export async function mapUnmatchedAction(id: unknown, input: unknown): Promise<ActionResult<UnmatchedDto>> {
+  const i = Id.safeParse(id);
+  const parsed = MapUnmatchedInput.safeParse(input);
+  if (!i.success || !parsed.success) return invalid;
+  return settle(await api.mapStaffUnmatched(await session(), i.data, parsed.data));
+}
+
+export async function ignoreUnmatchedAction(id: unknown): Promise<ActionResult<UnmatchedDto>> {
+  const i = Id.safeParse(id);
+  if (!i.success) return invalid;
+  return settle(await api.ignoreStaffUnmatched(await session(), i.data));
+}
+
+/** AREA → CITY → REGION → COUNTRY. */
+const LOCATION_DEPTH = 4;
+
+/**
+ * A location's path from its country down, so a suggestion can show where it is (S17-F22). Walked here, one read per
+ * level, because the location read carries the polygon: only names and levels reach the browser.
+ */
+export async function loadLocationPathAction(
+  id: unknown,
+): Promise<ActionResult<{ id: string; name: string; level: LocationLevel }[]>> {
+  const parsed = Id.safeParse(id);
+  if (!parsed.success) return invalid;
+  const [s, locale] = [await session(), await getLocale()];
+  const steps: { id: string; name: string; level: LocationLevel }[] = [];
+  let next: string | null = parsed.data;
+  for (let depth = 0; next && depth < LOCATION_DEPTH; depth++) {
+    const res: ActionResult<StaffLocationDto> = settle(await api.fetchStaffLocation(s, next));
+    if (!res.ok) return res;
+    const name = translatedName(res.data.translations, locale, DEFAULT_CONTENT_LOCALE);
+    steps.unshift({ id: res.data.id, name, level: res.data.level });
+    next = res.data.parentId;
+  }
+  return { ok: true, data: steps };
 }
 
 export async function removeCatalogAliasAction(

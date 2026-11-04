@@ -2,12 +2,16 @@ import {
   type AddAliasInput,
   type CreateCatalogItemInput,
   type CreateLocationInput,
+  type MapUnmatchedInput,
   type ReorderCatalogInput,
   type ReorderLocationsInput,
   StaffCatalogItemDto,
   StaffLocationChildrenDto,
   StaffLocationDto,
   StaffTaxonomyDto,
+  UnmatchedDto,
+  type UnmatchedKind,
+  UnmatchedPageDto,
   type UpdateCatalogItemInput,
   type UpdateLocationInput,
 } from '@inmolink/contracts';
@@ -88,6 +92,27 @@ export const addStaffCatalogAlias = (
   body: AddAliasInput,
 ): Promise<ApiResult<StaffCatalogItemDto>> =>
   apiRequest(s, `${base}/catalog/${seg(kind)}/${seg(id)}/aliases`, StaffCatalogItemDto, { method: 'POST', body });
+
+/** The mapping queue (S17-F22), most-seen first; `status` defaults to the open values. */
+export const fetchStaffUnmatched = (
+  s: SessionRef,
+  query: { kind: UnmatchedKind; cursor?: string; limit?: number },
+): Promise<ApiResult<UnmatchedPageDto>> => {
+  const qs = new URLSearchParams({ kind: query.kind });
+  if (query.cursor) qs.set('cursor', query.cursor);
+  if (query.limit) qs.set('limit', String(query.limit));
+  return apiRequest(s, `${base}/unmatched?${qs}`, UnmatchedPageDto);
+};
+
+export const mapStaffUnmatched = (
+  s: SessionRef,
+  id: string,
+  body: MapUnmatchedInput,
+): Promise<ApiResult<UnmatchedDto>> =>
+  apiRequest(s, `${base}/unmatched/${seg(id)}/map`, UnmatchedDto, { method: 'POST', body });
+
+export const ignoreStaffUnmatched = (s: SessionRef, id: string): Promise<ApiResult<UnmatchedDto>> =>
+  apiRequest(s, `${base}/unmatched/${seg(id)}/ignore`, UnmatchedDto, { method: 'POST' });
 
 export const removeStaffCatalogAlias = (
   s: SessionRef,

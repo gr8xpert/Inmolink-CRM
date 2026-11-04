@@ -245,7 +245,7 @@ function Health({
           <Stat label={t('imports.unmatched.propertyType')} value={n(data.unmatched.propertyType)} />
           <Stat label={t('imports.unmatched.feature')} value={n(data.unmatched.feature)} />
         </div>
-        <Link href="/staff/taxonomy" className="text-sm font-medium underline-offset-4 hover:underline">
+        <Link href="/staff/taxonomy/unmatched" className="text-sm font-medium underline-offset-4 hover:underline">
           {t('imports.mapValues')}
         </Link>
       </section>

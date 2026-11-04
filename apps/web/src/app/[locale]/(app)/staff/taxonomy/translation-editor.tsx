@@ -11,6 +11,16 @@ export interface Translation {
 
 export type T = (key: string, vars?: Record<string, string>) => string;
 
+/** A translator over the `staff.taxonomy` messages the page passes down. */
+export function makeT(messages: Record<string, unknown>): T {
+  return (key, vars) => {
+    let v: unknown = messages;
+    for (const part of key.split('.')) v = (v as Record<string, unknown> | undefined)?.[part];
+    const s = typeof v === 'string' ? v : key;
+    return vars ? s.replace(/\{(\w+)\}/g, (_, k: string) => vars[k] ?? '') : s;
+  };
+}
+
 /** Lowercase, accent-free, dashes: the shape the API accepts for a slug. */
 export function slugify(name: string): string {
   return name
