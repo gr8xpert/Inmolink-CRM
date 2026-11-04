@@ -8,6 +8,8 @@ env:
   clear:
     DEPLOY_ENV: "staging"
     OTEL_TRACES_SAMPLE_RATIO: "1"
+    # Selection share links (full URL, WhatsApp, e-mail) are built by the API
+    PUBLIC_PAGES_URL: "https://staging-sites.inmolink.es"
 accessories:
   redis-cache:
     host: 79.99.44.167
