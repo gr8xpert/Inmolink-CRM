@@ -3,8 +3,11 @@ import { Button, EmptyState } from '@inmolink/ui';
 import { redirect } from 'next/navigation';
 import { getFormatter, getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
+import { ClientModeUnavailable } from '@/components/shell/client-mode-unavailable';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
 import { fetchFeedConnections, sessionRef } from '@/server/api';
+import { inClientMode } from '@/server/nav';
+import { loadShell } from '@/server/shell';
 import { runNowAction } from './actions';
 import { ImportNotice, StateBadge, scheduleLabel } from './shared';
 
@@ -19,6 +22,8 @@ export default async function ImportsPage({ searchParams }: { searchParams: Prom
   const locale = await getLocale();
   const session = await auth();
   if (!session?.user?.id) return localeRedirect({ href: '/login', locale });
+  const shell = await loadShell();
+  if (shell && inClientMode(shell.identity)) return <ClientModeUnavailable />;
   const params = await searchParams;
   const cursor = typeof params.cursor === 'string' && CURSOR.test(params.cursor) ? params.cursor : undefined;
   const res = await fetchFeedConnections(sessionRef(session.user), cursor);

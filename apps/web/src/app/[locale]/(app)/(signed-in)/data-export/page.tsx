@@ -5,9 +5,12 @@ import { redirect } from 'next/navigation';
 import { getFormatter, getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
 import { OpenFileForm } from '@/components/open-file-form';
+import { ClientModeUnavailable } from '@/components/shell/client-mode-unavailable';
 import { redirect as localeRedirect } from '@/i18n/navigation';
 import { sessionRef } from '@/server/api';
 import { fetchContact, fetchDataExports } from '@/server/contacts-api';
+import { inClientMode } from '@/server/nav';
+import { loadShell } from '@/server/shell';
 import { downloadExportAction, requestExportAction } from './actions';
 
 const FAILURES: readonly string[] = ['TOO_LARGE', 'TIMEOUT', 'INTERNAL'];
@@ -32,6 +35,8 @@ export default async function DataExportPage({ searchParams }: { searchParams: P
   const locale = await getLocale();
   const session = await auth();
   if (!session?.user?.id) return localeRedirect({ href: '/login', locale });
+  const shell = await loadShell();
+  if (shell && inClientMode(shell.identity)) return <ClientModeUnavailable />;
   const params = await searchParams;
   const ref = sessionRef(session.user);
   const t = await getTranslations('data-export');

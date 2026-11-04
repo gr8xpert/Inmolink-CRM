@@ -347,9 +347,11 @@ export function ListingEditor(props: ListingEditorProps) {
       {t('editor.locked')}: {t(`editor.locks.${f}`)}
     </label>
   );
+  // Without commission (Client Mode, another agency's listing) the price section is only the price (S17-F35).
+  const sectionTitle = (key: string) => t(`editor.sections.${key === 'price' && !hasCommission ? 'priceOnly' : key}`);
   const section = (key: string, locks: LockableListingField[], children: ReactNode) => (
     <fieldset id={`section-${key}`} className="flex flex-col gap-4 rounded-md border p-4">
-      <legend className="px-1 text-sm font-semibold">{t(`editor.sections.${key}`)}</legend>
+      <legend className="px-1 text-sm font-semibold">{sectionTitle(key)}</legend>
       {locks.length > 0 ? (
         <div className="flex flex-wrap gap-x-4 gap-y-1" title={t('editor.lock')}>
           {locks.map(lock)}
@@ -374,7 +376,7 @@ export function ListingEditor(props: ListingEditorProps) {
             .filter((s) => s !== 'private' || hasPrivate)
             .map((s) => (
               <a key={s} href={`#section-${s}`} className="underline-offset-4 hover:underline">
-                {t(`editor.sections.${s}`)}
+                {sectionTitle(s)}
               </a>
             ))}
         </nav>

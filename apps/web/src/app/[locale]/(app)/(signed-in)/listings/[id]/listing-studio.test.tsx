@@ -94,6 +94,18 @@ describe('listing editor: AI Listing Studio (S12-02)', () => {
     expect(render('en', listing(), true)).toContain('data-testid="listing-studio"');
   });
 
+  it('[S17-F35] without commission (Client Mode) the price section is called Price, with no commission field', () => {
+    const html = render('en', listing({ commission: null }));
+    expect(html).not.toContain('Price and commission');
+    expect(html).toContain('>Price<');
+    expect(html).not.toContain('commissionPercent');
+    expect(render('es', listing({ commission: null }))).not.toContain('Precio y comisión');
+    const withCommission = listing({
+      commission: { type: 'PCT', percent: '3', includesVat: false, splitPercent: '50' },
+    } as unknown as Partial<ListingDto>);
+    expect(render('en', withCommission)).toContain('Price and commission');
+  });
+
   it('[S12-02] the studio panel offers the tone presets and marks an AI draft for review (EN)', () => {
     const html = render('en');
     expect(html).toContain('data-testid="listing-studio"');

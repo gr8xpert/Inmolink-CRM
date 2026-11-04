@@ -3,10 +3,11 @@ import { EmptyState } from '@inmolink/ui';
 import { redirect } from 'next/navigation';
 import { getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
+import { ClientModeUnavailable } from '@/components/shell/client-mode-unavailable';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
 import { sessionRef } from '@/server/api';
 import { fetchContacts } from '@/server/contacts-api';
-import { canImportContacts } from '@/server/nav';
+import { canImportContacts, inClientMode } from '@/server/nav';
 import { loadShell } from '@/server/shell';
 import { ContactFinder } from './contact-finder';
 import { contactName } from './lookup';
@@ -22,6 +23,8 @@ export default async function ContactsPage({ searchParams }: { searchParams: Pro
   const locale = await getLocale();
   const session = await auth();
   if (!session?.user?.id) return localeRedirect({ href: '/login', locale });
+  const shell = await loadShell();
+  if (shell && inClientMode(shell.identity)) return <ClientModeUnavailable />;
   const params = await searchParams;
   const type = (CONTACT_TYPES as readonly string[]).includes(params.type ?? '')
     ? (params.type as ContactType)
@@ -30,7 +33,6 @@ export default async function ContactsPage({ searchParams }: { searchParams: Pro
   const cursor = typeof params.cursor === 'string' && CURSOR.test(params.cursor) ? params.cursor : undefined;
   const ref = sessionRef(session.user);
   const t = await getTranslations('contacts');
-  const shell = await loadShell();
 
   const res = await fetchContacts(ref, { type, owner, cursor });
   if (res === 'revoked') redirect('/session/expired');

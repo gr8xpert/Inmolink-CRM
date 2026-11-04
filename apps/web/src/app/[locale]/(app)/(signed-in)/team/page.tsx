@@ -4,8 +4,11 @@ import { Button, EmptyState, Input, Label } from '@inmolink/ui';
 import { redirect } from 'next/navigation';
 import { getFormatter, getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
+import { ClientModeUnavailable } from '@/components/shell/client-mode-unavailable';
 import { redirect as localeRedirect } from '@/i18n/navigation';
 import { fetchTeam, sessionRef } from '@/server/api';
+import { inClientMode } from '@/server/nav';
+import { loadShell } from '@/server/shell';
 import { changeRoleAction, deactivateAction, inviteAction, revokeInviteAction } from './actions';
 
 /** Roles an admin hands out (mirrors the identity policy; the API enforces it). */
@@ -22,6 +25,8 @@ export default async function TeamPage({ searchParams }: { searchParams: Promise
   const locale = await getLocale();
   const session = await auth();
   if (!session?.user?.id) return localeRedirect({ href: '/login', locale });
+  const shell = await loadShell();
+  if (shell && inClientMode(shell.identity)) return <ClientModeUnavailable />;
   const res = await fetchTeam(sessionRef(session.user));
   if (res === 'revoked') redirect('/session/expired');
   const t = await getTranslations('team');

@@ -5,6 +5,8 @@ import { getLocale, getMessages, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
 import { fetchDevelopmentPage, sessionRef } from '@/server/api';
+import { inClientMode } from '@/server/nav';
+import { loadShell } from '@/server/shell';
 import { listingTaxonomy } from '../../listings/taxonomy';
 import { AccessPanel } from './access-panel';
 import { DevelopmentEditor } from './development-editor';
@@ -35,6 +37,9 @@ export default async function DevelopmentPage(props: { params: Promise<{ id: str
   const locale = await getLocale();
   const session = await auth();
   if (!session?.user?.id) return localeRedirect({ href: '/login', locale });
+  const shell = await loadShell();
+  // S17-F35: Client Mode shows the development as the API gives it: read-only, with no access data (which is not "another agency's").
+  const clientView = shell !== null && inClientMode(shell.identity);
   const res = await fetchDevelopmentPage(sessionRef(session.user), id);
   if (res === 'revoked') redirect('/session/expired');
   if (!res.development.ok && res.development.status === 404) notFound();
@@ -66,7 +71,7 @@ export default async function DevelopmentPage(props: { params: Promise<{ id: str
         </p>
       ) : (
         <>
-          {own ? null : <p className="text-sm text-muted-foreground">{t('editor.readOnly')}</p>}
+          {own || clientView ? null : <p className="text-sm text-muted-foreground">{t('editor.readOnly')}</p>}
           <DevelopmentEditor
             development={dev}
             locations={tax.locations}
@@ -99,7 +104,7 @@ export default async function DevelopmentPage(props: { params: Promise<{ id: str
               documents={res.documents?.items ?? []}
               messages={messages.developments}
             />
-          ) : (
+          ) : clientView ? null : (
             <OverridePanel
               targetKind="DEVELOPMENT"
               targetId={dev.id}

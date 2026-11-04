@@ -2,10 +2,13 @@ import { EmptyState } from '@inmolink/ui';
 import { redirect } from 'next/navigation';
 import { getFormatter, getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
+import { ClientModeUnavailable } from '@/components/shell/client-mode-unavailable';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
 import { agencyTimeZone } from '@/server/agency-time-zone';
 import { sessionRef } from '@/server/api';
+import { inClientMode } from '@/server/nav';
 import { fetchSelections } from '@/server/selections-api';
+import { loadShell } from '@/server/shell';
 
 const CURSOR = /^[A-Za-z0-9_-]{1,200}$/;
 
@@ -17,6 +20,8 @@ export default async function SelectionsPage({ searchParams }: { searchParams: P
   const locale = await getLocale();
   const session = await auth();
   if (!session?.user?.id) return localeRedirect({ href: '/login', locale });
+  const shell = await loadShell();
+  if (shell && inClientMode(shell.identity)) return <ClientModeUnavailable />;
   const params = await searchParams;
   const ref = sessionRef(session.user);
   const cursor = typeof params.cursor === 'string' && CURSOR.test(params.cursor) ? params.cursor : undefined;
