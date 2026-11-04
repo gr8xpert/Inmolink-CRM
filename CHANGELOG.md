@@ -5,6 +5,11 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Changed
+- Logging out ends the session on the server [S17-F32]
+- Clients can like and enquire from a selection link [S17-F31]
+- New website leads record processing consent; merges keep a withdrawal [S17-F33]
+- Non-admins and Client Mode see a clear message instead of a refused control or an error [S17-F34] [S17-F35] [S17-F36]
+- Staging QA screen fixes: labels, messages, phone layout, sitemap, not-found pages [S17-F37] [S17-F38] [S17-F39] [S17-F40]
 - Only admins are offered the contact import: others no longer see the link or the form [S17-F30]
 - The Resales filter hint warns that connecting Featured with Sale makes duplicate listings [S17-F27]
 - Contacts can be imported from a CSV or Excel file on a new screen: confirm the columns, check the first rows for errors and duplicates, then import; duplicates are skipped by default and no consent is assumed [S17-F29]
