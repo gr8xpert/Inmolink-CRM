@@ -19,6 +19,7 @@ import {
   deleteSubscription,
   replyToBoardPost,
 } from '@/server/network-api';
+import { postErrorCode } from './post-errors';
 
 /**
  * Network board actions (S12-F1, transport only): forms post here, the contracts validate, the API decides. Each action
@@ -50,10 +51,9 @@ export async function createPostAction(form: FormData): Promise<void> {
   const propertyTypeId = text(form, 'propertyTypeId');
   const expiresRaw = text(form, 'expiresInDays');
   const expires = expiresRaw ? Number(expiresRaw) : undefined;
-  if (expires !== undefined && !Number.isFinite(expires)) return board({ error: 'VALIDATION_FAILED' });
-  if (min === null || max === null || beds === null || !/^[A-Za-z0-9-]{16,64}$/.test(key)) {
-    return board({ error: 'VALIDATION_FAILED' });
-  }
+  if (expires !== undefined && !Number.isFinite(expires)) return board({ error: 'VALIDATION_EXPIRY' });
+  if (min === null || max === null) return board({ error: 'VALIDATION_PRICE' });
+  if (beds === null || !/^[A-Za-z0-9-]{16,64}$/.test(key)) return board({ error: 'VALIDATION_FAILED' });
   const parsed = CreateNetworkPostBody.safeParse({
     kind: text(form, 'kind'),
     title: text(form, 'title'),
@@ -67,7 +67,7 @@ export async function createPostAction(form: FormData): Promise<void> {
     },
     ...(expires !== undefined ? { expiresInDays: expires } : {}),
   });
-  if (!parsed.success) return board({ error: 'VALIDATION_FAILED' });
+  if (!parsed.success) return board({ error: postErrorCode(parsed.error.issues) });
   return settle(await createBoardPost(session, parsed.data, key), board, 'posted');
 }
 

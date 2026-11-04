@@ -102,3 +102,11 @@ export function toStartInput(fields: ColumnFields, options: ImportOptions): Star
     phoneCountry: options.phoneCountry.trim().toUpperCase(),
   };
 }
+
+/**
+ * A file the upload route cannot take (S17-F37): with no bytes the browser sends no content length (the route answers
+ * 411), and there are no rows either, so it is refused here with the same words as a file of column names only.
+ */
+export function emptyFileReason(file: { size: number }): 'NO_RECORDS' | null {
+  return file.size === 0 ? 'NO_RECORDS' : null;
+}

@@ -6,6 +6,7 @@
   "back": "All portals",
   "on": "On",
   "off": "Off",
+  "channels": { "genericXml": "Generic XML" },
   "planned": "coming soon",
   "choicesCount": "{include, plural, =0 {} other {# always sent}}{include, plural, =0 {} other { · }}{exclude, plural, =0 {none held back} other {# held back}}",
   "columns": {

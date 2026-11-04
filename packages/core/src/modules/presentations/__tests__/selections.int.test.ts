@@ -204,6 +204,17 @@ describe('selections (S12-04)', () => {
     );
   });
 
+  it('[S17-F37] the detail names each item by reference and title (not only its id), from the read models', async () => {
+    const made = await create({ title: 'Labels', locale: 'en', items: [{ targetId: L.network }, { targetId: L.own }] });
+    const got = await as(a, (ctx) => presentations.getSelection(ctx, made.selection.id));
+    expect(got.items).toHaveLength(2);
+    for (const i of got.items) {
+      expect(i.reference).toEqual(expect.any(String));
+      expect(i.reference).not.toBe(i.targetId);
+      expect(i).toHaveProperty('title');
+    }
+  });
+
   it('[S12-04] create from a bookmark folder (its visible listings, oldest bookmark first)', async () => {
     const folder = await as(a, (ctx) => properties.createBookmarkFolder(ctx, { name: `For Ana ${RUN}` }));
     for (const listingId of [L.own, L.network]) {

@@ -6,6 +6,7 @@
   "back": "Todos los portales",
   "on": "Activo",
   "off": "Desactivado",
+  "channels": { "genericXml": "XML genérico" },
   "planned": "próximamente",
   "choicesCount": "{include, plural, =0 {} other {# siempre se envían}}{include, plural, =0 {} other { · }}{exclude, plural, =0 {ninguno excluido} other {# excluidos}}",
   "columns": {

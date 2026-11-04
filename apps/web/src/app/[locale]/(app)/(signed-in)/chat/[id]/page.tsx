@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { REALTIME_CHAT_CLIENT_EVENTS, REALTIME_CHAT_EVENTS, REALTIME_CHAT_NAMESPACE } from '@inmolink/contracts';
 import { notFound, redirect } from 'next/navigation';
 import { getLocale, getTranslations } from 'next-intl/server';
+import { z } from 'zod';
 import { auth } from '@/auth';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
 import { sessionRef } from '@/server/api';
@@ -34,6 +35,7 @@ export default async function ChatThreadPage({
   const session = await auth();
   if (!session?.user?.id) return localeRedirect({ href: '/login', locale });
   const { id } = await params;
+  if (!z.uuid().safeParse(id).success) notFound();
   const q = await searchParams;
   const error = ERRORS.find((e) => e === q.error);
   const t = await getTranslations('chat');

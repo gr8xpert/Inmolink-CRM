@@ -9,6 +9,7 @@ import {
   type ColumnFields,
   columnFieldsFrom,
   DEFAULT_IMPORT_OPTIONS,
+  emptyFileReason,
   hasConsentColumn,
   hasIdentityColumn,
   IMPORT_FIELDS,
@@ -132,6 +133,9 @@ export default function ImportPanel({
   const chooseFile = (file: File | undefined) => {
     if (!file) return;
     setError(null);
+    // S17-F37: a file with no bytes has no rows either; the upload route would answer 411 (no length), so say it here.
+    const empty = emptyFileReason(file);
+    if (empty) return setError(t(`import.fileErrors.${empty}`));
     startTransition(async () => {
       const res = await uploadFile(file);
       if (!res.ok) {

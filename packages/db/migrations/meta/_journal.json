@@ -1275,6 +1275,13 @@
       "when": 1793572743048,
       "tag": "0181_s17_f4_drop_legacy_query_key",
       "breakpoints": true
+    },
+    {
+      "idx": 182,
+      "version": "7",
+      "when": 1793831291399,
+      "tag": "0182_s17_f37_property_type_es_labels",
+      "breakpoints": true
     }
   ]
 }

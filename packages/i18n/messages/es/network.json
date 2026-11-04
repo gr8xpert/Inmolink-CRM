@@ -200,7 +200,11 @@
     "errors": {
       "load": "No se pudo cargar el tablón. Inténtalo de nuevo.",
       "generic": "Algo salió mal. Inténtalo de nuevo.",
-      "VALIDATION_FAILED": "Revisa los campos: los textos no pueden contener teléfonos ni correos electrónicos.",
+      "VALIDATION_FAILED": "Revisa los campos. Los títulos y textos no pueden contener teléfonos ni correos electrónicos.",
+      "VALIDATION_EXPIRY": "Elige un número de días entre 1 y el máximo permitido para la duración del anuncio.",
+      "VALIDATION_PRICE": "Revisa los precios: usa números enteros y el mínimo no puede superar al máximo.",
+      "VALIDATION_CONTACT": "Los títulos y textos no pueden contener teléfonos ni correos electrónicos. Las respuestas van por el chat.",
+      "VALIDATION_TEXT": "El título y el texto son obligatorios y tienen un límite de longitud.",
       "FORBIDDEN": "No puedes hacer esto en el tablón.",
       "VERIFICATION_REQUIRED": "Publicar y responder se activa cuando tu agencia está verificada.",
       "RATE_LIMITED": "Demasiadas solicitudes. Espera un momento e inténtalo de nuevo.",

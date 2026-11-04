@@ -200,7 +200,11 @@
     "errors": {
       "load": "The board could not be loaded. Try again.",
       "generic": "Something went wrong. Try again.",
-      "VALIDATION_FAILED": "Check the fields: texts must not contain phone numbers or e-mail addresses.",
+      "VALIDATION_FAILED": "Check the fields. Titles and texts must not contain phone numbers or e-mail addresses.",
+      "VALIDATION_EXPIRY": "Choose a number of days between 1 and the maximum allowed for how long the post stays up.",
+      "VALIDATION_PRICE": "Check the prices: use whole numbers, and the minimum cannot be higher than the maximum.",
+      "VALIDATION_CONTACT": "Titles and texts must not contain phone numbers or e-mail addresses. Replies go through chat.",
+      "VALIDATION_TEXT": "The title and the text are required and have a length limit.",
       "FORBIDDEN": "You cannot do this on the board.",
       "VERIFICATION_REQUIRED": "Posting and replying open once your agency is verified.",
       "RATE_LIMITED": "Too many requests. Wait a moment and try again.",

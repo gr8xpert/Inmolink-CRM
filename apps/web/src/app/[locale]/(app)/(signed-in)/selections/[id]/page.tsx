@@ -122,7 +122,12 @@ export default async function SelectionPage({
               {s.items.map((i) => (
                 <tr key={i.targetId}>
                   <td className="p-2">
-                    {i.titleOverride ?? <span className="font-mono text-xs">{i.targetId}</span>}
+                    {i.titleOverride ?? i.title ?? i.reference ?? (
+                      <span className="font-mono text-xs">{i.targetId}</span>
+                    )}
+                    {i.reference && (i.titleOverride ?? i.title) ? (
+                      <span className="block text-xs text-muted-foreground">{i.reference}</span>
+                    ) : null}
                     {i.note ? <span className="block text-xs text-muted-foreground">{i.note}</span> : null}
                   </td>
                   <td className="p-2">{format.number(i.likes)}</td>

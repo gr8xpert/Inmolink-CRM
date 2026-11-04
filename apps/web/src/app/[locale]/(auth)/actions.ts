@@ -95,7 +95,8 @@ export async function loginAction(_prev: FormState, form: FormData): Promise<For
       if (code === 'rate_limited') return { error: 'rateLimited' };
       if (code === 'challenge') return { error: 'challengeRequired', challenge: true };
       if (code === 'unverified') return { error: 'emailNotVerified' };
-      if (code === 'input' || code === 'invalid') return { error: 'invalidCredentials' };
+      if (code === 'input') return { error: 'invalidInput' };
+      if (code === 'invalid') return { error: 'invalidCredentials' };
       return { error: 'generic' };
     }
     throw err; // NEXT_REDIRECT on success

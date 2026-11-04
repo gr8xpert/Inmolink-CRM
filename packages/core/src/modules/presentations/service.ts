@@ -55,6 +55,7 @@ function toDto(
   row: repo.SelectionView,
   items: repo.ItemWithStats[],
   stats: { views: number; lastViewedAt: Date | null },
+  labels: ReadonlyMap<string, { reference: string; title: string | null }> = new Map(),
 ): SelectionDto {
   return {
     id: row.id,
@@ -69,6 +70,8 @@ function toDto(
       targetId: i.targetId,
       position: i.position,
       titleOverride: i.titleOverride,
+      reference: labels.get(i.targetId)?.reference ?? null,
+      title: labels.get(i.targetId)?.title ?? null,
       note: i.note,
       likes: i.likes,
       enquiries: i.enquiries,
@@ -203,7 +206,13 @@ export async function getSelection(ctx: Ctx, id: string): Promise<SelectionDto> 
   if (!row) throw new AppError('SELECTION_NOT_FOUND');
   const items = await repo.itemsWithStats(ctx.tx, id);
   const stats = (await repo.viewStats(ctx.tx, [id])).get(id) ?? { views: 0, lastViewedAt: null };
-  return toDto(row, items, stats);
+  // S17-F37: reference and title in one statement for all items (no per-item lookups).
+  const labels = await search.listingLabels(
+    ctx.tx,
+    items.map((i) => i.targetId),
+    ctx.locale,
+  );
+  return toDto(row, items, stats, labels);
 }
 
 /**

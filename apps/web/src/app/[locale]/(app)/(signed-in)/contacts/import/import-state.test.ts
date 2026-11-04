@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import {
   columnFieldsFrom,
   DEFAULT_IMPORT_OPTIONS,
+  emptyFileReason,
   hasConsentColumn,
   hasIdentityColumn,
   IMPORT_FIELDS,
@@ -73,5 +74,14 @@ describe('contact import strings', () => {
     const { contacts } = loadMessages(locale) as unknown as { contacts: unknown };
     expect(literal.length).toBeGreaterThan(20);
     for (const key of [...literal, ...dynamic]) expect(typeof lookup(contacts, key), key).toBe('string');
+  });
+});
+
+describe('[S17-F37] an empty file', () => {
+  it('[S17-F37] is refused with the no-rows message, a file with bytes goes on', () => {
+    expect(emptyFileReason({ size: 0 })).toBe('NO_RECORDS');
+    expect(emptyFileReason({ size: 12 })).toBeNull();
+    const en = loadMessages('en') as { contacts: { import: { fileErrors: Record<string, string> } } };
+    expect(en.contacts.import.fileErrors.NO_RECORDS).toBeTruthy();
   });
 });

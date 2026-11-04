@@ -71,6 +71,9 @@ export const SelectionItemDto = z.strictObject({
   targetId: z.uuid(),
   position: z.number().int(),
   titleOverride: z.string().nullable(),
+  /** The listing's reference and title for the agent's table (S17-F37); null when the read model is not visible. */
+  reference: z.string().nullable(),
+  title: z.string().nullable(),
   note: z.string().nullable(),
   likes: z.number().int().nonnegative(),
   enquiries: z.number().int().nonnegative(),

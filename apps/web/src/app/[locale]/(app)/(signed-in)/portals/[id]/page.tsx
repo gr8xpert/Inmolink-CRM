@@ -12,6 +12,7 @@ import {
   fetchPortalSelection,
   sessionRef,
 } from '@/server/api';
+import { channelLabel } from '../channel-label';
 import { PortalNotice } from '../notice';
 import {
   choosePropertiesAction,
@@ -91,7 +92,9 @@ export default async function PortalConnectionPage({
           {t('back')}
         </Link>
         <h1 className="mt-2 text-xl font-semibold">{t('detail.title', { name: c.name })}</h1>
-        <p className="text-sm text-muted-foreground">{channel?.name ?? c.channelCode}</p>
+        <p className="text-sm text-muted-foreground">
+          {channelLabel(channel, c.channelCode, t('channels.genericXml'))}
+        </p>
       </div>
       <PortalNotice done={q.done} error={q.error} />
 

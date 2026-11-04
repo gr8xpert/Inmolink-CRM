@@ -8,6 +8,7 @@ import { getPathname, Link, redirect as localeRedirect } from '@/i18n/navigation
 import { fetchPortalChannels, fetchPortalConnections, sessionRef } from '@/server/api';
 import { inClientMode, isAgencyAdmin } from '@/server/nav';
 import { loadShell } from '@/server/shell';
+import { channelLabel } from './channel-label';
 import { PortalNotice } from './notice';
 import { createPortalAction } from './portal-actions';
 import { PORTAL_ERRORS, type PortalError } from './portal-state';
@@ -71,7 +72,13 @@ export default async function PortalsPage({ searchParams }: { searchParams: Prom
                       {c.name}
                     </Link>
                   </td>
-                  <td className="p-2">{available.find((ch) => ch.code === c.channelCode)?.name ?? c.channelCode}</td>
+                  <td className="p-2">
+                    {channelLabel(
+                      available.find((ch) => ch.code === c.channelCode),
+                      c.channelCode,
+                      t('channels.genericXml'),
+                    )}
+                  </td>
                   <td className="p-2">
                     {t(`rule.modes.${c.selection.mode}`)}
                     {c.selection.tag ? <span className="ml-1 font-mono text-xs">#{c.selection.tag}</span> : null}
