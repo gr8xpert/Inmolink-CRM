@@ -266,7 +266,8 @@ const languageOf = (locale: string): string | null => (/^[a-z]{2}(-[A-Z]{2})?$/.
  * S17-F33: every inbound lead carries the form's required privacy tick (`recordInboundLead`), which is consent to
  * processing. A new contact starts with it. An existing contact gets no record and no change: the address is unverified,
  * so a typed one must not add consent evidence to someone else's history, and a public form must not be able to push a
- * withdrawal out of the capped history. The tick stays on the lead.
+ * withdrawal out of the capped history. No lead exists without the tick (the contracts require it), so the lead itself
+ * is the evidence that the form was accepted.
  * Identifiers another writer takes meanwhile fail the transaction;
  * the job's retry then finds that contact.
  * S13-F21: exempt from the plan's contact quota (`crm_contacts`, Free 100) by design — an inbound website or portal
