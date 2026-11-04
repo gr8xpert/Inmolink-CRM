@@ -130,6 +130,7 @@
       "TOO_LONG": "Un nombre es demasiado largo",
       "DUPLICATE_RACE": "Otro contacto obtuvo entretanto un correo o teléfono de esta fila"
     },
+    "adminsOnly": "Solo un administrador de la agencia puede importar contactos. Pídeselo a tu administrador.",
     "intro": "Sube un archivo, comprueba qué contiene cada columna, revisa el resultado e importa. No se importa nada hasta que pulses el botón de importar.",
     "fileHint": "CSV o Excel (.xlsx), hasta {mb} MB y {rows} filas, con los nombres de columna en la primera fila. Solo los administradores de la agencia pueden importar.",
     "uploading": "Leyendo el archivo…",

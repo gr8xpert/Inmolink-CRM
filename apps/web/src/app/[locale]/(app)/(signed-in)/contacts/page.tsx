@@ -6,6 +6,8 @@ import { auth } from '@/auth';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
 import { sessionRef } from '@/server/api';
 import { fetchContacts } from '@/server/contacts-api';
+import { canImportContacts } from '@/server/nav';
+import { loadShell } from '@/server/shell';
 import { ContactFinder } from './contact-finder';
 import { contactName } from './lookup';
 
@@ -28,6 +30,7 @@ export default async function ContactsPage({ searchParams }: { searchParams: Pro
   const cursor = typeof params.cursor === 'string' && CURSOR.test(params.cursor) ? params.cursor : undefined;
   const ref = sessionRef(session.user);
   const t = await getTranslations('contacts');
+  const shell = await loadShell();
 
   const res = await fetchContacts(ref, { type, owner, cursor });
   if (res === 'revoked') redirect('/session/expired');
@@ -39,10 +42,12 @@ export default async function ContactsPage({ searchParams }: { searchParams: Pro
     <div className="flex flex-col gap-4 p-6">
       <div className="flex items-center gap-3">
         <h1 className="text-xl font-semibold">{t('title')}</h1>
-        <Link href="/contacts/import" className="ml-auto text-sm font-medium underline-offset-4 hover:underline">
-          {t('import.title')}
-        </Link>
-        <Link href="/contacts/new" className="text-sm font-medium underline-offset-4 hover:underline">
+        {shell && canImportContacts(shell.identity) ? (
+          <Link href="/contacts/import" className="text-sm font-medium underline-offset-4 hover:underline">
+            {t('import.title')}
+          </Link>
+        ) : null}
+        <Link href="/contacts/new" className="ml-auto text-sm font-medium underline-offset-4 hover:underline">
           {t('list.new')}
         </Link>
       </div>

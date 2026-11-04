@@ -5,11 +5,13 @@ import { auth } from '@/auth';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
 import { sessionRef } from '@/server/api';
 import { fetchContactImports } from '@/server/contacts-api';
+import { canImportContacts } from '@/server/nav';
+import { loadShell } from '@/server/shell';
 import { ImportEntry } from './import-entry';
 
 /**
  * Import contacts from a CSV or Excel file (S17-F29) and the agency's recent imports. Admins only for the import itself:
- * the API refuses everyone else at the upload, and the screen says so.
+ * everyone else sees a sentence instead of the form (S17-F30), and the API refuses them at the upload anyway.
  */
 export default async function ImportContactsPage() {
   const locale = await getLocale();
@@ -20,6 +22,8 @@ export default async function ImportContactsPage() {
   const messages = (await getMessages()) as unknown as { contacts: Record<string, unknown> };
   const recent = await fetchContactImports(sessionRef(session.user));
   if (recent === 'revoked') redirect('/session/expired');
+  const shell = await loadShell();
+  const allowed = shell !== null && canImportContacts(shell.identity);
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6 p-6">
@@ -29,17 +33,24 @@ export default async function ImportContactsPage() {
           {t('import.back')}
         </Link>
       </div>
-      <div className="flex flex-col gap-1 text-sm text-muted-foreground">
-        <p>{t('import.intro')}</p>
-        <p>
-          {t('import.fileHint', {
-            mb: String(SHEET_UPLOAD_MAX_BYTES / (1024 * 1024)),
-            rows: format.number(SHEET_MAX_ROWS),
-          })}
+      {allowed ? (
+        <>
+          <div className="flex flex-col gap-1 text-sm text-muted-foreground">
+            <p>{t('import.intro')}</p>
+            <p>
+              {t('import.fileHint', {
+                mb: String(SHEET_UPLOAD_MAX_BYTES / (1024 * 1024)),
+                rows: format.number(SHEET_MAX_ROWS),
+              })}
+            </p>
+          </div>
+          <ImportEntry messages={messages.contacts} contactTypes={CONTACT_TYPES} />
+        </>
+      ) : (
+        <p className="rounded-md bg-muted p-3 text-sm" data-testid="contact-import-admins-only">
+          {t('import.adminsOnly')}
         </p>
-      </div>
-
-      <ImportEntry messages={messages.contacts} contactTypes={CONTACT_TYPES} />
+      )}
 
       <section className="flex flex-col gap-2 text-sm">
         <h2 className="text-base font-semibold">{t('import.recent')}</h2>

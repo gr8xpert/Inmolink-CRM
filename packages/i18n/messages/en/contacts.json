@@ -130,6 +130,7 @@
       "TOO_LONG": "A name is too long",
       "DUPLICATE_RACE": "Another contact took an e-mail or phone of this row meanwhile"
     },
+    "adminsOnly": "Only an agency admin can import contacts. Ask your admin to do it.",
     "intro": "Upload a file, check which column holds what, look at the result, then import. Nothing is imported until you press the import button.",
     "fileHint": "CSV or Excel (.xlsx), up to {mb} MB and {rows} rows, with column names in the first row. Only agency admins can import.",
     "uploading": "Reading the file…",

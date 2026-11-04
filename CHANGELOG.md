@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Changed
+- Only admins are offered the contact import: others no longer see the link or the form [S17-F30]
 - The Resales filter hint warns that connecting Featured with Sale makes duplicate listings [S17-F27]
 - Contacts can be imported from a CSV or Excel file on a new screen: confirm the columns, check the first rows for errors and duplicates, then import; duplicates are skipped by default and no consent is assumed [S17-F29]
 - Contacts can be edited from their page; consent changes go to the consent history, and a contact must keep a name, e-mail or phone [S17-F28]

@@ -1,6 +1,6 @@
 import type { MyCapabilitiesDto } from '@inmolink/contracts';
 import { describe, expect, it } from 'vitest';
-import { buildNav } from './nav';
+import { buildNav, canImportContacts } from './nav';
 
 const member = (over: Partial<MyCapabilitiesDto>) => ({
   kind: 'member' as const,
@@ -9,6 +9,16 @@ const member = (over: Partial<MyCapabilitiesDto>) => ({
 const keys = (identity: Parameters<typeof buildNav>[0]) => buildNav(identity).map((i) => i.key);
 
 describe('dashboard navigation', () => {
+  it('[S17-F30] the contact import is offered to admins only: not agents, staff acting as one or Client Mode', () => {
+    expect(canImportContacts(member({ role: 'AGENCY_ADMIN' }))).toBe(true);
+    expect(canImportContacts(member({ role: 'DEVELOPER_ADMIN' }))).toBe(true);
+    expect(canImportContacts(member({ role: 'AGENT' }))).toBe(false);
+    expect(canImportContacts(member({ role: 'DEVELOPER_AGENT' }))).toBe(false);
+    expect(canImportContacts(member({ role: 'AGENCY_ADMIN', impersonating: true }))).toBe(false);
+    expect(canImportContacts(member({ role: 'AGENCY_ADMIN', clientMode: true }))).toBe(false);
+    expect(canImportContacts({ kind: 'unknown' })).toBe(false);
+  });
+
   it('[S1-10] role-based navigation: members see exactly the sections the API grants, in a fixed order', () => {
     const admin = member({
       role: 'AGENCY_ADMIN',

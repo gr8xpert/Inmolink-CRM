@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
-import { SEED_PASSWORD as password, seedImportAdmin } from './seed';
+import { SEED_PASSWORD as password, seedAgent, seedImportAdmin } from './seed';
 import { passTwoFactor } from './two-factor';
 
 /** Editing a contact (S17-F28) and importing contacts from a CSV file (S17-F29) in the browser; the run is the worker's. */
@@ -63,6 +63,22 @@ test('[S17-F28] edit a contact from its page: fields saved, consent recorded, a 
   await expect(page.getByText('Changes saved.')).toBeVisible();
   await expect(page.getByText('No consent recorded yet.')).toBeHidden();
   await expect(page.getByText(/Marketing.*given/)).toBeVisible();
+});
+
+test('[S17-F30] an agent is not offered the contact import, and the upload is refused', async ({ page }) => {
+  const agent = await seedAgent();
+  await login(page, agent.email);
+  await page.goto('/en/contacts');
+  await expect(page.getByRole('heading', { level: 1, name: 'Contacts' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Import contacts' })).toBeHidden();
+  await page.goto('/en/contacts/import');
+  await expect(page.getByTestId('contact-import-admins-only')).toBeVisible();
+  await expect(page.getByTestId('contact-import-file')).toBeHidden();
+  const status = await page.evaluate(async () => {
+    const res = await fetch('/api/contacts/import', { method: 'POST', body: 'Name,Email\nX,x@example.com\n' });
+    return res.status;
+  });
+  expect(status).toBe(403);
 });
 
 test('[S17-F29] import a CSV: confirm columns, see errors and duplicates, import, no consent invented', async ({

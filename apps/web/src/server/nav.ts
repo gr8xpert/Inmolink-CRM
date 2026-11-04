@@ -61,6 +61,19 @@ const SECTIONS: ReadonlyArray<readonly [DashboardSection, string]> = [
  * 403). Account security acts on the signed-in user themselves, so it is hidden while a staff member is
  * acting as someone else (the web refuses it then anyway, S1-09).
  */
+/**
+ * Whether to offer the contact import (S17-F29, S17-F30): agency and developer admins, not staff acting as one. Only
+ * what the screens show: the API decides (`crm.contacts.import`).
+ */
+export function canImportContacts(identity: ShellIdentity): boolean {
+  return (
+    identity.kind === 'member' &&
+    !identity.caps.impersonating &&
+    !identity.caps.clientMode &&
+    (identity.caps.role === 'AGENCY_ADMIN' || identity.caps.role === 'DEVELOPER_ADMIN')
+  );
+}
+
 export function buildNav(identity: ShellIdentity): NavItem[] {
   const items: NavItem[] = [{ key: 'home', href: '/' }];
   if (identity.kind === 'member') {
