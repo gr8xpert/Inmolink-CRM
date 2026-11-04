@@ -3,19 +3,26 @@ import { Button } from '@inmolink/ui';
 import { redirect } from 'next/navigation';
 import { getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
+import { ClientModeUnavailable } from '@/components/shell/client-mode-unavailable';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
 import { fetchAgencyAiFeatures, sessionRef } from '@/server/api';
+import { inClientMode, isAgencyAdmin } from '@/server/nav';
+import { loadShell } from '@/server/shell';
 import { setAiFeatureAction } from './actions';
 
 /**
  * AI features (S13-F17): one toggle per AI feature, every one off until an administrator switches it on. Every member
- * sees the toggles; only admins change them (the API refuses others and records each change in the audit log).
+ * sees the toggles; only admins change them: the buttons are off for the others (S17-F34), the API refuses them anyway
+ * and records each change in the audit log).
  * Plain forms posting to a server action: no client JavaScript.
  */
 export default async function AiFeaturesPage({ searchParams }: { searchParams: Promise<Record<string, string>> }) {
   const locale = await getLocale();
   const session = await auth();
   if (!session?.user?.id) return localeRedirect({ href: '/login', locale });
+  const shell = await loadShell();
+  if (shell && inClientMode(shell.identity)) return <ClientModeUnavailable />;
+  const admin = shell !== null && isAgencyAdmin(shell.identity);
   const res = await fetchAgencyAiFeatures(sessionRef(session.user));
   if (res === 'revoked') redirect('/session/expired');
   const query = await searchParams;
@@ -35,6 +42,11 @@ export default async function AiFeaturesPage({ searchParams }: { searchParams: P
           {t('aiFeatures.saved')}
         </p>
       ) : null}
+      {admin ? null : (
+        <p className="rounded-md bg-muted p-3 text-sm" data-testid="admin-only">
+          {t('membersReadOnly')}
+        </p>
+      )}
       {query.error ? (
         <p role="alert" className="text-sm text-destructive">
           {query.error === 'forbidden' ? t('aiFeatures.adminOnly') : t('errors.generic')}
@@ -60,7 +72,7 @@ export default async function AiFeaturesPage({ searchParams }: { searchParams: P
                 <form action={setAiFeatureAction}>
                   <input type="hidden" name="feature" value={feature} />
                   <input type="hidden" name="enabled" value={on ? 'false' : 'true'} />
-                  <Button type="submit" variant={on ? 'outline' : 'default'}>
+                  <Button type="submit" variant={on ? 'outline' : 'default'} disabled={!admin}>
                     {on ? t('aiFeatures.switchOff') : t('aiFeatures.switchOn')}
                   </Button>
                 </form>

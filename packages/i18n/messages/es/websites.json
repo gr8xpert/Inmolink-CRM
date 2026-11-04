@@ -56,7 +56,8 @@
     "contactWhatsapp": "WhatsApp",
     "save": "Guardar",
     "create": "Añadir sitio web",
-    "back": "Volver a sitios web"
+    "back": "Volver a sitios web",
+    "adminOnly": "Solo un administrador de la agencia puede añadir un sitio web. Pídeselo a tu administrador."
   },
   "notices": {
     "created": "Sitio web añadido.",

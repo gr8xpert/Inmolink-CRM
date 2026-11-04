@@ -13,6 +13,7 @@
   },
   "next": "Entradas anteriores",
   "errors": {
-    "generic": "No hemos podido cargar el registro de accesos. Inténtalo de nuevo."
+    "generic": "No hemos podido cargar el registro de accesos. Inténtalo de nuevo.",
+    "forbidden": "Solo un administrador de la agencia puede ver cuándo el personal de Inmolink ha accedido a tu cuenta."
   }
 }

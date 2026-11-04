@@ -1,6 +1,6 @@
 import type { MyCapabilitiesDto } from '@inmolink/contracts';
 import { describe, expect, it } from 'vitest';
-import { buildNav, canImportContacts } from './nav';
+import { buildNav, canImportContacts, inClientMode, isAgencyAdmin, staffCanReviewAndAudit } from './nav';
 
 const member = (over: Partial<MyCapabilitiesDto>) => ({
   kind: 'member' as const,
@@ -17,6 +17,38 @@ describe('dashboard navigation', () => {
     expect(canImportContacts(member({ role: 'AGENCY_ADMIN', impersonating: true }))).toBe(false);
     expect(canImportContacts(member({ role: 'AGENCY_ADMIN', clientMode: true }))).toBe(false);
     expect(canImportContacts({ kind: 'unknown' })).toBe(false);
+  });
+
+  it('[S17-F34] admin-only controls are offered to agency and developer admins, not agents, support acting as one or Client Mode', () => {
+    expect(isAgencyAdmin(member({ role: 'AGENCY_ADMIN' }))).toBe(true);
+    expect(isAgencyAdmin(member({ role: 'DEVELOPER_ADMIN' }))).toBe(true);
+    expect(isAgencyAdmin(member({ role: 'AGENT' }))).toBe(false);
+    expect(isAgencyAdmin(member({ role: 'DEVELOPER_AGENT' }))).toBe(false);
+    expect(isAgencyAdmin(member({ role: 'AGENCY_ADMIN', impersonating: true }))).toBe(false);
+    expect(isAgencyAdmin(member({ role: 'AGENCY_ADMIN', clientMode: true }))).toBe(false);
+    expect(isAgencyAdmin({ kind: 'staff', role: 'SUPER_ADMIN' })).toBe(false);
+    expect(isAgencyAdmin({ kind: 'unknown' })).toBe(false);
+    // Read-only sections stay in an agent's navigation: the screens hide the controls, not the pages.
+    const agent = member({
+      role: 'AGENT',
+      sections: ['imports', 'websites', 'portals', 'settings', 'preferredAgencies'],
+    });
+    expect(keys(agent)).toEqual(
+      expect.arrayContaining(['imports', 'websites', 'portals', 'settings', 'preferredAgencies']),
+    );
+  });
+
+  it('[S17-F35] Client Mode is recognised from the capabilities, for members only', () => {
+    expect(inClientMode(member({ clientMode: true }))).toBe(true);
+    expect(inClientMode(member({ clientMode: false }))).toBe(false);
+    expect(inClientMode({ kind: 'staff', role: 'SUPER_ADMIN' })).toBe(false);
+    expect(inClientMode({ kind: 'unknown' })).toBe(false);
+  });
+
+  it('[S17-F36] the staff console links Verification and the Audit log to super admins and support, not data ops', () => {
+    expect(staffCanReviewAndAudit('SUPER_ADMIN')).toBe(true);
+    expect(staffCanReviewAndAudit('STAFF_SUPPORT')).toBe(true);
+    expect(staffCanReviewAndAudit('STAFF_DATA_OPS')).toBe(false);
   });
 
   it('[S1-10] role-based navigation: members see exactly the sections the API grants, in a fixed order', () => {

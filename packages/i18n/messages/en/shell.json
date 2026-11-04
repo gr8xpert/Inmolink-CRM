@@ -94,5 +94,6 @@
     "title": "Page not found",
     "body": "The page you are looking for does not exist or has moved.",
     "home": "Go to the dashboard"
-  }
+  },
+  "clientModeUnavailable": "Not available while showing to a client."
 }

@@ -61,7 +61,8 @@
       "price": "Price and commission",
       "visibility": "Status and visibility",
       "private": "Internal",
-      "translations": "Texts and translations"
+      "translations": "Texts and translations",
+      "priceOnly": "Price"
     },
     "fields": {
       "transactionType": "Transaction",

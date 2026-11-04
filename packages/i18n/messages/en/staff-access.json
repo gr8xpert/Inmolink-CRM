@@ -13,6 +13,7 @@
   },
   "next": "Older entries",
   "errors": {
-    "generic": "We could not load the staff access record. Please try again."
+    "generic": "We could not load the staff access record. Please try again.",
+    "forbidden": "Only an agency admin can see when Inmolink staff accessed your account."
   }
 }

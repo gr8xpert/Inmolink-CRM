@@ -56,7 +56,8 @@
     "contactWhatsapp": "WhatsApp",
     "save": "Save",
     "create": "Add website",
-    "back": "Back to websites"
+    "back": "Back to websites",
+    "adminOnly": "Only an agency admin can add a website. Ask your admin to do it."
   },
   "notices": {
     "created": "Website added.",

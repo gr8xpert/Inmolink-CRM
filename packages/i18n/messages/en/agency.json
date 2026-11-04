@@ -215,5 +215,6 @@
       "FORBIDDEN": "Only an administrator of your agency can change the retention period.",
       "RATE_LIMITED": "Too many attempts. Wait a moment and try again."
     }
-  }
+  },
+  "membersReadOnly": "Only an administrator of your agency can change this. You can read it here."
 }

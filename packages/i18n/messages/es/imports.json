@@ -161,7 +161,8 @@
       "languagesHint": "Lista de códigos de idioma separados por comas que se piden además del inglés (por ejemplo es,de,fr,nl). Vacío: solo inglés.",
       "intro": "Solo se importan los anuncios de tu agencia; las propiedades compartidas por otras agencias se omiten.",
       "editHint": "Deja ambos vacíos para conservar el ID de cliente y la clave API guardados (rellena ambos para sustituirlos)."
-    }
+    },
+    "adminOnly": "Solo un administrador de la agencia puede conectar un feed. Pídeselo a tu administrador."
   },
   "mapper": {
     "open": "Mapear un feed o una hoja de cálculo",
@@ -295,7 +296,8 @@
     "step2Sheet": "2. Las columnas",
     "detectedSheet": "El archivo tiene {columns} columnas con valores; las primeras {count} filas están en la muestra.",
     "importSheet": "Importar el archivo",
-    "importSheetHint": "La importación se ejecuta en segundo plano. En la página siguiente verás cada fila que no se pudo importar, con el motivo."
+    "importSheetHint": "La importación se ejecuta en segundo plano. En la página siguiente verás cada fila que no se pudo importar, con el motivo.",
+    "adminOnly": "Solo un administrador de la agencia puede mapear un feed. Pídeselo a tu administrador."
   },
   "uploadNew": "Subir un archivo nuevo",
   "paused": {

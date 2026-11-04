@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
-import { SEED_PASSWORD as password, seedImportAdmin } from './seed';
+import { SEED_PASSWORD as password, seedAgent, seedImportAdmin } from './seed';
 import { PORTS, ROOT } from './stack';
 import { passTwoFactor } from './two-factor';
 
@@ -153,4 +153,29 @@ test('[S6-05] import a CSV file through the mapper: upload, map columns, import,
   await page.getByRole('link', { name: 'Show refused items' }).click();
   await expect(page.getByRole('row', { name: /CSV-2/ })).toContainText('INVALID_PRICE');
   await expect(page.getByRole('row', { name: /CSV-3/ })).toContainText('INVALID_PRICE');
+});
+
+test('[S17-F34] an agent reads the feed pages but is not offered the admin controls', async ({ page }) => {
+  const agent = await seedAgent();
+  await login(page, agent.email);
+  await page.goto('/en/imports');
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+  await page.goto('/en/imports/new');
+  await expect(page.getByTestId('admin-only')).toContainText('Only an agency admin can connect a feed');
+  await expect(page.getByRole('button', { name: 'Connect feed' })).toBeHidden();
+  await page.goto('/en/imports/mapper');
+  await expect(page.getByTestId('admin-only')).toBeVisible();
+  await page.goto('/en/websites/new');
+  await expect(page.getByTestId('admin-only')).toBeVisible();
+  await page.goto('/en/portals');
+  await expect(page.getByTestId('admin-only')).toBeVisible();
+  await page.goto('/en/settings');
+  await expect(page.getByTestId('admin-only')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Save settings' })).toBeDisabled();
+  await page.goto('/en/settings/ai');
+  await expect(page.getByRole('button', { name: 'Switch on' }).first()).toBeDisabled();
+  await page.goto('/en/profile');
+  await expect(page.getByRole('button', { name: 'Save profile' })).toBeDisabled();
+  await page.goto('/en/onboarding');
+  await expect(page.getByRole('button', { name: 'Save company details' })).toBeDisabled();
 });

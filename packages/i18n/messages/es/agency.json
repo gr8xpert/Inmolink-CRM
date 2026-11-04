@@ -215,5 +215,6 @@
       "FORBIDDEN": "Solo un administrador de su agencia puede cambiar el periodo de conservación.",
       "RATE_LIMITED": "Demasiados intentos. Espere un momento e inténtelo de nuevo."
     }
-  }
+  },
+  "membersReadOnly": "Solo un administrador de tu agencia puede cambiar esto. Aquí puedes consultarlo."
 }

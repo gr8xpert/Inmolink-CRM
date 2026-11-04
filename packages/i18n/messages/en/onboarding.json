@@ -114,5 +114,6 @@
       "title": "We are here to help",
       "body": "Questions? Open a support ticket at any time."
     }
-  }
+  },
+  "membersReadOnly": "Only an administrator of your company can change these details. You can read them here."
 }

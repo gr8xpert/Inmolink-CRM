@@ -62,16 +62,37 @@ const SECTIONS: ReadonlyArray<readonly [DashboardSection, string]> = [
  * acting as someone else (the web refuses it then anyway, S1-09).
  */
 /**
- * Whether to offer the contact import (S17-F29, S17-F30): agency and developer admins, not staff acting as one. Only
- * what the screens show: the API decides (`crm.contacts.import`).
+ * Whether the screens offer admin-only controls (S17-F34): agency and developer admins, not staff acting as one and not
+ * Client Mode. Only what the screens show: each module's `policy.ts` decides, and the API refuses everyone else.
  */
-export function canImportContacts(identity: ShellIdentity): boolean {
+export function isAgencyAdmin(identity: ShellIdentity): boolean {
   return (
     identity.kind === 'member' &&
     !identity.caps.impersonating &&
     !identity.caps.clientMode &&
     (identity.caps.role === 'AGENCY_ADMIN' || identity.caps.role === 'DEVELOPER_ADMIN')
   );
+}
+
+/** Whether to offer the contact import (S17-F29, S17-F30): admins, as above (`crm.contacts.import`). */
+export function canImportContacts(identity: ShellIdentity): boolean {
+  return isAgencyAdmin(identity);
+}
+
+/**
+ * Whether the member is showing the agency to a client (S17-F35). Pages the API closes in Client Mode say so instead of
+ * asking for data that is refused.
+ */
+export function inClientMode(identity: ShellIdentity): boolean {
+  return identity.kind === 'member' && identity.caps.clientMode;
+}
+
+/**
+ * Staff console pages that data ops cannot open (S17-F36; `staff.verification.read` in the agencies policy, the audit
+ * viewer is for super admins and support): the layout links them to the other roles only.
+ */
+export function staffCanReviewAndAudit(role: StaffRole): boolean {
+  return role !== 'STAFF_DATA_OPS';
 }
 
 export function buildNav(identity: ShellIdentity): NavItem[] {
@@ -92,7 +113,7 @@ export function buildNav(identity: ShellIdentity): NavItem[] {
   if (identity.kind === 'staff') {
     items.push({ key: 'staffConsole', href: '/staff/tenants' });
     // Data ops may not review verifications (`staff.verification.read`, S1-03): no dead link for them.
-    if (identity.role !== 'STAFF_DATA_OPS') items.push({ key: 'staffVerification', href: '/staff/verification' });
+    if (staffCanReviewAndAudit(identity.role)) items.push({ key: 'staffVerification', href: '/staff/verification' });
   }
   return items;
 }

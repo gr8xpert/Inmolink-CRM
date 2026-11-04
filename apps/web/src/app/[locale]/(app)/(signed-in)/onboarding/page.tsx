@@ -3,8 +3,11 @@ import { CONTENT_LOCALES } from '@inmolink/i18n';
 import { redirect } from 'next/navigation';
 import { getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
+import { ClientModeUnavailable } from '@/components/shell/client-mode-unavailable';
 import { getPathname, redirect as localeRedirect } from '@/i18n/navigation';
 import { fetchMyAgency, sessionRef } from '@/server/api';
+import { inClientMode, isAgencyAdmin } from '@/server/nav';
+import { loadShell } from '@/server/shell';
 import { OnboardingForm } from './onboarding-form';
 
 /** Company details for staff verification (S1-01): name, CIF/NIF, address, region, languages. */
@@ -12,6 +15,9 @@ export default async function OnboardingPage() {
   const locale = await getLocale();
   const session = await auth();
   if (!session?.user?.id) return localeRedirect({ href: '/login', locale });
+  const shell = await loadShell();
+  if (shell && inClientMode(shell.identity)) return <ClientModeUnavailable />;
+  const admin = shell !== null && isAgencyAdmin(shell.identity);
   const res = await fetchMyAgency(sessionRef(session.user));
   if (res === 'revoked') redirect('/session/expired');
   const t = await getTranslations('onboarding');
@@ -34,47 +40,54 @@ export default async function OnboardingPage() {
         </span>
       </div>
       <p className="text-sm text-muted-foreground">{t('intro')}</p>
-      <OnboardingForm
-        version={agency.version}
-        values={{
-          name: agency.name,
-          taxId: agency.taxId ?? '',
-          addressLine: agency.addressLine ?? '',
-          city: agency.city ?? '',
-          postalCode: agency.postalCode ?? '',
-          region: agency.region ?? '',
-          registerNumber: agency.registerNumber ?? '',
-          languages: agency.languages.length > 0 ? agency.languages : [locale],
-        }}
-        labels={{
-          name: t('fields.name'),
-          taxId: t('fields.taxId'),
-          taxIdHint: t('fields.taxIdHint'),
-          registerNumber: t('fields.registerNumber'),
-          registerNumberHint: t('fields.registerNumberHint'),
-          addressLine: t('fields.addressLine'),
-          city: t('fields.city'),
-          postalCode: t('fields.postalCode'),
-          region: t('fields.region'),
-          languages: t('fields.languages'),
-          submit: t('submit'),
-        }}
-        regions={SPANISH_REGIONS.map((r) => ({ value: r, label: t(`regions.${r}`) }))}
-        // Every content locale has a label in the catalog.
-        languages={CONTENT_LOCALES.map((l) => ({ value: l, label: t(`languages.${l}` as never) }))}
-        errors={{
-          invalidInput: t('errors.invalidInput'),
-          taxIdFormat: t('errors.taxIdFormat'),
-          taxIdControl: t('errors.taxIdControl'),
-          conflict: t('errors.conflict'),
-          forbidden: t('errors.forbidden'),
-          locked: t('errors.locked'),
-          generic: t('errors.generic'),
-        }}
-        savedMessage={t('saved')}
-        savedNext={t('savedNext')}
-        loginHref={getPathname({ href: '/login', locale })}
-      />
+      {admin ? null : (
+        <p className="rounded-md bg-muted p-3 text-sm" data-testid="admin-only">
+          {t('membersReadOnly')}
+        </p>
+      )}
+      <fieldset disabled={!admin} className="contents">
+        <OnboardingForm
+          version={agency.version}
+          values={{
+            name: agency.name,
+            taxId: agency.taxId ?? '',
+            addressLine: agency.addressLine ?? '',
+            city: agency.city ?? '',
+            postalCode: agency.postalCode ?? '',
+            region: agency.region ?? '',
+            registerNumber: agency.registerNumber ?? '',
+            languages: agency.languages.length > 0 ? agency.languages : [locale],
+          }}
+          labels={{
+            name: t('fields.name'),
+            taxId: t('fields.taxId'),
+            taxIdHint: t('fields.taxIdHint'),
+            registerNumber: t('fields.registerNumber'),
+            registerNumberHint: t('fields.registerNumberHint'),
+            addressLine: t('fields.addressLine'),
+            city: t('fields.city'),
+            postalCode: t('fields.postalCode'),
+            region: t('fields.region'),
+            languages: t('fields.languages'),
+            submit: t('submit'),
+          }}
+          regions={SPANISH_REGIONS.map((r) => ({ value: r, label: t(`regions.${r}`) }))}
+          // Every content locale has a label in the catalog.
+          languages={CONTENT_LOCALES.map((l) => ({ value: l, label: t(`languages.${l}` as never) }))}
+          errors={{
+            invalidInput: t('errors.invalidInput'),
+            taxIdFormat: t('errors.taxIdFormat'),
+            taxIdControl: t('errors.taxIdControl'),
+            conflict: t('errors.conflict'),
+            forbidden: t('errors.forbidden'),
+            locked: t('errors.locked'),
+            generic: t('errors.generic'),
+          }}
+          savedMessage={t('saved')}
+          savedNext={t('savedNext')}
+          loginHref={getPathname({ href: '/login', locale })}
+        />
+      </fieldset>
     </div>
   );
 }

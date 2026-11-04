@@ -157,5 +157,6 @@
       "no-locales": "Your agency has no content language.",
       "no-connection": "The connection was deleted."
     }
-  }
+  },
+  "adminOnly": "Only an agency admin can connect a portal. You can see the connections above."
 }

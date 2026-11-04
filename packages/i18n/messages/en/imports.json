@@ -161,7 +161,8 @@
       "languagesHint": "Comma list of language codes fetched besides English (for example es,de,fr,nl). Empty: English only.",
       "intro": "Only the listings that belong to your agency are imported; properties shared by other agencies are skipped.",
       "editHint": "Leave both empty to keep the saved Client ID and API key (fill both to replace them)."
-    }
+    },
+    "adminOnly": "Only an agency admin can connect a feed. Ask your admin to do it."
   },
   "mapper": {
     "open": "Map a feed or a spreadsheet",
@@ -295,7 +296,8 @@
     "step2Sheet": "2. The columns",
     "detectedSheet": "The file has {columns} columns with values; the first {count} rows are in the sample.",
     "importSheet": "Import the file",
-    "importSheetHint": "The import runs in the background. You will see each row that could not be imported, with the reason, on the next page."
+    "importSheetHint": "The import runs in the background. You will see each row that could not be imported, with the reason, on the next page.",
+    "adminOnly": "Only an agency admin can map a feed. Ask your admin to do it."
   },
   "uploadNew": "Upload a new file",
   "paused": {

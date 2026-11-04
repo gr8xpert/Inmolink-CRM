@@ -157,5 +157,6 @@
       "no-locales": "Tu agencia no tiene idioma de contenido.",
       "no-connection": "La conexión se ha eliminado."
     }
-  }
+  },
+  "adminOnly": "Solo un administrador de la agencia puede conectar un portal. Arriba puedes ver las conexiones."
 }

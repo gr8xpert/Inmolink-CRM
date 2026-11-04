@@ -114,5 +114,6 @@
       "title": "Estamos para ayudarte",
       "body": "¿Dudas? Abre un ticket de soporte cuando quieras."
     }
-  }
+  },
+  "membersReadOnly": "Solo un administrador de tu empresa puede cambiar estos datos. Aquí puedes consultarlos."
 }

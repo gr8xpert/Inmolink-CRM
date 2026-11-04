@@ -94,5 +94,6 @@
     "title": "Página no encontrada",
     "body": "La página que buscas no existe o se ha movido.",
     "home": "Ir al panel"
-  }
+  },
+  "clientModeUnavailable": "No disponible mientras se muestra a un cliente."
 }

@@ -61,7 +61,8 @@
       "price": "Precio y comisión",
       "visibility": "Estado y visibilidad",
       "private": "Interno",
-      "translations": "Textos y traducciones"
+      "translations": "Textos y traducciones",
+      "priceOnly": "Precio"
     },
     "fields": {
       "transactionType": "Operación",

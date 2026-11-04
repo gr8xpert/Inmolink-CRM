@@ -3,8 +3,11 @@ import { EmptyState, Input, Label } from '@inmolink/ui';
 import { redirect } from 'next/navigation';
 import { getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
+import { ClientModeUnavailable } from '@/components/shell/client-mode-unavailable';
 import { getPathname, Link, redirect as localeRedirect } from '@/i18n/navigation';
 import { fetchPortalChannels, fetchPortalConnections, sessionRef } from '@/server/api';
+import { inClientMode, isAgencyAdmin } from '@/server/nav';
+import { loadShell } from '@/server/shell';
 import { PortalNotice } from './notice';
 import { createPortalAction } from './portal-actions';
 import { PORTAL_ERRORS, type PortalError } from './portal-state';
@@ -15,13 +18,16 @@ const CURSOR = /^[A-Za-z0-9_-]{1,200}$/;
 
 /**
  * Portals (S9-01, PLAN §7 M7): the agency's connections to listing portals, each with the rule that picks the
- * listings it sends; admins connect a portal (the feed token is shown once) and open a connection to change it (the
- * API refuses everyone else).
+ * listings it sends; admins connect a portal (the feed token is shown once) and open a connection to change it. Others
+ * read the list and see a sentence instead of the form (S17-F34); the API refuses them anyway.
  */
 export default async function PortalsPage({ searchParams }: { searchParams: Promise<Record<string, string>> }) {
   const locale = await getLocale();
   const session = await auth();
   if (!session?.user?.id) return localeRedirect({ href: '/login', locale });
+  const shell = await loadShell();
+  if (shell && inClientMode(shell.identity)) return <ClientModeUnavailable />;
+  const admin = shell !== null && isAgencyAdmin(shell.identity);
   const params = await searchParams;
   const cursor = typeof params.cursor === 'string' && CURSOR.test(params.cursor) ? params.cursor : undefined;
   const ref = sessionRef(session.user);
@@ -88,47 +94,53 @@ export default async function PortalsPage({ searchParams }: { searchParams: Prom
           {t('next')}
         </Link>
       ) : null}
-      <section className="flex flex-col gap-3 rounded-md border p-4" aria-labelledby="portal-add-title">
-        <h2 id="portal-add-title" className="text-lg font-semibold">
-          {t('add.title')}
-        </h2>
-        <IssueTokenForm
-          action={createPortalAction}
-          doneBase={getPathname({ href: '/portals', locale })}
-          submit={t('add.submit')}
-          issued={{
-            title: t('issued.title'),
-            intro: t('issued.intro'),
-            token: t('issued.token'),
-            done: t('issued.done'),
-          }}
-          errors={errors}
-        >
-          <Label htmlFor="portal-channel">{t('add.portal')}</Label>
-          <select id="portal-channel" name="channelCode" className={SELECT} required>
-            {available.map((ch) => (
-              <option key={ch.code} value={ch.code} disabled={ch.status !== 'AVAILABLE'}>
-                {ch.name}
-                {ch.status !== 'AVAILABLE' ? ` — ${t('planned')}` : ''}
-              </option>
-            ))}
-          </select>
-          <Label htmlFor="portal-name">{t('add.name')}</Label>
-          <Input id="portal-name" name="name" maxLength={80} required />
-          <RuleFields idPrefix="portal-new" selection={{ mode: 'ALL_PUBLIC', tag: null }} />
-          <Label htmlFor="portal-credentials">{t('add.credentials')}</Label>
-          <textarea
-            id="portal-credentials"
-            name="credentials"
-            rows={2}
-            className={SELECT}
-            aria-describedby="portal-credentials-hint"
-          />
-          <p id="portal-credentials-hint" className="text-xs text-muted-foreground">
-            {t('add.credentialsHint')}
-          </p>
-        </IssueTokenForm>
-      </section>
+      {admin ? (
+        <section className="flex flex-col gap-3 rounded-md border p-4" aria-labelledby="portal-add-title">
+          <h2 id="portal-add-title" className="text-lg font-semibold">
+            {t('add.title')}
+          </h2>
+          <IssueTokenForm
+            action={createPortalAction}
+            doneBase={getPathname({ href: '/portals', locale })}
+            submit={t('add.submit')}
+            issued={{
+              title: t('issued.title'),
+              intro: t('issued.intro'),
+              token: t('issued.token'),
+              done: t('issued.done'),
+            }}
+            errors={errors}
+          >
+            <Label htmlFor="portal-channel">{t('add.portal')}</Label>
+            <select id="portal-channel" name="channelCode" className={SELECT} required>
+              {available.map((ch) => (
+                <option key={ch.code} value={ch.code} disabled={ch.status !== 'AVAILABLE'}>
+                  {channelLabel(ch, ch.code, t('channels.genericXml'))}
+                  {ch.status !== 'AVAILABLE' ? ` — ${t('planned')}` : ''}
+                </option>
+              ))}
+            </select>
+            <Label htmlFor="portal-name">{t('add.name')}</Label>
+            <Input id="portal-name" name="name" maxLength={80} required />
+            <RuleFields idPrefix="portal-new" selection={{ mode: 'ALL_PUBLIC', tag: null }} />
+            <Label htmlFor="portal-credentials">{t('add.credentials')}</Label>
+            <textarea
+              id="portal-credentials"
+              name="credentials"
+              rows={2}
+              className={SELECT}
+              aria-describedby="portal-credentials-hint"
+            />
+            <p id="portal-credentials-hint" className="text-xs text-muted-foreground">
+              {t('add.credentialsHint')}
+            </p>
+          </IssueTokenForm>
+        </section>
+      ) : (
+        <p className="rounded-md bg-muted p-3 text-sm" data-testid="admin-only">
+          {t('adminOnly')}
+        </p>
+      )}
     </div>
   );
 }
