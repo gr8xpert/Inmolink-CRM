@@ -77,6 +77,8 @@ export function ctxPlugin(app: FastifyZod): void {
           ? { impersonation: { ...auth.impersonation, sessionVersion: auth.sessionVersion } }
           : {}),
         clientMode: auth.clientMode,
+        // The page's language (the dashboard sends one code); anything else falls back to the agency's first.
+        locale: request.headers['accept-language'],
       },
       fn,
     );

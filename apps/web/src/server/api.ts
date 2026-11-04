@@ -276,6 +276,15 @@ export async function apiRequest<S extends z.ZodType>(
   return result;
 }
 
+/** The page's language, so the API answers taxonomy names and labels in it; none outside a localized request. */
+async function pageLocaleHeader(): Promise<Record<string, string>> {
+  try {
+    return { 'accept-language': await getLocale() };
+  } catch {
+    return {};
+  }
+}
+
 async function apiCall<S extends z.ZodType>(
   apiUrl: string,
   session: SessionRef | Token,
@@ -290,6 +299,7 @@ async function apiCall<S extends z.ZodType>(
       headers: {
         ...init.headers,
         authorization: `Bearer ${token}`,
+        ...(await pageLocaleHeader()),
         ...(init.raw
           ? { 'content-type': init.raw.contentType }
           : init.body === undefined
