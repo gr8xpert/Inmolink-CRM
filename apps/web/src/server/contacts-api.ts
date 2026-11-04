@@ -1,5 +1,9 @@
 import {
   ContactDto,
+  ContactImportDto,
+  ContactImportPage,
+  ContactImportPreviewDto,
+  ContactImportUploadDto,
   type ContactLookupBody,
   ContactLookupDto,
   ContactNoteDto,
@@ -16,6 +20,7 @@ import {
   type LeadSource,
   type LeadStatus,
   type MergeContactsBody,
+  type StartContactImportBody,
   type UpdateContactBody,
 } from '@inmolink/contracts';
 import { type ApiResult, apiRequest, type SessionRef } from './api';
@@ -153,4 +158,49 @@ export function updateContact(
   body: UpdateContactBody,
 ): Promise<ApiResult<ContactDto>> {
   return apiRequest(session, `/v1/crm/contacts/${encodeURIComponent(id)}`, ContactDto, { method: 'PATCH', body });
+}
+
+// ── Contact import (S17-F29) ────────────────────────────────────────────────────────────────
+
+/** The file goes to the API as the raw body; the API decides what it is by its first bytes (admins). */
+export function uploadContactImport(
+  session: SessionRef,
+  bytes: Uint8Array,
+): Promise<ApiResult<ContactImportUploadDto>> {
+  return apiRequest(session, '/v1/crm/contact-imports', ContactImportUploadDto, {
+    method: 'POST',
+    raw: { bytes, contentType: 'application/octet-stream' },
+    timeoutMs: 120_000,
+  });
+}
+
+export function previewContactImport(
+  session: SessionRef,
+  id: string,
+  body: StartContactImportBody,
+): Promise<ApiResult<ContactImportPreviewDto>> {
+  return apiRequest(session, `/v1/crm/contact-imports/${encodeURIComponent(id)}/preview`, ContactImportPreviewDto, {
+    method: 'POST',
+    body,
+    timeoutMs: 60_000,
+  });
+}
+
+export function startContactImport(
+  session: SessionRef,
+  id: string,
+  body: StartContactImportBody,
+): Promise<ApiResult<ContactImportDto>> {
+  return apiRequest(session, `/v1/crm/contact-imports/${encodeURIComponent(id)}/start`, ContactImportDto, {
+    method: 'POST',
+    body,
+  });
+}
+
+export function fetchContactImport(session: SessionRef, id: string): Promise<ApiResult<ContactImportDto>> {
+  return apiRequest(session, `/v1/crm/contact-imports/${encodeURIComponent(id)}`, ContactImportDto);
+}
+
+export function fetchContactImports(session: SessionRef): Promise<ApiResult<ContactImportPage>> {
+  return apiRequest(session, `/v1/crm/contact-imports?${query({ limit: 10 })}`, ContactImportPage);
 }

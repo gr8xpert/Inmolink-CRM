@@ -80,7 +80,7 @@ export async function authorizeContactImport(ctx: Ctx): Promise<void> {
   assertCan(ctx, 'crm.contacts.import');
 }
 
-const fileProblem = (err: unknown): unknown =>
+export const fileProblem = (err: unknown): unknown =>
   isSheetError(err) ? new AppError('CONTACT_IMPORT_FILE_INVALID', { reason: err.code }) : err;
 
 const clip = (text: string, max: number) => (text.length > max ? text.slice(0, max) : text);
@@ -169,7 +169,19 @@ export async function uploadContactImport(run: CtxRunner, bytes: Uint8Array): Pr
 }
 
 /** What `start` saves next to the mapping: the run reads it back (`StartContactImportBody` without `onDuplicate`). */
-type ImportSettings = Omit<StartContactImportBody, 'onDuplicate'>;
+export type ImportSettings = Omit<StartContactImportBody, 'onDuplicate'>;
+
+/** The columns a mapping names; one past the upload's header is refused. */
+export function assertMappedColumns(mapping: ContactImportMapping, headers: readonly string[]): number {
+  const m = mapping;
+  const columns = [m.firstName, m.lastName, m.fullName, m.language, m.tags, m.types, m.consentMarketing]
+    .concat([m.doNotContact, m.note], m.emails, m.phones)
+    .filter((c): c is number => c !== undefined);
+  if (columns.some((c) => c >= headers.length)) {
+    throw new AppError('VALIDATION_FAILED', { field: 'mapping', reason: 'column' });
+  }
+  return columns.length;
+}
 
 /** `POST /v1/crm/contact-imports/:id/start` (admins): saves the mapping and queues the run. */
 export async function startContactImport(
@@ -184,19 +196,13 @@ export async function startContactImport(
   // S13-F21: an agency already at its plan's contacts cannot start one (each batch is counted again by the run).
   await billing.requireQuota(ctx, 'crm_contacts', repo.contactQuotaUsed(ctx.tx, current.agencyId));
   const { onDuplicate, ...settings } = input;
-  const m = settings.mapping;
-  const columns = [m.firstName, m.lastName, m.fullName, m.language, m.tags, m.types, m.consentMarketing]
-    .concat([m.doNotContact, m.note], m.emails, m.phones)
-    .filter((c): c is number => c !== undefined);
-  if (columns.some((c) => c >= current.headers.length)) {
-    throw new AppError('VALIDATION_FAILED', { field: 'mapping', reason: 'column' });
-  }
+  const mappedColumns = assertMappedColumns(settings.mapping, current.headers);
   await repo.updateImport(ctx.tx, id, { status: 'QUEUED', mapping: settings satisfies ImportSettings, onDuplicate });
   await compliance.audit(
     ctx,
     'crm.contactImport.started',
     { type: 'contactImport', id },
-    { kind: current.fileKind, onDuplicate, mappedColumns: columns.length },
+    { kind: current.fileKind, onDuplicate, mappedColumns },
   );
   await emit(ctx.tx, crmEvents.importRequested({ agencyId: current.agencyId, importId: id }));
   const row = await repo.getImport(ctx.tx, id);
@@ -261,6 +267,8 @@ const TYPE_WORDS: Record<string, ContactType> = {
 };
 const YES = new Set(['yes', 'y', 'si', 'sí', 's', 'true', '1', 'x']);
 const LANGUAGE = /^[a-z]{2}(-[A-Z]{2})?$/;
+/** Values read from one row's e-mail or phone cells: a cell of thousands of values costs no more than this. */
+const MAX_CELL_VALUES = 50;
 const split = (cell: string) =>
   cell
     .split(/[;,|]/)
@@ -287,18 +295,22 @@ export function parseRow(
     return { row, code: 'TOO_LONG' };
   }
   const emails: string[] = [];
-  for (const raw of m.emails.flatMap((c) => split(cell(c)))) {
+  for (const raw of distinct(m.emails)
+    .flatMap((c) => split(cell(c)))
+    .slice(0, MAX_CELL_VALUES)) {
     const email = normalizeEmail(raw);
     if (!email) return { row, code: 'INVALID_EMAIL' };
     emails.push(email);
   }
   const phones: string[] = [];
-  for (const raw of m.phones.flatMap((c) =>
-    cell(c)
-      .split(/[;,|/]/)
-      .map((v) => v.trim())
-      .filter(Boolean),
-  )) {
+  for (const raw of distinct(m.phones)
+    .flatMap((c) =>
+      cell(c)
+        .split(/[;,|/]/)
+        .map((v) => v.trim())
+        .filter(Boolean),
+    )
+    .slice(0, MAX_CELL_VALUES)) {
     const phone = normalizePhone(raw, settings.phoneCountry);
     if (!phone) return { row, code: 'INVALID_PHONE' };
     phones.push(phone);
@@ -335,7 +347,7 @@ export function parseRow(
   };
 }
 
-const isError = (r: ParsedRow | ContactImportError): r is ContactImportError => 'code' in r && !('emails' in r);
+export const isError = (r: ParsedRow | ContactImportError): r is ContactImportError => 'code' in r && !('emails' in r);
 
 /** A contact the batch builds: a new one, or an existing one the rows merge into. */
 interface Target {
@@ -624,6 +636,18 @@ export async function runContactImport(
       processed += rows.length;
     };
     try {
+      // S17-F29: a file over the row cap, or broken further down, fails whole: read it once before the first batch.
+      if (claim.processedRows === 0) {
+        let read = 0;
+        for await (const _ of readSheetRows(bytes)) {
+          read += 1;
+          if (read % IMPORT_BATCH_ROWS === 0) {
+            if (job.signal.aborted) throw new Error('aborted');
+            // a CSV is read without waiting on anything: let the worker's other jobs run
+            await new Promise((resolve) => setImmediate(resolve));
+          }
+        }
+      }
       for await (const row of readSheetRows(bytes)) {
         if (header) {
           header = false;

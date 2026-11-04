@@ -175,6 +175,44 @@ describe('crm contact routes', () => {
   });
 });
 
+describe('contact import check route', () => {
+  it('[S17-F29] the check answers rows, no-store, and imports nothing', async () => {
+    const f = await createFounder();
+    const headers = await bearer(f.userId, f.agencyId);
+    const upload = (
+      await app.inject({
+        method: 'POST',
+        url: '/v1/crm/contact-imports',
+        headers: { ...headers, 'content-type': 'text/csv' },
+        payload: `Name,Email
+Sol,check-${RUN}@example.com
+Bad,nope
+`,
+      })
+    ).json();
+    const url = `/v1/crm/contact-imports/${upload.id}`;
+    const checked = await app.inject({
+      method: 'POST',
+      url: `${url}/preview`,
+      headers,
+      payload: { mapping: { fullName: 0, emails: [1] } },
+    });
+    expect(checked.statusCode).toBe(200);
+    expect(checked.headers['cache-control']).toContain('no-store');
+    expect(checked.json()).toMatchObject({
+      more: false,
+      unchecked: false,
+      rows: [
+        { row: 2, status: 'NEW', name: 'Sol' },
+        { row: 3, status: 'INVALID', code: 'INVALID_EMAIL' },
+      ],
+    });
+    expect((await app.inject({ method: 'GET', url, headers })).json()).toMatchObject({ status: 'UPLOADED' });
+    const invalid = await app.inject({ method: 'POST', url: `${url}/preview`, headers, payload: { mapping: {} } });
+    expect(invalid.statusCode).toBe(422);
+  });
+});
+
 describe('contact edit route', () => {
   it('[S17-F28] PATCH changes a contact at its version; a stale version answers 409; consent history follows', async () => {
     const f = await createFounder();

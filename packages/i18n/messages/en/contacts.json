@@ -129,7 +129,80 @@
       "INVALID_PHONE": "A phone number is not valid",
       "TOO_LONG": "A name is too long",
       "DUPLICATE_RACE": "Another contact took an e-mail or phone of this row meanwhile"
-    }
+    },
+    "intro": "Upload a file, check which column holds what, look at the result, then import. Nothing is imported until you press the import button.",
+    "fileHint": "CSV or Excel (.xlsx), up to {mb} MB and {rows} rows, with column names in the first row. Only agency admins can import.",
+    "uploading": "Reading the file…",
+    "chooseAnother": "Choose another file",
+    "column": "Column",
+    "firstValues": "First values",
+    "goesTo": "Goes to",
+    "ignore": "Do not import",
+    "untitled": "Column {number}",
+    "needIdentity": "Choose a column for a name, an e-mail or a phone.",
+    "consentWarning": "Marketing consent is never assumed. Choose a column here only if it records this person's own yes or no. Rows with yes, si, true, 1 or x get the consent, recorded as coming from this import; every other row gets none.",
+    "consentColumnNone": "No marketing consent column is chosen: nobody in this file gets marketing consent.",
+    "mergeHint": "Existing values are kept. Only empty fields are filled, and new e-mails, phones, types and tags are added. A consent the person already chose is not changed.",
+    "skipHint": "The existing contact is left exactly as it is.",
+    "tagsHint": "Up to 5, separated by commas.",
+    "phoneCountryHint": "Two letters, such as ES or GB.",
+    "previewButton": "Check the rows",
+    "previewing": "Checking…",
+    "previewTitle": "What would happen",
+    "previewSummary": "{new} new · {existing} already contacts · {repeated} repeated in the file · {invalid} with errors",
+    "previewConsent": "{count} of these rows would get marketing consent.",
+    "previewMore": "Only the first {count} rows were checked. The final report covers the whole file.",
+    "previewStale": "The columns or options changed. Check the rows again before importing.",
+    "previewStatus": {
+      "NEW": "New",
+      "EXISTING": "Already a contact",
+      "REPEATED": "Repeated in the file",
+      "INVALID": "Error"
+    },
+    "previewColumns": {
+      "row": "Row",
+      "name": "Name",
+      "email": "E-mail",
+      "phone": "Phone",
+      "marketing": "Marketing",
+      "result": "Result"
+    },
+    "openContact": "Open the contact",
+    "yes": "Yes",
+    "no": "No",
+    "starting": "Starting…",
+    "running": "Importing in the background. You can leave this page; the result stays in the list below.",
+    "finished": "Import finished.",
+    "failed": "The import did not finish.",
+    "partial": "Rows imported before it stopped stay imported.",
+    "rowErrorsTitle": "Rows not imported",
+    "moreErrors": "The first {count} are listed.",
+    "row": "Row {row}",
+    "another": "Import another file",
+    "back": "All contacts",
+    "recent": "Recent imports",
+    "noRecent": "No imports yet.",
+    "recentColumns": {
+      "date": "Date",
+      "status": "Status",
+      "result": "Result"
+    },
+    "fileErrors": {
+      "UNSUPPORTED_XLS": "The old Excel format (.xls) is not supported. Save the file as .xlsx or CSV.",
+      "ENCRYPTED": "This file is protected by a password. Remove the password and upload it again.",
+      "TOO_LARGE": "This file is too large.",
+      "TOO_MANY_ROWS": "This file has too many rows. Split it and import the parts one by one.",
+      "TOO_MANY_COLUMNS": "This file has too many columns.",
+      "NO_RECORDS": "This file has no rows under its column names.",
+      "FILE_MISSING": "The uploaded file is no longer available. Upload it again."
+    },
+    "failure": {
+      "PLAN_REQUIRED": "Your plan's contact limit was reached.",
+      "MAPPING_INVALID": "The column choices could not be read. Upload the file again.",
+      "INTERNAL": "Something went wrong on our side. Try again."
+    },
+    "previewUnchecked": "This file is too large to check in advance. You can still import it: the report at the end lists the rows that could not be imported.",
+    "lost": "This page lost track of the import. It may still be running: see its result in the list below."
   },
   "errors": {
     "CONTACT_NOT_FOUND": "This contact does not exist or was merged into another one.",
@@ -143,7 +216,10 @@
     "VERSION_CONFLICT": "Someone changed this contact meanwhile. Reload and try again.",
     "VALIDATION_FAILED": "Check the values you entered.",
     "FORBIDDEN": "You are not allowed to do that.",
-    "generic": "Something went wrong. Try again."
+    "generic": "Something went wrong. Try again.",
+    "PLAN_REQUIRED": "Your plan's contact limit was reached.",
+    "RATE_LIMITED": "Too many requests. Wait a moment and try again.",
+    "PAYLOAD_TOO_LARGE": "This file is too large."
   },
   "list": {
     "new": "New contact",

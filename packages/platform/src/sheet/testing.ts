@@ -87,9 +87,15 @@ const columnName = (i: number): string => {
  */
 export function buildXlsx(
   rows: readonly (readonly TestCell[])[],
-  options: { inlineStrings?: boolean; hiddenFirstSheet?: boolean; extra?: readonly ZipFile[] } = {},
+  options: {
+    inlineStrings?: boolean;
+    hiddenFirstSheet?: boolean;
+    extra?: readonly ZipFile[];
+    /** Pad the shared-string table so the first string has this index (some writers sort or keep old strings). */
+    sharedOffset?: number;
+  } = {},
 ): Buffer {
-  const strings: string[] = [];
+  const strings: string[] = Array.from({ length: options.sharedOffset ?? 0 }, () => '');
   const stringIndex = new Map<string, number>();
   const shared = (s: string) => {
     let i = stringIndex.get(s);

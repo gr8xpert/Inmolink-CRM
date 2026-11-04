@@ -129,7 +129,80 @@
       "INVALID_PHONE": "Un teléfono no es válido",
       "TOO_LONG": "Un nombre es demasiado largo",
       "DUPLICATE_RACE": "Otro contacto obtuvo entretanto un correo o teléfono de esta fila"
-    }
+    },
+    "intro": "Sube un archivo, comprueba qué contiene cada columna, revisa el resultado e importa. No se importa nada hasta que pulses el botón de importar.",
+    "fileHint": "CSV o Excel (.xlsx), hasta {mb} MB y {rows} filas, con los nombres de columna en la primera fila. Solo los administradores de la agencia pueden importar.",
+    "uploading": "Leyendo el archivo…",
+    "chooseAnother": "Elegir otro archivo",
+    "column": "Columna",
+    "firstValues": "Primeros valores",
+    "goesTo": "Va a",
+    "ignore": "No importar",
+    "untitled": "Columna {number}",
+    "needIdentity": "Elige una columna con un nombre, un correo o un teléfono.",
+    "consentWarning": "El consentimiento de marketing nunca se da por supuesto. Elige una columna aquí solo si recoge el sí o el no de la propia persona. Las filas con yes, sí, true, 1 o x reciben el consentimiento, registrado como procedente de esta importación; las demás no lo reciben.",
+    "consentColumnNone": "No has elegido ninguna columna de consentimiento de marketing: nadie de este archivo recibirá ese consentimiento.",
+    "mergeHint": "Se conservan los valores existentes. Solo se rellenan los campos vacíos y se añaden correos, teléfonos, tipos y etiquetas nuevos. No cambia un consentimiento que la persona ya haya elegido.",
+    "skipHint": "El contacto existente se queda exactamente como está.",
+    "tagsHint": "Hasta 5, separadas por comas.",
+    "phoneCountryHint": "Dos letras, como ES o GB.",
+    "previewButton": "Comprobar las filas",
+    "previewing": "Comprobando…",
+    "previewTitle": "Qué ocurriría",
+    "previewSummary": "{new} nuevos · {existing} ya son contactos · {repeated} repetidos en el archivo · {invalid} con errores",
+    "previewConsent": "{count} de estas filas recibirían consentimiento de marketing.",
+    "previewMore": "Solo se han comprobado las primeras {count} filas. El informe final cubre todo el archivo.",
+    "previewStale": "Han cambiado las columnas o las opciones. Vuelve a comprobar las filas antes de importar.",
+    "previewStatus": {
+      "NEW": "Nuevo",
+      "EXISTING": "Ya es un contacto",
+      "REPEATED": "Repetido en el archivo",
+      "INVALID": "Error"
+    },
+    "previewColumns": {
+      "row": "Fila",
+      "name": "Nombre",
+      "email": "Correo",
+      "phone": "Teléfono",
+      "marketing": "Marketing",
+      "result": "Resultado"
+    },
+    "openContact": "Abrir el contacto",
+    "yes": "Sí",
+    "no": "No",
+    "starting": "Empezando…",
+    "running": "Importando en segundo plano. Puedes salir de esta página; el resultado queda en la lista de abajo.",
+    "finished": "Importación terminada.",
+    "failed": "La importación no ha terminado.",
+    "partial": "Las filas importadas antes de que se detuviera siguen importadas.",
+    "rowErrorsTitle": "Filas no importadas",
+    "moreErrors": "Se muestran las primeras {count}.",
+    "row": "Fila {row}",
+    "another": "Importar otro archivo",
+    "back": "Todos los contactos",
+    "recent": "Importaciones recientes",
+    "noRecent": "Aún no hay importaciones.",
+    "recentColumns": {
+      "date": "Fecha",
+      "status": "Estado",
+      "result": "Resultado"
+    },
+    "fileErrors": {
+      "UNSUPPORTED_XLS": "No se admite el formato antiguo de Excel (.xls). Guarda el archivo como .xlsx o CSV.",
+      "ENCRYPTED": "Este archivo está protegido con contraseña. Quita la contraseña y vuelve a subirlo.",
+      "TOO_LARGE": "Este archivo es demasiado grande.",
+      "TOO_MANY_ROWS": "Este archivo tiene demasiadas filas. Divídelo e importa las partes una a una.",
+      "TOO_MANY_COLUMNS": "Este archivo tiene demasiadas columnas.",
+      "NO_RECORDS": "Este archivo no tiene filas bajo los nombres de columna.",
+      "FILE_MISSING": "El archivo subido ya no está disponible. Vuelve a subirlo."
+    },
+    "failure": {
+      "PLAN_REQUIRED": "Se ha alcanzado el límite de contactos de tu plan.",
+      "MAPPING_INVALID": "No se han podido leer las columnas elegidas. Vuelve a subir el archivo.",
+      "INTERNAL": "Algo ha fallado por nuestra parte. Inténtalo de nuevo."
+    },
+    "previewUnchecked": "Este archivo es demasiado grande para comprobarlo antes. Puedes importarlo igualmente: el informe final indica las filas que no se han podido importar.",
+    "lost": "Esta página ha perdido el seguimiento de la importación. Puede que siga en curso: consulta el resultado en la lista de abajo."
   },
   "errors": {
     "CONTACT_NOT_FOUND": "Este contacto no existe o se fusionó con otro.",
@@ -143,7 +216,10 @@
     "VERSION_CONFLICT": "Alguien ha modificado este contacto entretanto. Recarga e inténtalo de nuevo.",
     "VALIDATION_FAILED": "Revisa los valores introducidos.",
     "FORBIDDEN": "No tienes permiso para hacerlo.",
-    "generic": "Algo ha salido mal. Inténtalo de nuevo."
+    "generic": "Algo ha salido mal. Inténtalo de nuevo.",
+    "PLAN_REQUIRED": "Se ha alcanzado el límite de contactos de tu plan.",
+    "RATE_LIMITED": "Demasiadas solicitudes. Espera un momento e inténtalo de nuevo.",
+    "PAYLOAD_TOO_LARGE": "Este archivo es demasiado grande."
   },
   "list": {
     "new": "Nuevo contacto",

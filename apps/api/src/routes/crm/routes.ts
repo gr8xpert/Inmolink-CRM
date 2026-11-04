@@ -5,6 +5,7 @@ import {
   ContactImportDto,
   ContactImportPage,
   ContactImportParams,
+  ContactImportPreviewDto,
   ContactImportUploadDto,
   ContactLookupBody,
   ContactLookupDto,
@@ -60,6 +61,13 @@ const IMPORT_LIMITS: readonly RateLimitRule[] = [
   { name: 'crm.import.ip', scope: 'ip', limit: 20, windowSeconds: 60 },
   { name: 'crm.import.user', scope: 'user', limit: 10, windowSeconds: 60 },
   { name: 'crm.import.tenant', scope: 'tenant', limit: 30, windowSeconds: 3_600 },
+];
+
+/** S17-F29: asked again after each mapping change, so apart from the upload and start budget. */
+const IMPORT_PREVIEW_LIMITS: readonly RateLimitRule[] = [
+  { name: 'crm.import-preview.ip', scope: 'ip', limit: 60, windowSeconds: 60 },
+  { name: 'crm.import-preview.user', scope: 'user', limit: 30, windowSeconds: 60 },
+  { name: 'crm.import-preview.tenant', scope: 'tenant', limit: 300, windowSeconds: 3_600 },
 ];
 
 const tags = ['crm'];
@@ -299,6 +307,25 @@ export async function crmRoutes(app: FastifyZod): Promise<void> {
     },
     async (req, reply) =>
       reply.code(202).send(await app.withCtx(req, (ctx) => crm.startContactImport(ctx, req.params.id, req.body))),
+  );
+
+  app.post(
+    '/v1/crm/contact-imports/:id/preview',
+    {
+      schema: {
+        tags,
+        operationId: 'crm.previewContactImport',
+        summary: 'Check the first rows of an uploaded contact import with a mapping (admins); imports nothing',
+        params: ContactImportParams,
+        body: StartContactImportBody,
+        response: { 200: ContactImportPreviewDto },
+      },
+      bodyLimit: 64 * 1024,
+      // It reads the stored file (up to 25 MB) into memory: the upload's slots bound that too.
+      onRequest: [app.requireSession, (req) => app.withCtx(req, crm.authorizeContactImport), takeUploadSlot],
+      config: { rateLimit: IMPORT_PREVIEW_LIMITS },
+    },
+    (req) => crm.previewContactImport(app.ctxRunner(req), req.params.id, req.body),
   );
 
   await app.register(contactImportUploadRoute);

@@ -259,7 +259,7 @@ export type CreateContactNoteBody = z.infer<typeof CreateContactNoteBody>;
 // ---- CSV / Excel import ------------------------------------------------------------------------------------------
 
 /** Rows of the upload shown to the mapper, and how many characters of each cell. */
-export const CONTACT_IMPORT_PREVIEW = { rows: 5, cellChars: 200, headerChars: 100 } as const;
+export const CONTACT_IMPORT_PREVIEW = { rows: 5, cellChars: 200, headerChars: 100, checkRows: 200 } as const;
 /** Rows whose problem is reported (row number + code); the rest are only counted. */
 export const CONTACT_IMPORT_MAX_ERRORS = 100;
 
@@ -337,6 +337,36 @@ export const ContactImportError = z.strictObject({
   code: z.enum(['NO_IDENTITY', 'INVALID_EMAIL', 'INVALID_PHONE', 'TOO_LONG', 'DUPLICATE_RACE']),
 });
 export type ContactImportError = z.infer<typeof ContactImportError>;
+
+/**
+ * One row of the check before an import. `EXISTING`: its e-mail or phone belongs to the contact `contactId`. `REPEATED`:
+ * an earlier row of the file has its e-mail or phone. `INVALID`: not importable (`code`).
+ */
+export const ContactImportPreviewRow = z.strictObject({
+  row: z.number().int(),
+  status: z.enum(['NEW', 'EXISTING', 'REPEATED', 'INVALID']),
+  code: ContactImportError.shape.code.nullable(),
+  contactId: z.uuid().nullable(),
+  name: z.string().nullable(),
+  email: z.string().nullable(),
+  phone: z.string().nullable(),
+  /** The run would give this contact marketing consent: a NEW row, or under `MERGE` a contact who never chose. */
+  consentMarketing: z.boolean(),
+  doNotContact: z.boolean(),
+});
+export type ContactImportPreviewRow = z.infer<typeof ContactImportPreviewRow>;
+
+/**
+ * `POST /v1/crm/contact-imports/:id/preview`: what the first `CONTACT_IMPORT_PREVIEW.checkRows` data rows would do with
+ * this mapping (read only, nothing is imported or stored). `more`: the file has rows after them. `unchecked`: the file
+ * is too large to check in a request (`rows` empty); the run still reports on it.
+ */
+export const ContactImportPreviewDto = z.strictObject({
+  rows: z.array(ContactImportPreviewRow),
+  more: z.boolean(),
+  unchecked: z.boolean(),
+});
+export type ContactImportPreviewDto = z.infer<typeof ContactImportPreviewDto>;
 
 export const ContactImportDto = z.strictObject({
   id: z.uuid(),

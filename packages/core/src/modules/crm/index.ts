@@ -65,6 +65,7 @@ export {
   startContactImport,
   uploadContactImport,
 } from './import';
+export { previewContactImport } from './import-preview';
 export { crmJobs } from './jobs';
 export {
   createLead,

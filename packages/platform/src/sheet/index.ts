@@ -53,7 +53,9 @@ export type SheetErrorCode =
   | 'MALFORMED'
   | 'TOO_MANY_ROWS'
   | 'TOO_MANY_COLUMNS'
-  | 'CELL_TOO_LARGE';
+  | 'CELL_TOO_LARGE'
+  /** `strictPreview`: the first rows point at shared strings a preview does not read. */
+  | 'PREVIEW_TOO_LARGE';
 
 export class SheetError extends Error {
   override readonly name = 'SheetError';
@@ -81,6 +83,11 @@ export interface SheetRow {
 export interface SheetReadOptions {
   /** Stop quietly after this many rows with a value (a preview). Without it `maxRows` is a hard limit. */
   stopAfter?: number;
+  /**
+   * With `stopAfter`, on XLSX: refuse (`PREVIEW_TOO_LARGE`) when the rows' shared strings do not fit a preview's caps,
+   * instead of answering those cells empty. For a preview whose values are judged, not only shown.
+   */
+  strictPreview?: boolean;
 }
 
 // ── Kind detection ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -511,12 +518,18 @@ async function* xlsxRows(bytes: Uint8Array, options: SheetReadOptions): AsyncGen
       if (raw.length >= stopAfter) break;
     }
     // An index far beyond what the rows could use is not read for (a preview must stay small).
-    const strings = await sharedStrings(
-      bytes,
-      zip,
-      Math.min(highest, stopAfter * SHEET_LIMITS.maxColumns),
-      SHEET_LIMITS.previewStringsBytes,
-    );
+    const lastIndex = stopAfter * SHEET_LIMITS.maxColumns;
+    if (options.strictPreview && highest > lastIndex) throw new SheetError('PREVIEW_TOO_LARGE');
+    let strings: readonly string[];
+    try {
+      strings = await sharedStrings(bytes, zip, Math.min(highest, lastIndex), SHEET_LIMITS.previewStringsBytes);
+    } catch (err) {
+      // the preview's own cap, not the file's: the run reads up to `maxSharedStringsBytes`
+      if (options.strictPreview && isSheetError(err) && err.code === 'ZIP_BOMB') {
+        throw new SheetError('PREVIEW_TOO_LARGE');
+      }
+      throw err;
+    }
     for (const row of raw) yield toRow(row, strings);
     return;
   }

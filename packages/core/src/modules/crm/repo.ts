@@ -196,6 +196,22 @@ export async function identifierOwners(
   return res.rows as unknown as IdentifierOwner[];
 }
 
+/** S17-F29: of these contacts, those who have chosen on marketing (an import's yes does not change their choice). */
+export async function contactsWithMarketingChoice(
+  tx: Tx,
+  agencyId: string,
+  ids: readonly string[],
+): Promise<Set<string>> {
+  if (ids.length === 0) return new Set();
+  const rows = await tx
+    .select({ id: contacts.id })
+    .from(contacts)
+    .where(
+      and(eq(contacts.agencyId, agencyId), inArray(contacts.id, [...ids]), isNotNull(contacts.consentMarketingAt)),
+    );
+  return new Set(rows.map((r) => r.id));
+}
+
 export type NewContact = Omit<typeof contacts.$inferInsert, 'version' | 'createdAt' | 'updatedAt' | 'deletedAt'>;
 
 /**

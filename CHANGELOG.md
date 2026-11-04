@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Changed
+- Contacts can be imported from a CSV or Excel file on a new screen: confirm the columns, check the first rows for errors and duplicates, then import; duplicates are skipped by default and no consent is assumed [S17-F29]
 - Contacts can be edited from their page; consent changes go to the consent history, and a contact must keep a name, e-mail or phone [S17-F28]
 - Photo processing no longer holds an image slot while uploading, so storage waits stop limiting how many photos are processed [S17-F26]
 - Resales imports read up to 4 pages ahead, count seen-only listings as unchanged, and re-read listings held for an unmapped value; storage writes retry brief failures [S17-F23…F25]
