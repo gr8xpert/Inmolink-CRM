@@ -29,7 +29,8 @@ describe('website lead contracts (S7-05)', () => {
   });
 
   it('[S7-05] a viewing request names a listing and one to three distinct slots', () => {
-    const slot = { date: '2026-11-02', timeOfDay: 'MORNING' };
+    // Relative to today: the contract refuses past days, so a fixed date stops passing once it has gone by.
+    const slot = { date: new Date(Date.now() + 86_400_000).toISOString().slice(0, 10), timeOfDay: 'MORNING' };
     expect(ok(WebsiteViewingRequestBody, { ...base, ref: 'CH-7KQ2M9XA', slots: [slot] })).toBe(true);
     expect(ok(WebsiteViewingRequestBody, { ...base, slots: [slot] })).toBe(false);
     expect(ok(WebsiteViewingRequestBody, { ...base, ref: 'CH-1', slots: [] })).toBe(false);
