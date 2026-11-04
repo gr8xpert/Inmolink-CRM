@@ -348,3 +348,67 @@ describe('storage list (S1-F7)', () => {
     ]);
   });
 });
+
+describe('repeatable writes', () => {
+  const opts = { contentType: 'image/jpeg' };
+  /** A store answering the given statuses in turn (the last repeats); records each body it received. */
+  const answering = (statuses: (number | Error)[]) => {
+    const bodies: string[] = [];
+    const s = createS3Store({
+      endpoint: 'http://localhost:9000/',
+      region: 'auto',
+      accessKeyId: 'AKIDEXAMPLE',
+      secretAccessKey: 'secret',
+      buckets: { media: 'm', exports: 'e', private: 'p', work: 'w' },
+      fetch: async (req) => {
+        bodies.push(await (req as Request).text());
+        const next = statuses[Math.min(bodies.length - 1, statuses.length - 1)] as number | Error;
+        if (next instanceof Error) throw next;
+        return new Response(null, { status: next, headers: { etag: '"e"' } });
+      },
+    });
+    return { s, bodies };
+  };
+
+  it('[S17-F23] a brief store failure is tried again with the whole body', async () => {
+    const { s, bodies } = answering([500, 503, 200]);
+    await s.put('media', 'k', new Uint8Array([104, 105]), opts);
+    expect(bodies).toEqual(['hi', 'hi', 'hi']);
+  });
+
+  it('[S17-F23] a dropped connection is tried again; a timeout is not', async () => {
+    const dropped = answering([new TypeError('fetch failed'), 200]);
+    await dropped.s.put('media', 'k', new Uint8Array([1]), opts);
+    expect(dropped.bodies).toHaveLength(2);
+    const timedOut = new Error('timed out');
+    timedOut.name = 'TimeoutError';
+    const slow = answering([timedOut, 200]);
+    await expect(slow.s.put('media', 'k', new Uint8Array([1]), opts)).rejects.toThrow(/TimeoutError/);
+    expect(slow.bodies).toHaveLength(1);
+  });
+
+  it('[S17-F23] a lasting failure still fails, after three attempts', async () => {
+    const { s, bodies } = answering([500]);
+    await expect(s.put('media', 'k', new Uint8Array([1]), opts)).rejects.toThrow(/PUT failed \(500\)/);
+    expect(bodies).toHaveLength(3);
+  });
+
+  it('[S17-F23] a refusal is not repeated, nor is a conditional write', async () => {
+    const refused = answering([403]);
+    await expect(refused.s.put('media', 'k', new Uint8Array([1]), opts)).rejects.toThrow(/PUT failed \(403\)/);
+    expect(refused.bodies).toHaveLength(1);
+    const conditional = answering([500, 200]);
+    await expect(conditional.s.putIf('work', 'k', new Uint8Array([1]), opts, { ifNoneMatch: '*' })).rejects.toThrow(
+      /PUT failed \(500\)/,
+    );
+    expect(conditional.bodies).toHaveLength(1);
+  });
+
+  it('[S17-F23] a small streamed upload is repeated too', async () => {
+    const { s, bodies } = answering([500, 200]);
+    const u = s.upload('work', 'k', opts);
+    await u.write(new Uint8Array([104, 105]));
+    await u.complete();
+    expect(bodies).toEqual(['hi', 'hi']);
+  });
+});

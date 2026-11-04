@@ -325,6 +325,10 @@ const encodeKey = (key: string) => key.split('/').map(encodeURIComponent).join('
  * around it, which kept about twice the in-flight bytes in memory while many uploads ran; a one-chunk stream with an
  * explicit `content-length` is sent as is (no chunked encoding).
  */
+/** Attempts of a repeatable write, and the pause that grows between them. */
+const WRITE_ATTEMPTS = 3;
+const WRITE_RETRY_MS = 250;
+
 function lengthBody(bytes: Uint8Array): { body: ReadableStream<Uint8Array> } {
   return {
     body: new ReadableStream<Uint8Array>({
@@ -370,6 +374,25 @@ export function createS3Store(config: S3StoreConfig): ObjectStore {
     }
   };
 
+  /**
+   * A write that is safe to repeat (same key, same bytes, no condition), tried again on a brief store failure: a 5xx,
+   * a 429 or a dropped connection. A timeout is not repeated (its time is already spent; the job retries). A conditional
+   * write never comes here: it may have succeeded before the error, and the repeat would look like a lost race.
+   */
+  const sendRepeatable = async (url: URL, init: () => RequestInit & { method: string }): Promise<Response> => {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        // A new request each time: its body is a stream, which can be read only once.
+        const res = await send(url, init());
+        if (attempt >= WRITE_ATTEMPTS || !(res.status === 429 || res.status >= 500)) return res;
+        await res.body?.cancel();
+      } catch (err) {
+        if (attempt >= WRITE_ATTEMPTS || /TimeoutError/.test((err as Error).message)) throw err;
+      }
+      await new Promise((resolve) => setTimeout(resolve, attempt * WRITE_RETRY_MS));
+    }
+  };
+
   const putObject = async (
     bucket: BucketName,
     key: string,
@@ -377,7 +400,7 @@ export function createS3Store(config: S3StoreConfig): ObjectStore {
     options: PutOptions,
     condition: PutCondition | undefined,
   ): Promise<boolean> => {
-    const res = await send(urlOf(bucket, key), {
+    const request = () => ({
       method: 'PUT',
       ...lengthBody(body),
       headers: {
@@ -390,6 +413,8 @@ export function createS3Store(config: S3StoreConfig): ObjectStore {
         ...(condition && 'ifMatch' in condition ? { 'if-match': assertEtag(condition.ifMatch) } : {}),
       },
     });
+    const url = urlOf(bucket, key);
+    const res = await (condition ? send(url, request()) : sendRepeatable(url, request));
     // 412: the precondition failed; 409: another conditional write to the key is in flight (S3 ConditionalRequestConflict).
     if (condition && (res.status === 412 || res.status === 409)) {
       await res.body?.cancel();
@@ -434,14 +459,14 @@ export function createS3Store(config: S3StoreConfig): ObjectStore {
           if (!res.ok || !started) throw new StorageError(`storage upload start failed (${res.status})`, res.status);
           uploadId = started;
         }
-        const res = await send(at({ partNumber: String(etags.length + 1), uploadId }), {
+        const res = await sendRepeatable(at({ partNumber: String(etags.length + 1), uploadId }), () => ({
           method: 'PUT',
           ...lengthBody(bytes),
           headers: {
             'content-length': String(bytes.byteLength),
             'x-amz-content-sha256': createHash('sha256').update(bytes).digest('hex'),
           },
-        });
+        }));
         await res.body?.cancel();
         const etag = res.headers.get('etag');
         if (!res.ok || !etag) throw new StorageError(`storage upload part failed (${res.status})`, res.status);
@@ -471,7 +496,7 @@ export function createS3Store(config: S3StoreConfig): ObjectStore {
           if (uploadId === null) {
             // One part at most: a plain PUT (no multipart for small objects).
             const body = part.subarray(0, fill);
-            const res = await send(target, {
+            const res = await sendRepeatable(target, () => ({
               method: 'PUT',
               ...lengthBody(body),
               headers: {
@@ -479,7 +504,7 @@ export function createS3Store(config: S3StoreConfig): ObjectStore {
                 'content-length': String(body.byteLength),
                 'x-amz-content-sha256': createHash('sha256').update(body).digest('hex'),
               },
-            });
+            }));
             await res.body?.cancel();
             if (!res.ok) throw new StorageError(`storage PUT failed (${res.status})`, res.status);
           } else {
