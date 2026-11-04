@@ -55,6 +55,7 @@
     "time": "{from} – {to}"
   },
   "actions": {
+    "edit": "Editar",
     "cancel": "Cancelar evento",
     "restore": "Restaurar"
   },
@@ -81,6 +82,11 @@
       "FORBIDDEN": "No puedes gestionar una dirección de suscripción aquí.",
       "generic": "No se ha podido crear la dirección. Inténtalo de nuevo."
     }
+  },
+  "edit": {
+    "save": "Guardar cambios",
+    "close": "Cerrar",
+    "versionConflict": "Alguien ha cambiado este evento mientras tanto. Lo que escribiste se conserva aquí: anótalo, recarga la página para ver el evento actual y vuelve a aplicarlo."
   },
   "errors": {
     "generic": "Algo ha fallado. Inténtalo de nuevo.",

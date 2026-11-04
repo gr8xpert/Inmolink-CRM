@@ -1,6 +1,6 @@
 'use server';
 
-import { CreateCalendarEventBody, UpdateCalendarEventBody } from '@inmolink/contracts';
+import { UpdateCalendarEventBody } from '@inmolink/contracts';
 import { redirect } from 'next/navigation';
 import { getLocale } from 'next-intl/server';
 import { z } from 'zod';
@@ -14,7 +14,7 @@ import {
   updateCalendarEvent,
 } from '@/server/calendar-api';
 import { webConfig } from '@/server/env';
-import { parseLocalDateTime } from '../tasks/time';
+import { type EditEventState, eventFormBody, eventFormValues } from './event-values';
 import { FEED_ERRORS, type FeedError, type IssuedCalendarFeed } from './feed-state';
 
 /**
@@ -24,7 +24,6 @@ import { FEED_ERRORS, type FeedError, type IssuedCalendarFeed } from './feed-sta
  */
 
 const WEEK = /^\d{4}-\d{2}-\d{2}$/;
-const DURATIONS = new Set([15, 30, 45, 60, 90, 120, 180]);
 
 const text = (form: FormData, name: string) => {
   const v = form.get(name);
@@ -46,23 +45,38 @@ export async function addEventAction(form: FormData): Promise<void> {
   const session = await requireSession();
   const timeZone = await readAgencyTimeZone(session);
   if (!timeZone) return back(form, { error: 'generic' });
-  const startsAt = parseLocalDateTime(text(form, 'startsAt'), timeZone);
-  const duration = Number(text(form, 'duration'));
-  const remind = text(form, 'remind');
   const key = text(form, 'idempotencyKey');
-  if (!startsAt || !DURATIONS.has(duration) || !/^[A-Za-z0-9-]{16,64}$/.test(key)) {
-    return back(form, { error: 'VALIDATION_FAILED' });
-  }
-  const parsed = CreateCalendarEventBody.safeParse({
-    type: text(form, 'type'),
-    title: text(form, 'title'),
-    ...(text(form, 'location') ? { location: text(form, 'location') } : {}),
-    startsAt: startsAt.toISOString(),
-    endsAt: new Date(startsAt.getTime() + duration * 60_000).toISOString(),
-    remindMinutes: remind === 'none' ? null : Number(remind),
+  const body = /^[A-Za-z0-9-]{16,64}$/.test(key) ? eventFormBody(eventFormValues(form), timeZone) : null;
+  if (!body) return back(form, { error: 'VALIDATION_FAILED' });
+  return settle(await createCalendarEvent(session, body, key), (e) => back(form, e));
+}
+
+/**
+ * Saves the edit form (S17-F42, transport only): the same fields and rules as create, sent with the `version` the member
+ * saw. The API checks the version and who may (the organizer or an admin). A refusal returns state, so the form keeps what
+ * was typed; success goes back to the view the member came from.
+ */
+export async function editEventAction(_prev: EditEventState, form: FormData): Promise<EditEventState> {
+  const values = eventFormValues(form);
+  const id = z.uuid().safeParse(text(form, 'id'));
+  const version = z.coerce.number().int().min(1).safeParse(text(form, 'version'));
+  const session = await requireSession();
+  const timeZone = await readAgencyTimeZone(session);
+  if (!timeZone) return { values, error: 'generic' };
+  const body = eventFormBody(values, timeZone);
+  if (!id.success || !version.success || !body) return { values, error: 'VALIDATION_FAILED' };
+  const res = await updateCalendarEvent(session, id.data, {
+    version: version.data,
+    type: body.type,
+    title: body.title,
+    location: body.location ?? null,
+    startsAt: body.startsAt,
+    endsAt: body.endsAt,
+    remindMinutes: body.remindMinutes ?? null,
   });
-  if (!parsed.success) return back(form, { error: 'VALIDATION_FAILED' });
-  return settle(await createCalendarEvent(session, parsed.data, key), (e) => back(form, e));
+  if (res === 'revoked') redirect('/session/expired');
+  if (!res.ok) return { values, error: res.error?.code ?? 'generic' };
+  return back(form, {});
 }
 
 /** Cancels or restores one event (`intent`), at the `version` the member saw. */

@@ -55,6 +55,7 @@
     "time": "{from} – {to}"
   },
   "actions": {
+    "edit": "Edit",
     "cancel": "Cancel event",
     "restore": "Restore"
   },
@@ -81,6 +82,11 @@
       "FORBIDDEN": "You cannot manage a subscription address here.",
       "generic": "The address could not be created. Try again."
     }
+  },
+  "edit": {
+    "save": "Save changes",
+    "close": "Close",
+    "versionConflict": "Someone changed this event meanwhile. What you typed is kept here: note it, reload the page to see the current event, then apply it again."
   },
   "errors": {
     "generic": "Something went wrong. Try again.",

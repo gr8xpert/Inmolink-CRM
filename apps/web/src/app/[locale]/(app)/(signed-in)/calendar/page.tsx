@@ -8,7 +8,12 @@ import { getPathname, Link, redirect as localeRedirect } from '@/i18n/navigation
 import { agencyTimeZone } from '@/server/agency-time-zone';
 import { sessionRef } from '@/server/api';
 import { fetchCalendarEvents, fetchCalendarFeed } from '@/server/calendar-api';
+import { isAgencyAdmin } from '@/server/nav';
+import { loadShell } from '@/server/shell';
 import { addEventAction, eventIntentAction, revokeCalendarFeedAction, rotateCalendarFeedAction } from './actions';
+import { EventEditForm } from './edit-form';
+import { EventFields, type EventFieldsLabels } from './event-fields';
+import { DURATIONS, eventToValues, REMINDERS } from './event-values';
 import { CalendarFeedForm } from './feed-form';
 import { FEED_ERRORS } from './feed-state';
 import { dayKey, weekOf } from './week';
@@ -24,8 +29,6 @@ const ERROR_CODES = [
 type ErrorCode = (typeof ERROR_CODES)[number];
 /** The list view shows four weeks from the week chosen. */
 const LIST_DAYS = 28;
-const DURATIONS = [15, 30, 45, 60, 90, 120, 180] as const;
-const REMINDERS = ['none', '0', '15', '30', '60', '1440'] as const;
 
 /**
  * Calendar (S10-06, PLAN §7 M8): the member's viewings, meetings and calls — a week (Monday to Sunday, the agency's
@@ -42,7 +45,10 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
   const scope = params.scope === 'all' ? 'all' : 'mine';
   const cursor = typeof params.cursor === 'string' && CURSOR.test(params.cursor) ? params.cursor : undefined;
   const ref = sessionRef(session.user);
-  const [timeZone, feed] = await Promise.all([agencyTimeZone(ref), fetchCalendarFeed(ref)]);
+  const [timeZone, feed, shell] = await Promise.all([agencyTimeZone(ref), fetchCalendarFeed(ref), loadShell()]);
+  // who may edit an event (service policy): its organizer, or an agency admin
+  const admin = shell !== null && isAgencyAdmin(shell.identity);
+  const editing = typeof params.edit === 'string' ? params.edit : '';
   const week = weekOf(params.week, new Date(), timeZone);
   const to = view === 'list' ? new Date(week.start.getTime() + LIST_DAYS * 86_400_000) : week.end;
   const t = await getTranslations('calendar');
@@ -80,9 +86,64 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
     byDay.set(k, [...(byDay.get(k) ?? []), e]);
   }
 
+  const fieldLabels = (extra?: { duration?: number; remind?: number | null }): EventFieldsLabels => {
+    const durations: number[] = [...DURATIONS];
+    if (extra?.duration && !durations.includes(extra.duration)) durations.push(extra.duration);
+    const reminders: string[] = [...REMINDERS];
+    if (extra?.remind != null && !reminders.includes(String(extra.remind))) reminders.push(String(extra.remind));
+    return {
+      type: t('form.type'),
+      title: t('form.title'),
+      startsAt: t('form.startsAt'),
+      duration: t('form.duration'),
+      location: t('form.location'),
+      remind: t('form.remind'),
+      types: CALENDAR_EVENT_TYPES.map((type) => ({ value: type, label: t(`types.${type}`) })),
+      durations: durations
+        .sort((a, b) => a - b)
+        .map((m) => ({ value: String(m), label: t('form.minutes', { count: m }) })),
+      reminders: reminders.map((r) => ({
+        value: r,
+        label:
+          r === 'none'
+            ? t('form.remindNone')
+            : r === '0'
+              ? t('form.remindAt')
+              : r === '1440'
+                ? t('form.remindDay')
+                : t('form.remindBefore', { count: Number(r) }),
+      })),
+    };
+  };
+  const closeHref = `${getPathname({ href: '/calendar', locale })}?${new URLSearchParams(base).toString()}`;
+  const editErrors = Object.fromEntries(
+    ERROR_CODES.map((c) => [c, c === 'VERSION_CONFLICT' ? t('edit.versionConflict') : t(`errors.${c}`)]),
+  );
+
   const eventItem = (e: CalendarEventDto) => {
     const cancelled = e.status === 'CANCELLED';
     const others = e.attendees.slice(1).map((a) => a.name ?? '…');
+    const canEdit = admin || (shell?.identity.kind === 'member' && e.organizerUserId === session.user?.id);
+    if (canEdit && editing === e.id) {
+      const initial = eventToValues(e, timeZone);
+      return (
+        <li key={e.id} className="flex flex-col gap-1 rounded-md border p-2" data-testid="calendar-event">
+          <EventEditForm
+            id={e.id}
+            version={e.version}
+            initial={initial}
+            labels={{
+              ...fieldLabels({ duration: Number(initial.duration), remind: e.remindMinutes }),
+              save: t('edit.save'),
+              cancel: t('edit.close'),
+            }}
+            errors={editErrors}
+            hidden={{ view, week: week.key, scope }}
+            closeHref={closeHref}
+          />
+        </li>
+      );
+    }
     return (
       <li key={e.id} className="flex flex-col gap-1 rounded-md border p-2 text-sm" data-testid="calendar-event">
         <span className="text-xs text-muted-foreground">
@@ -106,6 +167,15 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
           >
             {cancelled ? t('actions.restore') : t('actions.cancel')}
           </button>
+          {canEdit ? (
+            <Link
+              href={href({ week: week.key, edit: e.id })}
+              className="ml-2 inline-flex h-7 items-center rounded-md border px-2 text-xs"
+              data-testid="calendar-edit"
+            >
+              {t('actions.edit')}
+            </Link>
+          ) : null}
         </form>
       </li>
     );
@@ -224,54 +294,10 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
         <h2 className="w-full font-semibold">{t('form.heading')}</h2>
         {hidden}
         <input type="hidden" name="idempotencyKey" value={randomUUID()} />
-        <label className="flex flex-col gap-1">
-          <span>{t('form.type')}</span>
-          <select name="type" className="h-9 rounded-md border bg-background px-2" defaultValue="VIEWING">
-            {CALENDAR_EVENT_TYPES.map((type) => (
-              <option key={type} value={type}>
-                {t(`types.${type}`)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex min-w-60 flex-1 flex-col gap-1">
-          <span>{t('form.title')}</span>
-          <input name="title" required maxLength={200} className="h-9 rounded-md border bg-background px-2" />
-        </label>
-        <label className="flex flex-col gap-1">
-          <span>{t('form.startsAt')}</span>
-          <input name="startsAt" type="datetime-local" required className="h-9 rounded-md border bg-background px-2" />
-        </label>
-        <label className="flex flex-col gap-1">
-          <span>{t('form.duration')}</span>
-          <select name="duration" className="h-9 rounded-md border bg-background px-2" defaultValue="60">
-            {DURATIONS.map((m) => (
-              <option key={m} value={m}>
-                {t('form.minutes', { count: m })}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex min-w-48 flex-col gap-1">
-          <span>{t('form.location')}</span>
-          <input name="location" maxLength={300} className="h-9 rounded-md border bg-background px-2" />
-        </label>
-        <label className="flex flex-col gap-1">
-          <span>{t('form.remind')}</span>
-          <select name="remind" className="h-9 rounded-md border bg-background px-2" defaultValue="30">
-            {REMINDERS.map((r) => (
-              <option key={r} value={r}>
-                {r === 'none'
-                  ? t('form.remindNone')
-                  : r === '0'
-                    ? t('form.remindAt')
-                    : r === '1440'
-                      ? t('form.remindDay')
-                      : t('form.remindBefore', { count: Number(r) })}
-              </option>
-            ))}
-          </select>
-        </label>
+        <EventFields
+          labels={fieldLabels()}
+          values={{ type: 'VIEWING', title: '', location: '', startsAt: '', duration: '60', remind: '30' }}
+        />
         <button type="submit" className="h-9 rounded-md border px-3 font-medium">
           {t('form.create')}
         </button>
