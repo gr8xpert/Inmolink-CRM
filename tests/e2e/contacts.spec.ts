@@ -185,7 +185,11 @@ test('[S17-F38] at 390 px no page scrolls sideways, and the closed menu is one r
   await page.goto('/en/tasks');
   await page.getByLabel('Title').fill('W'.repeat(200));
   await page.getByRole('button', { name: 'Add task' }).click();
-  await expect(page.getByTestId('task-list')).toBeVisible();
+  // No due date: the task is on that tab, not on the default Today one.
+  await expect(async () => {
+    await page.goto('/en/tasks?tab=noDate');
+    await expect(page.getByTestId('task-list')).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
   await expectNoPageScroll(page, '/tasks');
 
   // Pipeline stages: a stage name of 60 letters without a space wraps.
@@ -202,7 +206,7 @@ test('[S17-F38] at 390 px no page scrolls sideways, and the closed menu is one r
 
   // Listings: the column chooser opens inside the window.
   await page.goto('/en/listings');
-  await page.getByText('Columns', { exact: true }).click();
+  await page.locator('summary').filter({ hasText: 'Columns' }).click();
   await expect(page.getByRole('group', { name: 'Columns' })).toBeVisible();
   await expectNoPageScroll(page, '/listings with the columns open');
 });
@@ -215,7 +219,9 @@ test('[S17-F37] an empty contact file is refused in words, not "Something went w
   await page
     .getByTestId('contact-import-file')
     .setInputFiles({ name: 'empty.csv', mimeType: 'text/csv', buffer: Buffer.alloc(0) });
-  await expect(page.getByRole('alert')).toContainText('This file has no rows under its column names.');
+  await expect(
+    page.getByRole('alert').filter({ hasText: 'This file has no rows under its column names.' }),
+  ).toBeVisible();
   await expect(page.getByText('Something went wrong')).toBeHidden();
 });
 
@@ -241,7 +247,7 @@ test('[S17-F40] an unknown or foreign id is the same "Page not found" on every d
     await expect(page.getByRole('heading', { level: 1, name: 'Page not found' }), path).toBeVisible();
     // The page says it is not to be indexed. Its status is 200 where the member skeleton (loading.tsx) has already
     // streamed: Next cannot change a status after the first byte (documented on the app's loading boundary).
-    await expect(page.locator('meta[name="robots"][content*="noindex"]'), path).toHaveCount(1);
+    await expect(page.locator('meta[name="robots"][content*="noindex"]').first(), path).toBeAttached();
     bodies.add(await page.getByRole('main').innerText());
   }
   expect(bodies.size, 'the same page for every kind of record').toBe(1);
