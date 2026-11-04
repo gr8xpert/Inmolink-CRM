@@ -17,9 +17,10 @@ export interface ConsentInsert {
   policyVersion: string | null;
   actorUserId: string | null;
   impersonatedBy: string | null;
+  recordedAt?: Date;
 }
 
-/** One statement for any number of records; the time is the database's. */
+/** One statement for any number of records; the time is the database's unless the record names one. */
 export async function insertConsents(tx: Tx, rows: readonly ConsentInsert[]): Promise<void> {
   if (rows.length === 0) return;
   await tx.insert(consentRecords).values([...rows]);

@@ -46,6 +46,11 @@ export interface InboundLead {
   message: string | null;
   viewingSlots: unknown[] | null;
   marketingConsent: boolean;
+  /**
+   * The visitor ticked the privacy notice: a lead cannot be recorded without it (S17-F33; the contracts require `true`
+   * too). So it is not a column: the CRM promotion records the consent for every inbound lead.
+   */
+  privacyAccepted: true;
   pageUrl: string | null;
 }
 

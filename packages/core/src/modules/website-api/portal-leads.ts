@@ -253,6 +253,7 @@ export async function submitPortalLead(
       message: body.message ?? null,
       viewingSlots: null,
       marketingConsent: body.marketingConsent,
+      privacyAccepted: body.privacyAccepted,
       pageUrl: body.pageUrl ?? null,
     }),
   );

@@ -235,6 +235,7 @@ export async function submitLead(
       message: body.message ?? null,
       viewingSlots: kind === 'VIEWING_REQUEST' ? (input.body as WebsiteViewingRequestBody).slots : null,
       marketingConsent: body.marketingConsent,
+      privacyAccepted: body.privacyAccepted,
       pageUrl: body.pageUrl ?? null,
     }),
   );

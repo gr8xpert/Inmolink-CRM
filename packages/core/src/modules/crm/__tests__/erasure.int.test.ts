@@ -360,6 +360,7 @@ describe('contact erasure', () => {
         message: SECRET,
         viewingSlots: null,
         marketingConsent: true,
+        privacyAccepted: true,
         pageUrl: 'https://www.example.com/villa',
       }),
     );

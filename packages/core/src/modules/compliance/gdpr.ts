@@ -36,13 +36,15 @@ export interface ConsentChange {
  * Appends consent records in the caller's transaction (the change and its record commit together). `who`: a member's
  * context (its user, and the staff member impersonating it), or a source without a member (a website form, an import).
  * `policyVersion`: the privacy text version the form showed, when known (website / portal forms: `LEGAL_TEXT_VERSION`).
- * Callers pass real changes only (a value that did not change is no record).
+ * `at`: when the choice was made, if earlier than now (a form handled by a job); else the database's time.
+ * Callers pass real changes only (a value that did not change is no record), or a choice the person made again on a
+ * form, which is evidence in itself (S17-F33).
  */
 export async function recordConsents(
   tx: Tx,
   agencyId: string,
   changes: readonly ConsentChange[],
-  who: { source: ConsentSource; ctx?: Ctx; policyVersion?: string | null },
+  who: { source: ConsentSource; ctx?: Ctx; policyVersion?: string | null; at?: Date },
 ): Promise<void> {
   if (changes.length === 0) return;
   const actor = who.ctx?.actor.kind === 'user' ? who.ctx.actor : null;
@@ -58,6 +60,7 @@ export async function recordConsents(
       policyVersion: who.policyVersion ?? null,
       actorUserId: actor?.userId ?? null,
       impersonatedBy: actor?.impersonatedBy ?? null,
+      ...(who.at ? { recordedAt: who.at } : {}),
     })),
   );
 }

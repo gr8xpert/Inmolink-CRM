@@ -449,6 +449,7 @@ describe('automatic acknowledgement and promotion', () => {
         message: 'Hello',
         viewingSlots: null,
         marketingConsent: true,
+        privacyAccepted: true,
         pageUrl: null,
       }),
     );

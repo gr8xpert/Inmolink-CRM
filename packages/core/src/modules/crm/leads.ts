@@ -262,7 +262,12 @@ const languageOf = (locale: string): string | null => (/^[a-z]{2}(-[A-Z]{2})?$/.
  * The website visitor as a contact of the presenting agency: the contact owning the e-mail (else the phone) as it is —
  * an inbound form never rewrites a contact's name, identifiers or consent (S10-02 review: anyone can type anyone's
  * address); the form's details stay on the lead (`visitor_*`) for the agent to compare. Otherwise a new contact is
- * created from them (source `WEBSITE`, type `BUYER`). Identifiers another writer takes meanwhile fail the transaction;
+ * created from them (source `WEBSITE`, type `BUYER`).
+ * S17-F33: every inbound lead carries the form's required privacy tick (`recordInboundLead`), which is consent to
+ * processing. A new contact starts with it. An existing contact's history gains the record, dated when the form was
+ * sent, and its current consent stays as it is, so a withdrawal is never overwritten and a typed address cannot turn
+ * consent on.
+ * Identifiers another writer takes meanwhile fail the transaction;
  * the job's retry then finds that contact.
  * S13-F21: exempt from the plan's contact quota (`crm_contacts`, Free 100) by design — an inbound website or portal
  * lead is never refused or lost because of the agency's plan; only member creates and CSV imports are counted.
@@ -274,10 +279,15 @@ async function contactForVisitor(tx: Tx, agencyId: string, visitor: websites.Lea
   const phone = visitor.phone ? normalizePhone(visitor.phone, DEFAULT_PHONE_COUNTRY) : null;
   const owners = await repo.identifierOwners(tx, agencyId, email ? [email] : [], phone ? [phone] : []);
   const match = owners.find((o) => o.on === 'email') ?? owners[0];
-  if (match) return match.contactId;
+  // The form showed the published privacy text of this version (S16-04 review), when the visitor sent it.
+  const form = { source, policyVersion: LEGAL_TEXT_VERSION, at: visitor.createdAt } as const;
+  if (match) {
+    const consent = { contactId: match.contactId, purpose: 'PROCESSING', granted: true } as const;
+    await compliance.recordConsents(tx, agencyId, [consent], form);
+    return match.contactId;
+  }
 
   const id = newId();
-  const now = new Date();
   await repo.insertContacts(tx, [
     {
       id,
@@ -292,9 +302,9 @@ async function contactForVisitor(tx: Tx, agencyId: string, visitor: websites.Lea
       source,
       tags: [],
       consentMarketing: visitor.marketingConsent,
-      consentMarketingAt: visitor.marketingConsent ? now : null,
-      consentProcessing: false,
-      consentProcessingAt: null,
+      consentMarketingAt: visitor.marketingConsent ? visitor.createdAt : null,
+      consentProcessing: true,
+      consentProcessingAt: visitor.createdAt,
       doNotContact: false,
       idempotencyHash: null,
     },
@@ -306,13 +316,12 @@ async function contactForVisitor(tx: Tx, agencyId: string, visitor: websites.Lea
     phone ? [{ contactId: id, value: phone, position: 0 }] : [],
   );
   await repo.syncFacets(tx, agencyId, [id]);
-  // S16-04: the form's marketing tick is the new contact's consent record (the form's text version is not known yet)
+  // S16-04, S17-F33: the form's ticks are the new contact's consent records
   await compliance.recordConsents(
     tx,
     agencyId,
-    compliance.initialConsents(id, { consentMarketing: visitor.marketingConsent }),
-    // S16-04 review: the form showed the published privacy text of this version
-    { source, policyVersion: LEGAL_TEXT_VERSION },
+    compliance.initialConsents(id, { consentMarketing: visitor.marketingConsent, consentProcessing: true }),
+    form,
   );
   await emit(tx, crmEvents.contactCreated({ agencyId, contactId: id, source }));
   return id;

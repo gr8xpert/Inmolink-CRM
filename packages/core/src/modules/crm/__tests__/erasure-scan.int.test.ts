@@ -316,6 +316,7 @@ describe('contact erasure scan', () => {
         message: SECRET,
         viewingSlots: null,
         marketingConsent: true,
+        privacyAccepted: true,
         pageUrl: `https://www.scan-homes-${RUN}.example/villa?ref=${LAST}`,
       }),
     );

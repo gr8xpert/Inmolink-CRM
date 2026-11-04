@@ -59,6 +59,7 @@ async function inbound(target: { kind: 'LISTING'; id: string; ownerAgencyId: str
       message: 'Is the villa still available?',
       viewingSlots: null,
       marketingConsent: true,
+      privacyAccepted: true,
       pageUrl: null,
     }),
   );

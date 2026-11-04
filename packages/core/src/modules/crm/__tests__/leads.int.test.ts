@@ -5,7 +5,11 @@ import {
   type CreateLeadInput,
   CreateListingBody,
   type CreateSiteInput,
+  LEGAL_TEXT_VERSION,
+  UpdateContactBody,
   UpdateListingBody,
+  WebsiteLeadBody,
+  WebsiteViewingRequestBody,
 } from '@inmolink/contracts';
 import { closeDb, countQueries, withIntake, withSystem, withTenant } from '@inmolink/db';
 import { adminQuery, setAgencyStatus, setupTestDb, withAdminRollback } from '@inmolink/db/testing';
@@ -102,6 +106,8 @@ async function inbound(
     phone?: string | null;
     name?: string;
     target?: { kind: 'LISTING' | 'UNIT'; id: string; ownerAgencyId: string | null; shownRef: string } | null;
+    marketingConsent?: boolean;
+    portal?: boolean;
   } = {},
 ): Promise<string> {
   const id = newId();
@@ -109,7 +115,7 @@ async function inbound(
     websites.recordInboundLead(tx, {
       id,
       agencyId: a.agencyId,
-      siteId,
+      siteId: over.portal ? null : siteId,
       kind: 'ENQUIRY',
       idempotencyHash: `idem-${id}`,
       requestHash: 'x',
@@ -123,7 +129,8 @@ async function inbound(
       phone: over.phone ?? null,
       message: 'Is the villa still available?',
       viewingSlots: null,
-      marketingConsent: true,
+      marketingConsent: over.marketingConsent ?? true,
+      privacyAccepted: true,
       pageUrl: null,
     }),
   );
@@ -325,6 +332,100 @@ describe('promotion of website leads', () => {
       await setRule('UNASSIGNED');
     }
   }, 120_000);
+});
+
+describe('the privacy tick of a lead', () => {
+  const promote = async (inboundLeadId: string) => {
+    const { leadId } = await crm.promoteInboundLead({ agencyId: a.agencyId, inboundLeadId });
+    return as(a, (ctx) => crm.getLead(ctx, leadId as string));
+  };
+  const contactOf = (id: string) => as(a, (ctx) => crm.getContact(ctx, id));
+  const processingHistory = async (id: string) =>
+    (await as(a, (ctx) => crm.listContactConsents(ctx, id))).items.filter((r) => r.purpose === 'PROCESSING');
+  const sentAt = async (inboundLeadId: string) => {
+    const [row] = await rows<{ created_at: string }>(
+      sql`select created_at from website_leads where id = ${inboundLeadId}`,
+    );
+    return new Date(row?.created_at as string).toISOString();
+  };
+
+  it('[S17-F33] a new contact gets processing consent, its time and a record with the source and text version', async () => {
+    const inboundId = await inbound({ email: email('tick-new') });
+    const lead = await promote(inboundId);
+    const contact = await contactOf(lead.contact.id);
+    const at = await sentAt(inboundId);
+    expect(contact).toMatchObject({ consentProcessing: true, consentProcessingAt: at, consentMarketing: true });
+    expect(await processingHistory(lead.contact.id)).toEqual([
+      expect.objectContaining({
+        granted: true,
+        source: 'WEBSITE',
+        policyVersion: LEGAL_TEXT_VERSION,
+        actorUserId: null,
+        recordedAt: at,
+      }),
+    ]);
+  });
+
+  it('[S17-F33] a portal lead records it too, with the portal as its source', async () => {
+    const lead = await promote(await inbound({ email: email('tick-portal'), portal: true }));
+    expect(await contactOf(lead.contact.id)).toMatchObject({ source: 'PORTAL', consentProcessing: true });
+    expect(await processingHistory(lead.contact.id)).toEqual([
+      expect.objectContaining({ granted: true, source: 'PORTAL', policyVersion: LEGAL_TEXT_VERSION }),
+    ]);
+  });
+
+  it('[S17-F33] an existing contact gains the record; its current consent stays as it is', async () => {
+    const visitor = email('tick-existing');
+    const existing = await createContact(a, { firstName: 'Eva', emails: [visitor] });
+    expect(await processingHistory(existing.id)).toEqual([]);
+    const lead = await promote(await inbound({ email: visitor, marketingConsent: true }));
+    expect(lead.contact.id).toBe(existing.id);
+    // An address anyone can type does not turn consent on (S10-02), marketing included.
+    expect(await contactOf(existing.id)).toEqual(existing);
+    expect(await processingHistory(existing.id)).toEqual([
+      expect.objectContaining({ granted: true, source: 'WEBSITE', policyVersion: LEGAL_TEXT_VERSION }),
+    ]);
+    const all = await as(a, (ctx) => crm.listContactConsents(ctx, existing.id));
+    expect(all.items.filter((r) => r.purpose === 'MARKETING')).toEqual([]);
+  });
+
+  it('[S17-F33] a withdrawal is not overwritten: by a later form, or by a form promoted after it', async () => {
+    const visitor = email('tick-withdrawn');
+    const first = await promote(await inbound({ email: visitor }));
+    const id = first.contact.id;
+    // Sent before the withdrawal, promoted after it (a job waiting in the queue).
+    const queued = await inbound({ email: visitor });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const current = await contactOf(id);
+    const withdrawn = await as(a, (ctx) =>
+      crm.updateContact(ctx, id, UpdateContactBody.parse({ version: current.version, consentProcessing: false })),
+    );
+    expect(withdrawn.consentProcessing).toBe(false);
+
+    await promote(queued);
+    expect((await processingHistory(id)).map((r) => r.granted)).toEqual([false, true, true]);
+    expect(await contactOf(id)).toEqual(withdrawn);
+
+    // A new form after it: the history shows it, the current state stays withdrawn for the agent to decide.
+    await promote(await inbound({ email: visitor }));
+    expect((await processingHistory(id)).map((r) => r.granted)).toEqual([true, false, true, true]);
+    expect(await contactOf(id)).toEqual(withdrawn);
+  });
+
+  it('[S17-F33] a redelivered event records nothing more', async () => {
+    const inboundId = await inbound({ email: email('tick-redelivered') });
+    const lead = await promote(inboundId);
+    await crm.promoteInboundLead({ agencyId: a.agencyId, inboundLeadId: inboundId });
+    expect(await processingHistory(lead.contact.id)).toHaveLength(1);
+  });
+
+  it('[S17-F33] no path takes a lead without the tick: the contracts refuse it', () => {
+    const fields = { name: 'No Tick', email: 'no-tick@example.com', marketingConsent: false };
+    expect(WebsiteLeadBody.safeParse(fields).success).toBe(false);
+    expect(WebsiteLeadBody.safeParse({ ...fields, privacyAccepted: false }).success).toBe(false);
+    expect(WebsiteViewingRequestBody.safeParse({ ...fields }).success).toBe(false);
+    expect(WebsiteLeadBody.safeParse({ ...fields, privacyAccepted: true }).success).toBe(true);
+  });
 });
 
 describe('the owner of a network listing', () => {
