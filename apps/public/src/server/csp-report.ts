@@ -107,7 +107,7 @@ export async function cspReportResponse(
   if (!TYPES.has(type)) return answer(415);
   const { bucket } = await clientAddress(request.headers.get('x-forwarded-for'));
   const limit = await rateLimiter().consume(
-    { name: 'public.cspReport', scope: 'ip', limit: CSP_REPORT_LIMIT_PER_MINUTE, windowSeconds: 60 },
+    { name: 'public.csp-report', scope: 'ip', limit: CSP_REPORT_LIMIT_PER_MINUTE, windowSeconds: 60 },
     bucket,
   );
   if (!limit.allowed) return answer(429);

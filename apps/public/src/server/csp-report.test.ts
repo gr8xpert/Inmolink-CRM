@@ -50,10 +50,21 @@ describe('CSP report endpoint (S16-F8)', () => {
     ]);
   });
 
+  it('[S17-F16] the rule passes the real limiter check, so a report is not a 500', async () => {
+    const { assertRule } = await vi.importActual<typeof import('@inmolink/platform/rate-limit')>(
+      '@inmolink/platform/rate-limit',
+    );
+    consume.mockClear();
+    await cspReportResponse(post(REPORT), () => {});
+    const rule = consume.mock.calls[0]?.[0];
+    expect(rule).toBeDefined();
+    expect(() => assertRule(rule)).not.toThrow();
+  });
+
   it('[S16-F8] limited per client address, capped at 8 KB (declared or streamed), JSON report types only', async () => {
     expect((await cspReportResponse(post(REPORT), () => {})).status).toBe(204);
     expect(consume).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'public.cspReport', scope: 'ip' }),
+      expect.objectContaining({ name: 'public.csp-report', scope: 'ip' }),
       '203.0.113.7',
     );
     consume.mockResolvedValueOnce({ allowed: false, retryAfterSeconds: 30 });
