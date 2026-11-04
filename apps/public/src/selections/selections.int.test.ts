@@ -229,6 +229,10 @@ describe('selection page as served (S12-04)', () => {
     expect((await bare({})).status).toBe(403);
     expect((await bare({ 'sec-fetch-site': 'cross-site' })).status).toBe(403);
     expect((await bare({ 'sec-fetch-site': 'same-origin' })).status).toBe(303);
+    // [S17-F31] What a browser really sends from this no-referrer page; a sandboxed frame sends `null` too, cross-site.
+    expect((await bare({ origin: 'null', 'sec-fetch-site': 'same-origin' })).status).toBe(303);
+    expect((await bare({ origin: 'null', 'sec-fetch-site': 'cross-site' })).status).toBe(403);
+    expect((await bare({ origin: 'null' })).status).toBe(403);
     expect((await post({ action: 'like', item: bListing })).status).toBe(303);
     const got = await as(a, (ctx) => presentations.getSelection(ctx, selectionId));
     expect(got.items[0]).toMatchObject({ likes: 1, enquiries: 1 });

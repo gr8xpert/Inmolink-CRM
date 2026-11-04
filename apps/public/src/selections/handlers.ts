@@ -177,13 +177,14 @@ export async function selectionResponse(request: Request, token: string): Promis
 
 /**
  * Whether a form post came from the page itself (no cross-site post may like or enquire for the client): its `Origin`
- * is the public pages' own (`PUBLIC_URL`); without one, only a browser's `Sec-Fetch-Site: same-origin` passes.
+ * is the public pages' own (`PUBLIC_URL`). Without a usable one, only a browser's `Sec-Fetch-Site: same-origin` passes:
+ * this page's `Referrer-Policy: no-referrer` makes browsers send the literal `Origin: null` on its own forms (S17-F31).
  */
 async function sameOrigin(request: Request): Promise<boolean> {
   const config = await publicConfig();
   const own = new URL(config.PUBLIC_URL ?? LOCAL_PUBLIC_URL).origin;
   const origin = request.headers.get('origin');
-  if (origin === null) return request.headers.get('sec-fetch-site') === 'same-origin';
+  if (origin === null || origin === 'null') return request.headers.get('sec-fetch-site') === 'same-origin';
   return origin === own;
 }
 
