@@ -150,7 +150,7 @@
       "apiKey": "Clave API",
       "apiKeyHint": "La clave P2 de tu cuenta de la WebAPI. Se guarda cifrada y no se vuelve a mostrar; al editar, déjala vacía para conservar la guardada.",
       "filterAlias": "Alias de filtro",
-      "filterAliasHint": "El alias del filtro del portal que se importa (no el id numérico del filtro): 1 Venta, 2 Alquiler vacacional, 3 Alquiler larga duración, 4 Destacados. Usa una conexión por alias.",
+      "filterAliasHint": "El alias del filtro del portal que se importa (no el id numérico del filtro): 1 Venta, 2 Alquiler vacacional, 3 Alquiler larga duración, 4 Destacados. Usa una conexión por alias. Destacados repite propiedades de Venta, y una propiedad que llega por dos conexiones se convierte en dos anuncios, así que no conectes ambos.",
       "aliases": {
         "1": "1 - Venta",
         "2": "2 - Alquiler vacacional",

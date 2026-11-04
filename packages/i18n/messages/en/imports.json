@@ -150,7 +150,7 @@
       "apiKey": "API key",
       "apiKeyHint": "The P2 key of your WebAPI account. It is stored encrypted and never shown again; on edit, leave empty to keep the saved one.",
       "filterAlias": "Filter alias",
-      "filterAliasHint": "The alias of the portal filter to import (not the numeric filter id): 1 Sale, 2 Short term rent, 3 Long term rent, 4 Featured. Use one connection per alias.",
+      "filterAliasHint": "The alias of the portal filter to import (not the numeric filter id): 1 Sale, 2 Short term rent, 3 Long term rent, 4 Featured. Use one connection per alias. Featured repeats properties from Sale, and a property that arrives through two connections becomes two listings, so do not connect both.",
       "aliases": {
         "1": "1 - Sale",
         "2": "2 - Short term rent",
