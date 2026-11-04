@@ -73,9 +73,14 @@ export interface RunLoader<Prepared = unknown> {
   }>;
   /**
    * Inside the fenced batch transaction. `seenRefs`: references of the batch's failed items (still in the feed).
-   * `errors`: items the write could not store (counted as failed).
+   * `errors`: items the write could not store (counted as failed). `unsettledRefs` (S17-F25): items stored but held
+   * for a value nobody has mapped yet; they keep no source hash, so a run after the mapping reads them again.
    */
-  write(tx: Tx, prepared: Prepared, seenRefs: readonly string[]): Promise<SinkCounts & { errors: ItemError[] }>;
+  write(
+    tx: Tx,
+    prepared: Prepared,
+    seenRefs: readonly string[],
+  ): Promise<SinkCounts & { errors: ItemError[]; unsettledRefs?: readonly string[] }>;
   /**
    * Inside the transaction that ends a successful run, before the run is ended (S6-08 anomaly guard): the connection's
    * live listings and how many of them this run did not see. `finish` in the same transaction reuses the result.
@@ -738,6 +743,7 @@ export const listingSink: FeedSink = {
           updated: result.updated,
           unchanged: result.unchanged,
           held: result.held,
+          unsettledRefs: prepared.items.flatMap((i) => (i.held.length > 0 ? [i.ref] : [])),
           errors: result.rejected.map((r) => ({
             position: prepared.positions.get(r.ref) ?? 0,
             itemRef: clip(r.ref, 200),

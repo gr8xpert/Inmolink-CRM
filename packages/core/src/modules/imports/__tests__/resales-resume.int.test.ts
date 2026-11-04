@@ -13,7 +13,7 @@ import { createFounder, type Founder } from '../../../testing/factories';
 import * as taxonomy from '../../taxonomy';
 import { RUNS } from '../config';
 import * as imports from '../index';
-import { createResalesConnector, type ResalesResponse } from '../resales/connector';
+import { createResalesConnector, RESALES_READ_AHEAD, type ResalesResponse } from '../resales/connector';
 import type { RunOutcome } from '../runner';
 
 /**
@@ -165,7 +165,6 @@ const resumes = (runId: string) =>
   rows<{ resume: number }>(sql`select (payload->>'resume')::int as resume from outbox_events
     where type = 'imports.run.requested' and payload->>'runId' = ${runId} and payload ? 'resume'
     order by (payload->>'resume')::int`);
-const sorted = (n: number[]) => [...n].sort((a, b) => a - b);
 const upTo = (n: number) => Array.from({ length: n }, (_, i) => i + 1);
 
 beforeAll(async () => {
@@ -252,9 +251,10 @@ describe('Resales Online runs in slices (S7-F12)', () => {
       checkpoint: null,
     });
     expect((await resumes(first.id)).map((r) => r.resume)).toEqual([1, 2, 3]);
-    // Every page and every listing's details read exactly once across the slices.
-    // …plus each resumed slice's check of the page it resumes after (100, 200, 300).
-    expect(sorted(a.pages)).toEqual(sorted([...upTo(375), 100, 200, 300]));
+    // Every page read across the slices, plus each resumed slice's check of the page it resumes after, plus at most
+    // the pages a slice read ahead and left for the next (S17-F24). The details below show none is handled twice.
+    expect(new Set(a.pages)).toEqual(new Set(upTo(375)));
+    expect(a.pages.length).toBeLessThanOrEqual(375 + 3 + 3 * RESALES_READ_AHEAD);
     expect(a.details).toHaveLength(15_000);
     expect(new Set(a.details).size).toBe(15_000);
 
@@ -294,7 +294,9 @@ describe('Resales Online runs in slices (S7-F12)', () => {
       items_total: 520,
       checkpoint: expect.objectContaining({ at: expect.objectContaining({ page: 13, position: 520 }) }),
     });
-    expect(a.pages).toEqual(upTo(14));
+    // S17-F24: up to the failing page's turn, and what was read ahead of it.
+    expect(a.pages).toEqual(expect.arrayContaining(upTo(14)));
+    expect(Math.max(...a.pages)).toBeLessThanOrEqual(14 + RESALES_READ_AHEAD);
 
     // The retry resumes at page 14; page 28 times out on the job's last attempt: the progress made since is kept and
     // the run's next slice is queued instead of failing it.
@@ -302,7 +304,9 @@ describe('Resales Online runs in slices (S7-F12)', () => {
     a.timeouts.set(28, 3);
     expect(await slice(run.id, { lastAttempt: true })).toEqual({ kind: 'requeued' });
     // Page 13 again (the checkpoint's check: unchanged), then 14 onwards.
-    expect(a.pages).toEqual(upTo(27).slice(12));
+    expect(a.pages).toEqual(expect.arrayContaining(upTo(27).slice(12)));
+    expect(Math.min(...a.pages)).toBe(13);
+    expect(Math.max(...a.pages)).toBeLessThanOrEqual(27 + RESALES_READ_AHEAD);
     expect(await runRow(run.id)).toMatchObject({ state: 'QUEUED', items_total: 1_040 });
 
     a.pages.length = 0;
@@ -336,7 +340,7 @@ describe('Resales Online runs in slices (S7-F12)', () => {
     );
     a.pages.length = 0;
     expect(await slice(run.id, { sliceMarks: 2 })).toEqual({ kind: 'requeued' });
-    expect(a.pages).toEqual([1, 2]);
+    expect(a.pages).toEqual(expect.arrayContaining([1, 2])); // page 3 was read ahead and left
     expect(await runRow(run.id)).toMatchObject({ items_total: 80 });
     // The run's seen references are gone (the UNLOGGED table after a crash): starting over, never resuming blind.
     await system((tx) => tx.execute(sql`delete from property_import_seen where run_id = ${run.id}`));

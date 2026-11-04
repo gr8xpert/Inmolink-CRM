@@ -42,6 +42,8 @@ const world = {
   a1Price: '500000',
   /** Listings besides R2 that are developments (one new unit each). */
   developmentRefs: new Set<string>(),
+  /** The city of a listing, when not Marbella. */
+  city: {} as Record<string, string>,
 };
 const calls: URL[] = [];
 const ok = (v: unknown): ResalesResponse => ({ status: 200, text: JSON.stringify(v) });
@@ -108,7 +110,7 @@ const connector = createResalesConnector(
       OwnProperty: '1',
       Country: 'Spain',
       Province: 'Málaga',
-      Location: 'Marbella',
+      Location: world.city[r] ?? 'Marbella',
       PropertyType: { NameType: 'Detached Villa' },
       Price: world.price[r],
       Description: lang === '2' ? `Villa preciosa ${r}.` : `Lovely villa ${r}.`,
@@ -294,7 +296,16 @@ describe('Resales Online runs (S6-F4)', () => {
   it('[S6-F4] an unchanged account is seen only: no details or language call, nothing rewritten, nothing withdrawn', async () => {
     const r = await runOnce();
     expect(r.outcome).toMatchObject({ state: 'SUCCEEDED' });
-    expect(r.counts).toMatchObject({ total: 2, valid: 2, failed: 0, created: 0, updated: 0, withdrawn: 0 });
+    // S17-F24: counted as unchanged, not as nothing at all.
+    expect(r.counts).toMatchObject({
+      total: 2,
+      valid: 2,
+      failed: 0,
+      created: 0,
+      updated: 0,
+      unchanged: 2,
+      withdrawn: 0,
+    });
     expect(calls.map((u) => u.searchParams.get('P_RefId') ?? u.searchParams.get('P_Lang') ?? 'page')).toEqual(['page']);
     const s = await stored();
     expect(s.get('R1')).toMatchObject({ missed: 0, withdrawn: false, year_built: 2015 });
@@ -527,5 +538,23 @@ describe('Resales Online runs (S6-F4)', () => {
       as((ctx) => imports.createFeedConnection(ctx, body('1', 'https://example.com/V6'))),
     ).rejects.toMatchObject({ code: 'FEED_URL_NOT_ALLOWED' });
     await as((ctx) => imports.deleteFeedConnection(ctx, made.id));
+  });
+});
+
+describe('Resales listings held for a value nobody mapped (S17-F25)', () => {
+  it('[S17-F25] a held listing keeps no source hash, so the next run reads it again', async () => {
+    world.refs = ['R1', 'R2', 'R3'];
+    world.price.R3 = '700,000';
+    world.city.R3 = 'Nowhere';
+    world.failDetails.clear();
+    world.failSpanish = false;
+    await runOnce();
+    expect((await hashes()).map((h) => h.ref)).not.toContain('R3');
+    const again = await runOnce();
+    expect(again.counts.failed).toBe(0);
+    // R3 is still held, and was read again; the others were seen only.
+    expect(calls.flatMap((u) => u.searchParams.get('P_RefId') ?? [])).toEqual(['R3']);
+    expect((await hashes()).map((h) => h.ref)).not.toContain('R3');
+    expect((await stored()).has('R3')).toBe(true);
   });
 });

@@ -550,14 +550,18 @@ async function runOnce(
         // written): never counted missing, never withdrawn.
         const seenRefs = [...failedBefore.flatMap((e) => (e.itemRef?.trim() ? [e.itemRef.trim()] : [])), ...batch.seen];
         // S7-F12: a batch of a mark only (a page with nothing to load) commits its checkpoint alone.
-        const { errors: writeErrors, ...counts } =
-          batch.total > 0
-            ? await runLoader.write(tx, prepared, seenRefs)
-            : { errors: [] as ItemError[], created: 0, updated: 0, unchanged: 0, held: 0, seen: 0 };
+        const {
+          errors: writeErrors,
+          unsettledRefs = [],
+          ...counts
+        }: Awaited<ReturnType<typeof runLoader.write>> = batch.total > 0
+          ? await runLoader.write(tx, prepared, seenRefs)
+          : { errors: [] as ItemError[], created: 0, updated: 0, unchanged: 0, held: 0, seen: 0 };
         if (hashes && batch.total > 0) {
           // Only items the loader stored (written or unchanged) get their hash; failed ones keep the old one.
           const failedRefs = new Set(writeErrors.flatMap((e) => (e.itemRef ? [e.itemRef] : [])));
           for (const e of [...prepErrors, ...warnings]) if (e.itemRef) failedRefs.add(e.itemRef);
+          for (const ref of unsettledRefs) failedRefs.add(ref);
           const stored = batch.valid.flatMap((v) =>
             v.sourceHash && !failedRefs.has(v.ref) ? [{ ref: v.ref, hash: v.sourceHash }] : [],
           );
@@ -577,6 +581,8 @@ async function runOnce(
           valid: batch.total - failed,
           failed,
           ...counts,
+          // S17-F24: an item seen only is unchanged to whoever reads the run; `seen` keeps its own meaning below.
+          unchanged: counts.unchanged + batch.seen.length,
           seen: counts.seen ?? 0,
           logged: keep.length,
           bytesRead: batch.bytesRead,

@@ -45,6 +45,9 @@ import {
  * `PropertiesPerPage`, or than the first page when the API does not say). The API caps a page at 40 whatever is asked.
  * The run has a deadline sized to `PropertyCount`; only search pages count against the feed byte cap.
  *
+ * S17-F24: once `PropertyCount` is known, the next pages are read ahead (through the same gate, so still 5 calls in
+ * flight) but handled in order: an account with few own listings is nearly all paging, at about 1.8 s a page uncached.
+ *
  * S7-F12: resumable. After each page `parse` yields a mark (`ResalesCheckpoint`: the page, the records fetched so far,
  * the paging state and the next record position); a retry or the run's next slice starts at the page after the last
  * committed one, with the deadline sized to the account again, so an account of any size completes across slices.
@@ -58,6 +61,8 @@ import {
 export const RESALES_HOST: string = RESALES_API_HOST;
 export const RESALES_PAGE_SIZE = 40;
 export const RESALES_MAX_PAGES = 1_000;
+/** Pages read ahead of the one being handled (S17-F24). */
+export const RESALES_READ_AHEAD = 4;
 /** Calls in flight per Resales account (SPW: 5 is safe). */
 export const RESALES_CONCURRENCY = 5;
 /** Attempts per call; between them the account's calls pause `attempt × RESALES_BACKOFF_MS` (SPW: 2 s, 4 s). */
@@ -70,7 +75,7 @@ export const RESALES_DETAILS_TIMEOUT_MS = 15_000;
 /** The run's deadline: a base plus a share per listing of `PropertyCount` (set once page 1 answered). */
 export const RESALES_DEADLINE = { BASE_MS: 15 * 60_000, PER_LISTING_MS: 1_000 } as const;
 /** A change here re-fetches every listing once (the hash covers the mapping's inputs). */
-const HASH_VERSION = 's7-f14.1';
+const HASH_VERSION = 's17-f25.1';
 const MAX_PAGE_BYTES = 8 * 1024 * 1024;
 const BUSY_TEXT = /P1 or P2 not valid/i;
 
@@ -542,6 +547,24 @@ export function createResalesConnector(
         let firstRef: string | undefined = resume?.firstRef ?? undefined;
         let pageSize: number | undefined = resume?.pageSize ?? undefined;
         let announced: number | null = resume?.total ?? null;
+        const ahead = new Map<number, Promise<Awaited<ReturnType<typeof call>>>>();
+        const readPage = (page: number) => {
+          const started = ahead.get(page);
+          ahead.delete(page);
+          return started ?? call(resalesPageUrl(ctx, page), 'search');
+        };
+        /** Starts the pages after `page`, never past the last one the count announces. */
+        const readAhead = (page: number, total: number) => {
+          if (!pageSize) return;
+          const last = Math.min(page + RESALES_READ_AHEAD, Math.ceil(total / pageSize), RESALES_MAX_PAGES);
+          for (let next = page + 1; next <= last; next++) {
+            if (ahead.has(next)) continue;
+            const started = call(resalesPageUrl(ctx, next), 'search');
+            // A failure counts when the page's turn comes; a page never reached (end of slice) costs nothing.
+            started.catch(() => {});
+            ahead.set(next, started);
+          }
+        };
         try {
           if (resume) {
             // Every listing the API announced was read before the run stopped: nothing is left to fetch.
@@ -560,7 +583,7 @@ export function createResalesConnector(
               throw new FeedCheckpointStaleError();
           }
           for (let page = (resume?.page ?? 0) + 1; page <= RESALES_MAX_PAGES; page++) {
-            const root = await call(resalesPageUrl(ctx, page), 'search');
+            const root = await readPage(page);
             stats.pages++;
             const list = records(root.Property);
             const info = asObject(root.QueryInfo);
@@ -576,7 +599,10 @@ export function createResalesConnector(
               if (Number.isFinite(total) && total > 0)
                 setDeadline(deadlineOf.BASE_MS + total * deadlineOf.PER_LISTING_MS);
             }
-            if (Number.isFinite(total) && total >= 0) announced = total;
+            if (Number.isFinite(total) && total >= 0) {
+              announced = total;
+              readAhead(page, total);
+            }
             // Fail closed until H13 confirms the field: a page without any own-property field imports nothing.
             if (list.length > 0 && !list.some((r) => OWN_PROPERTY_KEYS.some((k) => k in r)))
               throw new ResalesApiError('MALFORMED');
@@ -650,6 +676,7 @@ export function createResalesConnector(
           throw new ResalesApiError('MALFORMED'); // cut off at the page cap: failing keeps the missing tail from being withdrawn
         } finally {
           if (deadlineTimer) clearTimeout(deadlineTimer);
+          if (ahead.size > 0) deadline.abort(); // pages read ahead that nobody will handle
         }
       }
       return {

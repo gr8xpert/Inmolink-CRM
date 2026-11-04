@@ -12,6 +12,7 @@ import {
   RESALES_BACKOFF_MS,
   RESALES_CONCURRENCY,
   RESALES_PAGE_SIZE,
+  RESALES_READ_AHEAD,
   ResalesApiError,
   ResalesConfigError,
   type ResalesFetcher,
@@ -274,7 +275,8 @@ describe('Resales Online connector', () => {
       return isDetails(u) ? res : ok(res.text.replace('"PropertyCount":"50"', '"PropertyCount":"5000"'));
     });
     expect((await run(overCounted.connector)).totals).toMatchObject({ total: 50 });
-    expect(overCounted.searches()).toHaveLength(3);
+    // Pages 4 to 7 were read ahead on the count's word; nothing past them.
+    expect(overCounted.searches()).toHaveLength(7);
   });
 
   it('[S6-F4] shared listings are counted, not item errors; a feed of only shared listings still trips the empty-feed guard', async () => {
@@ -684,7 +686,47 @@ describe('Resales Online connector', () => {
     doc.QueryInfo = { PropertyCount: 9999 };
     const api = fakeApi((u) => (isDetails(u) ? detailsEcho(u) : ok(json(doc))));
     await expect(run(api.connector)).rejects.toBeInstanceOf(ResalesApiError);
-    expect(api.searches()).toHaveLength(2);
+    // Stops at the second page handled; what remains is only what was read ahead of it.
+    expect(api.searches()).toHaveLength(1 + RESALES_READ_AHEAD);
+  });
+
+  it('[S17-F24] pages are read ahead but handled in order, never over 5 calls in flight', async () => {
+    const account = cappedAccount(1_227, { ownEvery: 100 });
+    const api = fakeApi(
+      async (u) => {
+        // The earlier the page, the later its answer: order must not come from who answers first.
+        const page = Number(u.searchParams.get('P_PageNo') || 1);
+        await new Promise((r) => setTimeout(r, Math.max(1, 12 - (page % 5) * 2)));
+        return account(u);
+      },
+      { delayMs: 1 },
+    );
+    const { totals, valid } = await run(api.connector);
+    expect(totals).toMatchObject({ total: 13, valid: 13, failed: 0 });
+    expect(valid.map((v) => v.ref)).toEqual([...valid.map((v) => v.ref)].sort());
+    expect(api.searches()).toHaveLength(31); // each page once, none past the last
+    expect(new Set(api.searches().map((u) => u.searchParams.get('P_PageNo'))).size).toBe(31);
+    expect(api.maxInFlight()).toBe(RESALES_CONCURRENCY);
+  });
+
+  it('[S17-F24] a page that fails when read ahead fails the run only when its turn comes', async () => {
+    const account = cappedAccount(400);
+    const handled: string[] = [];
+    const api = fakeApi((u) => {
+      if (!isDetails(u) && u.searchParams.get('P_PageNo') === '3')
+        return { status: 400, text: 'nope' } as ResalesResponse;
+      return account(u);
+    });
+    const c = ctx();
+    await expect(
+      runFeedPipeline({
+        connector: api.connector,
+        ctx: c,
+        batchSize: 40,
+        commit: async (b) => void handled.push(...b.valid.map((v) => v.ref)),
+      }),
+    ).rejects.toBeInstanceOf(Error);
+    expect(handled).toHaveLength(80); // pages 1 and 2 were handled first
   });
 });
 
@@ -724,7 +766,8 @@ describe('Resales Online checkpoints (S7-F12)', () => {
       pageSize: 40,
       total: 1_227,
     });
-    expect(pages(api.searches())).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    // Page 10 was the slice's last handled; 11 to 14 were read ahead and dropped.
+    expect(pages(api.searches())).toEqual(Array.from({ length: 14 }, (_, i) => 1 + i));
     expect(api.connector.acceptsCheckpoint?.(checkpoint)).toBe(true);
     expect(api.connector.acceptsCheckpoint?.({ ...(checkpoint as object), v: 2 })).toBe(false);
 
