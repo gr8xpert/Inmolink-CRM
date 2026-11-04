@@ -12,7 +12,7 @@ import { ConsentHistory } from './consent-history';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CURSOR = /^[A-Za-z0-9_-]{1,400}$/;
-const DONE = ['merged', 'noted'] as const;
+const DONE = ['merged', 'noted', 'edited'] as const;
 const ERRORS = ['generic', 'VERSION_CONFLICT', 'VALIDATION_FAILED', 'FORBIDDEN', 'CONTACT_NOT_FOUND'] as const;
 const CONTACT_ERRORS = [
   'CONTACT_NOT_FOUND',
@@ -89,7 +89,12 @@ export default async function ContactPage({
         <h1 className="text-xl font-semibold">
           {contactName({ ...c, primaryEmail: c.emails[0], primaryPhone: c.phones[0] }) ?? t('list.noName')}
         </h1>
-        {back}
+        <div className="flex items-center gap-4">
+          <Link href={`/contacts/${c.id}/edit`} className="text-sm font-medium underline-offset-4 hover:underline">
+            {t('edit.link')}
+          </Link>
+          {back}
+        </div>
       </div>
       <p className="text-sm text-muted-foreground">
         {t('detail.since', { date: format.dateTime(new Date(c.createdAt), { dateStyle: 'medium' }) })}

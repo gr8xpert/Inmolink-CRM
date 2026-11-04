@@ -390,6 +390,12 @@ export async function updateContact(ctx: Ctx, id: string, input: UpdateContactBo
     if (owners.length > 0) throw new AppError('CONTACT_DUPLICATE', { matches: matchesOf(owners) });
   }
   if (input.ownerUserId !== undefined) await assertOwner(ctx, input.ownerUserId);
+  // S17-F28: the create's rule holds after an edit too: a contact keeps a name, an e-mail or a phone.
+  const firstName = input.firstName === undefined ? current.firstName : input.firstName;
+  const lastName = input.lastName === undefined ? current.lastName : input.lastName;
+  if (!firstName && !lastName && !(emails ?? current.emails).length && !(phones ?? current.phones).length) {
+    throw new AppError('VALIDATION_FAILED', { field: 'firstName', reason: 'no_identity' });
+  }
 
   const now = new Date();
   const patch: Parameters<typeof repo.updateWithVersion>[3] = {};

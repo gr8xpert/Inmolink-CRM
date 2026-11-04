@@ -10,6 +10,21 @@
     "submit": "Create contact",
     "open": "Open the contact"
   },
+  "edit": {
+    "title": "Edit contact",
+    "link": "Edit",
+    "intro": "A contact needs at least a name, an e-mail or a phone.",
+    "emailsHint": "One per line. The first is the main one.",
+    "phonesHint": "One per line. The first is the main one. Without a country prefix, a Spanish number is assumed.",
+    "tagsHint": "One per line.",
+    "languageHint": "A code such as en, es or pt-BR.",
+    "consentHint": "Changing a consent adds an entry with your name and the time to the consent history. Change it only when the person told you so.",
+    "doNotContactHint": "This person will not be contacted, whatever their consents say.",
+    "submit": "Save changes",
+    "cancel": "Cancel",
+    "duplicate": "An e-mail or phone you entered already belongs to another contact. Remove it here, or merge the two contacts from the contact's page.",
+    "open": "Open the other contact"
+  },
   "fields": {
     "firstName": "First name",
     "lastName": "Last name",
@@ -179,7 +194,8 @@
     },
     "done": {
       "merged": "The contacts were merged.",
-      "noted": "Note added."
+      "noted": "Note added.",
+      "edited": "Changes saved."
     }
   }
 }

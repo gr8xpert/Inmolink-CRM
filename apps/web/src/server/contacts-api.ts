@@ -16,6 +16,7 @@ import {
   type LeadSource,
   type LeadStatus,
   type MergeContactsBody,
+  type UpdateContactBody,
 } from '@inmolink/contracts';
 import { type ApiResult, apiRequest, type SessionRef } from './api';
 
@@ -143,4 +144,13 @@ export function createContact(
     body,
     ...(idempotencyKey ? { headers: { 'idempotency-key': idempotencyKey } } : {}),
   });
+}
+
+/** `PATCH /v1/crm/contacts/:id` at the `version` the member saw: the API refuses a stale one and records consent changes. */
+export function updateContact(
+  session: SessionRef,
+  id: string,
+  body: UpdateContactBody,
+): Promise<ApiResult<ContactDto>> {
+  return apiRequest(session, `/v1/crm/contacts/${encodeURIComponent(id)}`, ContactDto, { method: 'PATCH', body });
 }

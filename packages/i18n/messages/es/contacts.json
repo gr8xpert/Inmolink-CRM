@@ -10,6 +10,21 @@
     "submit": "Crear contacto",
     "open": "Abrir el contacto"
   },
+  "edit": {
+    "title": "Editar contacto",
+    "link": "Editar",
+    "intro": "Un contacto necesita al menos un nombre, un correo o un teléfono.",
+    "emailsHint": "Uno por línea. El primero es el principal.",
+    "phonesHint": "Uno por línea. El primero es el principal. Sin prefijo de país, se entiende que es un número español.",
+    "tagsHint": "Una por línea.",
+    "languageHint": "Un código como en, es o pt-BR.",
+    "consentHint": "Cambiar un consentimiento añade una entrada con tu nombre y la hora al historial de consentimientos. Cámbialo solo si la persona te lo ha indicado.",
+    "doNotContactHint": "No se contactará con esta persona, digan lo que digan sus consentimientos.",
+    "submit": "Guardar cambios",
+    "cancel": "Cancelar",
+    "duplicate": "Un correo o teléfono que has introducido ya pertenece a otro contacto. Quítalo de aquí o fusiona los dos contactos desde la página del contacto.",
+    "open": "Abrir el otro contacto"
+  },
   "fields": {
     "firstName": "Nombre",
     "lastName": "Apellidos",
@@ -179,7 +194,8 @@
     },
     "done": {
       "merged": "Los contactos se han fusionado.",
-      "noted": "Nota añadida."
+      "noted": "Nota añadida.",
+      "edited": "Cambios guardados."
     }
   }
 }

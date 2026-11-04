@@ -175,6 +175,40 @@ describe('crm contact routes', () => {
   });
 });
 
+describe('contact edit route', () => {
+  it('[S17-F28] PATCH changes a contact at its version; a stale version answers 409; consent history follows', async () => {
+    const f = await createFounder();
+    const headers = await bearer(f.userId, f.agencyId);
+    const contact = (
+      await app.inject({
+        method: 'POST',
+        url: '/v1/crm/contacts',
+        headers,
+        payload: { firstName: 'Lia', emails: [`api-edit-${RUN}@example.com`] },
+      })
+    ).json();
+    const url = `/v1/crm/contacts/${contact.id}`;
+    const saved = await app.inject({
+      method: 'PATCH',
+      url,
+      headers,
+      payload: { version: contact.version, firstName: 'Lía', consentMarketing: true },
+    });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json()).toMatchObject({ firstName: 'Lía', consentMarketing: true, version: contact.version + 1 });
+    const stale = await app.inject({
+      method: 'PATCH',
+      url,
+      headers,
+      payload: { version: contact.version, firstName: 'Stale' },
+    });
+    expect(stale.statusCode).toBe(409);
+    expect(stale.json().error.code).toBe('VERSION_CONFLICT');
+    const history = await app.inject({ method: 'GET', url: `${url}/consents`, headers });
+    expect(history.json().items).toMatchObject([{ purpose: 'MARKETING', granted: true, source: 'DASHBOARD' }]);
+  });
+});
+
 describe('crm lead routes', () => {
   it('[S10-02] a lead entered by hand lands in the inbox; status, assignment and the rule over HTTP', async () => {
     const f = await createFounder();
