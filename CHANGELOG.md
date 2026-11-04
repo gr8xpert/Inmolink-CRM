@@ -5,6 +5,8 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Changed
+- Calendar events can be edited on the screen [S17-F42]
+- Non-admins are not offered preferred agency changes [S17-F41]
 - Logging out ends the session on the server [S17-F32]
 - Clients can like and enquire from a selection link [S17-F31]
 - New website leads record processing consent; merges keep a withdrawal [S17-F33]
