@@ -30,6 +30,10 @@ const HANDLER_LIMITS: Readonly<Record<string, { how: string; evidence: [file: st
     how: 'Auth.js: credential logins limited per IP / email / IP+email before the password check (S1-F5)',
     evidence: ['apps/web/src/server/login.ts', 'checkLimits'],
   },
+  'apps/web/src/app/api/contacts/import/route.ts': {
+    how: 'session required; upload slots (1 per user, 4 per process), then the api upload route (its own rules)',
+    evidence: ['apps/web/src/app/api/contacts/import/route.ts', 'createUploadSlots'],
+  },
   'apps/web/src/app/api/developments/[id]/documents/route.ts': {
     how: 'session required; per-user upload slots, then the api upload route (its own rules)',
     evidence: ['apps/web/src/app/api/developments/[id]/documents/route.ts', 'upload-slots'],
