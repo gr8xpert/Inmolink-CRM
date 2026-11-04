@@ -25,11 +25,11 @@ import { type ApiResult, apiRequest, type SessionRef } from './api';
 
 /** Once per render (S1-10 review): the shell and `requireStaff` share the answer. */
 export function fetchStaffMe(session: SessionRef): Promise<ApiResult<StaffMeDto>> {
-  return staffMeCached(session.userId, session.sessionVersion, session.mfaVerified);
+  return staffMeCached(session.userId, session.sessionVersion, session.mfaVerified, session.sessionId);
 }
 
-const staffMeCached = cache((userId: string, sessionVersion: number, mfaVerified: boolean) =>
-  apiRequest({ userId, sessionVersion, mfaVerified }, '/v1/staff/me', StaffMeDto),
+const staffMeCached = cache((userId: string, sessionVersion: number, mfaVerified: boolean, sessionId?: string) =>
+  apiRequest({ userId, sessionVersion, mfaVerified, ...(sessionId ? { sessionId } : {}) }, '/v1/staff/me', StaffMeDto),
 );
 
 export function fetchTenants(

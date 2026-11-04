@@ -17,6 +17,9 @@ import { readCookie, rememberedDeviceCookie } from './server/two-factor';
  * only for a remembered browser; afterwards only a server-signed proof from identity can set it
  * (a session update's data comes from the browser, so nothing else in it is trusted). Mints refuse
  * sessions without it when the user needs 2FA, and the pages send them to `/two-factor`.
+ *
+ * Logout (S17-F32): the `signOut` event records the session's id as revoked in identity, and both this `jwt` callback
+ * and every mint refuse it, so a copy of the cookie stops working; the user's other sessions are untouched.
  */
 class LoginError extends CredentialsSignin {
   constructor(code: LoginFailure) {
@@ -55,8 +58,6 @@ declare module 'next-auth' {
   }
 }
 
-/** Seven days; the session is refreshed at most daily while in use. */
-const SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
 /** How stale the "user still active, session not revoked" check may get. */
 const SESSION_RECHECK_MS = 5 * 60_000;
 const logger = createLogger({ service: 'web' });
@@ -74,7 +75,8 @@ export const {
     secret: config.AUTH_SECRET,
     // Auth.js derives its base URL from Host / X-Forwarded-Host; every redirect is pinned to WEB_URL below.
     trustHost: true,
-    session: { strategy: 'jwt', maxAge: SESSION_MAX_AGE_SECONDS, updateAge: 24 * 60 * 60 },
+    // Seven days; the session is refreshed at most daily while in use.
+    session: { strategy: 'jwt', maxAge: identity.WEB_SESSION_MAX_AGE_SECONDS, updateAge: 24 * 60 * 60 },
     pages: { signIn: '/login' },
     logger: {
       error(error) {
@@ -112,6 +114,15 @@ export const {
         },
       }),
     ],
+    events: {
+      // Every sign-out passes here with the decoded cookie (no `jwt` callback first, so a failing recheck cannot skip it).
+      async signOut(message) {
+        const token = 'token' in message ? message.token : null;
+        if (typeof token?.sid === 'string' && token.sub) {
+          await identity.revokeWebSession({ userId: token.sub, sessionId: token.sid });
+        }
+      },
+    },
     callbacks: {
       async jwt({ token, user, trigger, session }) {
         const now = Date.now();
@@ -131,11 +142,10 @@ export const {
           if (resumed) token.cm = resumed;
           return token;
         }
+        // S17-F32: a session that logged out (a copy of its cookie) is over, as is one too old to have an id.
+        if (!(await identity.isWebSessionLive(token.sid))) return null;
         // The browser can send any data with an update: only a valid identity proof upgrades the session.
         if (trigger === 'update') {
-          // Sessions from before S12-06 get their id on an update (a write of the cookie), never on a read: a read's
-          // fresh id would be lost with the response and match no server-side state.
-          if (typeof token.sid !== 'string') token.sid = randomBytes(18).toString('base64url');
           // S16-F10: the proof must be for this session (its id is signed in) and is good once (identity takes its
           // nonce); a proof captured from another browser, or replayed, leaves the session unverified.
           const proof = (session as { mfaProof?: unknown } | undefined)?.mfaProof;

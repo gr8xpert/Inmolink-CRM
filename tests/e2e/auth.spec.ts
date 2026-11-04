@@ -7,7 +7,11 @@ import { passTwoFactor } from './two-factor';
 const API_URL = testStackEnv().API_URL as string;
 const uniqueEmail = () => `e2e-${randomBytes(5).toString('hex')}@example.com`;
 
-test('[S0-09] sign-up → verify email → log in → call an authenticated API route', async ({ page, request }) => {
+test('[S0-09] sign-up → verify email → log in → call an authenticated API route', async ({
+  browser,
+  page,
+  request,
+}) => {
   const email = uniqueEmail();
   const password = 'correct horse battery';
 
@@ -70,10 +74,30 @@ test('[S0-09] sign-up → verify email → log in → call an authenticated API 
   });
   expect(wrongAudience.status()).toBe(401);
 
+  // S17-F32: a copy of the cookie from before the logout, and a second session of the same user on another device.
+  const copied = await page.context().cookies();
+  const otherDevice = await browser.newContext({ baseURL: new URL(page.url()).origin });
+  const otherPage = await otherDevice.newPage();
+  await otherPage.goto('/en/login');
+  await otherPage.getByLabel('Email').fill(email);
+  await otherPage.getByLabel('Password').fill(password);
+  await otherPage.getByRole('button', { name: 'Log in' }).click();
+  await passTwoFactor(otherPage, email, password);
+  expect((await otherPage.request.get('/session/token?aud=api')).status()).toBe(200);
+
   // Logout ends the session: no more tokens.
   await page.getByRole('button', { name: 'Log out' }).click();
   await expect(page).toHaveURL(/\/login$/);
   expect((await page.request.get('/session/token?aud=api')).status()).toBe(401);
+
+  // The copy of the cookie opens nothing and mints nothing; the other device is still signed in.
+  await page.context().addCookies(copied);
+  expect((await page.request.get('/session/token?aud=api')).status()).toBe(401);
+  await page.context().addCookies(copied);
+  await page.goto('/en');
+  await expect(page).toHaveURL(/\/login$/);
+  expect((await otherPage.request.get('/session/token?aud=api')).status()).toBe(200);
+  await otherDevice.close();
 });
 
 test('[S17-F11] a refused signup keeps what the user typed', async ({ page }) => {

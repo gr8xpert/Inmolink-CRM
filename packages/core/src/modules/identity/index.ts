@@ -102,6 +102,13 @@ export {
   verifyCredentials,
   verifyEmail,
 } from './service';
+export {
+  isWebSessionLive,
+  isWebSessionRevoked,
+  revokeWebSession,
+  WEB_SESSION_MAX_AGE_SECONDS,
+  WEB_SESSION_REVOCATION_TTL_SECONDS,
+} from './session-revocation';
 export { activeMembersAcross, disconnectDeactivatedMember, disconnectRevokedSessions } from './sessions';
 export {
   activeClientMemberIds,

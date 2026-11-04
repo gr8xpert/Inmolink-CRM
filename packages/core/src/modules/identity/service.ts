@@ -46,6 +46,7 @@ import {
   sessionNeedsSecondFactor,
 } from './policy';
 import * as repo from './repo';
+import { isWebSessionRevoked } from './session-revocation';
 import { isDeviceRemembered, isSecondFactorRequired } from './two-factor';
 
 /**
@@ -397,6 +398,8 @@ export async function issueAccessToken(
 ): Promise<AccessTokenDto> {
   const { signer } = identityConfig();
   if (!signer) throw new Error('identity: no access token signer configured');
+  // S17-F32: a session that logged out mints nothing, at once (no wait for the jwt callback's recheck).
+  if (await isWebSessionRevoked(input.sessionId)) throw new AppError('SESSION_REVOKED');
   // S12-06 review: a session in Client Mode never impersonates (staff cannot start it; refused clearly all the same).
   if (input.impersonationId !== undefined && input.clientMode) {
     throw new AppError('FORBIDDEN', { reason: 'client_mode' });

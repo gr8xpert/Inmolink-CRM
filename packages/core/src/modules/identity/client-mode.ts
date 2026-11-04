@@ -14,6 +14,7 @@ import { identityConfig } from './config';
 import { identityLog } from './log';
 import { assertCan } from './policy';
 import * as repo from './repo';
+import { revokeWebSession } from './session-revocation';
 import { forgetRememberedBrowsers } from './two-factor';
 
 /**
@@ -235,7 +236,7 @@ export function isClientModeState(value: unknown): value is ClientModeState {
   return !!v && typeof v === 'object' && typeof v.n === 'string' && NONCE_RE.test(v.n);
 }
 
-/** `ok` ends Client Mode; `locked` ends the session (the budget is used up). */
+/** `ok` ends Client Mode; `locked` ends the session, every copy of its cookie included (the budget is used up). */
 export type ClientModePinResult = 'ok' | 'wrong' | 'rate_limited' | 'locked';
 
 /**
@@ -251,6 +252,7 @@ export async function checkClientModePin(
   const state = await readNonce(n);
   if (!state || state.u !== input.userId) {
     await auditPin(ctx, input.userId, 'identity.clientMode.pinFailed', { reason: 'unknown_client_mode' });
+    await endSession(input);
     return 'locked';
   }
   // Ended with its PIN in another tab or browser: this session is out of it too.
@@ -291,7 +293,13 @@ export async function checkClientModePin(
   // The budget is used up: the session ends, and the next login needs the second factor again (no remembered browser).
   await forgetRememberedBrowsers(ctx, { userId: input.userId });
   identityLog().warn({ userId: input.userId }, 'identity.clientMode.locked: session ended');
+  await endSession(input);
   return 'locked';
+}
+
+/** S17-F32: a locked session is over for a copy of its cookie too, not only for the browser that typed the PIN. */
+async function endSession(input: { userId: string; sessionId?: string | null }): Promise<void> {
+  if (input.sessionId) await revokeWebSession({ userId: input.userId, sessionId: input.sessionId });
 }
 
 async function auditPin(
