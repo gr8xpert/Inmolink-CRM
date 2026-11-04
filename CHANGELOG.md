@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Changed
+- Photo processing no longer holds an image slot while uploading, so storage waits stop limiting how many photos are processed [S17-F26]
 - Resales imports read up to 4 pages ahead, count seen-only listings as unchanged, and re-read listings held for an unmapped value; storage writes retry brief failures [S17-F23…F25]
 - Staff can map, ignore or create feed values on a new mapping queue screen, linked from import health and the taxonomy editor [S17-F22]
 - Staging test fixes: CSP reports no longer fail, selection links are full URLs, the API answers in the page language, contacts can be added by hand, no debug line on the dashboard [S17-F16…F21]

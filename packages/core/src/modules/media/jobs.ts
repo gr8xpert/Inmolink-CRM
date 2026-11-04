@@ -197,7 +197,7 @@ export const mediaJobs = {
       const heavy = state.contentType === 'image/heic';
       const result = await withImageSlot(heavy, async (takeAll) => {
         let missing = wanted;
-        let wroteMaster = false;
+        let newMaster: Uint8Array | null = null;
         let master =
           state.pipeline === null
             ? null
@@ -217,23 +217,29 @@ export const mediaJobs = {
             throw err;
           }
           master = normalized.master;
-          await storage().put(MASTERS_BUCKET, masterKey(p.sha256), master, { contentType: 'image/webp' });
-          wroteMaster = true;
+          newMaster = master;
           missing = ALL_VARIANTS_MASK;
         }
         const rendered = await permanentOnBadImage(renderVariants(master, variantsIn(missing)));
-        const written: StoredFile[] = [...rendered.files.keys()].map((name) => ({
-          bucket: 'media',
-          key: variantKey(p.sha256, name),
-        }));
-        await mapLimit([...rendered.files], STORAGE_CONCURRENCY, ([name, bytes]) =>
-          storage().put('media', variantKey(p.sha256, name), bytes, {
-            contentType: CONTENT_TYPE[VARIANTS[name].format],
-            cacheControl: IMMUTABLE,
-          }),
-        );
-        return { missing, rendered, written, wroteMaster };
+        return { missing, rendered, newMaster };
       });
+
+      // S17-F26: stored after the slot is given back. The uploads wait on the store, not on the CPU, and hold only
+      // encoded files, so the next image can decode meanwhile; the pool's job concurrency bounds how many are in flight.
+      const wroteMaster = result.newMaster !== null;
+      if (result.newMaster) {
+        await storage().put(MASTERS_BUCKET, masterKey(p.sha256), result.newMaster, { contentType: 'image/webp' });
+      }
+      const written: StoredFile[] = [...result.rendered.files.keys()].map((name) => ({
+        bucket: 'media',
+        key: variantKey(p.sha256, name),
+      }));
+      await mapLimit([...result.rendered.files], STORAGE_CONCURRENCY, ([name, bytes]) =>
+        storage().put('media', variantKey(p.sha256, name), bytes, {
+          contentType: CONTENT_TYPE[VARIANTS[name].format],
+          cacheControl: IMMUTABLE,
+        }),
+      );
 
       const recorded = await withMedia('media.processObject', (tx) =>
         repo.markProcessed(tx, p.sha256, {
@@ -246,9 +252,7 @@ export const mediaJobs = {
       );
       if (!recorded) {
         // The cleanup deleted the object while it was being processed: nothing may keep its files.
-        const mine = result.wroteMaster
-          ? [{ bucket: MASTERS_BUCKET, key: masterKey(p.sha256) }, ...result.written]
-          : result.written;
+        const mine = wroteMaster ? [{ bucket: MASTERS_BUCKET, key: masterKey(p.sha256) }, ...written] : written;
         await deleteFiles(mine);
         return { made: 0 };
       }

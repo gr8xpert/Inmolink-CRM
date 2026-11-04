@@ -18,6 +18,7 @@ import { createFounder, type Founder } from '../../../testing/factories';
 import * as properties from '../../properties';
 import * as taxonomy from '../../taxonomy';
 import * as media from '../index';
+import { freeImageSlots, IMAGE_SLOTS } from '../processing';
 
 /**
  * Media processing worker on the real database (S3-04). Storage is this process's memory store: Vitest runs
@@ -190,6 +191,32 @@ describe('media processing worker', () => {
     await processObject({ sha256: upload.sha256 });
     expect(master(upload.sha256)).toEqual(firstMaster);
     expect(variantBytes(upload.sha256)).toEqual(first);
+  });
+
+  it('[S17-F26] an image slot covers the download and render, and is free while the files are stored', async () => {
+    const upload = await stored(await photo('slots').jpeg({ quality: 90 }).toBuffer(), 'image/jpeg');
+    const { get, put } = store;
+    const duringGet: number[] = [];
+    const duringPut: string[] = [];
+    store.get = (async (...args: Parameters<typeof get>) => {
+      duringGet.push(freeImageSlots());
+      return get.apply(store, args);
+    }) as typeof get;
+    store.put = (async (...args: Parameters<typeof put>) => {
+      expect(freeImageSlots()).toBe(IMAGE_SLOTS);
+      duringPut.push(String(args[0]));
+      return put.apply(store, args);
+    }) as typeof put;
+    try {
+      expect(await processObject(upload)).toEqual({ made: media.VARIANT_NAMES.length });
+    } finally {
+      store.get = get;
+      store.put = put;
+    }
+    expect(duringGet).toEqual([IMAGE_SLOTS - 1]);
+    // The master first (a variant must never exist without the file it is regenerated from), then every size.
+    expect(duringPut).toEqual(['work', ...media.VARIANT_NAMES.map(() => 'media')]);
+    expect(master(upload.sha256)).not.toBeNull();
   });
 
   it('[S3-04] the master is normalized: orientation applied, EXIF and GPS stripped, ≤ 2560 px; the original is deleted', async () => {
