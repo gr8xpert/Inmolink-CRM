@@ -78,6 +78,7 @@
     "listed": "Verified",
     "unlisted": "No longer verified: does not receive your listings",
     "note": "Internal note",
+    "adminOnly": "Only an administrator of your agency can add or remove preferred agencies or change their notes.",
     "saveNote": "Save note",
     "remove": "Remove",
     "added": "Added {date}",

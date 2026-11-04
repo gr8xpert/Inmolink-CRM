@@ -179,3 +179,14 @@ test('[S17-F34] an agent reads the feed pages but is not offered the admin contr
   await page.goto('/en/onboarding');
   await expect(page.getByRole('button', { name: 'Save company details' })).toBeDisabled();
 });
+
+test('[S17-F41] an agent sees the preferred agencies but not the add, remove and note controls', async ({ page }) => {
+  const agent = await seedAgent();
+  await login(page, agent.email);
+  await page.goto('/en/preferred-agencies');
+  await expect(page.getByTestId('admin-only')).toContainText('Only an administrator of your agency can add or remove');
+  await expect(page.getByRole('button', { name: 'Save note' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Remove' })).toHaveCount(0);
+  await page.goto('/en/preferred-agencies?q=agency');
+  await expect(page.getByRole('button', { name: 'Add', exact: true })).toHaveCount(0);
+});

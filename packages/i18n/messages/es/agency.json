@@ -78,6 +78,7 @@
     "listed": "Verificada",
     "unlisted": "Ya no está verificada: no recibe tus inmuebles",
     "note": "Nota interna",
+    "adminOnly": "Solo un administrador de tu agencia puede añadir o quitar agencias preferentes o cambiar sus notas.",
     "saveNote": "Guardar nota",
     "remove": "Quitar",
     "added": "Añadida el {date}",

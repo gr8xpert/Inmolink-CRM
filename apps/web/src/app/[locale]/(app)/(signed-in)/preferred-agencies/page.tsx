@@ -5,6 +5,8 @@ import { getFormatter, getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
 import { fetchPreferredAgencies, searchAgencyDirectory, sessionRef } from '@/server/api';
+import { isAgencyAdmin } from '@/server/nav';
+import { loadShell } from '@/server/shell';
 import { addPreferredAction, removePreferredAction, saveNoteAction } from './actions';
 
 const DONE = ['added', 'removed', 'noted'] as const;
@@ -24,7 +26,8 @@ const GENERAL_ERRORS: Record<string, 'forbidden' | 'invalidInput' | 'generic'> =
 
 /**
  * Preferred agencies (S1-07): the agency's trusted partners with internal notes, and a directory search
- * of verified agencies to add one. Every member sees the list; the API lets only admins change it.
+ * of verified agencies to add one. Every member sees the list; the API lets only admins change it, so everyone else is
+ * not offered the add, remove and note controls (S17-F41).
  */
 export default async function PreferredAgenciesPage({
   searchParams,
@@ -36,6 +39,8 @@ export default async function PreferredAgenciesPage({
   if (!session?.user?.id) return localeRedirect({ href: '/login', locale });
   const params = await searchParams;
   const ref = sessionRef(session.user);
+  const shell = await loadShell();
+  const admin = shell !== null && isAgencyAdmin(shell.identity);
   const query = DirectorySearchQuery.safeParse({ q: params.q ?? '' });
   const [list, found] = await Promise.all([
     fetchPreferredAgencies(ref, params.cursor || undefined),
@@ -57,6 +62,11 @@ export default async function PreferredAgenciesPage({
         </Link>
       </div>
       <p className="text-sm text-muted-foreground">{t('preferred.intro')}</p>
+      {!admin ? (
+        <p className="rounded-md bg-muted p-3 text-sm" data-testid="admin-only">
+          {t('preferred.adminOnly')}
+        </p>
+      ) : null}
       {done ? (
         <p role="status" className="rounded-md bg-muted p-3 text-sm">
           {t(`preferred.done.${done}`)}
@@ -87,38 +97,55 @@ export default async function PreferredAgenciesPage({
                     <p className="truncate text-sm font-medium">{p.name}</p>
                     <p className="text-xs text-muted-foreground">
                       {p.listed ? t('preferred.listed') : t('preferred.unlisted')} ·{' '}
-                      {t('preferred.added', { date: format.dateTime(new Date(p.addedAt), { dateStyle: 'medium' }) })}
+                      {t('preferred.added', {
+                        date: format.dateTime(new Date(p.addedAt), {
+                          dateStyle: 'medium',
+                        }),
+                      })}
                     </p>
                   </div>
-                  <form action={removePreferredAction}>
+                  {admin ? (
+                    <form action={removePreferredAction}>
+                      <input type="hidden" name="agencyId" value={p.agencyId} />
+                      <Button type="submit" variant="outline" size="sm">
+                        {t('preferred.remove')}
+                      </Button>
+                    </form>
+                  ) : null}
+                </div>
+                {!admin ? (
+                  p.note ? (
+                    <p className="text-sm">
+                      <span className="text-muted-foreground">{t('preferred.note')}:</span> {p.note}
+                    </p>
+                  ) : null
+                ) : (
+                  <form action={saveNoteAction} className="flex flex-wrap items-end gap-2">
                     <input type="hidden" name="agencyId" value={p.agencyId} />
+                    <div className="flex min-w-0 flex-1 flex-col gap-1">
+                      <Label htmlFor={`note-${p.agencyId}`}>{t('preferred.note')}</Label>
+                      <Input
+                        id={`note-${p.agencyId}`}
+                        name="note"
+                        defaultValue={p.note ?? ''}
+                        maxLength={PREFERRED_AGENCY_NOTE_MAX}
+                      />
+                    </div>
                     <Button type="submit" variant="outline" size="sm">
-                      {t('preferred.remove')}
+                      {t('preferred.saveNote')}
                     </Button>
                   </form>
-                </div>
-                <form action={saveNoteAction} className="flex flex-wrap items-end gap-2">
-                  <input type="hidden" name="agencyId" value={p.agencyId} />
-                  <div className="flex min-w-0 flex-1 flex-col gap-1">
-                    <Label htmlFor={`note-${p.agencyId}`}>{t('preferred.note')}</Label>
-                    <Input
-                      id={`note-${p.agencyId}`}
-                      name="note"
-                      defaultValue={p.note ?? ''}
-                      maxLength={PREFERRED_AGENCY_NOTE_MAX}
-                    />
-                  </div>
-                  <Button type="submit" variant="outline" size="sm">
-                    {t('preferred.saveNote')}
-                  </Button>
-                </form>
+                )}
               </li>
             ))}
           </ul>
         )}
         {list.ok && list.data.nextCursor ? (
           <Link
-            href={{ pathname: '/preferred-agencies', query: { cursor: list.data.nextCursor } }}
+            href={{
+              pathname: '/preferred-agencies',
+              query: { cursor: list.data.nextCursor },
+            }}
             className="text-sm underline-offset-4 hover:underline"
           >
             {t('preferred.more')}
@@ -161,7 +188,7 @@ export default async function PreferredAgenciesPage({
                   <p className="min-w-0 truncate text-sm font-medium">{a.name}</p>
                   {a.preferred ? (
                     <span className="text-xs text-muted-foreground">{t('preferred.search.alreadyAdded')}</span>
-                  ) : (
+                  ) : !admin ? null : (
                     <form action={addPreferredAction}>
                       <input type="hidden" name="agencyId" value={a.agencyId} />
                       <Button type="submit" size="sm">
