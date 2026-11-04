@@ -1,11 +1,13 @@
 import { getTranslations } from 'next-intl/server';
 import type { ReactNode } from 'react';
 import { Link } from '@/i18n/navigation';
+import { staffCanReviewAndAudit } from '@/server/nav';
 import { requireStaff } from '@/server/staff';
 
 /**
  * Staff console shell (S1-09, PLAN §7 M20). Only active staff see it (`requireStaff`: 404 for anyone
- * else); every page below checks again, and the API refuses non-staff with 403.
+ * else); every page below checks again, and the API refuses non-staff with 403. Verification and the audit log are linked
+ * to the roles that can open them (S17-F36); data ops would only get a 404.
  */
 export default async function StaffLayout({ children }: { children: ReactNode }) {
   const { me } = await requireStaff();
@@ -18,12 +20,16 @@ export default async function StaffLayout({ children }: { children: ReactNode })
           <Link href="/staff/tenants" className="font-medium underline-offset-4 hover:underline">
             {t('console.tenants')}
           </Link>
-          <Link href="/staff/verification" className="font-medium underline-offset-4 hover:underline">
-            {t('console.verification')}
-          </Link>
-          <Link href="/staff/audit" className="font-medium underline-offset-4 hover:underline">
-            {t('console.audit')}
-          </Link>
+          {staffCanReviewAndAudit(me.role) ? (
+            <>
+              <Link href="/staff/verification" className="font-medium underline-offset-4 hover:underline">
+                {t('console.verification')}
+              </Link>
+              <Link href="/staff/audit" className="font-medium underline-offset-4 hover:underline">
+                {t('console.audit')}
+              </Link>
+            </>
+          ) : null}
           <Link href="/staff/taxonomy" className="font-medium underline-offset-4 hover:underline">
             {t('console.taxonomy')}
           </Link>

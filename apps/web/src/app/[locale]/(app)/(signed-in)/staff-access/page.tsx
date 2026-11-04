@@ -2,8 +2,11 @@ import { EmptyState } from '@inmolink/ui';
 import { redirect } from 'next/navigation';
 import { getFormatter, getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
+import { ClientModeUnavailable } from '@/components/shell/client-mode-unavailable';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
 import { fetchStaffAccess, sessionRef } from '@/server/api';
+import { inClientMode } from '@/server/nav';
+import { loadShell } from '@/server/shell';
 
 const CURSOR = /^[A-Za-z0-9_-]{1,200}$/;
 
@@ -16,6 +19,8 @@ export default async function StaffAccessPage({ searchParams }: { searchParams: 
   const locale = await getLocale();
   const session = await auth();
   if (!session?.user?.id) return localeRedirect({ href: '/login', locale });
+  const shell = await loadShell();
+  if (shell && inClientMode(shell.identity)) return <ClientModeUnavailable />;
   const params = await searchParams;
   const cursor = typeof params.cursor === 'string' && CURSOR.test(params.cursor) ? params.cursor : undefined;
   const res = await fetchStaffAccess(sessionRef(session.user), cursor);
@@ -29,7 +34,11 @@ export default async function StaffAccessPage({ searchParams }: { searchParams: 
     <div className="mx-auto flex max-w-4xl flex-col gap-6 p-6">
       <h1 className="text-xl font-semibold">{t('title')}</h1>
       <p className="text-sm text-muted-foreground">{t('intro')}</p>
-      {!res.ok ? (
+      {!res.ok && res.status === 403 ? (
+        <p className="rounded-md bg-muted p-3 text-sm" data-testid="admin-only">
+          {t('errors.forbidden')}
+        </p>
+      ) : !res.ok ? (
         <p role="alert" className="text-sm text-destructive">
           {t('errors.generic')}
         </p>

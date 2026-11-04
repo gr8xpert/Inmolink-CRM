@@ -3,8 +3,11 @@ import { Button, EmptyState } from '@inmolink/ui';
 import { redirect } from 'next/navigation';
 import { getFormatter, getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
+import { ClientModeUnavailable } from '@/components/shell/client-mode-unavailable';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
 import { fetchVerification, sessionRef } from '@/server/api';
+import { inClientMode } from '@/server/nav';
+import { loadShell } from '@/server/shell';
 import { removeAction, submitAction } from './actions';
 import { UploadForm } from './upload-form';
 
@@ -31,6 +34,8 @@ export default async function VerificationPage({ searchParams }: { searchParams:
   const locale = await getLocale();
   const session = await auth();
   if (!session?.user?.id) return localeRedirect({ href: '/login', locale });
+  const shell = await loadShell();
+  if (shell && inClientMode(shell.identity)) return <ClientModeUnavailable />;
   const res = await fetchVerification(sessionRef(session.user));
   if (res === 'revoked') redirect('/session/expired');
   const t = await getTranslations('verification');
@@ -42,10 +47,17 @@ export default async function VerificationPage({ searchParams }: { searchParams:
 
   if (!res.ok) {
     return (
-      <div className="mx-auto max-w-3xl p-6">
-        <p role="alert" className="text-sm text-destructive">
-          {res.status === 403 ? t('errors.FORBIDDEN') : t('errors.generic')}
-        </p>
+      <div className="mx-auto flex max-w-3xl flex-col gap-4 p-6">
+        <h1 className="text-xl font-semibold">{t('title')}</h1>
+        {res.status === 403 ? (
+          <p className="rounded-md bg-muted p-3 text-sm" data-testid="admin-only">
+            {t('errors.FORBIDDEN')}
+          </p>
+        ) : (
+          <p role="alert" className="text-sm text-destructive">
+            {t('errors.generic')}
+          </p>
+        )}
       </div>
     );
   }
