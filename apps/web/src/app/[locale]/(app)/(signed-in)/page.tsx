@@ -8,7 +8,7 @@ import { fetchOnboarding } from '@/server/onboarding-api';
 import { OnboardingChecklist } from './onboarding-checklist';
 import { ResponseTimeCard } from './response-time-card';
 
-/** Dashboard home: who is signed in, the agency's verification step, the API session check. */
+/** Dashboard home: who is signed in, the agency's verification step, a notice if the API refuses the session. */
 export default async function HomePage() {
   const locale = await getLocale();
   const session = await auth();
@@ -50,9 +50,11 @@ export default async function HomePage() {
       ) : null}
       {checklist ? <OnboardingChecklist checklist={checklist} /> : null}
       {kpi ? <ResponseTimeCard kpi={kpi} /> : null}
-      <p data-testid="api-check" role="status" className="rounded-md bg-muted p-3 text-sm">
-        {me ? t('home.apiOk', { userId: me.userId }) : t('home.apiFailed')}
-      </p>
+      {me ? null : (
+        <p data-testid="api-check" role="alert" className="rounded-md bg-muted p-3 text-sm">
+          {t('home.apiFailed')}
+        </p>
+      )}
     </div>
   );
 }

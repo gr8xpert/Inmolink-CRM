@@ -8,7 +8,7 @@
   "never": "Nunca",
   "columns": {
     "ref": "Referencia",
-    "name": "nombre",
+    "name": "Nombre",
     "status": "Estado",
     "access": "Compartida con",
     "verified": "Última verificación",
@@ -33,7 +33,7 @@
   },
   "fields": {
     "ref": "Referencia",
-    "name": "nombre",
+    "name": "Nombre",
     "status": "Estado",
     "completionDate": "Fecha de entrega",
     "locationId": "Ubicación",

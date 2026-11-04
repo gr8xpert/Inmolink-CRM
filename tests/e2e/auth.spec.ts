@@ -51,8 +51,8 @@ test('[S0-09] sign-up → verify email → log in → call an authenticated API 
   expect((await page.request.get('/session/token?aud=api')).status()).toBe(403);
   await passTwoFactor(page, email, password);
   await expect(page.getByText(`Signed in as ${email}`)).toBeVisible();
-  // Server-side: web session → 15-minute api token → GET /v1/me on the API.
-  await expect(page.getByTestId('api-check')).toContainText('API session check passed for user');
+  // Server-side: web session → 15-minute api token → GET /v1/me on the API (a refusal shows this notice).
+  await expect(page.getByTestId('api-check')).toHaveCount(0);
 
   // Browser-side: the same session mints a token the API accepts; a realtime token is refused.
   const minted = await page.request.get('/session/token?aud=api');

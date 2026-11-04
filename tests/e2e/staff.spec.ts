@@ -59,7 +59,7 @@ test('[S1-09] non-staff get 404 on staff pages; staff act as a member with a rea
   await expect(countdown).toHaveText(/^\d+:\d{2} left$/);
   const before = await countdown.innerText();
   await expect.poll(() => countdown.innerText(), { timeout: 5_000 }).not.toBe(before);
-  await expect(page.getByTestId('api-check')).toBeVisible();
+  await expect(page.getByTestId('api-check')).toHaveCount(0);
   await page.goto('/en/team');
   await expect(banner).toBeVisible();
 
