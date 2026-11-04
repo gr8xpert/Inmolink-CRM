@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Changed
+- The local and CI Postgres health check now tests TCP, so a fresh stack no longer reports healthy too early [S17-F15]
 - `pnpm staff:bootstrap` creates the first staff login on a fresh server; the deploy runbook covers it and the starting taxonomy [S17-F14]
 - Staff can create property types, features and their groups in the taxonomy console [S17-F13]
 - Opening a file no longer breaks the next action on the page; staff no longer get a Notifications bell [S17-F12]
