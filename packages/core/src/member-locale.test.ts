@@ -4,6 +4,8 @@ import { requestLocale } from './member';
 describe('request locale', () => {
   it('[S17-F18] the language of the page wins over the agency default', () => {
     expect(requestLocale('en', ['es', 'en'])).toBe('en');
+    // A content locale without its own UI still names its translations.
+    expect(requestLocale('fr', ['es', 'en'])).toBe('fr');
   });
 
   it('[S17-F18] a missing, unknown or browser-style value falls back to the agency, then the default', () => {

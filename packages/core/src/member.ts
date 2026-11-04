@@ -1,5 +1,5 @@
 import { withTenant } from '@inmolink/db';
-import { DEFAULT_UI_LOCALE, isUiLocale } from '@inmolink/i18n';
+import { DEFAULT_UI_LOCALE, isContentLocale, isUiLocale } from '@inmolink/i18n';
 import { AppError } from '@inmolink/platform/errors';
 import type { Ctx } from './context';
 import * as agencies from './modules/agencies';
@@ -22,6 +22,11 @@ export interface MemberInit {
   clientMode?: boolean;
 }
 
+/** The request's locale when it is exactly one we have (UI or content), else the agency's first enabled locale. */
+export function requestLocale(requested: unknown, agencyLocales: readonly Ctx['locale'][]): Ctx['locale'] {
+  return isUiLocale(requested) || isContentLocale(requested) ? requested : (agencyLocales[0] ?? DEFAULT_UI_LOCALE);
+}
+
 /**
  * Opens `withTenant` for the caller's agency and builds `ctx` from the database, not from the token:
  * role and verification status are read per request (two primary-key reads), so a role change
@@ -31,11 +36,6 @@ export interface MemberInit {
  * impersonating staff with a current login (one `app_auth` read first): ended, expired, revoked,
  * downgraded or signed out → `IMPERSONATION_ENDED`. Three statements before the handler (S2-F1).
  */
-/** The request's UI locale when it is exactly one we have, else the agency's first enabled locale. */
-export function requestLocale(requested: unknown, agencyLocales: readonly Ctx['locale'][]): Ctx['locale'] {
-  return isUiLocale(requested) ? requested : (agencyLocales[0] ?? DEFAULT_UI_LOCALE);
-}
-
 export async function withMemberCtx<T>(init: MemberInit, fn: (ctx: Ctx) => Promise<T>): Promise<T> {
   const imp = init.impersonation;
   if (imp && !(await identity.isImpersonatorCurrent(imp.staffUserId, imp.sessionVersion))) {

@@ -1,7 +1,8 @@
+import type { RateLimitRule } from '@inmolink/platform/rate-limit';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { type CspViolation, cspReportResponse, MAX_REPORT_BYTES, violationsOf } from './csp-report';
 
-const consume = vi.fn(async () => ({ allowed: true, retryAfterSeconds: 0 }));
+const consume = vi.fn(async (_rule: RateLimitRule, _bucket: string) => ({ allowed: true, retryAfterSeconds: 0 }));
 vi.mock('@inmolink/platform/rate-limit', () => ({ rateLimiter: () => ({ consume }) }));
 vi.mock('./embed', () => ({ clientAddress: async () => ({ ip: '203.0.113.7', bucket: '203.0.113.7' }) }));
 
@@ -58,7 +59,7 @@ describe('CSP report endpoint (S16-F8)', () => {
     await cspReportResponse(post(REPORT), () => {});
     const rule = consume.mock.calls[0]?.[0];
     expect(rule).toBeDefined();
-    expect(() => assertRule(rule)).not.toThrow();
+    expect(() => assertRule(rule as RateLimitRule)).not.toThrow();
   });
 
   it('[S16-F8] limited per client address, capped at 8 KB (declared or streamed), JSON report types only', async () => {
