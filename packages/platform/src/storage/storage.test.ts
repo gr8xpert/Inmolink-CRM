@@ -412,3 +412,33 @@ describe('repeatable writes', () => {
     expect(bodies).toEqual(['hi', 'hi']);
   });
 });
+
+describe('streamed reads', () => {
+  it('[S17-F39] a body failing midway reaches the reader as an error', async () => {
+    const s = createS3Store({
+      endpoint: 'http://localhost:9000/',
+      region: 'auto',
+      accessKeyId: 'AKIDEXAMPLE',
+      secretAccessKey: 'secret',
+      buckets: { media: 'm', exports: 'e', private: 'p', work: 'w' },
+      fetch: async () =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(new Uint8Array([1, 2]));
+            },
+            pull(controller) {
+              controller.error(new Error('body failed'));
+            },
+          }),
+        ),
+    });
+    const stream = await s.getStream('media', 'k', { maxBytes: 100 });
+    const read = async () => {
+      for await (const _ of stream as NonNullable<typeof stream>) {
+        // drain
+      }
+    };
+    await expect(read()).rejects.toThrow(/body failed/);
+  });
+});

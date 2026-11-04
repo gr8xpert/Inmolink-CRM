@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { Readable, Transform } from 'node:stream';
+import { pipeline, Readable, Transform } from 'node:stream';
 import type { ReadableStream as WebReadableStream } from 'node:stream/web';
 import { AwsClient } from 'aws4fetch';
 
@@ -553,7 +553,11 @@ export function createS3Store(config: S3StoreConfig): ObjectStore {
         await res.body.cancel();
         throw new StorageError('storage GET: object too large', 413);
       }
-      return Readable.fromWeb(res.body as WebReadableStream<Uint8Array>).pipe(capped(max));
+      // `pipeline`, not `.pipe`: a body that fails midway (timeout, dropped connection) must reach the reader, not end
+      // up as an unhandled stream error that takes the process down (S17-F39).
+      const out = capped(max);
+      pipeline(Readable.fromWeb(res.body as WebReadableStream<Uint8Array>), out, () => {});
+      return out;
     },
     async get(bucket, key, options) {
       const max = assertMaxBytes(options.maxBytes);

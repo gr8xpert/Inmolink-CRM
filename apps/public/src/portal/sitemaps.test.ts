@@ -56,6 +56,29 @@ describe('portal sitemaps and robots.txt (S15-02)', () => {
     expect(text).not.toMatch(/Disallow: \/\s*$/m);
   });
 
+  it('[S17-F39] a store failing at the read is a 503, and a file failing midway fails the response without a crash', async () => {
+    core.portalSitemapFile.mockResolvedValue({
+      sha256: 'abc',
+      open: async () => {
+        throw new Error('store down');
+      },
+    });
+    expect((await sitemapResponse(get(), 'sitemap.xml')).status).toBe(503);
+
+    core.portalSitemapFile.mockResolvedValue({
+      sha256: 'abc',
+      open: async () =>
+        new Readable({
+          read() {
+            this.destroy(new Error('body failed'));
+          },
+        }),
+    });
+    const res = await sitemapResponse(get(), 'sitemap.xml');
+    expect(res.status).toBe(200);
+    await expect(res.arrayBuffer()).rejects.toThrow();
+  });
+
   it('[S17-F39] robots.txt names no sitemap while there is none (a 404 is no sitemap), and is read again within the hour', async () => {
     core.portalSitemapFile.mockResolvedValue(null);
     const res = await robotsResponse();

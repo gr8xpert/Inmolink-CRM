@@ -1,4 +1,4 @@
-import { Readable } from 'node:stream';
+import { pipeline, Readable } from 'node:stream';
 import { createGunzip } from 'node:zlib';
 import * as websiteApi from '@inmolink/core/modules/website-api';
 import { weakCompareEtag } from '@inmolink/platform/http';
@@ -40,12 +40,19 @@ export async function sitemapResponse(request: Request, name: string): Promise<R
   if (weakCompareEtag(request.headers.get('if-none-match') ?? undefined, etag)) {
     return new Response(null, { status: 304, headers });
   }
-  const stored = await file.open();
+  // S17-F39: a store failing here is a retry for the client, like the manifest read above, not an unhandled error.
+  const stored = await file.open().catch(() => 'failed' as const);
+  if (stored === 'failed') {
+    return new Response(null, { status: 503, headers: { 'Cache-Control': 'no-store', 'Retry-After': '60' } });
+  }
   // Replaced by a newer run between the manifest and the read: the client asks again.
   if (!stored) return new Response(null, { status: 404, headers: { 'Cache-Control': 'no-store' } });
   if (gzip) headers.set('Content-Encoding', 'gzip');
-  const body = gzip ? stored : stored.pipe(createGunzip());
-  return new Response(Readable.toWeb(body) as ReadableStream<Uint8Array>, { status: 200, headers });
+  if (gzip) return new Response(Readable.toWeb(stored) as ReadableStream<Uint8Array>, { status: 200, headers });
+  // `pipeline`: a stored file failing midway ends this response with an error instead of crashing the process.
+  const gunzip = createGunzip();
+  pipeline(stored, gunzip, () => {});
+  return new Response(Readable.toWeb(gunzip) as ReadableStream<Uint8Array>, { status: 200, headers });
 }
 
 /** `robots.txt`: everything but the form posts, the iFrame embeds and private selection links; the sitemap index. */
