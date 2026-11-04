@@ -1,4 +1,4 @@
-import { redirect } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { getFormatter, getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
@@ -53,12 +53,14 @@ export default async function ContactPage({
       {t('detail.back')}
     </Link>
   );
+  // S17-F40: an unknown, foreign or merged contact is the same "Page not found" as any other unknown page.
+  if (!contact.ok && contact.status === 404) notFound();
   if (!contact.ok) {
     return (
       <div className="mx-auto flex max-w-2xl flex-col gap-4 p-6">
         {back}
         <p role="alert" className="text-sm text-destructive">
-          {contact.status === 404 ? t('errors.CONTACT_NOT_FOUND') : t('errors.generic')}
+          {t('errors.generic')}
         </p>
       </div>
     );

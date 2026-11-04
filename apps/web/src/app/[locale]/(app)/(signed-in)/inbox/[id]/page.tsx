@@ -1,4 +1,4 @@
-import { redirect } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { getFormatter, getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
@@ -24,12 +24,14 @@ export default async function LeadPage({ params }: { params: Promise<{ id: strin
       {t('back')}
     </Link>
   );
+  // S17-F40: an unknown or foreign lead is the same "Page not found" as any other unknown page.
+  if (!res.ok && res.status === 404) notFound();
   if (!res.ok) {
     return (
       <div className="mx-auto flex max-w-2xl flex-col gap-4 p-6">
         {back}
         <p role="alert" className="text-sm text-destructive">
-          {res.status === 404 ? t('detail.notFound') : t('load')}
+          {t('load')}
         </p>
       </div>
     );
