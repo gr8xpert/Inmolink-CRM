@@ -1,6 +1,15 @@
 {
   "title": "Contactos",
   "empty": "Todavía no hay contactos.",
+  "create": {
+    "title": "Nuevo contacto",
+    "intro": "Añade a una persona a mano. Un contacto necesita al menos un nombre, un correo o un teléfono.",
+    "email": "Correo electrónico",
+    "phone": "Teléfono",
+    "phoneHint": "Sin prefijo de país, se entiende que es un número español.",
+    "submit": "Crear contacto",
+    "open": "Abrir el contacto"
+  },
   "fields": {
     "firstName": "Nombre",
     "lastName": "Apellidos",
@@ -122,6 +131,7 @@
     "generic": "Algo ha salido mal. Inténtalo de nuevo."
   },
   "list": {
+    "new": "Nuevo contacto",
     "subtitle": "Todas las personas con las que trata tu agencia, las más recientes primero.",
     "noName": "Sin nombre",
     "loadMore": "Cargar más",

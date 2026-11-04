@@ -1,6 +1,15 @@
 {
   "title": "Contacts",
   "empty": "No contacts yet.",
+  "create": {
+    "title": "New contact",
+    "intro": "Add a person by hand. A contact needs at least a name, an e-mail or a phone.",
+    "email": "E-mail",
+    "phone": "Phone",
+    "phoneHint": "Without a country prefix, a Spanish number is assumed.",
+    "submit": "Create contact",
+    "open": "Open the contact"
+  },
   "fields": {
     "firstName": "First name",
     "lastName": "Last name",
@@ -122,6 +131,7 @@
     "generic": "Something went wrong. Try again."
   },
   "list": {
+    "new": "New contact",
     "subtitle": "Everyone your agency deals with, newest first.",
     "noName": "Without a name",
     "loadMore": "Load more",

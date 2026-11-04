@@ -6,6 +6,7 @@ import {
   ContactNotePage,
   ContactPage,
   type ContactType,
+  type CreateContactBody,
   type CreateContactNoteBody,
   type CreateDataExportBody,
   DataExportDto,
@@ -129,4 +130,17 @@ export function fetchDataExport(session: SessionRef, id: string, download: boole
     `/v1/agency/data-exports/${encodeURIComponent(id)}?${query({ download: download ? '1' : undefined })}`,
     DataExportDto,
   );
+}
+
+/** `POST /v1/crm/contacts`: the form's key makes a repeated submit answer the first contact, not a duplicate refusal. */
+export function createContact(
+  session: SessionRef,
+  body: CreateContactBody,
+  idempotencyKey?: string,
+): Promise<ApiResult<ContactDto>> {
+  return apiRequest(session, '/v1/crm/contacts', ContactDto, {
+    method: 'POST',
+    body,
+    ...(idempotencyKey ? { headers: { 'idempotency-key': idempotencyKey } } : {}),
+  });
 }

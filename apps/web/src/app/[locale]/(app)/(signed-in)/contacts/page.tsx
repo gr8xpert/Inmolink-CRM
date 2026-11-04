@@ -37,7 +37,12 @@ export default async function ContactsPage({ searchParams }: { searchParams: Pro
 
   return (
     <div className="flex flex-col gap-4 p-6">
-      <h1 className="text-xl font-semibold">{t('title')}</h1>
+      <div className="flex items-center gap-3">
+        <h1 className="text-xl font-semibold">{t('title')}</h1>
+        <Link href="/contacts/new" className="ml-auto text-sm font-medium underline-offset-4 hover:underline">
+          {t('list.new')}
+        </Link>
+      </div>
       <p className="text-sm text-muted-foreground">{t('list.subtitle')}</p>
 
       <div className="rounded-md border p-3">
