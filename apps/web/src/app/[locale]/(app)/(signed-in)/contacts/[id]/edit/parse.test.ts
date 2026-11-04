@@ -57,6 +57,16 @@ describe('contact edit form', () => {
     });
   });
 
+  it('[S17-F28] lists left as loaded are not sent, so a stored value the contract refuses cannot block a save', () => {
+    const v = { ...editValuesOf(CONTACT), emails: 'josé@example.com', firstName: 'Anna' };
+    const body = contactEditBody(v, 4, { emails: 'josé@example.com\r\n', phones: v.phones });
+    expect(body).toMatchObject({ firstName: 'Anna' });
+    expect(body).not.toHaveProperty('emails');
+    expect(body).not.toHaveProperty('phones');
+    const changed = contactEditBody({ ...v, emails: 'new@example.com' }, 4, { emails: v.emails, phones: v.phones });
+    expect(changed?.emails).toEqual(['new@example.com']);
+  });
+
   it('[S17-F28] the body carries the loaded version, and never the source or the responsible agent', () => {
     const body = contactEditBody(editValuesOf(CONTACT), 7);
     expect(body?.version).toBe(7);

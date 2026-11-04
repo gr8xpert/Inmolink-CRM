@@ -1,5 +1,6 @@
 'use client';
 
+import { CONTACT_LIMITS } from '@inmolink/contracts';
 import { useActionState } from 'react';
 import { Link } from '@/i18n/navigation';
 import { editContactFormAction } from './edit-action';
@@ -48,14 +49,26 @@ export function ContactEditForm(props: {
     <form action={action} className="flex flex-col gap-4 text-sm">
       <input type="hidden" name="id" value={props.id} />
       <input type="hidden" name="version" value={props.version} />
+      <input type="hidden" name="initialEmails" value={props.initial.emails} />
+      <input type="hidden" name="initialPhones" value={props.initial.phones} />
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="flex flex-col gap-1">
           <span>{l.firstName}</span>
-          <input name="firstName" maxLength={120} defaultValue={values.firstName} className={field} />
+          <input
+            name="firstName"
+            maxLength={CONTACT_LIMITS.nameChars}
+            defaultValue={values.firstName}
+            className={field}
+          />
         </label>
         <label className="flex flex-col gap-1">
           <span>{l.lastName}</span>
-          <input name="lastName" maxLength={120} defaultValue={values.lastName} className={field} />
+          <input
+            name="lastName"
+            maxLength={CONTACT_LIMITS.nameChars}
+            defaultValue={values.lastName}
+            className={field}
+          />
         </label>
         <label className="flex flex-col gap-1">
           <span>{l.emails}</span>

@@ -62,17 +62,24 @@ export function contactEditValues(form: FormData): ContactEditValues {
  * identify the person. Source and responsible agent are not on the form, so they are never sent. Consents are sent as
  * they stand: the service compares them with the contact and records only a real change.
  */
-export function contactEditBody(values: ContactEditValues, version: number): UpdateContactBody | null {
+export function contactEditBody(
+  values: ContactEditValues,
+  version: number,
+  initial?: { emails: string; phones: string },
+): UpdateContactBody | null {
   const emails = lines(values.emails);
   const phones = lines(values.phones);
+  const same = (list: string[], before: string | undefined) =>
+    before !== undefined && list.join('\n') === lines(before).join('\n');
   if (!values.firstName && !values.lastName && emails.length === 0 && phones.length === 0) return null;
   const parsed = UpdateContactBody.safeParse({
     version,
     types: values.types,
     firstName: values.firstName || null,
     lastName: values.lastName || null,
-    emails,
-    phones,
+    // Lists left as loaded are not sent: a stored value the contract would now refuse must not block the other fields.
+    ...(same(emails, initial?.emails) ? {} : { emails }),
+    ...(same(phones, initial?.phones) ? {} : { phones }),
     language: values.language || null,
     tags: lines(values.tags),
     consentMarketing: values.consentMarketing,

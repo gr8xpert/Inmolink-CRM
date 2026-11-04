@@ -150,6 +150,16 @@ describe('editing a contact', () => {
     expect((await edit(a, c.id, { ...formOf(c), firstName: null })).firstName).toBeNull();
   });
 
+  it('[S17-F28] a contact already left without any can still be marked do-not-contact', async () => {
+    const c = await create(a, { firstName: 'Hana', emails: [email('hana')] });
+    await withSystem('crm.contactEdit.test', async (tx) => {
+      await tx.execute(sql`delete from contact_emails where contact_id = ${c.id}`);
+      await tx.execute(sql`update contacts set first_name = null, primary_email = null where id = ${c.id}`);
+    });
+    const after = await edit(a, c.id, { version: c.version, doNotContact: true });
+    expect(after.doNotContact).toBe(true);
+  });
+
   it('[S17-F28] an e-mail of another contact is refused with that contact, and nothing changes', async () => {
     const other = await create(a, { firstName: 'Other', emails: [email('other')] });
     const c = await create(a, { firstName: 'Flor', emails: [email('flor')] });

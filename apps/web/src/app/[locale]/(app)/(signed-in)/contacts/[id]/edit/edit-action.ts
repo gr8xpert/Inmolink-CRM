@@ -19,7 +19,8 @@ export async function editContactFormAction(_prev: EditContactState, form: FormD
   const values = contactEditValues(form);
   const id = z.uuid().safeParse(form.get('id'));
   const version = Version.safeParse(form.get('version'));
-  const body = id.success && version.success ? contactEditBody(values, version.data) : null;
+  const initial = { emails: String(form.get('initialEmails') ?? ''), phones: String(form.get('initialPhones') ?? '') };
+  const body = id.success && version.success ? contactEditBody(values, version.data, initial) : null;
   if (!id.success || !body) return { values, error: 'VALIDATION_FAILED', duplicates: [] };
 
   const res = await updateContact(await requireSession(), id.data, body);
