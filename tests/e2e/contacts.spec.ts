@@ -147,10 +147,10 @@ test('[S17-F29] import a CSV: confirm columns, see errors and duplicates, import
 
 /** No horizontal page scroll: the document is never wider than the window. */
 async function expectNoPageScroll(page: Page, where: string): Promise<void> {
-  const { scrollWidth, clientWidth } = await page.evaluate(() => ({
-    scrollWidth: document.documentElement.scrollWidth,
-    clientWidth: document.documentElement.clientWidth,
-  }));
+  // A string: this file is compiled without the DOM types, and the expression runs in the page.
+  const { scrollWidth, clientWidth } = await page.evaluate<{ scrollWidth: number; clientWidth: number }>(
+    '({ scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth })',
+  );
   expect(scrollWidth, `${where}: ${scrollWidth}px wide in a ${clientWidth}px window`).toBeLessThanOrEqual(clientWidth);
 }
 
