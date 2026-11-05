@@ -168,6 +168,16 @@
     "no": "No",
     "verification": "Verificación",
     "verificationState": "{status} (enviada el {date})",
+    "verificationStatus": {
+      "SUBMITTED": "Pendiente de revisión",
+      "APPROVED": "Aprobada",
+      "REJECTED": "Rechazada"
+    },
+    "kinds": {
+      "AGENCY": "Inmobiliaria",
+      "DEVELOPER": "Promotora",
+      "PARTNER": "Colaborador"
+    },
     "notSubmitted": "No enviada",
     "created": "Alta",
     "members": "Miembros",
@@ -201,11 +211,13 @@
     "bannerEnded": "Tu sesión actuando como {user} en {agency} ha terminado. Ya no se hace nada en su nombre.",
     "dismiss": "Cerrar",
     "endedNotice": "Ya no estás actuando como otro usuario.",
+    "endedUnconfirmed": "No hemos podido comprobar tu sesión actuando como otro usuario. Inténtalo de nuevo en un momento.",
     "errors": {
       "FORBIDDEN": "Tu rol de staff no permite actuar como otros usuarios.",
       "NOT_FOUND": "Esa agencia ya no existe.",
       "IMPERSONATION_TARGET_INVALID": "Solo puedes actuar como un miembro activo de una agencia no suspendida.",
       "VALIDATION_FAILED": "Escribe un motivo de 10 a 500 caracteres.",
+      "INVALID_DURATION": "Elige una de las duraciones de la lista.",
       "generic": "Algo ha fallado. Vuelve a intentarlo."
     }
   },

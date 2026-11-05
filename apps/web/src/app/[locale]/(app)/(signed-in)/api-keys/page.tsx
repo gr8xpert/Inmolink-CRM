@@ -6,7 +6,7 @@ import { auth } from '@/auth';
 import { ClientModeUnavailable } from '@/components/shell/client-mode-unavailable';
 import { getPathname, Link, redirect as localeRedirect } from '@/i18n/navigation';
 import { fetchApiKeys, sessionRef } from '@/server/api';
-import { inClientMode } from '@/server/nav';
+import { inClientMode, isActingAsMember } from '@/server/nav';
 import { loadShell } from '@/server/shell';
 import { createKeyAction, revokeKeyAction, rotateKeyAction } from './actions';
 import { KEY_ERRORS, type KeyError } from './errors';
@@ -25,6 +25,8 @@ export default async function ApiKeysPage({ searchParams }: { searchParams: Prom
   const res = await fetchApiKeys(sessionRef(session.user));
   if (res === 'revoked') redirect('/session/expired');
   const t = await getTranslations('api-keys');
+  const acting = shell !== null && isActingAsMember(shell.identity);
+  const actingText = (await getTranslations('shell'))('actingUnavailable');
   const format = await getFormatter();
   const params = await searchParams;
   const notice = params.notice === 'revoked' ? 'revoked' : undefined;
@@ -100,7 +102,7 @@ export default async function ApiKeysPage({ searchParams }: { searchParams: Prom
                         })}
                       </p>
                     </div>
-                    {k.status === 'ACTIVE' ? (
+                    {k.status === 'ACTIVE' && !acting ? (
                       <div className="flex flex-col items-end gap-2">
                         <RotateKeyForm
                           action={rotateKeyAction}
@@ -123,27 +125,33 @@ export default async function ApiKeysPage({ searchParams }: { searchParams: Prom
             )}
           </section>
 
-          <section aria-labelledby="create-heading" className="flex flex-col gap-3">
-            <h2 id="create-heading" className="font-medium">
-              {t('create.title')}
-            </h2>
-            <CreateKeyForm
-              action={createKeyAction}
-              scopes={API_KEY_SCOPES}
-              errors={errors}
-              issued={issued}
-              labels={{
-                name: t('create.name'),
-                kind: t('create.kind'),
-                kinds: { SECRET: t('kinds.SECRET'), PUBLISHABLE: t('kinds.PUBLISHABLE') },
-                scopes: t('create.scopes'),
-                scopeNames: Object.fromEntries(API_KEY_SCOPES.map((s) => [s, scopeName(s)])),
-                origins: t('create.origins'),
-                originsHint: t('create.originsHint'),
-                submit: t('create.submit'),
-              }}
-            />
-          </section>
+          {acting ? (
+            <p role="status" className="rounded-md bg-muted p-3 text-sm" data-testid="api-keys-acting">
+              {actingText}
+            </p>
+          ) : (
+            <section aria-labelledby="create-heading" className="flex flex-col gap-3">
+              <h2 id="create-heading" className="font-medium">
+                {t('create.title')}
+              </h2>
+              <CreateKeyForm
+                action={createKeyAction}
+                scopes={API_KEY_SCOPES}
+                errors={errors}
+                issued={issued}
+                labels={{
+                  name: t('create.name'),
+                  kind: t('create.kind'),
+                  kinds: { SECRET: t('kinds.SECRET'), PUBLISHABLE: t('kinds.PUBLISHABLE') },
+                  scopes: t('create.scopes'),
+                  scopeNames: Object.fromEntries(API_KEY_SCOPES.map((s) => [s, scopeName(s)])),
+                  origins: t('create.origins'),
+                  originsHint: t('create.originsHint'),
+                  submit: t('create.submit'),
+                }}
+              />
+            </section>
+          )}
         </>
       )}
     </div>

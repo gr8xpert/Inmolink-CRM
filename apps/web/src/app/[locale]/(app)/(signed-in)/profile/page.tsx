@@ -6,7 +6,7 @@ import { auth } from '@/auth';
 import { ClientModeUnavailable } from '@/components/shell/client-mode-unavailable';
 import { getPathname, Link, redirect as localeRedirect } from '@/i18n/navigation';
 import { fetchAgencyLogoUrl, fetchAgencyProfile, fetchAgencySettings, sessionRef } from '@/server/api';
-import { inClientMode, isAgencyAdmin } from '@/server/nav';
+import { inClientMode, isAdminMember } from '@/server/nav';
 import { loadShell } from '@/server/shell';
 import { removeLogoAction, uploadLogoAction } from './actions';
 import { ProfileForm } from './profile-form';
@@ -33,7 +33,8 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
   if (!session?.user?.id) return localeRedirect({ href: '/login', locale });
   const shell = await loadShell();
   if (shell && inClientMode(shell.identity)) return <ClientModeUnavailable />;
-  const admin = shell !== null && isAgencyAdmin(shell.identity);
+  // S17-F48: `agencies.profile.update` lets staff acting as an admin fix the profile, so follow the member's role.
+  const admin = shell !== null && isAdminMember(shell.identity);
   const ref = sessionRef(session.user);
   const [res, settings] = await Promise.all([fetchAgencyProfile(ref), fetchAgencySettings(ref)]);
   if (res === 'revoked' || settings === 'revoked') redirect('/session/expired');

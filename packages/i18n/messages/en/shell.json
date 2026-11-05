@@ -63,6 +63,7 @@
     "unread": "{count} unread"
   },
   "clientMode": "Client Mode is on: internal information is hidden on every page.",
+  "actingUnavailable": "Not available while acting as this user.",
   "clientModeControl": {
     "start": "Show to a client",
     "intro": "Client Mode hides commission, the owner agency, internal notes and private details on every page. Choose a PIN: you need it to leave Client Mode.",

@@ -111,7 +111,11 @@ export async function DashboardShell({ shell, children }: { shell: Shell; childr
                 <div className="sm:hidden">
                   <LocaleSwitcher label={t('locale.label')} current={locale} locales={locales} />
                 </div>
-                {caps && !caps.clientMode ? (
+                {caps?.impersonating ? (
+                  <p className="text-xs text-muted-foreground" data-testid="client-mode-acting">
+                    {t('actingUnavailable')}
+                  </p>
+                ) : caps && !caps.clientMode ? (
                   <ClientModeStart action={enterClientModeAction} labels={clientModeLabels} />
                 ) : null}
                 {/* S16-04 review: the legal pages and the cookie choice, from every dashboard page */}

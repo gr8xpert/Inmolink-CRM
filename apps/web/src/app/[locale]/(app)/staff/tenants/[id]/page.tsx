@@ -10,7 +10,14 @@ import { fetchAgencyBilling } from '@/server/staff-ops-api';
 import { setGiveToGetExemptionAction, startImpersonationAction } from '../../actions';
 import { PlanGrants } from './plan-grants';
 
-const ERRORS = ['FORBIDDEN', 'NOT_FOUND', 'IMPERSONATION_TARGET_INVALID', 'VALIDATION_FAILED', 'generic'] as const;
+const ERRORS = [
+  'FORBIDDEN',
+  'NOT_FOUND',
+  'IMPERSONATION_TARGET_INVALID',
+  'VALIDATION_FAILED',
+  'INVALID_DURATION',
+  'generic',
+] as const;
 const MINUTES = [15, IMPERSONATION_DEFAULT_MINUTES, IMPERSONATION_MAX_MINUTES];
 
 /**
@@ -48,6 +55,7 @@ export default async function TenantPage({
   if (!tenant.ok && tenant.status === 404) notFound();
   const t = await getTranslations('staff');
   const tOnboarding = await getTranslations('onboarding');
+  const tTeam = await getTranslations('team');
   const format = await getFormatter();
   const query = await searchParams;
   const error = ERRORS.find((e) => e === query.error);
@@ -83,28 +91,30 @@ export default async function TenantPage({
         <h2 id="company-heading" className="font-medium">
           {t('tenant.company')}
         </h2>
-        <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1">
+        <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-1">
           <dt className="text-muted-foreground">{t('tenants.status')}</dt>
-          <dd data-testid="tenant-status">{t(`tenants.statuses.${a.status}`)}</dd>
+          <dd className="[overflow-wrap:anywhere]" data-testid="tenant-status">
+            {t(`tenants.statuses.${a.status}`)}
+          </dd>
           <dt className="text-muted-foreground">{t('request.kind')}</dt>
-          <dd>{a.kind}</dd>
+          <dd className="[overflow-wrap:anywhere]">{t(`tenant.kinds.${a.kind}`)}</dd>
           <dt className="text-muted-foreground">{t('request.taxId')}</dt>
-          <dd>{a.taxId ?? '—'}</dd>
+          <dd className="[overflow-wrap:anywhere]">{a.taxId ?? '—'}</dd>
           <dt className="text-muted-foreground">{t('tenant.registerNumber')}</dt>
-          <dd>{a.registerNumber ?? '—'}</dd>
+          <dd className="[overflow-wrap:anywhere]">{a.registerNumber ?? '—'}</dd>
           <dt className="text-muted-foreground">{t('request.region')}</dt>
-          <dd>{[a.city, a.region].filter(Boolean).join(', ') || '—'}</dd>
+          <dd className="[overflow-wrap:anywhere]">{[a.city, a.region].filter(Boolean).join(', ') || '—'}</dd>
           <dt className="text-muted-foreground">{t('tenant.onboarded')}</dt>
-          <dd>{a.onboarded ? t('tenant.yes') : t('tenant.no')}</dd>
+          <dd className="[overflow-wrap:anywhere]">{a.onboarded ? t('tenant.yes') : t('tenant.no')}</dd>
           <dt className="text-muted-foreground">{t('tenant.verification')}</dt>
-          <dd>
+          <dd className="[overflow-wrap:anywhere]">
             {a.verification ? (
               <Link
                 href={`/staff/verification/${a.verification.requestId}`}
                 className="underline-offset-4 hover:underline"
               >
                 {t('tenant.verificationState', {
-                  status: t(`queue.tabs.${a.verification.status}`),
+                  status: t(`tenant.verificationStatus.${a.verification.status}`),
                   date: date(a.verification.submittedAt),
                 })}
               </Link>
@@ -113,9 +123,9 @@ export default async function TenantPage({
             )}
           </dd>
           <dt className="text-muted-foreground">{t('tenant.created')}</dt>
-          <dd>{date(a.createdAt)}</dd>
+          <dd className="[overflow-wrap:anywhere]">{date(a.createdAt)}</dd>
           <dt className="text-muted-foreground">{t('tenant.giveToGet')}</dt>
-          <dd className="flex flex-col gap-2">
+          <dd className="flex min-w-0 flex-col gap-2 [overflow-wrap:anywhere]">
             <span data-testid="tenant-give-to-get">
               {a.giveToGetExempt ? t('tenant.giveToGetExempt') : t('tenant.giveToGetRequired')}
             </span>
@@ -158,11 +168,13 @@ export default async function TenantPage({
             <p className="text-muted-foreground" data-testid="tenant-onboarding-progress">
               {t('tenant.onboardingProgress', { completed: onboarding.data.completed, total: onboarding.data.total })}
             </p>
-            <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1" data-testid="tenant-onboarding">
+            <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-1" data-testid="tenant-onboarding">
               {onboarding.data.steps.map((s) => (
                 <div key={s.step} className="contents">
                   <dt className="text-muted-foreground">{tOnboarding(`checklist.steps.${s.step}.title`)}</dt>
-                  <dd>{s.completedAt ? date(s.completedAt) : t('tenant.onboardingOpen')}</dd>
+                  <dd className="[overflow-wrap:anywhere]">
+                    {s.completedAt ? date(s.completedAt) : t('tenant.onboardingOpen')}
+                  </dd>
                 </div>
               ))}
             </dl>
@@ -197,7 +209,7 @@ export default async function TenantPage({
                       {m.name} · {m.email}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {m.role} · {t(`tenant.memberStatus.${m.status}`)}
+                      {tTeam(`roles.${m.role}`)} · {t(`tenant.memberStatus.${m.status}`)}
                     </p>
                   </div>
                   {canImpersonate && m.status === 'ACTIVE' && a.status !== 'SUSPENDED' ? (

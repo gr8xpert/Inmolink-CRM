@@ -63,6 +63,7 @@
     "unread": "{count} sin leer"
   },
   "clientMode": "El Modo Cliente está activado: la información interna se oculta en todas las páginas.",
+  "actingUnavailable": "No disponible mientras actúas como este usuario.",
   "clientModeControl": {
     "start": "Mostrar a un cliente",
     "intro": "El Modo Cliente oculta la comisión, la agencia propietaria, las notas internas y los datos privados en todas las páginas. Elige un PIN: lo necesitarás para salir del Modo Cliente.",

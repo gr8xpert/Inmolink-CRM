@@ -6,10 +6,11 @@ import { auth } from '@/auth';
 import { OpenFileForm } from '@/components/open-file-form';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
 import { sessionRef } from '@/server/api';
+import { loadShell } from '@/server/shell';
 import { fetchSupportTicket } from '@/server/support-api';
 import { openAttachmentAction, replyAction, resolveAction } from '../actions';
 
-const NOTICES = ['created', 'replied', 'resolved', 'uploaded'] as const;
+const NOTICES = ['created', 'replied', 'resolved', 'uploaded', 'alreadyAttached'] as const;
 const ERRORS = [
   'FORBIDDEN',
   'NOT_FOUND',
@@ -59,6 +60,9 @@ export default async function SupportTicketPage({
     );
   }
   const ticket = res.data;
+  // S17-F47: staff acting as a member read the ticket; the API refuses writing in the member's name.
+  const shell = await loadShell();
+  const acting = shell?.identity.kind === 'member' && shell.identity.caps.impersonating;
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6 p-6">
@@ -135,7 +139,7 @@ export default async function SupportTicketPage({
             ))}
           </ul>
         )}
-        {ticket.attachments.length < SUPPORT_ATTACHMENT_MAX_COUNT ? (
+        {acting ? null : ticket.attachments.length < SUPPORT_ATTACHMENT_MAX_COUNT ? (
           // A route handler, not a server action: only this path accepts 10 MB bodies.
           <form
             action={`/api/support/tickets/${ticket.id}/attachments`}
@@ -160,42 +164,52 @@ export default async function SupportTicketPage({
               {t('attachments.uploadSubmit')}
             </Button>
           </form>
-        ) : null}
+        ) : (
+          <p className="text-sm text-muted-foreground" data-testid="attachments-limit">
+            {t('attachments.limitReached', { max: SUPPORT_ATTACHMENT_MAX_COUNT })}
+          </p>
+        )}
       </section>
 
-      <section aria-labelledby="reply-heading" className="flex flex-col gap-2">
-        <h2 id="reply-heading" className="font-medium">
-          {t('ticket.reply')}
-        </h2>
-        {ticket.status === 'RESOLVED' ? (
-          <p className="text-sm text-muted-foreground">{t('ticket.resolvedNote')}</p>
-        ) : null}
-        <form action={replyAction} className="flex flex-col gap-2">
-          <input type="hidden" name="id" value={ticket.id} />
-          <Label htmlFor="reply-body" className="sr-only">
+      {acting ? (
+        <p role="status" className="rounded-md bg-muted p-3 text-sm" data-testid="support-acting">
+          {t('actingReadOnly')}
+        </p>
+      ) : (
+        <section aria-labelledby="reply-heading" className="flex flex-col gap-2">
+          <h2 id="reply-heading" className="font-medium">
             {t('ticket.reply')}
-          </Label>
-          <textarea
-            id="reply-body"
-            name="body"
-            required
-            maxLength={10000}
-            rows={4}
-            className="rounded-md border bg-background p-2 text-sm"
-          />
-          <div className="flex flex-wrap gap-2">
-            <Button type="submit">{t('ticket.replySubmit')}</Button>
-          </div>
-        </form>
-        {ticket.status !== 'RESOLVED' ? (
-          <form action={resolveAction}>
+          </h2>
+          {ticket.status === 'RESOLVED' ? (
+            <p className="text-sm text-muted-foreground">{t('ticket.resolvedNote')}</p>
+          ) : null}
+          <form action={replyAction} className="flex flex-col gap-2">
             <input type="hidden" name="id" value={ticket.id} />
-            <Button type="submit" variant="outline">
-              {t('ticket.resolve')}
-            </Button>
+            <Label htmlFor="reply-body" className="sr-only">
+              {t('ticket.reply')}
+            </Label>
+            <textarea
+              id="reply-body"
+              name="body"
+              required
+              maxLength={10000}
+              rows={4}
+              className="rounded-md border bg-background p-2 text-sm"
+            />
+            <div className="flex flex-wrap gap-2">
+              <Button type="submit">{t('ticket.replySubmit')}</Button>
+            </div>
           </form>
-        ) : null}
-      </section>
+          {ticket.status !== 'RESOLVED' ? (
+            <form action={resolveAction}>
+              <input type="hidden" name="id" value={ticket.id} />
+              <Button type="submit" variant="outline">
+                {t('ticket.resolve')}
+              </Button>
+            </form>
+          ) : null}
+        </section>
+      )}
     </div>
   );
 }

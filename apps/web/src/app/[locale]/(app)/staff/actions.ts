@@ -47,7 +47,11 @@ export async function startImpersonationAction(form: FormData): Promise<void> {
     reason: text(form, 'reason'),
     minutes: Number(text(form, 'minutes') ?? 30),
   });
-  if (!body.success) return toTenant(agencyId, { error: 'VALIDATION_FAILED' });
+  if (!body.success) {
+    // S17-F48: a tampered duration is not a reason problem.
+    const onlyMinutes = body.error.issues.every((i) => i.path[0] === 'minutes');
+    return toTenant(agencyId, { error: onlyMinutes ? 'INVALID_DURATION' : 'VALIDATION_FAILED' });
+  }
   const s = await session();
   const res = await startImpersonation(s, body.data);
   if (res === 'revoked') redirect('/session/expired');
@@ -64,7 +68,7 @@ export async function startImpersonationAction(form: FormData): Promise<void> {
  */
 export async function endImpersonationAction(): Promise<void> {
   const s = await session();
-  const open = await readImpersonation(s.userId, { includeExpired: true });
+  const open = await readImpersonation(s.userId, { includeEnded: true });
   if (!open) {
     await forgetImpersonation();
     redirect(getPathname({ href: '/staff/tenants', locale: await getLocale() }));
@@ -82,7 +86,7 @@ export async function endImpersonationAction(): Promise<void> {
  */
 export async function dismissEndedImpersonationAction(): Promise<void> {
   const s = await session();
-  const stored = await readImpersonation(s.userId, { includeExpired: true });
+  const stored = await readImpersonation(s.userId, { includeEnded: true });
   const me = await fetchStaffMe(s);
   if (me === 'revoked') redirect('/session/expired');
   const live = me.ok && stored !== null && me.data.impersonation?.id === stored.id;

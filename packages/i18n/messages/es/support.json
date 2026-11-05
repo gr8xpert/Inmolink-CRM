@@ -2,6 +2,7 @@
   "title": "Soporte",
   "intro": "Pide ayuda a nuestro equipo. Todos los miembros de tu agencia ven las incidencias de la agencia.",
   "nav": "Soporte",
+  "actingReadOnly": "Puedes leer las incidencias mientras actúas como este usuario, pero no escribir en su nombre. Responde desde la consola de staff.",
   "categories": {
     "ACCOUNT": "Cuenta y acceso",
     "BILLING": "Facturación",
@@ -55,13 +56,15 @@
     "upload": "Adjuntar un archivo",
     "uploadSubmit": "Subir",
     "hint": "PDF, PNG, JPEG o WebP, hasta 10 MB cada uno, 5 por incidencia.",
+    "limitReached": "Esta incidencia tiene el máximo de {max} archivos. No puedes adjuntar más.",
     "open": "Abrir"
   },
   "notices": {
     "created": "Incidencia enviada. Nuestro equipo responderá aquí.",
     "replied": "Respuesta enviada.",
     "resolved": "Incidencia marcada como resuelta.",
-    "uploaded": "Archivo adjuntado."
+    "uploaded": "Archivo adjuntado.",
+    "alreadyAttached": "Ese archivo ya está adjunto a esta incidencia."
   },
   "errors": {
     "generic": "Algo ha fallado. Inténtalo de nuevo.",

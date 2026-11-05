@@ -1,6 +1,14 @@
 import type { MyCapabilitiesDto } from '@inmolink/contracts';
 import { describe, expect, it } from 'vitest';
-import { buildNav, canImportContacts, inClientMode, isAgencyAdmin, staffCanReviewAndAudit } from './nav';
+import {
+  buildNav,
+  canImportContacts,
+  inClientMode,
+  isActingAsMember,
+  isAdminMember,
+  isAgencyAdmin,
+  staffCanReviewAndAudit,
+} from './nav';
 
 const member = (over: Partial<MyCapabilitiesDto>) => ({
   kind: 'member' as const,
@@ -36,6 +44,18 @@ describe('dashboard navigation', () => {
     expect(keys(agent)).toEqual(
       expect.arrayContaining(['imports', 'websites', 'portals', 'settings', 'preferredAgencies']),
     );
+  });
+
+  it('[S17-F48] staff acting as an admin are recognised; the profile (allowed to them) follows the role, the rest stays refused', () => {
+    const acting = member({ role: 'AGENCY_ADMIN', impersonating: true });
+    expect(isActingAsMember(acting)).toBe(true);
+    expect(isActingAsMember(member({ role: 'AGENCY_ADMIN' }))).toBe(false);
+    expect(isActingAsMember({ kind: 'staff', role: 'SUPER_ADMIN' })).toBe(false);
+    expect(isAdminMember(acting)).toBe(true);
+    expect(isAgencyAdmin(acting)).toBe(false);
+    expect(isAdminMember(member({ role: 'AGENT', impersonating: true }))).toBe(false);
+    expect(isAdminMember(member({ role: 'AGENCY_ADMIN', clientMode: true }))).toBe(false);
+    expect(isAdminMember({ kind: 'unknown' })).toBe(false);
   });
 
   it('[S17-F35] Client Mode is recognised from the capabilities, for members only', () => {

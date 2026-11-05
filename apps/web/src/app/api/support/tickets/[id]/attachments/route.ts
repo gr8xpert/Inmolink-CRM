@@ -6,7 +6,7 @@ import { getPathname } from '@/i18n/navigation';
 import { sessionRef } from '@/server/api';
 import { webConfig } from '@/server/env';
 import { requestAuthCtx } from '@/server/request-id';
-import { uploadSupportAttachment } from '@/server/support-api';
+import { fetchSupportTicket, uploadSupportAttachment } from '@/server/support-api';
 
 /** Multipart overhead on top of the file (boundaries, part headers, the other fields). */
 const FORM_OVERHEAD_BYTES = 64 * 1024;
@@ -66,12 +66,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   // Browsers send the bare name; anything unusable becomes a neutral one.
   const name = DocumentFileName.safeParse(file.name);
 
-  const res = await uploadSupportAttachment(sessionRef(session.user), ticketId, name.success ? name.data : 'file', {
+  // S17-F48: the API answers an identical file with the attachment already on the ticket; compare with what was there.
+  const ref = sessionRef(session.user);
+  const before = await fetchSupportTicket(ref, ticketId);
+  const known = new Set(before !== 'revoked' && before.ok ? before.data.attachments.map((a) => a.id) : []);
+  const res = await uploadSupportAttachment(ref, ticketId, name.success ? name.data : 'file', {
     bytes: new Uint8Array(await file.arrayBuffer()),
     contentType: file.type,
   });
   if (res === 'revoked') return Response.redirect(`${config.WEB_URL}/session/expired`, 303);
-  if (res.ok) return back(locale, { notice: 'uploaded' });
+  if (res.ok) return back(locale, { notice: known.has(res.data.id) ? 'alreadyAttached' : 'uploaded' });
   const code = res.error?.code;
   return back(locale, { error: code && KNOWN_ERRORS.has(code) ? code : 'generic' });
 }

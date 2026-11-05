@@ -32,13 +32,19 @@ export default async function StaffAuditPage({ searchParams }: { searchParams: P
   const fromDay = typeof params.from === 'string' && DAY.test(params.from) ? params.from : undefined;
   const toDay = typeof params.to === 'string' && DAY.test(params.to) ? params.to : undefined;
   const cursor = typeof params.cursor === 'string' && CURSOR.test(params.cursor) ? params.cursor : undefined;
-  const res = await fetchStaffAuditLog(session, {
+  const query = {
     agencyId,
     type,
     from: dayStart(fromDay),
     to: dayStart(toDay, 1),
     cursor,
-  });
+  };
+  const rangeInverted = Boolean(query.from && query.to && query.from >= query.to);
+  let res = await fetchStaffAuditLog(session, query);
+  // S17-F48: a cursor the API cannot read starts from the first page; only a real inverted range is a range error.
+  if (res !== 'revoked' && !res.ok && res.error?.code === 'VALIDATION_FAILED' && cursor && !rangeInverted) {
+    res = await fetchStaffAuditLog(session, { ...query, cursor: undefined });
+  }
   if (res === 'revoked') redirect('/session/expired');
   const t = await getTranslations('staff');
   const format = await getFormatter();
@@ -76,7 +82,7 @@ export default async function StaffAuditPage({ searchParams }: { searchParams: P
       </form>
       {!res.ok ? (
         <p role="alert" className="text-sm text-destructive">
-          {res.error?.code === 'VALIDATION_FAILED' ? t('audit.badRange') : t('errors.generic')}
+          {res.error?.code === 'VALIDATION_FAILED' && rangeInverted ? t('audit.badRange') : t('errors.generic')}
         </p>
       ) : res.data.items.length === 0 ? (
         <EmptyState title={t('audit.empty')} />

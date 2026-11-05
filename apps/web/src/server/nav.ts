@@ -74,6 +74,23 @@ export function isAgencyAdmin(identity: ShellIdentity): boolean {
   );
 }
 
+/** Whether staff are acting as this member (S17-F48): what impersonation refuses is shown as unavailable, not offered. */
+export function isActingAsMember(identity: ShellIdentity): boolean {
+  return identity.kind === 'member' && identity.caps.impersonating;
+}
+
+/**
+ * Whether the member is an agency or developer admin, impersonated or not (S17-F48). For actions whose policy lets staff
+ * acting as that admin through (`agencies.profile.update`); `isAgencyAdmin` stays for those impersonation refuses.
+ */
+export function isAdminMember(identity: ShellIdentity): boolean {
+  return (
+    identity.kind === 'member' &&
+    !identity.caps.clientMode &&
+    (identity.caps.role === 'AGENCY_ADMIN' || identity.caps.role === 'DEVELOPER_ADMIN')
+  );
+}
+
 /** Whether to offer the contact import (S17-F29, S17-F30): admins, as above (`crm.contacts.import`). */
 export function canImportContacts(identity: ShellIdentity): boolean {
   return isAgencyAdmin(identity);

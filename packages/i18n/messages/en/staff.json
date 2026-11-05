@@ -168,6 +168,16 @@
     "no": "No",
     "verification": "Verification",
     "verificationState": "{status} (submitted {date})",
+    "verificationStatus": {
+      "SUBMITTED": "Waiting for review",
+      "APPROVED": "Approved",
+      "REJECTED": "Rejected"
+    },
+    "kinds": {
+      "AGENCY": "Estate agency",
+      "DEVELOPER": "Property developer",
+      "PARTNER": "Partner"
+    },
     "notSubmitted": "Not submitted",
     "created": "Joined",
     "members": "Members",
@@ -201,11 +211,13 @@
     "bannerEnded": "Your session acting as {user} at {agency} has ended. Nothing more is done in their name.",
     "dismiss": "Dismiss",
     "endedNotice": "You are no longer acting as another user.",
+    "endedUnconfirmed": "We could not check your session acting as another user. Please try again in a moment.",
     "errors": {
       "FORBIDDEN": "Your staff role cannot act as other users.",
       "NOT_FOUND": "That agency no longer exists.",
       "IMPERSONATION_TARGET_INVALID": "You can only act as an active member of an agency that is not suspended.",
       "VALIDATION_FAILED": "Write a reason of 10 to 500 characters.",
+      "INVALID_DURATION": "Choose one of the listed durations.",
       "generic": "Something went wrong. Please try again."
     }
   },

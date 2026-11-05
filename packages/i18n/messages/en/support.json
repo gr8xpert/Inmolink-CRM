@@ -2,6 +2,7 @@
   "title": "Support",
   "intro": "Ask our team for help. Every member of your agency can see your agency's tickets.",
   "nav": "Support",
+  "actingReadOnly": "You can read tickets while acting as this user, not write in their name. Reply from the staff console.",
   "categories": {
     "ACCOUNT": "Account and access",
     "BILLING": "Billing",
@@ -55,13 +56,15 @@
     "upload": "Attach a file",
     "uploadSubmit": "Upload",
     "hint": "PDF, PNG, JPEG or WebP, up to 10 MB each, 5 per ticket.",
+    "limitReached": "This ticket has the maximum of {max} files. You cannot attach more.",
     "open": "Open"
   },
   "notices": {
     "created": "Ticket sent. Our team will reply here.",
     "replied": "Reply sent.",
     "resolved": "Ticket marked as resolved.",
-    "uploaded": "File attached."
+    "uploaded": "File attached.",
+    "alreadyAttached": "That file is already attached to this ticket."
   },
   "errors": {
     "generic": "Something went wrong. Please try again.",

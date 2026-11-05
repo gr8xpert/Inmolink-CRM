@@ -5,7 +5,7 @@ import { auth } from '@/auth';
 import { ClientModeUnavailable } from '@/components/shell/client-mode-unavailable';
 import { getPathname, Link, redirect as localeRedirect } from '@/i18n/navigation';
 import { fetchAgencySettings, sessionRef } from '@/server/api';
-import { inClientMode, isAgencyAdmin } from '@/server/nav';
+import { inClientMode, isActingAsMember, isAgencyAdmin } from '@/server/nav';
 import { loadShell } from '@/server/shell';
 import { SettingsForm } from './settings-form';
 import { settingsValues } from './values';
@@ -22,6 +22,8 @@ export default async function SettingsPage() {
   const shell = await loadShell();
   if (shell && inClientMode(shell.identity)) return <ClientModeUnavailable />;
   const admin = shell !== null && isAgencyAdmin(shell.identity);
+  // S17-F48: `agencies.settings.update` is refused to staff acting as a member: say so, not "only an administrator".
+  const acting = shell !== null && isActingAsMember(shell.identity);
   const res = await fetchAgencySettings(sessionRef(session.user));
   if (res === 'revoked') redirect('/session/expired');
   const t = await getTranslations('agency');
@@ -46,7 +48,7 @@ export default async function SettingsPage() {
       </Link>
       {res.ok && !admin ? (
         <p className="rounded-md bg-muted p-3 text-sm" data-testid="admin-only">
-          {t('membersReadOnly')}
+          {acting ? (await getTranslations('shell'))('actingUnavailable') : t('membersReadOnly')}
         </p>
       ) : null}
       {!res.ok ? (

@@ -6,6 +6,8 @@ import { getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
 import { fetchMyPublicProfile, sessionRef } from '@/server/api';
+import { isActingAsMember } from '@/server/nav';
+import { loadShell } from '@/server/shell';
 import { removePhotoAction, savePublicProfileAction, uploadPhotoAction } from './actions';
 
 const ERRORS = [
@@ -41,6 +43,18 @@ export default async function PublicProfilePage({ searchParams }: { searchParams
       <div className="mx-auto max-w-2xl p-6">
         <p role="alert" className="text-sm text-destructive">
           {res.status === 403 ? t('errors.forbidden') : t('errors.generic')}
+        </p>
+      </div>
+    );
+  }
+  const shell = await loadShell();
+  if (shell && isActingAsMember(shell.identity)) {
+    // S17-F48: staff acting as the member cannot change it (the API refuses): say so instead of offering the form.
+    return (
+      <div className="mx-auto flex max-w-2xl flex-col gap-4 p-6">
+        <h1 className="text-xl font-semibold">{t('title')}</h1>
+        <p role="status" className="rounded-md bg-muted p-3 text-sm" data-testid="public-profile-acting">
+          {(await getTranslations('shell'))('actingUnavailable')}
         </p>
       </div>
     );
