@@ -17,7 +17,7 @@ export async function ImpersonationBanner() {
   if (!(await hasImpersonationCookie())) return null;
   const session = await auth();
   if (!session?.user?.id) return null;
-  const stored = await readImpersonation(session.user.id, { includeExpired: true });
+  const stored = await readImpersonation(session.user.id, { includeEnded: true });
   if (!stored) return null;
   const me = await fetchStaffMe(sessionRef(session.user));
   const live = me !== 'revoked' && me.ok ? me.data.impersonation : null;

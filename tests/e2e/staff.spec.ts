@@ -68,3 +68,47 @@ test('[S1-09] non-staff get 404 on staff pages; staff act as a member with a rea
   await expect(page.getByRole('status')).toContainText('You are no longer acting as another user.');
   await expect(banner).toHaveCount(0);
 });
+
+test('[S17-F46] a session stopped from another tab ends in the banner, not a redirect loop', async ({
+  page,
+  browser,
+}) => {
+  const { staff, company } = await seed();
+  await login(page, staff);
+  await page.getByRole('link', { name: 'Staff console' }).click();
+  await page.getByLabel('Name or tax id').fill(company);
+  await page.getByRole('button', { name: 'Filter' }).click();
+  await page.getByTestId('tenants').getByRole('link', { name: 'Open' }).click();
+  await page.getByText('Act as Marta').click();
+  await page.getByLabel(/^Reason \(support ticket, what/).fill('E2E: stopped from another tab');
+  await page.getByRole('button', { name: 'Start acting as this user' }).click();
+  const banner = page.getByTestId('impersonation-banner');
+  await expect(banner).toContainText(`You are acting as Marta at ${company}`);
+
+  // A second browser context holding the same cookies stops the session.
+  const other = await browser.newContext({ storageState: await page.context().storageState() });
+  const tabB = await other.newPage();
+  await tabB.goto('/en');
+  await tabB.getByRole('button', { name: 'Stop acting as this user' }).click();
+  await expect(tabB.getByRole('status').first()).toContainText('You are no longer acting as another user.');
+  await other.close();
+
+  // Tab A still holds the cookie: it lands on the console, as the staff member, told the session is over.
+  await page.goto('/en');
+  await expect(page).toHaveURL(/\/en\/staff\/tenants\?notice=ended$/);
+  await expect(banner).toContainText(`Your session acting as Marta at ${company} has ended`);
+  await expect(banner.getByRole('button', { name: 'Stop acting as this user' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Filter' })).toBeVisible();
+
+  // The login page, which sent the browser into the loop too, now answers, and no page acts as the member.
+  await page.goto('/en/login');
+  await expect(page).not.toHaveURL(/impersonation-ended/);
+  await page.goto('/en');
+  await expect(banner).toContainText('has ended');
+  await expect(page.getByRole('link', { name: 'Staff console' })).toBeVisible();
+
+  // Dismissing forgets it for good.
+  await banner.getByRole('button', { name: 'Dismiss' }).click();
+  await expect(page).toHaveURL(/\/en\/staff\/tenants/);
+  await expect(banner).toHaveCount(0);
+});

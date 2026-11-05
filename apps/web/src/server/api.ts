@@ -189,7 +189,7 @@ async function toTwoFactor(): Promise<never> {
 
 /**
  * The staff member's impersonation session ended, expired or was revoked (S1-09): a route handler
- * forgets it in the browser and sends them back to the staff console.
+ * stops the browser using it (S17-F46) and sends them back to the staff console.
  */
 function toImpersonationEnded(): never {
   redirect('/session/impersonation-ended');

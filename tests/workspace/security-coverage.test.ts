@@ -67,8 +67,8 @@ const HANDLER_LIMITS: Readonly<Record<string, { how: string; evidence: [file: st
     evidence: ['apps/web/src/app/session/expired/route.ts', 'GET'],
   },
   'apps/web/src/app/session/impersonation-ended/route.ts': {
-    how: 'exempt: a redirect only',
-    evidence: ['apps/web/src/app/session/impersonation-ended/route.ts', 'redirect'],
+    how: 'session required; one read through the api (its own per-user limit), then a cookie update and a redirect',
+    evidence: ['apps/web/src/app/session/impersonation-ended/route.ts', 'fetchStaffMe'],
   },
   'apps/web/src/app/session/token/route.ts': {
     how: 'per-session token mint limits (checkLimits)',
