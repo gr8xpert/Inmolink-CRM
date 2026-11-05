@@ -43,6 +43,7 @@
     "done": "Open the connection"
   },
   "detail": {
+    "readOnly": "Only an agency admin can change this connection. You can see its setup and history below.",
     "title": "{name}",
     "setup": "Setup",
     "enabled": "Send listings to this portal",

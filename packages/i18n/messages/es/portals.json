@@ -43,6 +43,7 @@
     "done": "Abrir la conexión"
   },
   "detail": {
+    "readOnly": "Solo un administrador de la agencia puede cambiar esta conexión. Abajo puedes ver su configuración y su historial.",
     "title": "{name}",
     "setup": "Configuración",
     "enabled": "Enviar inmuebles a este portal",

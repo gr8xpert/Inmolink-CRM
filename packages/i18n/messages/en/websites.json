@@ -57,7 +57,8 @@
     "save": "Save",
     "create": "Add website",
     "back": "Back to websites",
-    "adminOnly": "Only an agency admin can add a website. Ask your admin to do it."
+    "adminOnly": "Only an agency admin can add a website. Ask your admin to do it.",
+    "readOnly": "Only an agency admin can change this website. You can see its settings below."
   },
   "notices": {
     "created": "Website added.",

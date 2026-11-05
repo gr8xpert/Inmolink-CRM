@@ -2,6 +2,7 @@ import { Button, Input, Label } from '@inmolink/ui';
 import { notFound, redirect } from 'next/navigation';
 import { getFormatter, getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
+import { ClientModeUnavailable } from '@/components/shell/client-mode-unavailable';
 import { getPathname, Link, redirect as localeRedirect } from '@/i18n/navigation';
 import {
   fetchPortalChannels,
@@ -12,6 +13,8 @@ import {
   fetchPortalSelection,
   sessionRef,
 } from '@/server/api';
+import { inClientMode, isAgencyAdmin } from '@/server/nav';
+import { loadShell } from '@/server/shell';
 import { channelLabel } from '../channel-label';
 import { PortalNotice } from '../notice';
 import {
@@ -31,7 +34,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /**
  * One portal connection (S9-01): its setup and selection rule, the feed token (rotate or turn off), the listings
  * chosen one by one, and a preview of what it sends now. S9-03: the served feed file and the run history. Members see it; only admins can change it (the API refuses
- * everyone else).
+ * everyone else), so others read it without the controls (S17-F44).
  */
 export default async function PortalConnectionPage({
   params,
@@ -43,6 +46,9 @@ export default async function PortalConnectionPage({
   const locale = await getLocale();
   const session = await auth();
   if (!session?.user?.id) return localeRedirect({ href: '/login', locale });
+  const shell = await loadShell();
+  if (shell && inClientMode(shell.identity)) return <ClientModeUnavailable />;
+  const admin = shell !== null && isAgencyAdmin(shell.identity);
   const { id } = await params;
   if (!UUID.test(id)) notFound();
   const ref = sessionRef(session.user);
@@ -97,38 +103,47 @@ export default async function PortalConnectionPage({
         </p>
       </div>
       <PortalNotice done={q.done} error={q.error} />
+      {admin ? null : (
+        <p className="rounded-md bg-muted p-3 text-sm" data-testid="admin-only">
+          {t('detail.readOnly')}
+        </p>
+      )}
 
       <section className="flex flex-col gap-3 rounded-md border p-4" aria-labelledby="portal-setup-title">
         <h2 id="portal-setup-title" className="text-lg font-semibold">
           {t('detail.setup')}
         </h2>
         <form action={updatePortalAction} className="flex flex-col gap-3">
-          <input type="hidden" name="connectionId" value={c.id} />
-          <input type="hidden" name="version" value={c.version} />
-          <Label htmlFor="portal-edit-name">{t('add.name')}</Label>
-          <Input id="portal-edit-name" name="name" maxLength={80} defaultValue={c.name} required />
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" name="enabled" defaultChecked={c.enabled} />
-            {t('detail.enabled')}
-          </label>
-          <RuleFields idPrefix="portal-edit" selection={c.selection} />
-          <Label htmlFor="portal-edit-credentials">{t('detail.credentials')}</Label>
-          <p className="text-xs text-muted-foreground">
-            {c.credentialKeys.length > 0
-              ? t('detail.credentialsStored', { keys: c.credentialKeys.join(', ') })
-              : t('detail.credentialsNone')}
-            {channel && channel.credentialFields.length > 0
-              ? ` ${t('detail.credentialsFields', { keys: channel.credentialFields.join(', ') })}`
-              : ''}
-          </p>
-          <textarea id="portal-edit-credentials" name="credentials" rows={2} className={SELECT} />
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" name="removeCredentials" />
-            {t('detail.removeCredentials')}
-          </label>
-          <Button type="submit" size="sm" className="self-start">
-            {t('detail.save')}
-          </Button>
+          <fieldset disabled={!admin} className="contents">
+            <input type="hidden" name="connectionId" value={c.id} />
+            <input type="hidden" name="version" value={c.version} />
+            <Label htmlFor="portal-edit-name">{t('add.name')}</Label>
+            <Input id="portal-edit-name" name="name" maxLength={80} defaultValue={c.name} required />
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" name="enabled" defaultChecked={c.enabled} />
+              {t('detail.enabled')}
+            </label>
+            <RuleFields idPrefix="portal-edit" selection={c.selection} />
+            <Label htmlFor="portal-edit-credentials">{t('detail.credentials')}</Label>
+            <p className="text-xs text-muted-foreground">
+              {c.credentialKeys.length > 0
+                ? t('detail.credentialsStored', { keys: c.credentialKeys.join(', ') })
+                : t('detail.credentialsNone')}
+              {channel && channel.credentialFields.length > 0
+                ? ` ${t('detail.credentialsFields', { keys: channel.credentialFields.join(', ') })}`
+                : ''}
+            </p>
+            <textarea id="portal-edit-credentials" name="credentials" rows={2} className={SELECT} />
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" name="removeCredentials" />
+              {t('detail.removeCredentials')}
+            </label>
+          </fieldset>
+          {admin ? (
+            <Button type="submit" size="sm" className="self-start">
+              {t('detail.save')}
+            </Button>
+          ) : null}
         </form>
       </section>
 
@@ -145,30 +160,32 @@ export default async function PortalConnectionPage({
               })
             : t('token.revoked')}
         </p>
-        <div className="flex flex-wrap items-start gap-4">
-          <IssueTokenForm
-            action={rotateTokenAction}
-            doneBase={getPathname({ href: '/portals', locale })}
-            submit={c.tokenActive ? t('token.rotate') : t('token.turnOn')}
-            issued={{
-              title: t('issued.title'),
-              intro: t('issued.intro'),
-              token: t('issued.token'),
-              done: t('issued.done'),
-            }}
-            errors={errors}
-          >
-            <input type="hidden" name="connectionId" value={c.id} />
-          </IssueTokenForm>
-          {c.tokenActive ? (
-            <form action={revokeTokenAction}>
+        {admin ? (
+          <div className="flex flex-wrap items-start gap-4">
+            <IssueTokenForm
+              action={rotateTokenAction}
+              doneBase={getPathname({ href: '/portals', locale })}
+              submit={c.tokenActive ? t('token.rotate') : t('token.turnOn')}
+              issued={{
+                title: t('issued.title'),
+                intro: t('issued.intro'),
+                token: t('issued.token'),
+                done: t('issued.done'),
+              }}
+              errors={errors}
+            >
               <input type="hidden" name="connectionId" value={c.id} />
-              <Button type="submit" variant="outline" size="sm">
-                {t('token.turnOff')}
-              </Button>
-            </form>
-          ) : null}
-        </div>
+            </IssueTokenForm>
+            {c.tokenActive ? (
+              <form action={revokeTokenAction}>
+                <input type="hidden" name="connectionId" value={c.id} />
+                <Button type="submit" variant="outline" size="sm">
+                  {t('token.turnOff')}
+                </Button>
+              </form>
+            ) : null}
+          </div>
+        ) : null}
       </section>
 
       <section className="flex flex-col gap-3 rounded-md border p-4" aria-labelledby="portal-choices-title">
@@ -182,43 +199,47 @@ export default async function PortalConnectionPage({
               <li key={o.propertyId} className="flex items-center gap-3">
                 <span className="font-mono text-xs">{o.ref ?? o.propertyId}</span>
                 <span>{t(`choices.actions.${o.action}`)}</span>
-                <form action={clearPropertyAction}>
-                  <input type="hidden" name="connectionId" value={c.id} />
-                  <input type="hidden" name="propertyId" value={o.propertyId} />
-                  <Button type="submit" variant="outline" size="sm">
-                    {t('choices.clear')}
-                  </Button>
-                </form>
+                {admin ? (
+                  <form action={clearPropertyAction}>
+                    <input type="hidden" name="connectionId" value={c.id} />
+                    <input type="hidden" name="propertyId" value={o.propertyId} />
+                    <Button type="submit" variant="outline" size="sm">
+                      {t('choices.clear')}
+                    </Button>
+                  </form>
+                ) : null}
               </li>
             ))}
           </ul>
         ) : (
           <p className="text-sm text-muted-foreground">{t('choices.none')}</p>
         )}
-        <form action={choosePropertiesAction} className="flex flex-col gap-2">
-          <input type="hidden" name="connectionId" value={c.id} />
-          <Label htmlFor="portal-refs">{t('choices.refs')}</Label>
-          <textarea
-            id="portal-refs"
-            name="refs"
-            rows={3}
-            className={SELECT}
-            aria-describedby="portal-refs-hint"
-            required
-          />
-          <p id="portal-refs-hint" className="text-xs text-muted-foreground">
-            {t('choices.refsHint')}
-          </p>
-          <Label htmlFor="portal-choice-action">{t('choices.action')}</Label>
-          <select id="portal-choice-action" name="action" className={SELECT}>
-            <option value="INCLUDE">{t('choices.actions.INCLUDE')}</option>
-            <option value="EXCLUDE">{t('choices.actions.EXCLUDE')}</option>
-            <option value="CLEAR">{t('choices.actions.CLEAR')}</option>
-          </select>
-          <Button type="submit" size="sm" className="self-start">
-            {t('choices.apply')}
-          </Button>
-        </form>
+        {admin ? (
+          <form action={choosePropertiesAction} className="flex flex-col gap-2">
+            <input type="hidden" name="connectionId" value={c.id} />
+            <Label htmlFor="portal-refs">{t('choices.refs')}</Label>
+            <textarea
+              id="portal-refs"
+              name="refs"
+              rows={3}
+              className={SELECT}
+              aria-describedby="portal-refs-hint"
+              required
+            />
+            <p id="portal-refs-hint" className="text-xs text-muted-foreground">
+              {t('choices.refsHint')}
+            </p>
+            <Label htmlFor="portal-choice-action">{t('choices.action')}</Label>
+            <select id="portal-choice-action" name="action" className={SELECT}>
+              <option value="INCLUDE">{t('choices.actions.INCLUDE')}</option>
+              <option value="EXCLUDE">{t('choices.actions.EXCLUDE')}</option>
+              <option value="CLEAR">{t('choices.actions.CLEAR')}</option>
+            </select>
+            <Button type="submit" size="sm" className="self-start">
+              {t('choices.apply')}
+            </Button>
+          </form>
+        ) : null}
       </section>
 
       <section className="flex flex-col gap-3 rounded-md border p-4" aria-labelledby="portal-preview-title">
@@ -348,12 +369,14 @@ export default async function PortalConnectionPage({
         )}
       </section>
 
-      <form action={deletePortalAction}>
-        <input type="hidden" name="connectionId" value={c.id} />
-        <Button type="submit" variant="outline" size="sm">
-          {t('detail.delete')}
-        </Button>
-      </form>
+      {admin ? (
+        <form action={deletePortalAction}>
+          <input type="hidden" name="connectionId" value={c.id} />
+          <Button type="submit" variant="outline" size="sm">
+            {t('detail.delete')}
+          </Button>
+        </form>
+      ) : null}
     </div>
   );
 }

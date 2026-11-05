@@ -57,7 +57,8 @@
     "save": "Guardar",
     "create": "Añadir sitio web",
     "back": "Volver a sitios web",
-    "adminOnly": "Solo un administrador de la agencia puede añadir un sitio web. Pídeselo a tu administrador."
+    "adminOnly": "Solo un administrador de la agencia puede añadir un sitio web. Pídeselo a tu administrador.",
+    "readOnly": "Solo un administrador de la agencia puede cambiar este sitio web. Abajo puedes ver su configuración."
   },
   "notices": {
     "created": "Sitio web añadido.",

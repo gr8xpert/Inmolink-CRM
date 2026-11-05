@@ -44,7 +44,7 @@ export default async function PreferredAgenciesPage({
   const query = DirectorySearchQuery.safeParse({ q: params.q ?? '' });
   const [list, found] = await Promise.all([
     fetchPreferredAgencies(ref, params.cursor || undefined),
-    query.success ? searchAgencyDirectory(ref, query.data.q) : Promise.resolve(null),
+    admin && query.success ? searchAgencyDirectory(ref, query.data.q) : Promise.resolve(null),
   ]);
   if (list === 'revoked' || found === 'revoked') redirect('/session/expired');
   const t = await getTranslations('agency');
@@ -153,55 +153,57 @@ export default async function PreferredAgenciesPage({
         ) : null}
       </section>
 
-      <section aria-labelledby="search-heading" className="flex flex-col gap-3">
-        <h2 id="search-heading" className="font-medium">
-          {t('preferred.search.title')}
-        </h2>
-        <form method="get" className="flex flex-wrap items-end gap-2">
-          <div className="flex min-w-0 flex-1 flex-col gap-1">
-            <Label htmlFor="directory-q">{t('preferred.search.label')}</Label>
-            <Input
-              id="directory-q"
-              name="q"
-              defaultValue={params.q ?? ''}
-              minLength={3}
-              maxLength={80}
-              placeholder={t('preferred.search.placeholder')}
-            />
-          </div>
-          <Button type="submit" variant="outline" size="sm">
-            {t('preferred.search.submit')}
-          </Button>
-        </form>
-        {found && !found.ok ? (
-          <p role="alert" className="text-sm text-destructive">
-            {found.status === 403 ? t('preferred.search.verifiedOnly') : t('errors.generic')}
-          </p>
-        ) : null}
-        {found?.ok && query.success ? (
-          found.data.items.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{t('preferred.search.none', { q: query.data.q })}</p>
-          ) : (
-            <ul className="divide-y rounded-md border" data-testid="directory-results">
-              {found.data.items.map((a) => (
-                <li key={a.agencyId} className="flex flex-wrap items-center justify-between gap-2 p-3">
-                  <p className="min-w-0 truncate text-sm font-medium">{a.name}</p>
-                  {a.preferred ? (
-                    <span className="text-xs text-muted-foreground">{t('preferred.search.alreadyAdded')}</span>
-                  ) : !admin ? null : (
-                    <form action={addPreferredAction}>
-                      <input type="hidden" name="agencyId" value={a.agencyId} />
-                      <Button type="submit" size="sm">
-                        {t('preferred.search.add')}
-                      </Button>
-                    </form>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )
-        ) : null}
-      </section>
+      {admin ? (
+        <section aria-labelledby="search-heading" className="flex flex-col gap-3">
+          <h2 id="search-heading" className="font-medium">
+            {t('preferred.search.title')}
+          </h2>
+          <form method="get" className="flex flex-wrap items-end gap-2">
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
+              <Label htmlFor="directory-q">{t('preferred.search.label')}</Label>
+              <Input
+                id="directory-q"
+                name="q"
+                defaultValue={params.q ?? ''}
+                minLength={3}
+                maxLength={80}
+                placeholder={t('preferred.search.placeholder')}
+              />
+            </div>
+            <Button type="submit" variant="outline" size="sm">
+              {t('preferred.search.submit')}
+            </Button>
+          </form>
+          {found && !found.ok ? (
+            <p role="alert" className="text-sm text-destructive">
+              {found.status === 403 ? t('preferred.search.verifiedOnly') : t('errors.generic')}
+            </p>
+          ) : null}
+          {found?.ok && query.success ? (
+            found.data.items.length === 0 ? (
+              <p className="text-sm text-muted-foreground">{t('preferred.search.none', { q: query.data.q })}</p>
+            ) : (
+              <ul className="divide-y rounded-md border" data-testid="directory-results">
+                {found.data.items.map((a) => (
+                  <li key={a.agencyId} className="flex flex-wrap items-center justify-between gap-2 p-3">
+                    <p className="min-w-0 truncate text-sm font-medium">{a.name}</p>
+                    {a.preferred ? (
+                      <span className="text-xs text-muted-foreground">{t('preferred.search.alreadyAdded')}</span>
+                    ) : !admin ? null : (
+                      <form action={addPreferredAction}>
+                        <input type="hidden" name="agencyId" value={a.agencyId} />
+                        <Button type="submit" size="sm">
+                          {t('preferred.search.add')}
+                        </Button>
+                      </form>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )
+          ) : null}
+        </section>
+      ) : null}
     </div>
   );
 }

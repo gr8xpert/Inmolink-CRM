@@ -190,3 +190,13 @@ test('[S17-F41] an agent sees the preferred agencies but not the add, remove and
   await page.goto('/en/preferred-agencies?q=agency');
   await expect(page.getByRole('button', { name: 'Add', exact: true })).toHaveCount(0);
 });
+
+test('[S17-F44] an agent reads preferred agencies without the directory search that only admins can use', async ({
+  page,
+}) => {
+  const agent = await seedAgent();
+  await login(page, agent.email);
+  await page.goto('/en/preferred-agencies');
+  await expect(page.getByTestId('admin-only')).toBeVisible();
+  await expect(page.getByLabel('Agency name')).toBeHidden();
+});

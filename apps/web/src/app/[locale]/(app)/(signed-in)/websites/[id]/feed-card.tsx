@@ -17,11 +17,14 @@ export async function FeedCard({
   feed,
   notice,
   error,
+  admin,
 }: {
   site: SiteDto;
   feed: SiteFeedDto | null;
   notice?: string;
   error?: string;
+  /** Only admins turn the feed on, rotate or turn it off (S17-F44); the API refuses everyone else. */
+  admin: boolean;
 }) {
   const t = await getTranslations('websites.feed');
   const fmt = await getFormatter();
@@ -98,7 +101,7 @@ export async function FeedCard({
           {t('lastError', { code: feed.lastError })}
         </p>
       ) : null}
-      {feed !== null ? (
+      {feed !== null && admin ? (
         <div className="flex flex-wrap items-start gap-4">
           <RotateFeedForm
             action={rotateFeedAction}
