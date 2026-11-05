@@ -614,7 +614,9 @@ export function createS3Store(config: S3StoreConfig): ObjectStore {
       await res.body?.cancel();
     },
     async head(bucket, key) {
-      const res = await send(urlOf(bucket, key), { method: 'HEAD' });
+      // S17-F55: uncompressed, or R2 gzips a larger object and answers a weak `W/"…"` ETag, which `If-Match` never
+      // matches: every overwrite of it would be refused (and the length would be missing).
+      const res = await send(urlOf(bucket, key), { method: 'HEAD', headers: { 'accept-encoding': 'identity' } });
       if (res.status === 404) return null;
       if (!res.ok) throw new StorageError(`storage HEAD failed (${res.status})`, res.status);
       await res.body?.cancel();
@@ -704,9 +706,9 @@ export function createS3Store(config: S3StoreConfig): ObjectStore {
 
 const memoryEtag = (body: Uint8Array) => `"${createHash('md5').update(body).digest('hex')}"`;
 
-/** An ETag as `head` returns it, safe to send in a header. */
+/** An ETag as `head` returns it, safe to send in a header. Strong only: `If-Match` compares strongly (S17-F55). */
 function assertEtag(etag: string): string {
-  if (!/^(W\/)?"[!#-~]+"$/.test(etag)) throw new StorageError('storage: invalid ETag');
+  if (!/^"[!#-~]+"$/.test(etag)) throw new StorageError('storage: invalid ETag');
   return etag;
 }
 

@@ -301,6 +301,27 @@ describe('storage list (S1-F7)', () => {
     expect(second.next).toBeNull();
   });
 
+  it('[S17-F55] head asks for the uncompressed object, so its ETag can be used for If-Match; a weak ETag is refused', async () => {
+    let acceptEncoding: string | null = null;
+    const store = createS3Store({
+      endpoint: 'http://localhost:9000/',
+      region: 'auto',
+      accessKeyId: 'AKIDEXAMPLE',
+      secretAccessKey: 'secret',
+      buckets: { media: 'm', exports: 'e', private: 'p', work: 'w' },
+      fetch: async (req) => {
+        const r = req as Request;
+        acceptEncoding = r.headers.get('accept-encoding');
+        return new Response(null, { status: 200, headers: { etag: '"strong"', 'content-length': '5000' } });
+      },
+    });
+    expect(await store.head('work', 'k')).toEqual({ sizeBytes: 5000, etag: '"strong"' });
+    expect(acceptEncoding).toBe('identity');
+    await expect(
+      store.putIf('work', 'k', new Uint8Array([1]), { contentType: 'text/plain' }, { ifMatch: 'W/"weak"' }),
+    ).rejects.toThrow('invalid ETag');
+  });
+
   it('[S8-F30] the memory store honours If-None-Match and If-Match, and the S3 store sends them (412 / 409: not written)', async () => {
     const mem = createMemoryStore();
     const opts = { contentType: 'text/plain' };
