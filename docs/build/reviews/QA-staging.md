@@ -93,3 +93,11 @@ the Resales feed on the unverified test2. No production change.
 - **QA data:** QA- records in test1, QA-Net Agency (created through `identity.register` by a one-off script, Turnstile untouched; verified by staff) with its 3 listings, tickets, chats, selections, bookmark folder, site "QA-Pub Embed site", listing SLT62WB2.
 - **Dead jobs:** `pdf.dead` 2 and `exports.dead` 2 from before the fixes. The first terms PDF was replayed and rendered; the other belongs to a cancelled viewing. They expire after 30 days.
 - `dev-staff@` was STAFF_SUPPORT during QA, back to STAFF_DATA_OPS at 12:59 UTC.
+
+## Owner answers, 2026-11-05
+
+- Portfolio small photos on A4: approved. Parcela and Casa pareada: approved (the consent tick stays with the lawyer, H7).
+- Registration and viewing screens: built (S17-F56). STAFF_SUPPORT: exemption is super admin only, support keeps verification (S17-F57).
+- Cloudflare: no change while `inmolink.es` serves the old site; set Respect Existing Headers at production cutover.
+- Pilot agencies: none yet. S17-01 stays open; a simulated pilot on staging is a rehearsal only.
+- The scheduled sitemap run at 17:27 UTC worked.
