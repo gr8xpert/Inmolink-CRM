@@ -427,6 +427,7 @@
     "manage": "Gestionar favoritos",
     "bedrooms": "{count} dorm.",
     "errors": {
+      "nameRequired": "Escribe un nombre para la carpeta.",
       "BOOKMARK_FOLDER_NOT_FOUND": "Esta carpeta ya no existe.",
       "BOOKMARK_FOLDER_LIMIT": "Ya tienes 100 carpetas. Elimina una primero.",
       "BOOKMARK_FOLDER_NAME_TAKEN": "Ya tienes una carpeta con este nombre.",

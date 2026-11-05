@@ -34,5 +34,11 @@
     "FORBIDDEN": "You cannot write in this conversation.",
     "RATE_LIMITED": "Too many messages. Wait a moment.",
     "CHAT_THREAD_CLOSED": "This conversation is closed."
+  },
+  "newChat": {
+    "label": "Start a chat with a colleague",
+    "submit": "New chat",
+    "noColleagues": "No other active colleague in your agency yet, so there is nobody to chat with.",
+    "failed": "The chat could not be started. Try again."
   }
 }

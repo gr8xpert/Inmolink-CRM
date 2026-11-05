@@ -15,6 +15,9 @@ export interface FieldSpec {
   options?: { value: string; label: string }[];
 }
 
+/** `fieldInvalid` has a `{field}` placeholder: the per-field message under each field the action marked invalid. */
+export type FormErrorMessages = Record<NonNullable<FormState['error']>, string> & { fieldInvalid?: string };
+
 interface Props {
   action: (prev: FormState, form: FormData) => Promise<FormState>;
   fields: FieldSpec[];
@@ -22,7 +25,7 @@ interface Props {
   hidden?: Record<string, string>;
   submitLabel: string;
   /** Messages for `FormState.error` codes, translated on the server. */
-  errors: Record<NonNullable<FormState['error']>, string>;
+  errors: FormErrorMessages;
   /** Shown instead of the form once the action reports `done`. */
   doneMessage?: string;
   /** Short instruction above the fields. */
@@ -46,6 +49,13 @@ export function AuthForm({ action, fields, hidden, submitLabel, errors, doneMess
   // wrong password (which the action reports without `challenge`).
   const [challenged, setChallenged] = useState(false);
   if (state.challenge && !challenged) setChallenged(true);
+  const fieldMessage = (f: FieldSpec) => errors.fieldInvalid?.replace('{field}', f.label);
+  const describedBy = (f: FieldSpec, invalid: boolean) => {
+    const ids = [f.hint ? `${f.name}-hint` : null, invalid && fieldMessage(f) ? `${f.name}-error` : null].filter(
+      Boolean,
+    );
+    return ids.length ? ids.join(' ') : undefined;
+  };
   if (state.done && doneMessage) {
     return (
       <p role="status" className="rounded-md bg-muted p-4 text-sm">
@@ -72,7 +82,12 @@ export function AuthForm({ action, fields, hidden, submitLabel, errors, doneMess
         const invalid = state.fields?.includes(f.name) ?? false;
         if (f.type === 'radio') {
           return (
-            <fieldset key={f.name} className="flex flex-col gap-2" aria-invalid={invalid}>
+            <fieldset
+              key={f.name}
+              className="flex flex-col gap-2"
+              aria-invalid={invalid}
+              aria-describedby={invalid && fieldMessage(f) ? `${f.name}-error` : undefined}
+            >
               <legend className="mb-2 text-sm font-medium">{f.label}</legend>
               {(f.options ?? []).map((o, i) => (
                 <label key={o.value} className="flex items-center gap-2 text-sm">
@@ -80,6 +95,7 @@ export function AuthForm({ action, fields, hidden, submitLabel, errors, doneMess
                   {o.label}
                 </label>
               ))}
+              {invalid ? <FieldError id={`${f.name}-error`} text={fieldMessage(f)} /> : null}
             </fieldset>
           );
         }
@@ -92,9 +108,10 @@ export function AuthForm({ action, fields, hidden, submitLabel, errors, doneMess
               type={f.type ?? 'text'}
               autoComplete={f.autoComplete}
               aria-invalid={invalid}
-              aria-describedby={f.hint ? `${f.name}-hint` : undefined}
+              aria-describedby={describedBy(f, invalid)}
               required
             />
+            {invalid ? <FieldError id={`${f.name}-error`} text={fieldMessage(f)} /> : null}
             {f.hint ? (
               <p id={`${f.name}-hint`} className="text-xs text-muted-foreground">
                 {f.hint}
@@ -110,5 +127,14 @@ export function AuthForm({ action, fields, hidden, submitLabel, errors, doneMess
         {submitLabel}
       </Button>
     </form>
+  );
+}
+
+function FieldError({ id, text }: { id: string; text: string | undefined }) {
+  if (!text) return null;
+  return (
+    <p id={id} data-testid="field-error" className="text-xs text-destructive">
+      {text}
+    </p>
   );
 }

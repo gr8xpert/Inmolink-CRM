@@ -5,9 +5,10 @@ import { auth } from '@/auth';
 import { ClientModeUnavailable } from '@/components/shell/client-mode-unavailable';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
 import { sessionRef } from '@/server/api';
-import { fetchThreads } from '@/server/chat-api';
-import { inClientMode } from '@/server/nav';
+import { fetchColleagues, fetchThreads } from '@/server/chat-api';
+import { inClientMode, isActingAsMember } from '@/server/nav';
 import { loadShell } from '@/server/shell';
+import { startDirectChatAction } from './actions';
 
 const CURSOR = /^[A-Za-z0-9_-]{1,400}$/;
 
@@ -27,11 +28,57 @@ export default async function ChatInboxPage({ searchParams }: { searchParams: Pr
   const format = await getFormatter();
   const res = await fetchThreads(sessionRef(session.user), { limit: 25, cursor });
   if (res === 'revoked') redirect('/session/expired');
+  // Staff acting as a member cannot write in their name (chat policy), so no way to start a chat is offered then.
+  const acting = clientShell ? isActingAsMember(clientShell.identity) : false;
+  const members = acting ? null : await fetchColleagues(sessionRef(session.user));
+  if (members === 'revoked') redirect('/session/expired');
+  const colleagues = members?.ok
+    ? members.data.items.filter((m) => m.status === 'ACTIVE' && m.userId !== session.user.id)
+    : [];
+  const errorCode = q.error;
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-4 p-6">
       <h1 className="text-xl font-semibold">{t('title')}</h1>
       <p className="text-sm text-muted-foreground">{t('intro')}</p>
+      {members?.ok ? (
+        colleagues.length === 0 ? (
+          <p data-testid="chat-no-colleagues" className="text-sm text-muted-foreground">
+            {t('newChat.noColleagues')}
+          </p>
+        ) : (
+          <form action={startDirectChatAction} className="flex flex-wrap items-end gap-2" data-testid="chat-new">
+            <div className="flex min-w-48 flex-1 flex-col gap-1">
+              <label htmlFor="chat-new-user" className="text-sm font-medium">
+                {t('newChat.label')}
+              </label>
+              <select
+                id="chat-new-user"
+                name="userId"
+                required
+                className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+              >
+                {colleagues.map((m) => (
+                  <option key={m.userId} value={m.userId}>
+                    {m.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button
+              type="submit"
+              className="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground"
+            >
+              {t('newChat.submit')}
+            </button>
+          </form>
+        )
+      ) : null}
+      {errorCode ? (
+        <p role="alert" className="text-sm text-destructive">
+          {errorCode === 'VALIDATION_FAILED' ? t('errors.VALIDATION_FAILED') : t('newChat.failed')}
+        </p>
+      ) : null}
       {!res.ok ? (
         <p role="alert" className="text-sm text-destructive">
           {t('errors.load')}

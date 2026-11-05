@@ -427,6 +427,7 @@
     "manage": "Manage bookmarks",
     "bedrooms": "{count} bed",
     "errors": {
+      "nameRequired": "Enter a folder name.",
       "BOOKMARK_FOLDER_NOT_FOUND": "This folder no longer exists.",
       "BOOKMARK_FOLDER_LIMIT": "You already have 100 folders. Delete one first.",
       "BOOKMARK_FOLDER_NAME_TAKEN": "You already have a folder with this name.",

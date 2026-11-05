@@ -3,6 +3,7 @@ import {
   ChatThreadDetailDto,
   ChatThreadPage,
   MarkChatReadDto,
+  MemberPage,
   SendChatMessageDto,
 } from '@inmolink/contracts';
 import { type ApiResult, apiRequest, type SessionRef } from './api';
@@ -47,4 +48,16 @@ export function sendMessage(
 
 export function markThreadRead(session: SessionRef, id: string): Promise<ApiResult<MarkChatReadDto>> {
   return apiRequest(session, `/v1/chat/threads/${encodeURIComponent(id)}/read`, MarkChatReadDto, { method: 'POST' });
+}
+
+/** The colleagues a direct chat can be started with: the agency's roster (`GET /v1/members`, any member may read it). */
+export function fetchColleagues(session: SessionRef): Promise<ApiResult<MemberPage>> {
+  return apiRequest(session, '/v1/members?limit=100', MemberPage);
+}
+
+export function createDirectThread(
+  session: SessionRef,
+  body: { userIds: string[] },
+): Promise<ApiResult<ChatThreadDetailDto>> {
+  return apiRequest(session, '/v1/chat/threads', ChatThreadDetailDto, { method: 'POST', body });
 }

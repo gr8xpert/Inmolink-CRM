@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { auth } from '@/auth';
 import { getPathname } from '@/i18n/navigation';
 import { sessionRef } from '@/server/api';
-import { markThreadRead, sendMessage } from '@/server/chat-api';
+import { createDirectThread, markThreadRead, sendMessage } from '@/server/chat-api';
 
 /** Chat actions (S12-F1, transport only): the message form posts here, the API decides; back to the thread. */
 
@@ -34,4 +34,18 @@ export async function markThreadReadAction(threadId: string): Promise<void> {
   const s = await auth();
   if (!s?.user?.id || !z.uuid().safeParse(threadId).success) return;
   await markThreadRead(sessionRef(s.user), threadId);
+}
+
+/** Starts a direct chat with one colleague (S17-F50): works without JavaScript; the API checks the colleague is a member. */
+export async function startDirectChatAction(form: FormData): Promise<void> {
+  const s = await auth();
+  if (!s?.user?.id) redirect('/session/expired');
+  const locale = await getLocale();
+  const inbox = getPathname({ href: '/chat', locale });
+  const userId = text(form, 'userId');
+  if (!z.uuid().safeParse(userId).success) redirect(`${inbox}?error=VALIDATION_FAILED`);
+  const res = await createDirectThread(sessionRef(s.user), { userIds: [userId] });
+  if (res === 'revoked') redirect('/session/expired');
+  if (!res.ok) redirect(`${inbox}?error=${encodeURIComponent(res.error?.code ?? 'generic')}`);
+  redirect(getPathname({ href: `/chat/${res.data.id}`, locale }));
 }

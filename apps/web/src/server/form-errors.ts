@@ -1,9 +1,9 @@
 import { getTranslations } from 'next-intl/server';
-import type { FormState } from '@/app/[locale]/(auth)/actions';
+import type { FormErrorMessages } from '@/app/[locale]/(auth)/auth-form';
 import type { TwoFactorFormState } from '@/app/[locale]/(auth)/two-factor/actions';
 
 /** Translated messages for every `FormState.error` code, in the request locale. */
-export async function formErrors(): Promise<Record<NonNullable<FormState['error']>, string>> {
+export async function formErrors(): Promise<FormErrorMessages> {
   const t = await getTranslations('auth.errors');
   return {
     invalidInput: t('invalidInput'),
@@ -16,6 +16,7 @@ export async function formErrors(): Promise<Record<NonNullable<FormState['error'
     verifyPassword: t('verifyPassword'),
     inviteEmailInUse: t('inviteEmailInUse'),
     generic: t('generic'),
+    fieldInvalid: t('fieldInvalid', { field: '{field}' }),
   };
 }
 

@@ -27,7 +27,7 @@ export function FolderControls(props: { current: BookmarkFolderDto | null; messa
     e.preventDefault();
     const form = e.currentTarget;
     const name = nameOf(form);
-    if (!name) return;
+    if (!name) return setError(t('bookmarks.errors.nameRequired'));
     setError(null);
     startTransition(async () => {
       const res = await createFolderAction({ name });
@@ -41,7 +41,7 @@ export function FolderControls(props: { current: BookmarkFolderDto | null; messa
     e.preventDefault();
     if (!current) return;
     const name = nameOf(e.currentTarget);
-    if (!name) return;
+    if (!name) return setError(t('bookmarks.errors.nameRequired'));
     setError(null);
     startTransition(async () => {
       const res = await renameFolderAction(current.id, { name });
