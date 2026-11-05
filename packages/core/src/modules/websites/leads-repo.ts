@@ -261,3 +261,13 @@ export async function unerasedLeadIds(tx: Tx, agencyId: string, limit: number): 
     .limit(limit);
   return rows.map((r) => r.id);
 }
+
+/** A lead's stored preferred viewing slots (S17-F49): one narrow row; null when there are none. */
+export async function viewingSlotsById(tx: Tx, id: string): Promise<unknown> {
+  const rows = await tx
+    .select({ viewingSlots: websiteLeads.viewingSlots })
+    .from(websiteLeads)
+    .where(eq(websiteLeads.id, id))
+    .limit(1);
+  return rows[0]?.viewingSlots ?? null;
+}

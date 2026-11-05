@@ -108,6 +108,7 @@ async function inbound(
     target?: { kind: 'LISTING' | 'UNIT'; id: string; ownerAgencyId: string | null; shownRef: string } | null;
     marketingConsent?: boolean;
     portal?: boolean;
+    viewingSlots?: unknown[];
   } = {},
 ): Promise<string> {
   const id = newId();
@@ -116,7 +117,7 @@ async function inbound(
       id,
       agencyId: a.agencyId,
       siteId: over.portal ? null : siteId,
-      kind: 'ENQUIRY',
+      kind: over.viewingSlots ? 'VIEWING_REQUEST' : 'ENQUIRY',
       idempotencyHash: `idem-${id}`,
       requestHash: 'x',
       verification: 'SERVER_KEY',
@@ -128,7 +129,7 @@ async function inbound(
       keyTier: 'STANDARD',
       phone: over.phone ?? null,
       message: 'Is the villa still available?',
-      viewingSlots: null,
+      viewingSlots: over.viewingSlots ?? null,
       marketingConsent: over.marketingConsent ?? true,
       privacyAccepted: true,
       pageUrl: null,
@@ -254,6 +255,23 @@ describe('promotion of website leads', () => {
   });
 
   // S12-F19: the < 10 s p95 budget is timed in tests/perf/crm-lead-latency.int.test.ts; here the path and the routing
+  it('[S17-F49] a viewing request’s preferred slots show on the lead detail, in the order given; an enquiry has none', async () => {
+    const slots = [
+      { date: '2027-01-15', timeOfDay: 'MORNING' },
+      { date: '2027-01-16', timeOfDay: 'ANY' },
+    ];
+    const target = { kind: 'LISTING' as const, id: ids.villa, ownerAgencyId: null, shownRef: 'VILLA-1' };
+    const viewing = await inbound({ email: email('slots'), target, viewingSlots: slots });
+    const promoted = await crm.promoteInboundLead({ agencyId: a.agencyId, inboundLeadId: viewing });
+    const dto = await as(a, (ctx) => crm.getLead(ctx, promoted.leadId as string));
+    expect(dto.kind).toBe('VIEWING_REQUEST');
+    expect(dto.viewingSlots).toEqual(slots);
+    // the list stays narrow, and a plain enquiry carries no slots
+    const enquiry = await inbound({ email: email('noslots') });
+    const plain = await crm.promoteInboundLead({ agencyId: a.agencyId, inboundLeadId: enquiry });
+    expect((await as(a, (ctx) => crm.getLead(ctx, plain.leadId as string))).viewingSlots).toBeUndefined();
+  });
+
   it('[S10-02] a burst of website leads lands in the right agency inbox through event → outbox → promote job, assigned by its rule', async () => {
     const queuePrefix = `crmleads${RUN}`;
     await configureQueue({ prefix: queuePrefix, logger: log });

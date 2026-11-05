@@ -436,6 +436,29 @@ describe('website API v2 developments (S7-F6)', () => {
     expect(await countQueries(() => websiteApi.sitemap(net, q))).toBeLessThanOrEqual(3);
   });
 
+  it('[S17-F49] /v2/sitemap: the last page has a null cursor, and no page with a cursor is empty', async () => {
+    const net = await site(S.net as string);
+    for (const limit of [1, 2, 500]) {
+      let cursor: string | undefined;
+      let pages = 0;
+      do {
+        const pg = WebsiteSitemapPage.parse(
+          await websiteApi.sitemap(net, WebsiteSitemapQuery.parse({ limit, ...(cursor ? { cursor } : {}) })),
+        );
+        pages++;
+        // a cursor always leads to at least one more entry (never an empty final page)
+        if (pg.nextCursor) {
+          const next = WebsiteSitemapPage.parse(
+            await websiteApi.sitemap(net, WebsiteSitemapQuery.parse({ limit, cursor: pg.nextCursor })),
+          );
+          expect(next.items.length).toBeGreaterThan(0);
+        }
+        cursor = pg.nextCursor ?? undefined;
+      } while (cursor && pages < 100);
+      expect(cursor).toBeUndefined();
+    }
+  });
+
   it('[S7-F6] a network development and its units are white-labelled: no owner id, reference, name or contact', async () => {
     const net = await site(S.net as string);
     const bCode = await devCode(D.bOpen);

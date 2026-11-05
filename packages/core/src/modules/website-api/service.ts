@@ -467,6 +467,13 @@ export async function sitemap(site: ApiSite, q: WebsiteSitemapQuery): Promise<We
     // S7-F10 review: the three shown fields, not whole cards (the statement is ~5 ms of a ~45 ms page).
     const entries = websites.serializeSitemapEntries(view, page.map(owned<ListingCardDoc | UnitCardDoc>));
     const last = page[page.length - 1];
+    // S8-F24: the listing pages end; the development pages follow. S17-F49: only when there is one to show, so the
+    // last page's cursor is null (one probe row, on the last listing page only).
+    const devInventory = rows.length > q.limit ? null : newBuildsOf(site);
+    const developmentsFollow =
+      devInventory !== null &&
+      (await search.developmentPage(tx, devInventory, { limit: 1, locale: lang, fallback: site.scope.defaultLocale }))
+        .length > 0;
     return {
       items: entries.map((entry, i) => ({
         ref: entry.ref,
@@ -477,8 +484,7 @@ export async function sitemap(site: ApiSite, q: WebsiteSitemapQuery): Promise<We
       nextCursor:
         rows.length > q.limit && last?.publicCode
           ? encodeCursor({ c: last.publicCode })
-          : // S8-F24: the listing pages end; the development pages follow (only when the site shows new builds).
-            newBuildsOf(site)
+          : developmentsFollow
             ? encodeCursor({ d: '' })
             : null,
     };

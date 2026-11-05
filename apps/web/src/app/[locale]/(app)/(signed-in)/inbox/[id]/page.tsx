@@ -50,6 +50,13 @@ export default async function LeadPage({ params }: { params: Promise<{ id: strin
     [t('detail.firstResponse'), lead.firstRespondedAt ? when(lead.firstRespondedAt) : t('detail.notYet')],
   ];
   if (lead.target?.shownRef) rows.push([t('fields.target'), lead.target.shownRef]);
+  // S17-F49: a viewing request's preferred slots, like the notification e-mail ("2026-11-20 (morning), ...").
+  if (lead.viewingSlots?.length) {
+    rows.push([
+      t('detail.slots'),
+      lead.viewingSlots.map((s) => `${s.date} (${t(`detail.timeOfDay.${s.timeOfDay}`)})`).join(', '),
+    ]);
+  }
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-4 p-6">

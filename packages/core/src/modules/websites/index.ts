@@ -39,6 +39,7 @@ export {
   recordInboundLead,
   releaseAck,
   reserveAck,
+  viewingSlotsOf,
 } from './leads';
 export { earliestSiteByAgency } from './onboarding-reads';
 export { CLIENT_MODE_ALLOWED, can, WEBSITES_ACTIONS, WEBSITES_IMPERSONATION, type WebsitesAction } from './policy';

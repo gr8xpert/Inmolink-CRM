@@ -126,6 +126,13 @@
       "no": "No",
       "firstResponse": "Primera respuesta",
       "notYet": "Todavía no",
+      "slots": "Horarios preferidos para la visita",
+      "timeOfDay": {
+        "MORNING": "mañana",
+        "AFTERNOON": "tarde",
+        "EVENING": "noche",
+        "ANY": "cualquier hora"
+      },
       "contact": "Abrir el contacto",
       "notFound": "Este lead no existe."
     }

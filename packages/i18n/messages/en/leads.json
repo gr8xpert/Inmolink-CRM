@@ -126,6 +126,13 @@
       "no": "No",
       "firstResponse": "First response",
       "notYet": "Not yet",
+      "slots": "Preferred viewing times",
+      "timeOfDay": {
+        "MORNING": "morning",
+        "AFTERNOON": "afternoon",
+        "EVENING": "evening",
+        "ANY": "any time"
+      },
       "contact": "Open the contact",
       "notFound": "This lead does not exist."
     }

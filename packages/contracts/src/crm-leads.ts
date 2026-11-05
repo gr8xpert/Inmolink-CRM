@@ -103,6 +103,10 @@ export const LeadDto = z.strictObject({
   visitor: LeadVisitorDto.nullable(),
   /** The website lead it was promoted from (S7-05), if any. */
   inboundLeadId: z.uuid().nullable(),
+  /** A viewing request's preferred slots, on the lead detail only (S17-F49). The visitor's own words. */
+  viewingSlots: z
+    .array(z.strictObject({ date: z.iso.date(), timeOfDay: z.enum(['MORNING', 'AFTERNOON', 'EVENING', 'ANY']) }))
+    .optional(),
   createdBy: z.uuid().nullable(),
   version: z.number().int(),
   updatedAt: z.iso.datetime(),

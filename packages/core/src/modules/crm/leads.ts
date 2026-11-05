@@ -489,6 +489,11 @@ export async function getLead(ctx: Ctx, id: string): Promise<LeadDto> {
   assertCan(ctx, 'crm.leads.read');
   const lead = await loadLead(ctx, id);
   await auditImpersonatedRead(ctx, 'leads', { target: { type: 'lead', id } });
+  // S17-F49: a viewing request's preferred slots (the visitor's own words; nothing about the owner or the deal).
+  if (lead.kind === 'VIEWING_REQUEST' && lead.inboundLeadId) {
+    const slots = await websites.viewingSlotsOf(ctx.tx, lead.inboundLeadId);
+    if (slots.length) return { ...lead, viewingSlots: slots };
+  }
   return lead;
 }
 

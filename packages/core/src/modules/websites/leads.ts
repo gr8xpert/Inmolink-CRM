@@ -160,3 +160,26 @@ export async function pruneLeadIdempotency(now: Date): Promise<number> {
   }
   return total;
 }
+
+/**
+ * The preferred viewing slots a visitor gave on a viewing request (S17-F49), for the CRM lead detail: only well-formed
+ * `{ date, timeOfDay }` entries, in the order given; empty for any other lead. The slots are the visitor's own words.
+ */
+export async function viewingSlotsOf(
+  tx: Tx,
+  leadId: string,
+): Promise<Array<{ date: string; timeOfDay: 'MORNING' | 'AFTERNOON' | 'EVENING' | 'ANY' }>> {
+  const raw = await repo.viewingSlotsById(tx, leadId);
+  if (!Array.isArray(raw)) return [];
+  const out: Array<{ date: string; timeOfDay: 'MORNING' | 'AFTERNOON' | 'EVENING' | 'ANY' }> = [];
+  for (const s of raw as Array<Record<string, unknown>>) {
+    if (
+      s &&
+      typeof s.date === 'string' &&
+      /^\d{4}-\d{2}-\d{2}$/.test(s.date) &&
+      (s.timeOfDay === 'MORNING' || s.timeOfDay === 'AFTERNOON' || s.timeOfDay === 'EVENING' || s.timeOfDay === 'ANY')
+    )
+      out.push({ date: s.date, timeOfDay: s.timeOfDay });
+  }
+  return out;
+}
