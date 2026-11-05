@@ -31,6 +31,9 @@ export const LARGE_TABLES: readonly string[] = [
 /** Migrations up to this one predate the check (applied; never edited). */
 export const MIGRATION_CHECK_FROM = 63;
 
+/** Data changes in migrations from this one on are checked for FORCE RLS (S17-F43; earlier ones ran on empty tables). */
+export const RLS_DATA_CHECK_FROM = 184;
+
 export interface MigrationViolation {
   statement: string;
   reason: string;
@@ -71,6 +74,34 @@ export function checkMigrationSql(sql: string, large: readonly string[] = LARGE_
       ) {
         out.push({ statement: flat, reason: `unbatched backfill of large table ${name}` });
       }
+    }
+  }
+  return out;
+}
+
+/** A function or trigger body runs later, as another role: not a data change of the migration itself. */
+const FUNCTION_BODY = /create\s+(?:or\s+replace\s+)?function\b[\s\S]*?(\$[a-z_]*\$)[\s\S]*?\1/gi;
+const DATA_CHANGE = /(?<!\bon\s)\b(?:insert\s+into|update|delete\s+from)\s+(?:"?public"?\.)?"?([a-z_][a-z0-9_]*)"?/gi;
+const LIFTED = /alter\s+table\s+(?:"?public"?\.)?"?([a-z_][a-z0-9_]*)"?\s+no\s+force\s+row\s+level\s+security/gi;
+
+/**
+ * S17-F43: FORCE RLS hides a tenant or catalog table's rows from `app_owner`, which runs the migrations and has no
+ * policy, so a data change in a migration finds nothing and succeeds without an error (0182 did). It must lift FORCE
+ * for that table inside the migration and restore it (0062, 0063, 0183). A table without RLS carries the usual waiver.
+ */
+export function checkMigrationRlsData(sql: string): MigrationViolation[] {
+  const out: MigrationViolation[] = [];
+  for (const { text, waived } of statements(sql)) {
+    if (waived) continue;
+    const body = text.replace(FUNCTION_BODY, '');
+    const lifted = new Set([...body.matchAll(LIFTED)].map((m) => (m[1] as string).toLowerCase()));
+    for (const m of body.matchAll(DATA_CHANGE)) {
+      const name = (m[1] as string).toLowerCase();
+      if (name === 'set' || lifted.has(name)) continue;
+      out.push({
+        statement: body.replace(/\s+/g, ' ').trim(),
+        reason: `data change on ${name} without lifting FORCE RLS: finds no rows as app_owner, without an error`,
+      });
     }
   }
   return out;

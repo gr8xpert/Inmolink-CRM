@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { closeDb, withSystem } from '@inmolink/db';
-import { setupTestDb } from '@inmolink/db/testing';
+import { adminQuery, ownerExec, setupTestDb } from '@inmolink/db/testing';
 import { newId } from '@inmolink/platform/ids';
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -13,7 +13,7 @@ import * as taxonomy from '../index';
 const RUN = newId().slice(-8).toLowerCase();
 const PREFIX = 'esl-';
 const system = <T>(fn: Parameters<typeof withSystem<T>>[1]) => withSystem('taxonomy.es-labels.test', fn);
-const MIGRATION = join(process.cwd(), '..', 'db', 'migrations', '0182_s17_f37_property_type_es_labels.sql');
+const MIGRATION = join(process.cwd(), '..', 'db', 'migrations', '0183_s17_f43_property_type_es_labels_rls.sql');
 
 let plotId: string;
 let semiId: string;
@@ -59,11 +59,16 @@ const spanish = (id: string) =>
 describe('[S17-F37] property types have a Spanish label', () => {
   it('[S17-F37] the data migration names Plot and Semi-Detached House in Spanish, once', async () => {
     expect(await spanish(plotId)).toBeNull();
-    const run = () => system((tx) => tx.execute(sql.raw(readFileSync(MIGRATION, 'utf8'))));
+    // As the role migrations run as: FORCE RLS hides the rows from it (S17-F43, 0182 changed nothing on staging).
+    const run = () => ownerExec(readFileSync(MIGRATION, 'utf8'));
     await run();
     await run();
     expect(await spanish(plotId)).toBe('Parcela');
     expect(await spanish(semiId)).toBe('Casa pareada');
+    const [row] = await adminQuery<{ forced: boolean }>(
+      `select relforcerowsecurity as forced from pg_class where oid = 'public.property_type_translations'::regclass`,
+    );
+    expect(row?.forced, 'FORCE RLS is back on').toBe(true);
   });
 
   it('[S17-F37] no property type named Plot or Semi-Detached lacks a Spanish name', async () => {

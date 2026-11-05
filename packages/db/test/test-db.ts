@@ -318,6 +318,18 @@ export async function withAdminRollback<T>(tables: readonly string[], fn: (q: Ad
  * Runs SQL as the bootstrap superuser (S1-08): for tests that change what no app role may change, such
  * as dropping a partition to prove the maintenance job creates it again. Returns the rows.
  */
+/** Runs SQL as `app_owner`, the role migrations run as (`runMigrations`): under FORCE RLS it sees no rows without a policy. */
+export async function ownerExec(text: string): Promise<void> {
+  const cfg = loadConfig(migrateEnv);
+  const client = new pg.Client({ connectionString: cfg.DATABASE_URL_APP_OWNER });
+  await client.connect();
+  try {
+    await client.query(text);
+  } finally {
+    await client.end();
+  }
+}
+
 export async function adminQuery<R extends Record<string, unknown>>(
   text: string,
   values: unknown[] = [],

@@ -9,3 +9,4 @@ env:
     DEPLOY_ENV: "staging"
     OTEL_TRACES_SAMPLE_RATIO: "1"
     WEB_URL: "https://staging-app.inmolink.es"
+    PORTAL_URL: "https://staging-sites.inmolink.es"

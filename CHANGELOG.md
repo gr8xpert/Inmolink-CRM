@@ -5,6 +5,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Changed
+- Spanish property type names reach the database; migrations must lift FORCE RLS to change data [S17-F43]
 - Calendar events can be edited on the screen [S17-F42]
 - Non-admins are not offered preferred agency changes [S17-F41]
 - Logging out ends the session on the server [S17-F32]

@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { MIGRATIONS_FOLDER } from './migrate';
-import { checkMigrationSql, MIGRATION_CHECK_FROM } from './migration-check';
+import { checkMigrationRlsData, checkMigrationSql, MIGRATION_CHECK_FROM, RLS_DATA_CHECK_FROM } from './migration-check';
 
 describe('migration check (S4-F2)', () => {
   it('[S4-F2] refuses a non-CONCURRENTLY index and an unbatched backfill on a large table; waivers and small tables pass', () => {
@@ -41,6 +41,33 @@ describe('migration check (S4-F2)', () => {
   it('[S4-F2] the check would have flagged the earlier listing backfills (0057, 0062)', () => {
     for (const f of ['0057_listing_location_levels.sql', '0062_listing_private_refs.sql']) {
       expect(checkMigrationSql(readFileSync(join(MIGRATIONS_FOLDER, f), 'utf8')).length, f).toBeGreaterThan(0);
+    }
+  });
+
+  it('[S17-F43] a data change must lift FORCE RLS: 0182 would have been refused, 0183 passes', () => {
+    const read = (f: string) => readFileSync(join(MIGRATIONS_FOLDER, f), 'utf8');
+    expect(checkMigrationRlsData(read('0182_s17_f37_property_type_es_labels.sql'))).not.toEqual([]);
+    expect(checkMigrationRlsData(read('0183_s17_f43_property_type_es_labels_rls.sql'))).toEqual([]);
+    // A function body runs later as another role; a foreign key's ON DELETE or ON UPDATE is no data change.
+    expect(
+      checkMigrationRlsData('CREATE FUNCTION f() RETURNS void AS $$ BEGIN DELETE FROM "x"; END $$ LANGUAGE plpgsql;'),
+    ).toEqual([]);
+    expect(
+      checkMigrationRlsData(
+        'ALTER TABLE "a" ADD FOREIGN KEY ("b") REFERENCES "c" ON DELETE CASCADE ON UPDATE NO ACTION;',
+      ),
+    ).toEqual([]);
+    expect(checkMigrationRlsData('-- migration-check: allow no RLS on this table\nUPDATE "x" SET "y" = 1;')).toEqual(
+      [],
+    );
+  });
+
+  it('[S17-F43] every migration since the RLS data check passes it', () => {
+    const files = readdirSync(MIGRATIONS_FOLDER).filter(
+      (f) => /^\d{4}_.*\.sql$/.test(f) && Number(f.slice(0, 4)) >= RLS_DATA_CHECK_FROM,
+    );
+    for (const f of files) {
+      expect(checkMigrationRlsData(readFileSync(join(MIGRATIONS_FOLDER, f), 'utf8')), f).toEqual([]);
     }
   });
 });
