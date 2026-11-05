@@ -203,8 +203,9 @@ describe('Kamal deploy config', () => {
     const added = profile.syscalls.filter((s) => s.comment?.startsWith('S17-F53'));
     expect(added.flatMap((s) => s.names).sort()).toEqual(['chroot', 'clone', 'unshare']);
     // CLONE_NEWUSER | CLONE_NEWPID | CLONE_NEWNET pass; mount, cgroup, UTS and IPC namespaces do not.
-    const namespaces = added.find((s) => s.names.includes('unshare'));
-    expect(namespaces?.args?.[0]?.value).toBe(0x0e020000);
+    expect(added.find((s) => s.names.includes('clone'))?.args?.[0]?.value).toBe(0x0e020000);
+    // On unshare also no time namespace (0x80); on clone that bit is the exit signal.
+    expect(added.find((s) => s.names.includes('unshare'))?.args?.[0]?.value).toBe(0x0e020080);
     // Everything else that needs CAP_SYS_ADMIN stays behind it (`mount`, `setns`, `bpf`, ...).
     const unconditional = profile.syscalls.filter((s) => !s.includes?.caps).flatMap((s) => s.names);
     for (const name of ['mount', 'umount2', 'pivot_root', 'setns', 'bpf']) {

@@ -754,7 +754,7 @@
       }
     },
     {
-      "names": ["clone", "unshare"],
+      "names": ["clone"],
       "action": "SCMP_ACT_ALLOW",
       "args": [
         {
@@ -764,6 +764,21 @@
         }
       ],
       "comment": "S17-F53 Chrome namespace sandbox: new user, PID and network namespaces only",
+      "excludes": {
+        "arches": ["s390", "s390x"]
+      }
+    },
+    {
+      "names": ["unshare"],
+      "action": "SCMP_ACT_ALLOW",
+      "args": [
+        {
+          "index": 0,
+          "value": 235012224,
+          "op": "SCMP_CMP_MASKED_EQ"
+        }
+      ],
+      "comment": "S17-F53 as clone, and no new time namespace (0x80, the exit signal on clone, so a rule of its own)",
       "excludes": {
         "arches": ["s390", "s390x"]
       }

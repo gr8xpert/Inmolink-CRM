@@ -146,6 +146,22 @@ class Slots {
   }
 }
 
+/**
+ * S17-F53 security review: what the browser may see of the worker's environment. Puppeteer hands it all of `process.env`
+ * by default, so a renderer exploit could read the database and storage credentials from its own memory, without
+ * escaping the sandbox. Only locale and file locations, by name: nothing secret can pass by accident.
+ */
+const BROWSER_ENV = ['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL', 'TZ', 'XDG_CONFIG_HOME', 'XDG_CACHE_HOME'] as const;
+
+export function browserEnv(env: Readonly<Record<string, string | undefined>>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const name of BROWSER_ENV) {
+    const value = env[name];
+    if (value !== undefined) out[name] = value;
+  }
+  return out;
+}
+
 /** One launched browser: its renders so far and pages in flight. */
 interface Generation {
   browser: Promise<Browser>;
@@ -188,6 +204,7 @@ export function createPuppeteerRenderer(options: PuppeteerRendererOptions): PdfR
       .launch({
         headless: true,
         args,
+        env: browserEnv(process.env),
         ...(options.executablePath
           ? { executablePath: options.executablePath }
           : { channel: options.channel ?? 'chrome' }),

@@ -1,10 +1,23 @@
 import { describe, expect, it, vi } from 'vitest';
-import { checkPdfRenderer, createPuppeteerRenderer } from './index';
+import { browserEnv, checkPdfRenderer, createPuppeteerRenderer } from './index';
 
 /** The `pdf` pool's boot check (S17-F53). No browser needed: what it reports when there is none. */
 const logger = () => ({ info: vi.fn(), error: vi.fn() });
 
 describe('PDF browser check at boot (S17-F53)', () => {
+  it('[S17-F53] the browser gets no secret of the worker environment', () => {
+    expect(
+      browserEnv({
+        PATH: '/usr/bin',
+        HOME: '/tmp',
+        DATABASE_URL_APP_PUBLIC: 'postgres://secret',
+        S3_SECRET_ACCESS_KEY: 'secret',
+        HMAC_KEY: 'secret',
+        REDIS_QUEUE_URL: 'redis://secret',
+      }),
+    ).toEqual({ PATH: '/usr/bin', HOME: '/tmp' });
+  });
+
   it('[S17-F53] a missing browser binary is logged at error level, says what to check, and does not throw', async () => {
     const log = logger();
     const renderer = createPuppeteerRenderer({
