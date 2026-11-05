@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Ctx, StaffCtx } from '../../../context';
 import { expectClientModePinned } from '../../../testing/client-mode-pin';
-import { CLIENT_MODE_ALLOWED, can, canStaff, SUPPORT_ACTIONS } from '../policy';
+import { CLIENT_MODE_ALLOWED, can, canStaff, SUPPORT_ACTIONS, SUPPORT_IMPERSONATION } from '../policy';
 
 const AGENCY = '01900000-0000-7000-8000-000000000001';
 const OTHER_AGENCY = '01900000-0000-7000-8000-000000000002';
@@ -34,6 +34,19 @@ describe('support policy', () => {
       can: (ctx, action) => can(ctx, action),
       admin: ctxAs({ kind: 'user', userId: '01900000-0000-7000-8000-0000000000ab', role: 'AGENCY_ADMIN' }),
     });
+  });
+
+  it('[S17-F47] staff acting as a member read tickets and never write in the member’s name', () => {
+    const acting = ctxAs({
+      kind: 'user',
+      userId: '01900000-0000-7000-8000-0000000000aa',
+      role: 'AGENCY_ADMIN',
+      impersonatedBy: '01900000-0000-7000-8000-0000000000bb',
+    });
+    expect(Object.keys(SUPPORT_IMPERSONATION).sort()).toEqual([...SUPPORT_ACTIONS].sort());
+    expect(SUPPORT_IMPERSONATION).toEqual({ 'support.read': 'allowed', 'support.write': 'forbidden' });
+    expect(can(acting, 'support.read')).toBe(true);
+    expect(can(acting, 'support.write')).toBe(false);
   });
 
   it('[S13-05] every member reads and writes their own agency’s tickets', () => {

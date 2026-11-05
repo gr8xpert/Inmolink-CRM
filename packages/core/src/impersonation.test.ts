@@ -1,3 +1,5 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { Ctx } from './context';
 import { deniedByImpersonation, type ImpersonationRules, impersonatorOf } from './impersonation';
@@ -17,7 +19,35 @@ function ctxAs(actor: Ctx['actor']): Ctx {
   };
 }
 
+/**
+ * S17-F47: a module policy with no impersonation rules still compiles, and lets staff through unnoticed (support did).
+ * Each module whose policy has no rules is named here, with why.
+ */
+const NO_IMPERSONATION_RULES: Readonly<Record<string, string>> = {
+  admin: 'staff actions only: no member-side can()',
+  migration: 'one read action',
+  onboarding: 'one read action',
+  quality: 'one read action',
+  search: 'read actions only',
+  taxonomy: 'one member-side read action',
+  documents: 'open: documents.create renders a PDF, unrefused and unaudited while impersonating; see STATUS S17-F47',
+};
+
 describe('impersonation rules', () => {
+  it('[S17-F47] every module policy declares impersonation rules, or is named here with why not', () => {
+    const modules = join(import.meta.dirname, 'modules');
+    const missing = readdirSync(modules)
+      .filter((name) => {
+        try {
+          return !readFileSync(join(modules, name, 'policy.ts'), 'utf8').includes('deniedByImpersonation(');
+        } catch {
+          return false; // no policy.ts
+        }
+      })
+      .sort();
+    expect(missing).toEqual(Object.keys(NO_IMPERSONATION_RULES).sort());
+  });
+
   it('[S1-09] impersonated sessions get only what a module declares allowed; anything else is denied', () => {
     const admin = ctxAs({ kind: 'user', userId: USER, role: 'AGENCY_ADMIN' });
     const impersonated = ctxAs({ kind: 'user', userId: USER, role: 'AGENCY_ADMIN', impersonatedBy: STAFF });

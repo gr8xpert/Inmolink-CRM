@@ -1,6 +1,7 @@
 import { SUPPORT_AGENT_ROLES } from '@inmolink/contracts';
 import { AppError } from '@inmolink/platform/errors';
 import type { Ctx, StaffCtx, StaffRole } from '../../context';
+import { deniedByImpersonation, type ImpersonationRules } from '../../impersonation';
 
 /**
  * Who may do what in support (S13-05, PATTERNS §6). Deny by default; services call `assertCan` / `assertStaffCan`.
@@ -13,9 +14,21 @@ export type SupportAction = (typeof SUPPORT_ACTIONS)[number];
 /** Client Mode is read-only (PATTERNS §6) — and support is not part of it at all. */
 export const CLIENT_MODE_ALLOWED: ReadonlySet<SupportAction> = new Set<SupportAction>();
 
+/**
+ * Staff impersonating a member (S1-09, S17-F47) may read the agency's tickets and open their attachments to diagnose a
+ * problem, as in chat. They never write in the member's name: a ticket, reply, attachment or "resolved" would read as
+ * the member's own, and reach the support inbox as such. Staff answer from the console (`postStaffMessage`,
+ * `updateStaffTicket`), signed as support and audited as `staff.support.*`, so nothing here needs its own audit row.
+ */
+export const SUPPORT_IMPERSONATION: ImpersonationRules<SupportAction> = {
+  'support.read': 'allowed',
+  'support.write': 'forbidden',
+};
+
 export function can(ctx: Ctx, action: SupportAction, resource?: { agencyId: string }): boolean {
   if (ctx.actor.kind !== 'user') return false;
   if (ctx.clientMode && !CLIENT_MODE_ALLOWED.has(action)) return false;
+  if (deniedByImpersonation(ctx, SUPPORT_IMPERSONATION, action)) return false;
   const sameAgency = !resource || resource.agencyId === ctx.tenant.agencyId;
   switch (action) {
     case 'support.read':

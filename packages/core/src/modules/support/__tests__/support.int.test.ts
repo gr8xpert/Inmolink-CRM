@@ -19,7 +19,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Ctx, CtxRunner, StaffCtx } from '../../../context';
 import { withMemberCtx } from '../../../member';
 import { withStaffCtx } from '../../../staff';
-import { createFounder, type Founder } from '../../../testing/factories';
+import { createFounder, type Founder, impersonatedCtx } from '../../../testing/factories';
 import * as support from '../index';
 
 /** Support tickets end to end on the test database and MinIO (S13-05). */
@@ -124,6 +124,40 @@ describe('support tickets', () => {
       return t.rows.length + m.rows.length;
     });
     expect(raw).toBe(0);
+  });
+
+  it('[S17-F47] staff acting as a member read the tickets; create, reply, resolve and upload are refused and change nothing', async () => {
+    const a = await founder();
+    const ticket = await open(a);
+    const staff = newId();
+    const acting = <T>(fn: (ctx: Ctx) => Promise<T>) => as(a, async (c) => fn(await impersonatedCtx(c, staff)));
+    const actingRunner: CtxRunner = (fn) => acting(fn);
+
+    // Looking is what they are there for.
+    const seen = await acting((c) => support.getTicket(c, { id: ticket.id }));
+    expect(seen.messages).toHaveLength(1);
+    const listed = await acting((c) => support.listTickets(c, { limit: 25 }));
+    expect(listed.items.map((t) => t.id)).toEqual([ticket.id]);
+
+    const body = CreateSupportTicketBody.parse({
+      subject: 'Written by staff',
+      category: 'OTHER',
+      priority: 'NORMAL',
+      body: 'Not the member.',
+    });
+    expect(await refusal(acting((c) => support.createTicket(c, body)))).toBe('FORBIDDEN');
+    expect(await refusal(acting((c) => support.postMessage(c, { id: ticket.id, body: 'Not the member.' })))).toBe(
+      'FORBIDDEN',
+    );
+    expect(await refusal(acting((c) => support.resolveTicket(c, { id: ticket.id })))).toBe('FORBIDDEN');
+    expect(await refusal(support.uploadAttachment(actingRunner, { id: ticket.id, fileName: 'a.pdf', body: PDF }))).toBe(
+      'FORBIDDEN',
+    );
+
+    const after = await as(a, (c) => support.getTicket(c, { id: ticket.id }));
+    expect(after).toMatchObject({ status: 'OPEN', attachments: [] });
+    expect(after.messages).toHaveLength(1);
+    expect((await as(a, (c) => support.listTickets(c, { limit: 25 }))).items).toHaveLength(1);
   });
 
   it('[S13-05] internal notes are never visible to agencies', async () => {

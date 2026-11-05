@@ -11,6 +11,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 
 - Staff acting as a member see a true "not available" sentence instead of refused controls; audit cursor, impersonation duration and duplicate attachment messages; staff tenant page wraps and uses translated labels [S17-F48]
 ### Changed
+- Support tickets are read-only for staff acting as a member; a module policy without impersonation rules now fails a test [S17-F47]
 - A session acting as a member that ended elsewhere shows the "session ended" banner instead of a redirect loop [S17-F46]
 - Staff acting as a member see a true "not available" sentence instead of refused controls; audit cursor, impersonation duration and duplicate attachment messages; staff tenant page wraps and uses translated labels [S17-F48]
 - Lead detail shows a viewing request's preferred slots; the sitemap ends with a null cursor [S17-F49]

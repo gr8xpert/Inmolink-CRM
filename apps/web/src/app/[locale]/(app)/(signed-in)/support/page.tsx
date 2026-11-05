@@ -5,6 +5,7 @@ import { getFormatter, getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
 import { sessionRef } from '@/server/api';
+import { loadShell } from '@/server/shell';
 import { fetchSupportTickets } from '@/server/support-api';
 import { createTicketAction } from './actions';
 
@@ -20,6 +21,9 @@ export default async function SupportPage({ searchParams }: { searchParams: Prom
     typeof params.cursor === 'string' && /^[A-Za-z0-9_-]{1,200}$/.test(params.cursor) ? params.cursor : undefined;
   const res = await fetchSupportTickets(sessionRef(session.user), { cursor });
   if (res === 'revoked') redirect('/session/expired');
+  // S17-F47: staff acting as a member read here; the API refuses writing in the member's name.
+  const shell = await loadShell();
+  const acting = shell?.identity.kind === 'member' && shell.identity.caps.impersonating;
   const t = await getTranslations('support');
   const format = await getFormatter();
   const error = ERRORS.find((e) => e === params.error);
@@ -37,64 +41,70 @@ export default async function SupportPage({ searchParams }: { searchParams: Prom
         </p>
       ) : null}
 
-      <section aria-labelledby="new-ticket" className="flex flex-col gap-3 rounded-md border p-4">
-        <h2 id="new-ticket" className="font-medium">
-          {t('create.title')}
-        </h2>
-        <form action={createTicketAction} className="flex flex-col gap-3">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="ticket-subject">{t('create.subject')}</Label>
-            <Input id="ticket-subject" name="subject" required minLength={3} maxLength={200} />
-          </div>
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <div className="flex flex-1 flex-col gap-2">
-              <Label htmlFor="ticket-category">{t('create.category')}</Label>
-              <select
-                id="ticket-category"
-                name="category"
-                defaultValue="OTHER"
-                className="h-9 rounded-md border bg-background px-2 text-sm"
-              >
-                {SupportTicketCategory.options.map((c) => (
-                  <option key={c} value={c}>
-                    {t(`categories.${c}`)}
-                  </option>
-                ))}
-              </select>
+      {acting ? (
+        <p role="status" className="rounded-md bg-muted p-3 text-sm" data-testid="support-acting">
+          {t('actingReadOnly')}
+        </p>
+      ) : (
+        <section aria-labelledby="new-ticket" className="flex flex-col gap-3 rounded-md border p-4">
+          <h2 id="new-ticket" className="font-medium">
+            {t('create.title')}
+          </h2>
+          <form action={createTicketAction} className="flex flex-col gap-3">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="ticket-subject">{t('create.subject')}</Label>
+              <Input id="ticket-subject" name="subject" required minLength={3} maxLength={200} />
             </div>
-            <div className="flex flex-1 flex-col gap-2">
-              <Label htmlFor="ticket-priority">{t('create.priority')}</Label>
-              <select
-                id="ticket-priority"
-                name="priority"
-                defaultValue="NORMAL"
-                className="h-9 rounded-md border bg-background px-2 text-sm"
-              >
-                {SupportTicketPriority.options.map((p) => (
-                  <option key={p} value={p}>
-                    {t(`priorities.${p}`)}
-                  </option>
-                ))}
-              </select>
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <div className="flex flex-1 flex-col gap-2">
+                <Label htmlFor="ticket-category">{t('create.category')}</Label>
+                <select
+                  id="ticket-category"
+                  name="category"
+                  defaultValue="OTHER"
+                  className="h-9 rounded-md border bg-background px-2 text-sm"
+                >
+                  {SupportTicketCategory.options.map((c) => (
+                    <option key={c} value={c}>
+                      {t(`categories.${c}`)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex flex-1 flex-col gap-2">
+                <Label htmlFor="ticket-priority">{t('create.priority')}</Label>
+                <select
+                  id="ticket-priority"
+                  name="priority"
+                  defaultValue="NORMAL"
+                  className="h-9 rounded-md border bg-background px-2 text-sm"
+                >
+                  {SupportTicketPriority.options.map((p) => (
+                    <option key={p} value={p}>
+                      {t(`priorities.${p}`)}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="ticket-body">{t('create.body')}</Label>
-            <textarea
-              id="ticket-body"
-              name="body"
-              required
-              maxLength={10000}
-              rows={6}
-              className="rounded-md border bg-background p-2 text-sm"
-            />
-          </div>
-          <p className="text-xs text-muted-foreground">{t('create.attachHint')}</p>
-          <Button type="submit" className="self-start">
-            {t('create.submit')}
-          </Button>
-        </form>
-      </section>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="ticket-body">{t('create.body')}</Label>
+              <textarea
+                id="ticket-body"
+                name="body"
+                required
+                maxLength={10000}
+                rows={6}
+                className="rounded-md border bg-background p-2 text-sm"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">{t('create.attachHint')}</p>
+            <Button type="submit" className="self-start">
+              {t('create.submit')}
+            </Button>
+          </form>
+        </section>
+      )}
 
       <section aria-labelledby="ticket-list" className="flex flex-col gap-2">
         <h2 id="ticket-list" className="font-medium">
