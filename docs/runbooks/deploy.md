@@ -165,6 +165,13 @@ scripts/ops/deploy.sh staging            # then: scripts/ops/deploy.sh productio
 
 One app only: `scripts/ops/deploy.sh staging --only api` (migrations still run first).
 
+**PDF role (S17-F53):** the worker's `pdf` role starts with `--security-opt seccomp=/etc/docker/seccomp-chrome.json`, so
+`ansible-playbook site.yml` (role `docker`) must have run on the app host first; without the file its container does not
+start and the deploy stops. The profile is Docker's default plus new user, PID and network namespaces and `chroot`, which
+Chrome's sandbox needs: regenerate it from the running Docker version's default when Docker changes its own. A browser
+that cannot start logs `pdf: the browser is missing or will not start` at error level at boot. Never set
+`PDF_CHROME_NO_SANDBOX`, `--privileged`, `CAP_SYS_ADMIN` or `seccomp=unconfined` to get past it.
+
 ### Zero-downtime check (acceptance, manual — needs staging)
 
 While a deploy runs, from another terminal:
@@ -182,7 +189,7 @@ No line may be printed during `scripts/ops/deploy.sh staging --only api`. Record
 
 App metrics path: each app container serves `/metrics` inside the container on its `*_METRICS_PORT` (never published —
 two containers of a role run during a deploy) and joins the `kamal` network under its role's alias
-(`inmolink-<app>-metrics`, `inmolink-worker-media-metrics`; Kamal `servers.<role>.options.network-alias`). The host's
+(`inmolink-<app>-metrics`, `inmolink-worker-media-metrics`, `inmolink-worker-pdf-metrics`; Kamal `servers.<role>.options.network-alias`). The host's
 `app-metrics` container (Ansible role `app_metrics`, a Prometheus on the `kamal` network) finds every container by its
 alias in Docker's DNS; the monitoring host's Prometheus federates it over WireGuard (job `app-metrics`). No Docker socket.
 

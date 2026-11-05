@@ -162,6 +162,56 @@ describe('Kamal deploy config', () => {
     for (const file of rules) expect(deployed, file).toContain(file);
   }, 30_000); // a cold dynamic import of the worker config takes > 5 s on a loaded CI runner
 
+  it('[S17-F53] the pdf pool has its own role: browser path, memory, the seccomp file Ansible delivers, narrow secrets', () => {
+    const k = kamal('worker');
+    const pdf = k.servers.pdf as KamalRole;
+    expect(pdf.env?.clear?.WORKER_POOLS).toBe('pdf');
+    expect(pdf.env?.clear?.PDF_CHROME_EXECUTABLE).toBe('/usr/bin/chromium');
+    expect(k.servers.workers?.env?.clear?.WORKER_POOLS?.split(',')).not.toContain('pdf');
+    expect(pdf.options?.['read-only']).toBe(true);
+    expect(pdf.options?.['cap-drop']).toBe('ALL');
+    for (const d of DESTS) expect(dest('worker', d).servers?.pdf?.hosts, d).toHaveLength(1);
+    // Only what a render needs: a Chrome escape finds no app_system, encryption keys, SMTP or cache.
+    expect([...(pdf.env?.secret ?? [])].sort()).toEqual(
+      ['DATABASE_URL_APP_PUBLIC', 'HMAC_KEY', 'REDIS_QUEUE_URL', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY'].sort(),
+    );
+    // The profile is on the host at the path the role names.
+    const seccomp = pdf.options?.['security-opt'] as string[];
+    expect(seccomp).toContain('no-new-privileges');
+    expect(seccomp).toContain('seccomp=/etc/docker/seccomp-chrome.json');
+    const delivered = read('infra', 'ansible', 'roles', 'docker', 'tasks', 'main.yml');
+    expect(delivered).toContain('src: seccomp-chrome.json');
+    expect(delivered).toContain('dest: /etc/docker/seccomp-chrome.json');
+    // CI proves the image's browser under these options before it pushes.
+    const ci = read('.github', 'workflows', 'ci.yml');
+    expect(ci).toContain('< scripts/ci/pdf-image-smoke.mjs');
+    expect(ci).toContain('seccomp=infra/ansible/roles/docker/files/seccomp-chrome.json');
+  });
+
+  it('[S17-F53] Chromium only in the worker image; the sandbox stays on and nothing weaker gets in', () => {
+    const dockerfile = read('infra', 'docker', 'app', 'Dockerfile');
+    expect(dockerfile).toMatch(/if \[ "\$APP" = worker \]; then[\s\S]*?apt-get install[\s\S]*?chromium[\s\S]*?\bfi\b/);
+    for (const file of readdirSync(join(ROOT, 'infra', 'kamal'))) {
+      const text = read('infra', 'kamal', file).replace(/^\s*#.*$/gm, '');
+      expect(text, file).not.toMatch(/PDF_CHROME_NO_SANDBOX|privileged|SYS_ADMIN|unconfined/);
+    }
+    const profile = JSON.parse(read('infra', 'ansible', 'roles', 'docker', 'files', 'seccomp-chrome.json')) as {
+      defaultAction: string;
+      syscalls: { names: string[]; args?: { value: number }[]; comment?: string; includes?: { caps?: string[] } }[];
+    };
+    expect(profile.defaultAction).toBe('SCMP_ACT_ERRNO');
+    const added = profile.syscalls.filter((s) => s.comment?.startsWith('S17-F53'));
+    expect(added.flatMap((s) => s.names).sort()).toEqual(['chroot', 'clone', 'unshare']);
+    // CLONE_NEWUSER | CLONE_NEWPID | CLONE_NEWNET pass; mount, cgroup, UTS and IPC namespaces do not.
+    const namespaces = added.find((s) => s.names.includes('unshare'));
+    expect(namespaces?.args?.[0]?.value).toBe(0x0e020000);
+    // Everything else that needs CAP_SYS_ADMIN stays behind it (`mount`, `setns`, `bpf`, ...).
+    const unconditional = profile.syscalls.filter((s) => !s.includes?.caps).flatMap((s) => s.names);
+    for (const name of ['mount', 'umount2', 'pivot_root', 'setns', 'bpf']) {
+      expect(unconditional, name).not.toContain(name);
+    }
+  });
+
   it('[S3-F7] the media container gets its own Redis user and R2 token, and no cache', () => {
     const k = kamal('worker');
     const media = k.servers.media as KamalRole;
@@ -564,6 +614,7 @@ describe('app metrics scrape path (S16-F6)', () => {
     { app: 'realtime', role: 'web', job: 'realtime', portVar: 'REALTIME_METRICS_PORT' },
     { app: 'worker', role: 'workers', job: 'worker', portVar: 'WORKER_METRICS_PORT' },
     { app: 'worker', role: 'media', job: 'worker', portVar: 'WORKER_METRICS_PORT' },
+    { app: 'worker', role: 'pdf', job: 'worker', portVar: 'WORKER_METRICS_PORT' },
   ] as const;
 
   it('[S16-F6] every app container serves /metrics on its own port, unpublished, and carries the alias its job discovers', () => {

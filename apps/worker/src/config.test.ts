@@ -51,6 +51,32 @@ describe('worker env per pool', () => {
     expect(read('main.ts')).toContain('if (config.REDIS_CACHE_URL) await configureCache(');
   });
 
+  it('[S17-F53] a pdf-only container validates no app_system, cache, encryption keys or SMTP', () => {
+    const pdf = Object.keys(workerEnvFor(['pdf']));
+    for (const name of [
+      'DATABASE_URL_APP_SYSTEM',
+      'DATABASE_URL_APP_USER',
+      'REDIS_CACHE_URL',
+      'ENCRYPTION_KEYS',
+      'SMTP_URL',
+    ]) {
+      expect(pdf, name).not.toContain(name);
+    }
+    expect(pdf).toEqual(
+      expect.arrayContaining([
+        'DATABASE_URL_APP_PUBLIC',
+        'HMAC_KEY',
+        'MEDIA_URL_KEY',
+        'MEDIA_CDN_URL',
+        'S3_ACCESS_KEY_ID',
+      ]),
+    );
+    // With another pool it keeps the system variables.
+    expect(Object.keys(workerEnvFor(['pdf', 'outbox']))).toContain('DATABASE_URL_APP_SYSTEM');
+    expect(read('main.ts')).toContain("pdfOnly ? 'app_public'");
+    expect(read('main.ts')).toContain('checkPdfRenderer(pdf(), logger)');
+  });
+
   it('[S13 e2e] every pool that builds image variant keys validates the media URL key and configures it at boot', () => {
     for (const pool of ['indexing', 'ai', 'maintenance', 'exports', 'media'] as const) {
       expect(Object.keys(workerEnvFor([pool]))).toContain('MEDIA_URL_KEY');

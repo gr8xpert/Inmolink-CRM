@@ -295,12 +295,17 @@ jobs:
           # Kamal refuses an image whose `service` label differs from the config's `service:` (`service: inmolink-<app>`).
           labels: |
             service=inmolink-${{ matrix.app }}
+      # S17-F53: the worker image's Chromium layer is rebuilt weekly, so it takes Debian's security releases.
+      - id: chromium
+        run: echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
       - name: Build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: infra/docker/app/Dockerfile
-          build-args: APP=${{ matrix.app }}
+          build-args: |
+            APP=${{ matrix.app }}
+            CHROMIUM_REFRESH=${{ steps.chromium.outputs.week }}
           load: true
           tags: inmolink-${{ matrix.app }}:smoke
           cache-from: type=gha,scope=image-${{ matrix.app }}
@@ -324,12 +329,25 @@ jobs:
           echo "$out" | tail -20
           if echo "$out" | grep -qE 'ERR_MODULE_NOT_FOUND|Cannot find (package|module)'; then exit 1; fi
           echo "$out" | grep -q 'DATABASE_URL_APP_OWNER' # failed on config validation, i.e. after every import resolved
+      # S17-F53: the options of Kamal's `pdf` role. The runner's AppArmor refuses unprivileged user namespaces by default.
+      - name: Smoke (browser in the worker image, sandboxed, renders a PDF)
+        if: matrix.app == 'worker'
+        env:
+          IMAGE: inmolink-worker:smoke
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          timeout 120 docker run --rm -i --read-only --tmpfs /tmp --cap-drop ALL \
+            --security-opt no-new-privileges --security-opt seccomp=infra/ansible/roles/docker/files/seccomp-chrome.json \
+            -e XDG_CONFIG_HOME=/tmp/.config -e XDG_CACHE_HOME=/tmp/.cache \
+            --workdir /repo/packages/platform --entrypoint node "$IMAGE" --input-type=module < scripts/ci/pdf-image-smoke.mjs
       - name: Push
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: infra/docker/app/Dockerfile
-          build-args: APP=${{ matrix.app }}
+          build-args: |
+            APP=${{ matrix.app }}
+            CHROMIUM_REFRESH=${{ steps.chromium.outputs.week }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

@@ -32,6 +32,19 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm turbo run build --filter=
 
 FROM ${NODE_IMAGE} AS runtime
 ARG APP
+# S17-F53: the worker's `pdf` pool needs a browser; only that image carries one (about 1 GB). The distribution's Chromium
+# and no version pin: this layer takes the current security release. CHROMIUM_REFRESH (CI: the ISO week) expires the
+# cached layer, or a browser that renders untrusted text would stay frozen at the first build. No chromium-sandbox
+# (setuid helper): Chrome uses its namespace sandbox, which the role's seccomp profile allows (infra/kamal/worker.yml).
+# Fonts: Liberation is what the templates' Helvetica / Arial resolve to (Latin, Greek, Cyrillic), DejaVu the fallback.
+ARG CHROMIUM_REFRESH=none
+RUN if [ "$APP" = worker ]; then \
+      echo "chromium refresh: $CHROMIUM_REFRESH" \
+      && apt-get update \
+      && apt-get install -y --no-install-recommends chromium fonts-liberation fonts-dejavu-core \
+      && rm -rf /var/lib/apt/lists/* \
+      && chromium --version; \
+    fi
 # glibc gives each libvips thread its own malloc arena and keeps freed image buffers: the media worker grew past
 # its 512 MB budget on Linux (1.4 GB in CI, S3-F3). Two arenas is sharp's documented remedy.
 ENV NODE_ENV=production APP=${APP} NEXT_TELEMETRY_DISABLED=1 MALLOC_ARENA_MAX=2

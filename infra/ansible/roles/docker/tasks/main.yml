@@ -93,6 +93,17 @@
       - subnet: "{{ kamal_network_subnet }}"
   when: "'app' in group_names"
 
+# S17-F53: for the worker's `pdf` role (Kamal `security-opt`). The Docker CLI reads it on the host, as the deploy user.
+# Not a daemon setting: no Docker restart, and no other container runs under it.
+- name: Seccomp profile for Chrome's namespace sandbox (Docker's default + new user, PID and network namespaces)
+  ansible.builtin.copy:
+    src: seccomp-chrome.json
+    dest: /etc/docker/seccomp-chrome.json
+    owner: root
+    group: root
+    mode: "0644"
+  when: "'app' in group_names"
+
 - name: Origin lock script (app hosts — only Cloudflare reaches 80/443)
   ansible.builtin.template:
     src: inmolink-origin-lock.j2

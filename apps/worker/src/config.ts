@@ -132,8 +132,20 @@ const billingPoolEnv = {
 /** S12-07: the `social` pool publishes to Meta (the app, image URLs under the media CDN). */
 const socialPoolEnv = { ...socialEnv, ...mediaCdnEnv };
 
-/** S12-05: the `pdf` pool renders brochures with Chrome (its binary, page pool, sandbox) and listing images from the media CDN. */
-const pdfPoolEnv = { ...pdfEnv, ...mediaCdnEnv };
+/**
+ * S12-05: the `pdf` pool renders brochures with Chrome (its binary, page pool, sandbox) and listing images from the
+ * media CDN. S17-F53: Chrome parses listing text and agency branding, so a pdf-only container holds only what a render
+ * needs: the public read models (`app_public`), object storage for the stored file, the media URL key and `HMAC_KEY`
+ * (the website API's presenter). No `app_system`, cache, encryption keys or SMTP.
+ */
+const pdfPoolEnv = {
+  ...pdfEnv,
+  ...mediaCdnEnv,
+  DATABASE_URL_APP_PUBLIC: databaseEnv.DATABASE_URL_APP_PUBLIC,
+  HMAC_KEY: cryptoEnv.HMAC_KEY,
+  ...storageEnv,
+  ...mediaEnv,
+};
 
 /**
  * The `media` pool (S3-04) decodes untrusted uploads in its own container (S3-F4): object storage, its URL key and
@@ -147,10 +159,11 @@ const mediaPoolEnv = {
 
 /**
  * The env a process running `pools` validates (S3-F4: least privilege per container). SMTP only with `email` or `digest`;
- * `app_system`, encryption keys and the HMAC key only with a pool other than `media`.
+ * `app_system`, encryption keys and the HMAC key only with a pool other than `media` and `pdf` (S17-F53; `pdf` brings
+ * its own narrow list).
  */
 export function workerEnvFor(pools: readonly Pool[]) {
-  const others = pools.some((p) => p !== 'media');
+  const others = pools.some((p) => p !== 'media' && p !== 'pdf');
   return {
     ...baseEnv,
     ...(others ? systemEnv : {}),

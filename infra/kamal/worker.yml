@@ -28,10 +28,10 @@ servers:
       network-alias: inmolink-worker-metrics
     env:
       clear:
-        # Every pool but `media` (its own role below). S11 review: `realtime` (live socket pushes) and `digest`
+        # Every pool but `media` and `pdf` (their own roles below). S11 review: `realtime` (live socket pushes) and `digest`
         # (notification e-mail digests) are pools of their own, so a digest burst never takes a live push's slot.
         # S12-01 (ADR 0018): `ai-usage` holds the request path's AI usage records, apart from the `ai` pool.
-        WORKER_POOLS: "outbox,imports,indexing,matching,exports,email,realtime,digest,ai,ai-usage,social,pdf,maintenance"
+        WORKER_POOLS: "outbox,imports,indexing,matching,exports,email,realtime,digest,ai,ai-usage,social,maintenance"
         # S12-F4 rollout: prefix per-user realtime events (`agencyId:userId|`, so realtime nodes skip other members'
         # events unparsed). Realtime of the previous release cannot read the prefix: deploy realtime first, and set
         # "true" here in the next release, once every realtime node reads both forms.
@@ -99,8 +99,48 @@ servers:
         - REDIS_QUEUE_URL:REDIS_QUEUE_URL_MEDIA
         - S3_ACCESS_KEY_ID:S3_MEDIA_ACCESS_KEY_ID
         - S3_SECRET_ACCESS_KEY:S3_MEDIA_SECRET_ACCESS_KEY
+  # PDF rendering in Chrome (S12-05) in its own container (S17-F53). Measured with real photos: one 20-page portfolio peaks
+  # at 740 MB and is OOM-killed under 768m with nothing else running, so the `workers` role cannot hold it beside the
+  # outbox. Chrome parses untrusted text, and its sandbox needs the seccomp additions below: they stay away from every
+  # other container, and this one holds only what a render needs (apps/worker/src/config.ts `pdfPoolEnv`).
+  # PDF_CHROME_NO_SANDBOX must stay unset: this container is not a sandbox for Chrome.
+  # /etc/docker/seccomp-chrome.json comes from Ansible (role `docker`): run it before the first deploy of this role.
+  pdf:
+    hosts: [] # per destination
+    proxy: false
+    stop_timeout: 90
+    options:
+      # Two 50-listing portfolios at once peak at 1.67 GB, 24 20-page ones two at a time at 1.78 GB, no OOM (concurrency 2).
+      memory: 2g
+      read-only: true
+      tmpfs: /tmp
+      cap-drop: ALL
+      security-opt:
+        - no-new-privileges
+        - seccomp=/etc/docker/seccomp-chrome.json
+      # Reaps Chrome's helpers when a browser exits: node as PID 1 leaves 4 or 5 zombies per browser, this leaves none.
+      init: true
+      # S17-F53: job `worker`, kamal_role `pdf` (infra/ansible/roles/app_metrics).
+      network-alias: inmolink-worker-pdf-metrics
+    env:
+      clear:
+        WORKER_POOLS: "pdf"
+        PDF_CHROME_EXECUTABLE: "/usr/bin/chromium"
+        PDF_RENDER_CONCURRENCY: "2"
+        # Chrome will not start without a writable config directory (crash database); the root filesystem is read-only.
+        XDG_CONFIG_HOME: "/tmp/.config"
+        XDG_CACHE_HOME: "/tmp/.cache"
+        NODE_OPTIONS: "--max-old-space-size=384 --max-semi-space-size=16"
+        MALLOC_MMAP_THRESHOLD_: "131072"
+        MEDIA_CDN_URL: "https://media.inmolink.es"
+      secret:
+        - DATABASE_URL_APP_PUBLIC
+        - REDIS_QUEUE_URL
+        - S3_ACCESS_KEY_ID
+        - S3_SECRET_ACCESS_KEY
+        - HMAC_KEY
 retain_containers: 5
-# Shared by both roles: only what the media container may see too.
+# Shared by every role: only what the media container may see too.
 env:
   clear:
     NODE_ENV: "production"

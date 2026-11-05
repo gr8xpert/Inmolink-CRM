@@ -16,7 +16,7 @@ import { configureCdn, createCloudflarePurger } from '@inmolink/platform/cdn';
 import { hmacRotationFromEnv, keyringFromEnv } from '@inmolink/platform/crypto';
 import { closeEmail, configureEmail } from '@inmolink/platform/email';
 import { createLogger } from '@inmolink/platform/logger';
-import { closePdf, configurePdf, createPdfRendererFromEnv } from '@inmolink/platform/pdf';
+import { checkPdfRenderer, closePdf, configurePdf, createPdfRendererFromEnv, pdf } from '@inmolink/platform/pdf';
 import { closeQueues, configureQueue, producerConnection } from '@inmolink/platform/queue';
 import { configureSearch, searchConfigFromEnv } from '@inmolink/platform/search';
 import { gracefulShutdown, redisCheck } from '@inmolink/platform/server';
@@ -39,6 +39,8 @@ const telemetry = startObservability(config, {
 try {
   // Pool-aware (S3-F4): a media-only container has `app_media` and storage, nothing else.
   const mediaOnly = config.WORKER_POOLS.every((p) => p === 'media');
+  // S17-F53: a pdf-only container reads the public read models and nothing else.
+  const pdfOnly = config.WORKER_POOLS.every((p) => p === 'pdf');
   await configureDb(
     {
       APP_ROLE: 'worker',
@@ -75,6 +77,11 @@ try {
     websiteApi.configureWebsiteApi({ mediaBaseUrl: config.MEDIA_CDN_URL, cursorKey: config.HMAC_KEY });
     configurePdf(createPdfRendererFromEnv({ allowedOrigins: [config.MEDIA_CDN_URL], logger }));
     documents.configureDocuments({ renderConcurrency: config.PDF_RENDER_CONCURRENCY ?? 2 });
+    // S17-F53: a browser that cannot start is reported now, not when a client first asks for a PDF. Not awaited: the
+    // pool's work and the health endpoint do not wait for Chrome.
+    void checkPdfRenderer(pdf(), logger).then((ok) => {
+      if (!ok) reportError(new Error('pdf: browser check failed at boot'), { phase: 'startup' });
+    });
   }
   // S12-01: the AI gateway (ai pool) — tiers, prices and budgets from env; AI_PROVIDER=none keeps it switched off.
   if (config.WORKER_POOLS.includes('ai')) await configureAiRuntime({ logger });
@@ -227,7 +234,10 @@ try {
     retiredSchedulers: RETIRED_SCHEDULERS,
     createDispatcher: () => createOutboxDispatcher({ logger }),
     trustProxy: config.TRUST_PROXY,
-    checks: { db: () => pingDb(mediaOnly ? 'app_media' : 'app_system'), redisQueue: redisCheck(producerConnection) },
+    checks: {
+      db: () => pingDb(mediaOnly ? 'app_media' : pdfOnly ? 'app_public' : 'app_system'),
+      redisQueue: redisCheck(producerConnection),
+    },
   });
 
   gracefulShutdown({

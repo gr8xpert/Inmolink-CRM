@@ -367,6 +367,32 @@ export function pdf(): PdfRenderer {
   return installed;
 }
 
+/**
+ * The boot check of the `pdf` pool (S17-F53): renders one blank page, so a browser that is missing or cannot start
+ * (no binary, no usable sandbox) is an error in the log at boot rather than a dead letter when a client asks for a PDF.
+ * Never throws: the worker stays up and the jobs fail and retry as they would have. Resolves true when a PDF came back.
+ */
+export async function checkPdfRenderer(
+  renderer: Pick<PdfRenderer, 'render'>,
+  logger: Pick<Logger, 'info' | 'error'>,
+  options: { timeoutMs?: number } = {},
+): Promise<boolean> {
+  try {
+    const bytes = await renderer.render('<!doctype html><title>check</title>', {
+      signal: AbortSignal.timeout(options.timeoutMs ?? 60_000),
+    });
+    if (new TextDecoder('latin1').decode(bytes.subarray(0, 5)) !== '%PDF-') throw new Error('pdf: not a PDF');
+    logger.info('pdf: browser renders');
+    return true;
+  } catch (err) {
+    logger.error(
+      { err },
+      'pdf: the browser is missing or will not start, so every brochure, portfolio, selection PDF and viewing-terms PDF will fail. Check PDF_CHROME_EXECUTABLE, the worker image and the seccomp profile (docs/runbooks/deploy.md, S17-F53)',
+    );
+    return false;
+  }
+}
+
 /** Graceful shutdown. */
 export async function closePdf(): Promise<void> {
   const r = installed;

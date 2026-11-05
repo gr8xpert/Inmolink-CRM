@@ -32,11 +32,12 @@ scrape_configs:
       - { names: [inmolink-realtime-metrics], type: A, port: 9466, refresh_interval: 15s }
     relabel_configs: *identity
 
-  # Both worker roles (infra/kamal/worker.yml): `workers` (every pool but media) and `media`, one job.
+  # Every worker role (infra/kamal/worker.yml): `workers`, `media` and `pdf` (S17-F53), one job.
   - job_name: worker
     dns_sd_configs:
       - { names: [inmolink-worker-metrics], type: A, port: 9467, refresh_interval: 15s }
       - { names: [inmolink-worker-media-metrics], type: A, port: 9467, refresh_interval: 15s }
+      - { names: [inmolink-worker-pdf-metrics], type: A, port: 9467, refresh_interval: 15s }
     relabel_configs:
       - target_label: host
         replacement: "{{ inventory_hostname }}"
@@ -44,6 +45,10 @@ scrape_configs:
         regex: inmolink-worker-media-metrics
         target_label: kamal_role
         replacement: media
+      - source_labels: [__meta_dns_name]
+        regex: inmolink-worker-pdf-metrics
+        target_label: kamal_role
+        replacement: pdf
       - source_labels: [__meta_dns_name]
         regex: inmolink-worker-metrics
         target_label: kamal_role

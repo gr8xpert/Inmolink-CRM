@@ -4,6 +4,8 @@ servers:
     hosts: [79.99.44.167]
   media:
     hosts: [79.99.44.167]
+  pdf:
+    hosts: [79.99.44.167]
 env:
   clear:
     DEPLOY_ENV: "staging"
