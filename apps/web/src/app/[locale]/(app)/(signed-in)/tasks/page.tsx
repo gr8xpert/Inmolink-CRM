@@ -4,10 +4,13 @@ import { EmptyState } from '@inmolink/ui';
 import { redirect } from 'next/navigation';
 import { getFormatter, getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
+import { ClientModeUnavailable } from '@/components/shell/client-mode-unavailable';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
 import { agencyTimeZone } from '@/server/agency-time-zone';
 import { sessionRef } from '@/server/api';
 import { fetchTasks, type TaskListOptions } from '@/server/crm-api';
+import { inClientMode } from '@/server/nav';
+import { loadShell } from '@/server/shell';
 import { addTaskAction, taskIntentAction } from './actions';
 import { dayBounds } from './time';
 
@@ -42,6 +45,8 @@ export default async function TasksPage({ searchParams }: { searchParams: Promis
   const locale = await getLocale();
   const session = await auth();
   if (!session?.user?.id) return localeRedirect({ href: '/login', locale });
+  const clientShell = await loadShell();
+  if (clientShell && inClientMode(clientShell.identity)) return <ClientModeUnavailable />;
   const params = await searchParams;
   const tab: Tab = (TABS as readonly string[]).includes(params.tab ?? '') ? (params.tab as Tab) : 'today';
   const scope = params.scope === 'all' ? 'all' : 'mine';

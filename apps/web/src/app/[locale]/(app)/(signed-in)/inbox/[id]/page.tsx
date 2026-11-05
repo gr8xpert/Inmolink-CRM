@@ -1,9 +1,12 @@
 import { notFound, redirect } from 'next/navigation';
 import { getFormatter, getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
+import { ClientModeUnavailable } from '@/components/shell/client-mode-unavailable';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
 import { sessionRef } from '@/server/api';
 import { fetchLead } from '@/server/contacts-api';
+import { inClientMode } from '@/server/nav';
+import { loadShell } from '@/server/shell';
 import { contactName } from '../../contacts/lookup';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -13,6 +16,8 @@ export default async function LeadPage({ params }: { params: Promise<{ id: strin
   const locale = await getLocale();
   const session = await auth();
   if (!session?.user?.id) return localeRedirect({ href: '/login', locale });
+  const clientShell = await loadShell();
+  if (clientShell && inClientMode(clientShell.identity)) return <ClientModeUnavailable />;
   const { id } = await params;
   if (!UUID.test(id)) return localeRedirect({ href: '/inbox', locale });
   const t = await getTranslations('leads.inbox');

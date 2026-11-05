@@ -4,10 +4,13 @@ import { notFound, redirect } from 'next/navigation';
 import { getLocale, getTranslations } from 'next-intl/server';
 import { z } from 'zod';
 import { auth } from '@/auth';
+import { ClientModeUnavailable } from '@/components/shell/client-mode-unavailable';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
 import { sessionRef } from '@/server/api';
 import { fetchMessages, fetchThread } from '@/server/chat-api';
 import { webConfig } from '@/server/env';
+import { inClientMode } from '@/server/nav';
+import { loadShell } from '@/server/shell';
 import { markThreadReadAction, sendMessageAction } from '../actions';
 import { ThreadLive } from './thread-live';
 
@@ -34,6 +37,8 @@ export default async function ChatThreadPage({
   const locale = await getLocale();
   const session = await auth();
   if (!session?.user?.id) return localeRedirect({ href: '/login', locale });
+  const clientShell = await loadShell();
+  if (clientShell && inClientMode(clientShell.identity)) return <ClientModeUnavailable />;
   const { id } = await params;
   if (!z.uuid().safeParse(id).success) notFound();
   const q = await searchParams;

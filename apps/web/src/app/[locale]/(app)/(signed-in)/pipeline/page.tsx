@@ -4,9 +4,12 @@ import dynamic from 'next/dynamic';
 import { redirect } from 'next/navigation';
 import { getFormatter, getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
+import { ClientModeUnavailable } from '@/components/shell/client-mode-unavailable';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
 import { sessionRef } from '@/server/api';
 import { type AssignedFilter, fetchLeadList, fetchPipelineBoard, fetchPipelineStages } from '@/server/crm-api';
+import { inClientMode } from '@/server/nav';
+import { loadShell } from '@/server/shell';
 import type { BoardColumn, BoardLabels } from './board';
 import { contactName, stageLabel, toBoardCards } from './cards';
 
@@ -34,6 +37,8 @@ export default async function PipelinePage({ searchParams }: { searchParams: Pro
   const locale = await getLocale();
   const session = await auth();
   if (!session?.user?.id) return localeRedirect({ href: '/login', locale });
+  const clientShell = await loadShell();
+  if (clientShell && inClientMode(clientShell.identity)) return <ClientModeUnavailable />;
   const params = await searchParams;
   const view = params.view === 'list' ? 'list' : 'board';
   const assigned: AssignedFilter =

@@ -4,8 +4,11 @@ import { redirect } from 'next/navigation';
 import { getLocale, getTranslations } from 'next-intl/server';
 import { z } from 'zod';
 import { auth } from '@/auth';
+import { ClientModeUnavailable } from '@/components/shell/client-mode-unavailable';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
 import { fetchAgencyAiFeatures, sessionRef } from '@/server/api';
+import { inClientMode } from '@/server/nav';
+import { loadShell } from '@/server/shell';
 import { fetchSocialAccounts } from '@/server/social-api';
 import { createPostAction } from '../actions';
 import { SocialNotice } from '../notice';
@@ -19,6 +22,8 @@ export default async function NewSocialPostPage({ searchParams }: { searchParams
   const locale = await getLocale();
   const session = await auth();
   if (!session?.user?.id) return localeRedirect({ href: '/login', locale });
+  const clientShell = await loadShell();
+  if (clientShell && inClientMode(clientShell.identity)) return <ClientModeUnavailable />;
   const params = await searchParams;
   const listingId = z.uuid().safeParse(params.listingId).success ? params.listingId : '';
   const [accounts, ai] = await Promise.all([

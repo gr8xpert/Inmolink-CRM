@@ -1,8 +1,11 @@
 import { redirect } from 'next/navigation';
 import { getLocale } from 'next-intl/server';
 import { auth } from '@/auth';
+import { ClientModeUnavailable } from '@/components/shell/client-mode-unavailable';
 import { getPathname, redirect as localeRedirect } from '@/i18n/navigation';
 import { sessionRef } from '@/server/api';
+import { inClientMode } from '@/server/nav';
+import { loadShell } from '@/server/shell';
 import { completeSocialConnect } from '@/server/social-api';
 import { SOCIAL_NOTICE_ERRORS } from '../errors';
 
@@ -17,6 +20,8 @@ export default async function SocialCallbackPage({ searchParams }: { searchParam
   const locale = await getLocale();
   const session = await auth();
   if (!session?.user?.id) return localeRedirect({ href: '/login', locale });
+  const clientShell = await loadShell();
+  if (clientShell && inClientMode(clientShell.identity)) return <ClientModeUnavailable />;
   const params = await searchParams;
   const back = (query: Record<string, string>) =>
     redirect(`${getPathname({ href: '/social', locale })}?${new URLSearchParams(query).toString()}`);

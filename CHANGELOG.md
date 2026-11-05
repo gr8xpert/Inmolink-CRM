@@ -6,6 +6,8 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 
 ### Changed
 - Spanish property type names reach the database; migrations must lift FORCE RLS to change data [S17-F43]
+- Website and portal detail pages and the preferred-agency search offer admin controls to admins only [S17-F44]
+- Calendar, tasks, inbox, chat, social and pipeline say they are not available in Client Mode instead of erroring [S17-F45]
 - Calendar events can be edited on the screen [S17-F42]
 - Non-admins are not offered preferred agency changes [S17-F41]
 - Logging out ends the session on the server [S17-F32]

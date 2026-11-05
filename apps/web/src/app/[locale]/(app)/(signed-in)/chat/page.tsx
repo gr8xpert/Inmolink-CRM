@@ -2,9 +2,12 @@ import { EmptyState } from '@inmolink/ui';
 import { redirect } from 'next/navigation';
 import { getFormatter, getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
+import { ClientModeUnavailable } from '@/components/shell/client-mode-unavailable';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
 import { sessionRef } from '@/server/api';
 import { fetchThreads } from '@/server/chat-api';
+import { inClientMode } from '@/server/nav';
+import { loadShell } from '@/server/shell';
 
 const CURSOR = /^[A-Za-z0-9_-]{1,400}$/;
 
@@ -16,6 +19,8 @@ export default async function ChatInboxPage({ searchParams }: { searchParams: Pr
   const locale = await getLocale();
   const session = await auth();
   if (!session?.user?.id) return localeRedirect({ href: '/login', locale });
+  const clientShell = await loadShell();
+  if (clientShell && inClientMode(clientShell.identity)) return <ClientModeUnavailable />;
   const q = await searchParams;
   const cursor = q.cursor && CURSOR.test(q.cursor) ? q.cursor : undefined;
   const t = await getTranslations('chat');
