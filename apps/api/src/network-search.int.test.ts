@@ -78,8 +78,9 @@ describe('network search route', () => {
     expect(anon.statusCode).toBe(401);
   });
 
-  it('[S5-05] support staff exempt a buyer-only agency over HTTP; data ops are refused; an unknown agency is 404', async () => {
+  it('[S5-05][S17-F57] a super admin exempts a buyer-only agency over HTTP; support and data ops are refused; an unknown agency is 404', async () => {
     const f = await createFounder();
+    const superAdmin = await createStaffUser('SUPER_ADMIN');
     const support = await createStaffUser('STAFF_SUPPORT');
     const dataOps = await createStaffUser('STAFF_DATA_OPS');
     const put = async (staffUserId: string, agencyId: string, exempt: boolean, reason?: string) =>
@@ -90,16 +91,17 @@ describe('network search route', () => {
         payload: { exempt, reason: reason ?? 'Ticket 4711: buyer-only agency' },
       });
     // S6-F1: a reason is required.
-    expect((await put(support.userId, f.agencyId, true, '')).statusCode).toBe(422);
-    const ok = await put(support.userId, f.agencyId, true);
+    expect((await put(superAdmin.userId, f.agencyId, true, '')).statusCode).toBe(422);
+    const ok = await put(superAdmin.userId, f.agencyId, true);
     expect(ok.statusCode).toBe(200);
     expect(ok.json()).toMatchObject({
       id: f.agencyId,
       giveToGetExempt: true,
       giveToGetReason: 'Ticket 4711: buyer-only agency',
     });
+    expect((await put(support.userId, f.agencyId, false)).statusCode).toBe(403);
     expect((await put(dataOps.userId, f.agencyId, false)).statusCode).toBe(403);
-    expect((await put(support.userId, newId(), true)).statusCode).toBe(404);
+    expect((await put(superAdmin.userId, newId(), true)).statusCode).toBe(404);
     // A tenant token is not staff.
     const tenant = await app.inject({
       method: 'PUT',

@@ -134,8 +134,8 @@ export default async function TenantPage({
                 {t('tenant.giveToGetLastReason', { reason: a.giveToGetReason })}
               </span>
             ) : null}
-            {/* Support roles only (the API refuses data ops too): a buyer-only agency searches without sharing. */}
-            {canImpersonate ? (
+            {/* S17-F57: super admin only, as the API decides: a buyer-only agency searches without sharing. */}
+            {me.role === 'SUPER_ADMIN' ? (
               <form action={setGiveToGetExemptionAction} className="flex flex-col gap-2">
                 <input type="hidden" name="agencyId" value={a.id} />
                 <input type="hidden" name="exempt" value={a.giveToGetExempt ? 'false' : 'true'} />

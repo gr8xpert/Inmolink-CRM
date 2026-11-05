@@ -481,7 +481,7 @@ describe('give-to-get', () => {
       expect(locked).not.toHaveProperty('items');
 
       // Staff exempt a buyer-only agency (audited); the agency itself cannot.
-      const staff = await createStaffUser('STAFF_SUPPORT');
+      const staff = await createStaffUser('SUPER_ADMIN');
       const asStaff = <T>(fn: Parameters<typeof withStaffCtx<T>>[1]) =>
         withStaffCtx({ userId: staff.userId, requestId: newId(), reason: 'network test' }, fn);
       const detail = await asStaff((ctx) =>
@@ -513,7 +513,7 @@ describe('give-to-get', () => {
 
   it('[S6-F1] the give-to-get exemption takes a staff reason and audits the exemption before and after', async () => {
     const m = await createFounder();
-    const staff = await createStaffUser('STAFF_SUPPORT');
+    const staff = await createStaffUser('SUPER_ADMIN');
     const asStaff = <T>(fn: Parameters<typeof withStaffCtx<T>>[1]) =>
       withStaffCtx({ userId: staff.userId, requestId: newId(), reason: 'network test' }, fn);
     const set = (exempt: boolean, reason: string) =>

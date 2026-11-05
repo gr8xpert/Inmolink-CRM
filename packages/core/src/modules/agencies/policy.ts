@@ -107,9 +107,11 @@ export function canStaff(ctx: StaffCtx, action: StaffAgenciesAction): boolean {
   switch (action) {
     case 'staff.verification.read':
     case 'staff.verification.decide':
-    // Exempting a buyer-only agency from give-to-get (S5-05) is support's call, like verification.
-    case 'staff.giveToGet.manage':
       return VERIFICATION_STAFF.has(ctx.actor.role);
+    // S17-F57: exempting an agency from give-to-get (S5-05) waives a network rule for one member, a commercial exception
+    // and not day-to-day support, so only a super admin grants or ends it. Support still sees the state and its reason.
+    case 'staff.giveToGet.manage':
+      return ctx.actor.role === 'SUPER_ADMIN';
     case 'staff.tenants.read':
       return true;
   }

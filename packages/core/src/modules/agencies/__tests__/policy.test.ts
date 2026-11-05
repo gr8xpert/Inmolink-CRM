@@ -127,6 +127,19 @@ describe('agencies policy', () => {
     }
   });
 
+  it('[S17-F57] only a super admin manages the give-to-get exemption; support keeps verification', () => {
+    const staff = (role: StaffRole): StaffCtx => ({
+      tx: {} as StaffCtx['tx'],
+      actor: { kind: 'staff', userId: USER, role },
+      locale: 'en',
+      requestId: 'test',
+    });
+    expect(canStaff(staff('SUPER_ADMIN'), 'staff.giveToGet.manage')).toBe(true);
+    expect(canStaff(staff('STAFF_SUPPORT'), 'staff.giveToGet.manage')).toBe(false);
+    expect(canStaff(staff('STAFF_DATA_OPS'), 'staff.giveToGet.manage')).toBe(false);
+    expect(canStaff(staff('STAFF_SUPPORT'), 'staff.verification.decide')).toBe(true);
+  });
+
   it('[S1-09] every action declares whether staff impersonating an admin may do it; details, verification, settings and preferred add are refused', () => {
     expectImpersonationRules({
       actions: AGENCIES_ACTIONS,
