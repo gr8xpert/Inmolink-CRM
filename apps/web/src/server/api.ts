@@ -246,7 +246,12 @@ interface Token {
 }
 
 export type ApiResult<T> =
-  | { ok: true; data: T }
+  | {
+      ok: true;
+      data: T;
+      /** S17-F56: the answer's status, where 200 and 201 say different things. */
+      status?: number;
+    }
   | { ok: false; status: number; error: ErrorBody['error'] | null }
   /** The session can no longer mint tokens (password reset, deactivation): end it. */
   | 'revoked';
@@ -321,7 +326,7 @@ async function apiCall<S extends z.ZodType>(
       if (refusal) logger.warn(refusal, 'api refused the call');
       return { ok: false, status: res.status, error: parsed.success ? parsed.data.error : null };
     }
-    return { ok: true, data: schema.parse(json) };
+    return { ok: true, status: res.status, data: schema.parse(json) };
   } catch (err) {
     if (isAppError(err) && err.code === 'SESSION_REVOKED') return 'revoked';
     if (isAppError(err) && err.code === 'MFA_REQUIRED') return toTwoFactor();

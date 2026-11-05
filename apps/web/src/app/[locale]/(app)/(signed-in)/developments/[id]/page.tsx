@@ -7,6 +7,8 @@ import { Link, redirect as localeRedirect } from '@/i18n/navigation';
 import { fetchDevelopmentPage, sessionRef } from '@/server/api';
 import { inClientMode } from '@/server/nav';
 import { loadShell } from '@/server/shell';
+import { loadCollaborationBlock } from '../../collaborations/load-rights';
+import { RegisterClientLink } from '../../collaborations/register-link';
 import { listingTaxonomy } from '../../listings/taxonomy';
 import { AccessPanel } from './access-panel';
 import { DevelopmentEditor } from './development-editor';
@@ -54,6 +56,9 @@ export default async function DevelopmentPage(props: { params: Promise<{ id: str
   const locales = [DEFAULT_CONTENT_LOCALE, ...CONTENT_LOCALES.filter((l) => l !== DEFAULT_CONTENT_LOCALE)];
   const dev = res.development.ok ? res.development.data : null;
   const own = dev?.access != null;
+  // S17-F56: another agency's development offers "Register client" (never in Client Mode).
+  const offerRegister =
+    dev !== null && !own && !clientView && (await loadCollaborationBlock(sessionRef(session.user))) === null;
   // The latest approved price list: an approval changed the units, so the unit table starts again from them.
   const approved = Math.max(0, ...(res.priceLists?.items ?? []).filter((p) => p.reviewedAt).map((p) => p.version));
 
@@ -61,9 +66,12 @@ export default async function DevelopmentPage(props: { params: Promise<{ id: str
     <div className="mx-auto flex max-w-5xl flex-col gap-4 p-6">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">{t('editor.title', { ref: dev?.ref ?? '' })}</h1>
-        <Link href="/developments" className="text-sm underline-offset-4 hover:underline">
-          {t('back')}
-        </Link>
+        <div className="flex flex-wrap items-center gap-3">
+          {offerRegister ? <RegisterClientLink kind="DEVELOPMENT" id={id} /> : null}
+          <Link href="/developments" className="text-sm underline-offset-4 hover:underline">
+            {t('back')}
+          </Link>
+        </div>
       </div>
       {!dev ? (
         <p role="alert" className="text-sm text-destructive">

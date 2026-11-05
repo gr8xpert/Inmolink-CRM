@@ -6,6 +6,8 @@ import { auth } from '@/auth';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
 import { fetchAgencyAiFeatures, fetchListingEditor, sessionRef } from '@/server/api';
 import { webConfig } from '@/server/env';
+import { loadCollaborationBlock } from '../../collaborations/load-rights';
+import { RegisterClientLink } from '../../collaborations/register-link';
 import { listingTaxonomy } from '../taxonomy';
 import { BookmarkButton } from './bookmark-button';
 import { ListingEditor } from './listing-editor';
@@ -51,6 +53,12 @@ export default async function ListingEditorPage(props: { params: Promise<{ id: s
   const messages = (await getMessages()) as unknown as { listings: Record<string, unknown> };
   const config = await webConfig();
   const tax = listingTaxonomy(res.taxonomy);
+  // S17-F56: another agency's live listing offers "Register client" (never in Client Mode, where `private` is null too).
+  const offerRegister =
+    res.listing.ok &&
+    res.listing.data.private === null &&
+    res.listing.data.deletedAt === null &&
+    (await loadCollaborationBlock(sessionRef(session.user))) === null;
   // The default content locale first, then the others as configured.
   const locales = [DEFAULT_CONTENT_LOCALE, ...CONTENT_LOCALES.filter((l) => l !== DEFAULT_CONTENT_LOCALE)];
 
@@ -60,7 +68,8 @@ export default async function ListingEditorPage(props: { params: Promise<{ id: s
         <h1 className="text-xl font-semibold">
           {t('editor.title', { ref: res.listing.ok ? (res.listing.data.ref ?? '') : '' })}
         </h1>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          {offerRegister ? <RegisterClientLink kind="LISTING" id={id} /> : null}
           {res.listing.ok && res.listing.data.deletedAt === null ? (
             <BookmarkButton listingId={res.listing.data.id} messages={messages.listings} />
           ) : null}

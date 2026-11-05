@@ -48,6 +48,19 @@ export function parseCollaborationParams(p: Record<string, string | undefined>):
   };
 }
 
+/** The filters back as query parameters, to return to the same view after an action (S17-F56). */
+export function collaborationQuery(f: CollaborationFilters): Record<string, string> {
+  const q: Record<string, string> = {};
+  if (f.direction) q.direction = f.direction;
+  if (f.type) q.type = f.type;
+  if (f.state) q.state = f.state;
+  if (f.kind) q.kind = f.kind;
+  if (f.from) q.from = f.from;
+  if (f.to) q.to = f.to;
+  if (f.cursor) q.cursor = f.cursor;
+  return q;
+}
+
 /**
  * The lists to load for the filters, in display order. A state that only one kind of item has (`ACTIVE` for
  * registrations, `REQUESTED`… for viewings) leaves the other kind out.

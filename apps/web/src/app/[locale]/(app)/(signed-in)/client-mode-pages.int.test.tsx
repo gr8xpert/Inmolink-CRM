@@ -64,6 +64,13 @@ const PAGES: Array<[string, () => Promise<{ default: unknown }>, unknown]> = [
   ['pipeline', () => import('./pipeline/page'), search],
   ['pipeline/stages', () => import('./pipeline/stages/page'), search],
   ['collaborations', () => import('./collaborations/page'), search],
+  // S17-F56: the new collaboration routes stay closed too.
+  ['collaborations/register', () => import('./collaborations/register/page'), search],
+  [
+    'collaborations/viewings/[id]/terms',
+    () => import('./collaborations/viewings/[id]/terms/page'),
+    { params: Promise.resolve({ id: 'x' }) },
+  ],
 ];
 
 describe('Client Mode on pages the API closes', () => {

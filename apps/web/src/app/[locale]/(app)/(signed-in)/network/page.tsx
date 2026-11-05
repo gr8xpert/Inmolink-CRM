@@ -6,6 +6,9 @@ import { auth } from '@/auth';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
 import { fetchNetworkPage, sessionRef } from '@/server/api';
 import { webConfig } from '@/server/env';
+import { loadShell } from '@/server/shell';
+import { RegisterClientLink } from '../collaborations/register-link';
+import { collaborationBlock } from '../collaborations/rights';
 import { BookmarkButton } from '../listings/[id]/bookmark-button';
 import { listingTaxonomy } from '../listings/taxonomy';
 import { MapView } from './map-view';
@@ -32,6 +35,9 @@ export default async function NetworkPage(props: { searchParams: Promise<Record<
   const messages = (await getMessages()) as unknown as { listings: Record<string, unknown> };
   const names = listingTaxonomy(res.taxonomy);
   const config = await webConfig();
+  // S17-F56: network search already takes a verified agency, so role and mode are what is left to check here.
+  const shell = await loadShell();
+  const block = collaborationBlock(shell?.identity ?? { kind: 'unknown' });
 
   const money = (m: { amountCents: number; currency: string }) =>
     format.number(m.amountCents / 100, { style: 'currency', currency: m.currency, maximumFractionDigits: 0 });
@@ -299,7 +305,18 @@ export default async function NetworkPage(props: { searchParams: Promise<Record<
                             </span>
                           ) : null}
                         </span>
-                        {i.kind === 'LISTING' ? <BookmarkButton listingId={i.id} messages={messages.listings} /> : null}
+                        <span className="flex flex-wrap items-center gap-2">
+                          {block ? null : (
+                            // A unit's registration is for its development (the API's two target kinds).
+                            <RegisterClientLink
+                              kind={i.card.kind === 'LISTING' ? 'LISTING' : 'DEVELOPMENT'}
+                              id={i.card.kind === 'LISTING' ? i.id : i.card.development.id}
+                            />
+                          )}
+                          {i.kind === 'LISTING' ? (
+                            <BookmarkButton listingId={i.id} messages={messages.listings} />
+                          ) : null}
+                        </span>
                       </div>
                     </li>
                   ))}
