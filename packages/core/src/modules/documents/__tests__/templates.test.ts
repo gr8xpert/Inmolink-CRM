@@ -29,7 +29,11 @@ const image = (n: number, cover = false) => ({
   room: null,
   width: 1600,
   height: 1067,
-  urls: { large: `https://media.example/l/${n}.webp`, medium: `https://media.example/m/${n}.webp` },
+  urls: {
+    large: `https://media.example/l/${n}.webp`,
+    medium: `https://media.example/m/${n}.webp`,
+    small: `https://media.example/s/${n}.webp`,
+  },
 });
 
 function listing(over: Partial<Extract<WebsiteDetail, { kind: 'LISTING' }>> = {}): WebsiteDetail {
@@ -114,6 +118,24 @@ describe('PDF templates (S12-05)', () => {
     expect(brochureHtml({ presenter, items: [onRequest], t: t('en'), format: docFormat('en'), asOf })).toContain(
       'Price on request',
     );
+  });
+
+  it('[S17-F54] a portfolio embeds only small photos, a brochure keeps its larger ones', () => {
+    const item = listing();
+    const portfolio = portfolioHtml({
+      presenter,
+      items: [item],
+      t: t('en'),
+      format: docFormat('en'),
+      asOf,
+      title: null,
+    });
+    const pictures = [...portfolio.matchAll(/media\.example\/(\w)\//g)].map((m) => m[1]);
+    expect(pictures.length).toBeGreaterThan(0);
+    expect(new Set(pictures)).toEqual(new Set(['s']));
+    const brochure = brochureHtml({ presenter, items: [item], t: t('en'), format: docFormat('en'), asOf });
+    expect(brochure).toContain('media.example/l/');
+    expect(brochure).not.toContain('media.example/s/');
   });
 
   it('[S12-05] a portfolio: a cover, then one page per listing in order', () => {

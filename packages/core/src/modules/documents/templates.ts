@@ -109,7 +109,7 @@ function doc(title: string, lang: string, presenter: WebsitePresenter, body: str
  * every origin but the allowed asset origins anyway.
  */
 function src(image: WebsiteImage | null | undefined, size: 'large' | 'medium' | 'small'): string | null {
-  const url = image?.urls[size] ?? image?.urls.large ?? image?.urls.medium ?? null;
+  const url = image?.urls[size] ?? image?.urls.medium ?? image?.urls.large ?? null;
   return url && /^https?:\/\//.test(url) ? url : null;
 }
 
@@ -155,11 +155,11 @@ function facts(d: WebsiteDetail, t: Translate, f: DocFormat): string {
   return `<div class="facts">${shown.map(([k, v]) => `<div class="fact"><div class="k">${e(k)}</div><div class="v">${e(v)}</div></div>`).join('')}</div>`;
 }
 
-function photos(d: WebsiteDetail, count: number): string {
+function photos(d: WebsiteDetail, count: number, size: 'medium' | 'small'): string {
   if (d.kind !== 'LISTING') return '';
   const urls = d.media
     .filter((m): m is WebsiteImage => m.kind !== 'VIDEO' && !m.cover)
-    .map((m) => src(m, 'medium'))
+    .map((m) => src(m, size))
     .filter((u): u is string => u !== null)
     .slice(0, count);
   if (urls.length === 0) return '';
@@ -193,9 +193,9 @@ function listingPage(
     mode === 'brochure' && d.kind === 'LISTING' && d.features.length > 0
       ? `<h2>${e(t('listing.features'))}</h2><ul class="features">${d.features.map((x) => `<li>${e(x.name)}</li>`).join('')}</ul>`
       : '';
-  return `<section class="page">${band(presenter)}${heading(d, t, f)}${img(d.kind === 'LISTING' ? src(d.cover, mode === 'portfolio' ? 'medium' : 'large') : null, mode === 'portfolio' ? 'hero small' : 'hero')}${facts(d, t, f)}${
+  return `<section class="page">${band(presenter)}${heading(d, t, f)}${img(d.kind === 'LISTING' ? src(d.cover, mode === 'portfolio' ? 'small' : 'large') : null, mode === 'portfolio' ? 'hero small' : 'hero')}${facts(d, t, f)}${
     text ? `<h2>${e(t('listing.description'))}</h2><div class="text">${e(text)}</div>` : ''
-  }${features}${photos(d, mode === 'portfolio' ? PORTFOLIO_PHOTOS : BROCHURE_PHOTOS)}${footer(presenter, t, f, asOf)}</section>`;
+  }${features}${mode === 'portfolio' ? photos(d, PORTFOLIO_PHOTOS, 'small') : photos(d, BROCHURE_PHOTOS, 'medium')}${footer(presenter, t, f, asOf)}</section>`;
 }
 
 export interface ListingsDocInput {

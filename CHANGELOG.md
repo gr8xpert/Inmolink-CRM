@@ -7,6 +7,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 
 ### Changed
 - Staging QA (S17-F52): Collaborations in Client Mode says it is closed; no false "details changed" note after approving a verification; bookmark wording, ids and long folder names.
+- Staging QA (S17-F54): portfolio PDFs use smaller photos and a limit of 80 MB, so portfolios of up to 50 listings are stored.
 - PDFs render in deployed workers (S17-F53): brochures, portfolios, selection PDFs and viewing terms run in a new `pdf` worker role with Chrome's sandbox on, under a seccomp profile delivered by Ansible. New system packages in the worker image only: `chromium`, `fonts-liberation`, `fonts-dejavu-core` (+944 MB).
 - Staging QA (S17-F51): asking again for a chat with the same colleague opens the existing conversation; untitled direct chats show the colleague's name; the give-to-get button on the staff tenant page wraps at 390 px.
 - Staging QA (S17-F50): the chat inbox can start a direct chat with an active colleague; an empty bookmark folder name shows a message; auth forms show a message under each invalid field (`aria-describedby`).
