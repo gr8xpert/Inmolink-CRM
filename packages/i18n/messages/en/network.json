@@ -111,6 +111,7 @@
       "NO_SHOW": "No show"
     },
     "awaiting": {
+      "YOU": "Waiting for you",
       "INTRODUCER": "Waiting for the introducer",
       "OWNER": "Waiting for the owner"
     },

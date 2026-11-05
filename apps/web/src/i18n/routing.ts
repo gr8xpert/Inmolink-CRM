@@ -11,4 +11,6 @@ export const routing = defineRouting({
   localePrefix: 'always',
   // No hreflang `Link` header: the dashboard is not indexed, and it would echo one-time link tokens.
   alternateLinks: false,
+  // Security test 2026-11-06: the locale cookie is HTTPS-only like every other cookie of the dashboard.
+  localeCookie: { secure: true },
 });

@@ -91,6 +91,10 @@ export default async function CollaborationsPage({ searchParams }: { searchParam
   );
   if (results.some(([, r]) => r === 'revoked')) redirect('/session/expired');
 
+  // S17-F56: the side the viewer is on reads "waiting for you", not its own role in the third person.
+  const awaitingLabel = (awaiting: 'INTRODUCER' | 'OWNER', mine: 'INTRODUCER' | 'OWNER') =>
+    awaiting === mine ? t('awaiting.YOU') : t(`awaiting.${awaiting}`);
+
   const select = 'h-9 rounded-md border bg-background px-2';
   const moreQuery = (key: SectionKey, cursor: string) => ({
     ...(f.direction ? { direction: f.direction } : { direction: key.startsWith('out') ? 'OUT' : 'IN' }),
@@ -250,7 +254,9 @@ export default async function CollaborationsPage({ searchParams }: { searchParam
                         <span className="text-muted-foreground">
                           {[
                             target(v.target.kind, v.target.id, v.targetLabel),
-                            v.awaiting ? t(`awaiting.${v.awaiting}`) : null,
+                            v.awaiting
+                              ? awaitingLabel(v.awaiting, key === 'outViewings' ? 'INTRODUCER' : 'OWNER')
+                              : null,
                             v.outcome ? t(`outcomes.${v.outcome}`) : null,
                           ]
                             .filter(Boolean)

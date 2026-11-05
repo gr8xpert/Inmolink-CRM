@@ -111,6 +111,7 @@
       "NO_SHOW": "No se presentó"
     },
     "awaiting": {
+      "YOU": "Esperando tu respuesta",
       "INTRODUCER": "Esperando a quien presenta",
       "OWNER": "Esperando al propietario"
     },
