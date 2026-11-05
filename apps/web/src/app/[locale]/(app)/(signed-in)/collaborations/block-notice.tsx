@@ -13,6 +13,11 @@ export async function BlockNotice({ block }: { block: CollaborationBlock }) {
           {t('verifyLink')}
         </Link>
       ) : null}
+      {block === 'LOCKED' ? (
+        <Link href="/listings" className="font-medium underline underline-offset-4">
+          {t('shareLink')}
+        </Link>
+      ) : null}
     </p>
   );
 }

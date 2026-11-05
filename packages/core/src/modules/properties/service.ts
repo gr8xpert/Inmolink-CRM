@@ -141,7 +141,8 @@ export function toDto(ctx: Ctx, row: repo.ListingRow, privates: repo.PrivatesRow
   return {
     id: row.id,
     agencyId: hideOwner ? null : row.agencyId,
-    ownerUserId: hideOwner ? null : row.ownerUserId,
+    // S17-F56: who the agent is, is the owner agency's business; a network viewer gets the agency only.
+    ownerUserId: own ? row.ownerUserId : null,
     ref: hideOwner ? null : row.ref,
     source: row.source,
     status: row.status,

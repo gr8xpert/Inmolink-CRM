@@ -79,3 +79,8 @@ export function leadTargetListing(tx: Tx, agencyId: string, id: string) {
 export function listingAgentsOf(tx: Tx, ids: readonly string[]) {
   return repo.listingAgents(tx, ids);
 }
+
+/** S17-F56: the agent of each of these listings of the agency (mls: who may bind it to viewing terms). One statement. */
+export function ownListingAgents(tx: Tx, agencyId: string, ids: readonly string[]) {
+  return repo.ownListingAgents(tx, agencyId, ids);
+}

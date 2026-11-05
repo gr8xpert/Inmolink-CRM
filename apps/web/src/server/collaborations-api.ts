@@ -2,6 +2,7 @@ import {
   type CreateRegistrationBody,
   type CreateViewingRequestBody,
   DevelopmentDto,
+  GiveToGetGate,
   ListingContentDto,
   ListingDto,
   ReceivedRegistrationPage,
@@ -129,41 +130,9 @@ export function fetchViewingTerms(session: SessionRef, id: string): Promise<ApiR
   return apiRequest(session, viewingPath(id, 'terms'), ViewingTermsDocumentDto);
 }
 
-/**
- * The registrations with a viewing open (requested or scheduled), so the list does not offer a second one (the API answers
- * `VIEWING_REQUEST_OPEN`). The newest 100 of each status; a list that fails offers the form, and the API still refuses.
- */
-export async function fetchOpenViewingRegistrations(session: SessionRef): Promise<Set<string> | 'revoked'> {
-  const pages = await Promise.all(
-    (['REQUESTED', 'SCHEDULED'] as const).map((status) => fetchOwnViewings(session, { limit: 100, status })),
-  );
-  const ids = new Set<string>();
-  for (const page of pages) {
-    if (page === 'revoked') return 'revoked';
-    if (page.ok) for (const v of page.data.items) if (v.registrationId) ids.add(v.registrationId);
-  }
-  return ids;
-}
-
-const ListingOwner = ListingDto.pick({ id: true, ownerUserId: true });
-
-/**
- * Who each listing's agent is, for the member's own agency's listings (`ListingDto.ownerUserId`): who may bind the agency to a
- * viewing's terms. One call per listing, so only for non-admins, the open rows of one page (at most 25), without repeats.
- */
-export async function fetchListingOwners(
-  session: SessionRef,
-  ids: readonly string[],
-): Promise<Map<string, string | null> | 'revoked'> {
-  const owners = new Map<string, string | null>();
-  const results = await Promise.all(
-    [...new Set(ids)].map((id) => apiRequest(session, `/v1/listings/${encodeURIComponent(id)}`, ListingOwner)),
-  );
-  for (const res of results) {
-    if (res === 'revoked') return 'revoked';
-    if (res.ok) owners.set(res.data.id, res.data.ownerUserId);
-  }
-  return owners;
+/** The agency's give-to-get gate: while LOCKED it starts no new network action. */
+export function fetchNetworkGate(session: SessionRef): Promise<ApiResult<GiveToGetGate>> {
+  return apiRequest(session, '/v1/network/gate', GiveToGetGate);
 }
 
 export type RegisterTargetData =

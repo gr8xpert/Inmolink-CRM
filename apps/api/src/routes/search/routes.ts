@@ -1,4 +1,4 @@
-import { NetworkSearchBody, NetworkSearchResult } from '@inmolink/contracts';
+import { GiveToGetGate, NetworkSearchBody, NetworkSearchResult } from '@inmolink/contracts';
 import * as search from '@inmolink/core/modules/search';
 import type { RateLimitRule } from '@inmolink/platform/rate-limit';
 import type { FastifyZod } from '@inmolink/platform/server';
@@ -30,5 +30,20 @@ export async function searchRoutes(app: FastifyZod): Promise<void> {
       config: { rateLimit: NETWORK_LIMITS },
     },
     (req) => search.searchNetwork(app.ctxRunner(req), req.body),
+  );
+
+  app.get(
+    '/v1/network/gate',
+    {
+      schema: {
+        tags: ['search'],
+        operationId: 'search.getNetworkGate',
+        summary: 'The agency’s give-to-get gate: while LOCKED it starts no new network action (S17-F56)',
+        response: { 200: GiveToGetGate },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: NETWORK_LIMITS },
+    },
+    (req) => app.withCtx(req, (ctx) => search.networkGate(ctx)),
   );
 }

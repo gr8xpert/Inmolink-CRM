@@ -76,6 +76,16 @@ describe('network search route', () => {
     expect(bad.statusCode).toBe(422);
     const anon = await app.inject({ method: 'POST', url: '/v1/network/search', payload: {} });
     expect(anon.statusCode).toBe(401);
+
+    // S17-F56: the dashboard reads the gate alone, to not offer what a LOCKED agency cannot start.
+    const gate = await app.inject({
+      method: 'GET',
+      url: '/v1/network/gate',
+      headers: await bearer(f.userId, f.agencyId),
+    });
+    expect(gate.statusCode).toBe(200);
+    expect(gate.json()).toMatchObject({ state: 'LOCKED', sharedListings: 0, threshold: 5 });
+    expect((await app.inject({ method: 'GET', url: '/v1/network/gate' })).statusCode).toBe(401);
   });
 
   it('[S5-05][S17-F57] a super admin exempts a buyer-only agency over HTTP; support and data ops are refused; an unknown agency is 404', async () => {

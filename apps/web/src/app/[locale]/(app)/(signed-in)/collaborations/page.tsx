@@ -17,25 +17,20 @@ import { Link, redirect as localeRedirect } from '@/i18n/navigation';
 import { agencyTimeZone } from '@/server/agency-time-zone';
 import { sessionRef } from '@/server/api';
 import {
-  fetchListingOwners,
-  fetchOpenViewingRegistrations,
   fetchOwnRegistrations,
   fetchOwnViewings,
   fetchReceivedRegistrations,
   fetchReceivedViewings,
 } from '@/server/collaborations-api';
-import { inClientMode, isAdminMember } from '@/server/nav';
+import { inClientMode } from '@/server/nav';
 import { loadShell } from '@/server/shell';
 import { BlockNotice } from './block-notice';
 import { collaborationQuery, parseCollaborationParams, type SectionKey, sectionsFor } from './filters';
 import { loadCollaborationBlock } from './load-rights';
 import { parseDone, parseRefusal } from './refusals';
 import { RequestViewingForm } from './request-viewing-form';
-import { termsText } from './terms-text';
-import { mayBind } from './viewing-controls';
+import { termsText, termsTools } from './terms-text';
 import { ViewingRowControls } from './viewing-row-controls';
-
-const OPEN = new Set<ViewingStatus>(['REQUESTED', 'SCHEDULED']);
 
 /**
  * My collaborations (S11-06, PLAN §7 M10): the agency's client registrations and viewing requests, introduced by it (out)
@@ -70,12 +65,10 @@ export default async function CollaborationsPage({ searchParams }: { searchParam
   const dateTime = (iso: string) =>
     format.dateTime(new Date(iso), { dateStyle: 'medium', timeStyle: 'short', timeZone });
   const termsLine = (v: ViewingRequestDto) =>
-    termsText(v.terms, {
-      t: (key, values) => commission(key, values),
-      money: (m) =>
-        format.number(m.amountCents / 100, { style: 'currency', currency: m.currency, maximumFractionDigits: 0 }),
-      percent: (bp) => format.number(bp / 10_000, { style: 'percent', maximumFractionDigits: 2 }),
-    });
+    termsText(
+      v.terms,
+      termsTools(format, (key, values) => commission(key, values)),
+    );
   // The reference and title (S12-F21); a target the agency can no longer read falls back to kind + id fragment.
   const target = (k: RegistrationTargetKind, id: string, label: TargetLabel | null) =>
     label
@@ -97,23 +90,6 @@ export default async function CollaborationsPage({ searchParams }: { searchParam
     }),
   );
   if (results.some(([, r]) => r === 'revoked')) redirect('/session/expired');
-
-  const rowsOf = <T,>(key: SectionKey): T[] => {
-    const res = results.find(([k]) => k === key)?.[1];
-    return res && res !== 'revoked' && res.ok ? (res.data.items as T[]) : [];
-  };
-  // Not offering what the API would refuse takes two more lookups, only where they can change what is shown.
-  const hasActive = !block && rowsOf<RegistrationDto>('outRegistrations').some((r) => r.state === 'ACTIVE');
-  const isAdmin = clientShell ? isAdminMember(clientShell.identity) : false;
-  const ownerListings = rowsOf<ViewingRequestDto>('inViewings')
-    .filter((v) => OPEN.has(v.status) && v.target.kind === 'LISTING')
-    .map((v) => v.target.id);
-  const [openRegistrations, listingOwners] = await Promise.all([
-    hasActive ? fetchOpenViewingRegistrations(ref) : new Set<string>(),
-    !block && !isAdmin ? fetchListingOwners(ref, ownerListings) : new Map<string, string | null>(),
-  ]);
-  if (openRegistrations === 'revoked' || listingOwners === 'revoked') redirect('/session/expired');
-  const member = { isAdmin, userId: session.user.id };
 
   const select = 'h-9 rounded-md border bg-background px-2';
   const moreQuery = (key: SectionKey, cursor: string) => ({
@@ -231,7 +207,7 @@ export default async function CollaborationsPage({ searchParams }: { searchParam
                       <span className="text-muted-foreground">
                         {t('row.registered')}: {date(r.registeredAt)} · {t('row.validUntil')}: {date(r.expiresAt)}
                       </span>
-                      {block || r.state !== 'ACTIVE' ? null : openRegistrations.has(r.id) ? (
+                      {block || r.state !== 'ACTIVE' ? null : r.hasOpenViewing ? (
                         <p className="basis-full text-muted-foreground">{t('request.open')}</p>
                       ) : (
                         <RequestViewingForm
@@ -289,14 +265,7 @@ export default async function CollaborationsPage({ searchParams }: { searchParam
                       </span>
                       <p className="basis-full text-muted-foreground">{termsLine(v)}</p>
                       <div className="basis-full">
-                        <ViewingRowControls
-                          viewing={v}
-                          now={now}
-                          blocked={block !== null}
-                          mayBind={mayBind(v, member, listingOwners)}
-                          timeZone={timeZone}
-                          back={back}
-                        />
+                        <ViewingRowControls viewing={v} now={now} timeZone={timeZone} back={back} />
                       </div>
                     </li>
                   ))

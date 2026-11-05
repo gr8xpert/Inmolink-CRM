@@ -151,7 +151,8 @@
       "recent": "Your newest contacts",
       "noRecent": "You have no contacts with an e-mail or phone yet. Find one above or create one.",
       "submit": "Register client",
-      "newContact": "Create a contact"
+      "newContact": "Create a contact",
+      "recentFailed": "Your contacts could not be loaded. Find one by e-mail or phone, or reload the page."
     },
     "request": {
       "cta": "Request viewing",
@@ -185,7 +186,9 @@
       "IMPERSONATING": "Support staff acting as a member cannot register clients or answer viewings, because that binds the agency.",
       "ROLE": "Your role cannot register clients or answer viewings.",
       "UNVERIFIED": "Only verified agencies can register clients and answer viewings on the network.",
-      "verifyLink": "Go to verification"
+      "verifyLink": "Go to verification",
+      "LOCKED": "Your agency has to share more listings on the network before it can register clients or request viewings. You can still answer what is already open.",
+      "shareLink": "Go to your listings"
     },
     "errors": {
       "FORBIDDEN": "You cannot do this: it takes a member of a verified agency with the right role.",
@@ -211,7 +214,8 @@
       "STATE_NOT_SCHEDULED": "The outcome can only be recorded for a scheduled viewing.",
       "STATE_TOO_EARLY": "The outcome can be recorded after the scheduled time.",
       "STATE_CHANGED": "This viewing has just changed. Check where it stands and try again.",
-      "generic": "That did not work. Try again."
+      "generic": "That did not work. Try again.",
+      "NETWORK_GIVE_TO_GET_LOCKED": "Your agency has to share more listings before it can start new collaborations. It can still answer the ones already open."
     },
     "done": {
       "registered": "Client registered. You can now request a viewing below.",

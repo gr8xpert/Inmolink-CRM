@@ -24,6 +24,7 @@ import type {
   ListViewingRequestsQuery,
   RegistrationTargetKind,
   RescheduleViewingBody,
+  ViewingAction,
   ViewingOutcomeBody,
   ViewingRequestDto,
   ViewingRequestPage,
@@ -49,7 +50,7 @@ import * as search from '../search';
 import { viewingRequestExpiryDays } from './config';
 import { mlsEvents } from './events';
 import { type TargetLabels, targetLabels } from './labels';
-import { assertCan } from './policy';
+import { assertCan, can } from './policy';
 import * as repo from './viewings-repo';
 
 const DAY_MS = 86_400_000;
@@ -86,9 +87,42 @@ function termsOf(r: repo.ViewingRow): ViewingTermsDto {
 interface Lookups {
   names: Map<string, string>;
   labels: TargetLabels;
+  /** The listing's agent, for the listings a non-admin owner member may be asked to answer for. */
+  listingAgents: ReadonlyMap<string, string | null>;
 }
 
-function toDto(r: repo.ViewingRow, { names, labels }: Lookups): ViewingRequestDto {
+const ADMIN_ROLES = new Set(['AGENCY_ADMIN', 'DEVELOPER_ADMIN']);
+const isAdmin = (ctx: Ctx) => ctx.actor.kind === 'user' && ADMIN_ROLES.has(ctx.actor.role);
+const isOpen = (r: repo.ViewingRow) => r.status === 'REQUESTED' || r.status === 'SCHEDULED';
+
+/** `assertMayBind` as a flag, from the lookups: no statement per row. */
+function mayBindRow(ctx: Ctx, r: repo.ViewingRow, listingAgents: Lookups['listingAgents']): boolean {
+  if (!can(ctx, 'mls.viewings.write')) return false;
+  if (r.side !== 'OWNER' || isAdmin(ctx)) return true;
+  if (ctx.actor.kind !== 'user' || r.targetKind !== 'LISTING') return false;
+  return listingAgents.get(r.targetId) === ctx.actor.userId;
+}
+
+/**
+ * S17-F56: what the transitions below would take from this member now, so a screen offers only those. Same rules, same
+ * clock (`lapsed` and `due` are the database's). The transitions stay the authority.
+ */
+function allowedActions(ctx: Ctx, r: repo.ViewingRow, mayBind: boolean): ViewingAction[] {
+  if (!can(ctx, 'mls.viewings.write') || !isOpen(r) || r.lapsed) return [];
+  const actions: ViewingAction[] = [];
+  const answering = r.status === 'REQUESTED' && r.awaiting === r.side;
+  const due = r.status === 'SCHEDULED' && r.due;
+  if (due) actions.push('OUTCOME');
+  if (answering && mayBind) actions.push('ACCEPT');
+  if (answering) actions.push('DECLINE');
+  // a new time must fall inside the terms (`proposedStart`)
+  if (!due && mayBind && r.termsValidUntil.getTime() > clock.now().getTime()) actions.push('RESCHEDULE');
+  actions.push('CANCEL');
+  return actions;
+}
+
+function toDto(ctx: Ctx, r: repo.ViewingRow, { names, labels, listingAgents }: Lookups): ViewingRequestDto {
+  const mayBind = mayBindRow(ctx, r, listingAgents);
   const counterpart = r.side === 'INTRODUCER' ? r.ownerAgencyId : r.introducerAgencyId;
   return {
     id: r.id,
@@ -108,21 +142,31 @@ function toDto(r: repo.ViewingRow, { names, labels }: Lookups): ViewingRequestDt
     outcomeAt: iso(r.outcomeAt),
     closedBy: r.closedBy as ViewingRequestDto['closedBy'],
     terms: termsOf(r),
+    mayBind,
+    allowedActions: allowedActions(ctx, r, mayBind),
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
   };
 }
 
-/** The counterpart agencies' names and the targets' labels for a page: two statements, whatever the page size. */
+/**
+ * The counterpart agencies' names and the targets' labels for a page: two statements, whatever the page size. A third
+ * (S17-F56) only for an owner member who is not an admin, when an open request of a listing is on the page: its agent.
+ */
 async function lookupsFor(ctx: Ctx, rows: readonly repo.ViewingRow[]): Promise<Lookups> {
-  if (rows.length === 0) return { names: new Map(), labels: new Map() };
+  if (rows.length === 0) return { names: new Map(), labels: new Map(), listingAgents: new Map() };
   const ids = rows.map((r) => (r.side === 'INTRODUCER' ? r.ownerAgencyId : r.introducerAgencyId));
   const names = await agencies.networkAgencyNames(ctx, ids);
   const labels = await targetLabels(
     ctx,
     rows.map((r) => ({ kind: r.targetKind as RegistrationTargetKind, id: r.targetId })),
   );
-  return { names, labels };
+  const asked =
+    can(ctx, 'mls.viewings.write') && !isAdmin(ctx)
+      ? rows.filter((r) => r.side === 'OWNER' && r.targetKind === 'LISTING' && isOpen(r)).map((r) => r.targetId)
+      : [];
+  const listingAgents = await properties.ownListingAgents(ctx.tx, ctx.tenant.agencyId, asked);
+  return { names, labels, listingAgents };
 }
 
 /** When an unanswered proposal lapses: the configured days from now, or the proposed time if sooner. */
@@ -236,7 +280,11 @@ export async function requestViewing(
     (since, key) => repo.requestByIdempotency(ctx.tx, agencyId, key.hash, since),
     { lock: true, now },
   );
-  if (prior) return { request: toDto(prior.row, await lookupsFor(ctx, [prior.row])), replayed: true };
+  if (prior) return { request: toDto(ctx, prior.row, await lookupsFor(ctx, [prior.row])), replayed: true };
+
+  // S17-F56: a new network action is earned by sharing (PLAN §2). After the replay: a retry is not a new action.
+  const gate = await search.networkGate(ctx);
+  if (gate.state === 'LOCKED') throw new AppError('NETWORK_GIVE_TO_GET_LOCKED', { gate });
 
   const registration = await repo.validRegistration(ctx.tx, agencyId, input.registrationId);
   if (!registration) throw new AppError('REGISTRATION_NOT_FOUND');
@@ -274,7 +322,7 @@ export async function requestViewing(
     });
   await auditTerms(ctx, row, 'INTRODUCER');
   await changed(ctx, row, 'REQUESTED', false);
-  return { request: toDto(row, await lookupsFor(ctx, [row])), replayed: false };
+  return { request: toDto(ctx, row, await lookupsFor(ctx, [row])), replayed: false };
 }
 
 /** The caller's side of the request, under the request's advisory lock (both sides' transitions take it). */
@@ -296,8 +344,6 @@ function assertOpen(r: repo.ViewingRow): void {
   if (r.lapsed) refuse('expired');
 }
 
-const ADMIN_ROLES = new Set(['AGENCY_ADMIN', 'DEVELOPER_ADMIN']);
-
 /**
  * Binding the owner agency to commission terms (accepting, or proposing a time — which accepts them too) is for its
  * admins or the listing's own agent; a development has no agent of its own, so its admins. Any member may decline or
@@ -305,7 +351,7 @@ const ADMIN_ROLES = new Set(['AGENCY_ADMIN', 'DEVELOPER_ADMIN']);
  */
 async function assertMayBind(ctx: Ctx, r: repo.ViewingRow): Promise<void> {
   if (r.side !== 'OWNER') return;
-  if (ctx.actor.kind === 'user' && ADMIN_ROLES.has(ctx.actor.role)) return;
+  if (isAdmin(ctx)) return;
   if (r.targetKind === 'LISTING') {
     const listing = await properties.leadTargetListing(ctx.tx, ctx.tenant.agencyId, r.targetId);
     if (listing?.ownerUserId && listing.ownerUserId === memberUserId(ctx)) return;
@@ -322,7 +368,7 @@ async function update(ctx: Ctx, r: repo.ViewingRow, patch: repo.ViewingPatch): P
 async function answered(ctx: Ctx, r: repo.ViewingRow, action: Action, termsAccepted: boolean) {
   if (termsAccepted) await auditTerms(ctx, r, 'OWNER');
   await changed(ctx, r, action, termsAccepted);
-  return toDto(r, await lookupsFor(ctx, [r]));
+  return toDto(ctx, r, await lookupsFor(ctx, [r]));
 }
 
 /**
@@ -415,7 +461,7 @@ export async function getViewingRequest(ctx: Ctx, id: string): Promise<ViewingRe
   assertCan(ctx, 'mls.viewings.read');
   const r = await repo.sideRow(ctx.tx, ctx.tenant.agencyId, id);
   if (!r) throw new AppError('VIEWING_REQUEST_NOT_FOUND');
-  const dto = toDto(r, await lookupsFor(ctx, [r]));
+  const dto = toDto(ctx, r, await lookupsFor(ctx, [r]));
   // S12-F9: the introducer's copy is about its client (the owner's never is).
   if (r.side === 'INTRODUCER') {
     await compliance.auditImpersonatedRead(ctx, 'mls.clientData.read', 'viewingRequests', {
@@ -513,7 +559,7 @@ export async function listViewingRequests(ctx: Ctx, query: ListViewingRequestsQu
     rows,
     query.limit,
     (r) => ({ at: r.createdMs, id: r.id }),
-    (r) => toDto(r, lookups),
+    (r) => toDto(ctx, r, lookups),
   );
   // S12-F9: introducer-side requests are about the agency's clients.
   await compliance.auditImpersonatedRead(ctx, 'mls.clientData.read', 'viewingRequests', {
@@ -540,7 +586,7 @@ export async function listReceivedViewingRequests(
     rows,
     query.limit,
     (r) => ({ at: r.createdMs, id: r.id }),
-    (r) => toDto(r, lookups),
+    (r) => toDto(ctx, r, lookups),
   );
 }
 

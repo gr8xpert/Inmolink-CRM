@@ -8,7 +8,7 @@ import { sessionRef } from '@/server/api';
 import { fetchViewingTerms } from '@/server/collaborations-api';
 import { inClientMode } from '@/server/nav';
 import { loadShell } from '@/server/shell';
-import { termsText } from '../../../terms-text';
+import { termsText, termsTools } from '../../../terms-text';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -50,16 +50,10 @@ export default async function ViewingTermsPage(props: { params: Promise<{ id: st
       ) : (
         <>
           <p className="rounded-md border p-4 text-sm font-medium">
-            {termsText(res.data.terms, {
-              t: (key, values) => commission(key, values),
-              money: (m) =>
-                format.number(m.amountCents / 100, {
-                  style: 'currency',
-                  currency: m.currency,
-                  maximumFractionDigits: 0,
-                }),
-              percent: (bp) => format.number(bp / 10_000, { style: 'percent', maximumFractionDigits: 2 }),
-            })}
+            {termsText(
+              res.data.terms,
+              termsTools(format, (key, values) => commission(key, values)),
+            )}
           </p>
           <dl className="grid gap-x-4 gap-y-1 text-sm sm:grid-cols-[auto_1fr]">
             <dt className="text-muted-foreground">{t('terms.validUntil')}</dt>

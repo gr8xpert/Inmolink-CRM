@@ -24,6 +24,7 @@ import * as compliance from '../compliance';
 import * as crm from '../crm';
 import * as developments from '../developments';
 import * as properties from '../properties';
+import * as search from '../search';
 import { clientFingerprints, type RegisteredClient, registeredClientCipher } from './config';
 import { mlsEvents } from './events';
 import { type TargetLabels, targetLabels } from './labels';
@@ -65,7 +66,7 @@ async function targetOwner(ctx: Ctx, kind: RegistrationTargetKind, id: string): 
   return owner;
 }
 
-function toDto(ctx: Ctx, r: repo.OwnRegistrationRow, labels: TargetLabels): RegistrationDto {
+function toDto(ctx: Ctx, r: repo.OwnRegistrationRow, labels: TargetLabels, open: ReadonlySet<string>): RegistrationDto {
   return {
     id: r.id,
     contactId: r.contactId,
@@ -77,6 +78,7 @@ function toDto(ctx: Ctx, r: repo.OwnRegistrationRow, labels: TargetLabels): Regi
     registeredAt: r.registeredAt.toISOString(),
     expiresAt: r.expiresAt.toISOString(),
     state: r.active ? 'ACTIVE' : 'EXPIRED',
+    hasOpenViewing: open.has(r.id),
   };
 }
 
@@ -87,6 +89,7 @@ async function loadOwn(ctx: Ctx, id: string): Promise<RegistrationDto> {
     ctx,
     row,
     await targetLabels(ctx, [{ kind: row.targetKind as RegistrationTargetKind, id: row.targetId }]),
+    await viewingsRepo.registrationsWithOpenViewing(ctx.tx, ctx.tenant.agencyId, [row.id]),
   );
 }
 
@@ -96,6 +99,9 @@ const isExclusionViolation = (err: unknown): boolean =>
 
 async function attemptRegistration(ctx: Ctx, input: CreateRegistrationBody): Promise<Attempt> {
   assertCan(ctx, 'mls.registrations.write');
+  // S17-F56: a new network action is earned by sharing (PLAN §2); answering what is already open is not gated.
+  const gate = await search.networkGate(ctx);
+  if (gate.state === 'LOCKED') throw new AppError('NETWORK_GIVE_TO_GET_LOCKED', { gate });
   const agencyId = ctx.tenant.agencyId;
   // One agency's registrations run one at a time (security review): the budget's peek and count below then see every
   // earlier attempt of the agency, so parallel probes cannot all pass the peek.
@@ -185,6 +191,7 @@ async function attemptRegistration(ctx: Ctx, input: CreateRegistrationBody): Pro
       registeredAt: at.registeredAt.toISOString(),
       expiresAt: at.expiresAt.toISOString(),
       state: 'ACTIVE',
+      hasOpenViewing: false,
     },
   };
 }
@@ -227,15 +234,21 @@ export async function listRegistrations(ctx: Ctx, query: ListRegistrationsQuery)
     filter: await registrationFilter(ctx, query),
     ...(cursor ? { cursor } : {}),
   });
+  const shown = rows.slice(0, query.limit);
   const labels = await targetLabels(
     ctx,
-    rows.slice(0, query.limit).map((r) => ({ kind: r.targetKind as RegistrationTargetKind, id: r.targetId })),
+    shown.map((r) => ({ kind: r.targetKind as RegistrationTargetKind, id: r.targetId })),
+  );
+  const open = await viewingsRepo.registrationsWithOpenViewing(
+    ctx.tx,
+    ctx.tenant.agencyId,
+    shown.map((r) => r.id),
   );
   const page = toPage(
     rows,
     query.limit,
     (r) => ({ at: r.registeredMs, id: r.id }),
-    (r) => toDto(ctx, r, labels),
+    (r) => toDto(ctx, r, labels, open),
   );
   // S12-F9: the page holds decrypted client details — staff impersonating a member leave an audit row.
   await compliance.auditImpersonatedRead(ctx, 'mls.clientData.read', 'registrations', {

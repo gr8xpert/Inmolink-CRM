@@ -15,6 +15,7 @@ export interface PickerLabels {
   found: string;
   recent: string;
   noRecent: string;
+  recentFailed: string;
 }
 
 function Options(props: { title: string; formId: string; items: FoundContact[]; noName: string }) {
@@ -43,7 +44,13 @@ function Options(props: { title: string; formId: string; items: FoundContact[]; 
  * find box is its own form to a server action (S11-F14: what was typed never reaches a URL); the radios belong to the
  * registration form by its id. The API offers no search by name, so this is an exact lookup, not a typeahead.
  */
-export function ContactPicker(props: { formId: string; recent: FoundContact[]; labels: PickerLabels }) {
+export function ContactPicker(props: {
+  formId: string;
+  recent: FoundContact[];
+  /** The contacts could not be loaded: not the same as having none. */
+  recentFailed: boolean;
+  labels: PickerLabels;
+}) {
   const [state, action, pending] = useActionState<FindResult, FormData>(findContactsFormAction, {
     status: 'idle',
     items: [],
@@ -90,6 +97,10 @@ export function ContactPicker(props: { formId: string; recent: FoundContact[]; l
         ) : null}
         {recent.length > 0 ? (
           <Options title={l.recent} formId={props.formId} items={recent} noName={l.noName} />
+        ) : props.recentFailed ? (
+          <p role="alert" className="text-destructive">
+            {l.recentFailed}
+          </p>
         ) : state.items.length === 0 ? (
           <p className="text-muted-foreground">{l.noRecent}</p>
         ) : null}

@@ -32,7 +32,8 @@ export type TargetLabel = z.infer<typeof TargetLabel>;
  * now for the shorter of both agencies' `registrationValidityDays` (settings, default 180). Registering the same client
  * for the same target again while its registration is valid answers that registration (200, nothing new is written).
  * Refused: `REGISTRATION_CONFLICT` (another agency was first), `RATE_LIMITED` (over the agency's daily conflict
- * budget: 20, then a day's pause), `REGISTRATION_TARGET_NOT_FOUND`.
+ * budget: 20, then a day's pause), `REGISTRATION_TARGET_NOT_FOUND`, `NETWORK_GIVE_TO_GET_LOCKED` (S17-F56: too few
+ * listings shared).
  */
 export const CreateRegistrationBody = z.strictObject({ contactId: z.uuid(), target: RegistrationTarget });
 export type CreateRegistrationBody = z.infer<typeof CreateRegistrationBody>;
@@ -61,6 +62,8 @@ export const RegistrationDto = z.strictObject({
   expiresAt: z.iso.datetime(),
   /** By the database's clock when listed: `ACTIVE` until `expiresAt`. */
   state: RegistrationState,
+  /** S17-F56: a viewing request of this registration is open (requested or scheduled), so another is refused. */
+  hasOpenViewing: z.boolean(),
 });
 export type RegistrationDto = z.infer<typeof RegistrationDto>;
 export const RegistrationPage = pageOf(RegistrationDto);
@@ -111,6 +114,11 @@ export const VIEWING_SIDES = ['INTRODUCER', 'OWNER'] as const;
 export const ViewingSide = z.enum(VIEWING_SIDES);
 export type ViewingSide = z.infer<typeof ViewingSide>;
 
+/** S17-F56: what the caller may do with a viewing request now. */
+export const VIEWING_ACTIONS = ['ACCEPT', 'DECLINE', 'RESCHEDULE', 'CANCEL', 'OUTCOME'] as const;
+export const ViewingAction = z.enum(VIEWING_ACTIONS);
+export type ViewingAction = z.infer<typeof ViewingAction>;
+
 export const VIEWING_OUTCOMES = ['ATTENDED', 'NO_SHOW'] as const;
 export const ViewingOutcome = z.enum(VIEWING_OUTCOMES);
 export type ViewingOutcome = z.infer<typeof ViewingOutcome>;
@@ -123,7 +131,8 @@ const ProposedStartAt = z.iso.datetime({ offset: true });
  * agency's valid registrations, at `proposedStartAt` (before the registration ends). The terms are the target's own
  * when requested (commission or fixed amount, split, VAT) — the introducer accepts them by requesting. One open request
  * per registration. Refused: `REGISTRATION_NOT_FOUND` (no valid registration of the agency), `VIEWING_TERMS_INCOMPLETE`
- * (the target publishes no commission or split), `VIEWING_REQUEST_OPEN` (already one open), `VALIDATION_FAILED`.
+ * (the target publishes no commission or split), `VIEWING_REQUEST_OPEN` (already one open), `VALIDATION_FAILED`,
+ * `NETWORK_GIVE_TO_GET_LOCKED` (S17-F56: too few listings shared; answers to what is already open stay allowed).
  */
 export const ViewingRequestParams = z.strictObject({ id: z.uuid() });
 export type ViewingRequestParams = z.infer<typeof ViewingRequestParams>;
@@ -189,6 +198,13 @@ export const ViewingRequestDto = z.strictObject({
   outcomeAt: z.iso.datetime().nullable(),
   closedBy: z.enum(['INTRODUCER', 'OWNER', 'SYSTEM']).nullable(),
   terms: ViewingTermsDto,
+  /**
+   * S17-F56: whether this member may bind the agency to the terms (accept, or propose a time): on the owner's side its
+   * admins or the listing's agent; the introducer accepted by requesting. False for a member who may not answer at all.
+   */
+  mayBind: z.boolean(),
+  /** S17-F56: the answers the API takes from this member in this state, by the database's clock. */
+  allowedActions: z.array(ViewingAction),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
 });

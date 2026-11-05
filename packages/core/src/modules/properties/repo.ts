@@ -1492,6 +1492,25 @@ export async function leadTargetListing(
 }
 
 /**
+ * S17-F56: the responsible agent of these listings of the agency, by primary key (one statement, none for no ids). Other
+ * agencies' and deleted listings are absent.
+ */
+export async function ownListingAgents(
+  tx: Tx,
+  agencyId: string,
+  ids: readonly string[],
+): Promise<Map<string, string | null>> {
+  if (ids.length === 0) return new Map();
+  const rows = await tx
+    .select({ id: properties.id, ownerUserId: properties.ownerUserId })
+    .from(properties)
+    .where(
+      and(eq(properties.agencyId, agencyId), inArray(properties.id, [...new Set(ids)]), isNull(properties.deletedAt)),
+    );
+  return new Map(rows.map((r) => [r.id, r.ownerUserId]));
+}
+
+/**
  * S11-05 (network board matching, app_system): these listings' agency, reference and responsible agent, by primary key
  * (one statement). Deleted listings are absent.
  */

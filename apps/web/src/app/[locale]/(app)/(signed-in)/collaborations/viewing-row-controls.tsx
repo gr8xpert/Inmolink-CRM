@@ -10,27 +10,25 @@ import {
   rescheduleViewingAction,
 } from './actions';
 import { TimeField } from './time-field';
-import { viewingControls } from './viewing-controls';
+import { viewingHints } from './viewing-controls';
 
 const SUMMARY = 'w-fit cursor-pointer font-medium underline-offset-4 hover:underline';
 
 /**
- * A viewing row's answers (S17-F56): the actions this side may take in this state, and a sentence for what it may not. All
- * plain forms to server actions. The owner's copy of the row has no client, so nothing here can show one.
+ * A viewing row's answers (S17-F56): the actions the API says this member may take now, and a sentence for what it may
+ * not. All plain forms to server actions. The owner's copy of the row has no client, so nothing here can show one.
  */
 export async function ViewingRowControls(props: {
   viewing: ViewingRequestDto;
   now: Date;
-  blocked: boolean;
-  mayBind: boolean;
   timeZone: string;
   /** The page's filters, kept across the action. */
   back: string;
 }) {
   const t = await getTranslations('network.collaborations');
   const v = props.viewing;
-  const { actions, hints } = viewingControls(v, props);
-  const has = (a: (typeof actions)[number]) => actions.includes(a);
+  const hints = viewingHints(v, props.now);
+  const has = (a: ViewingRequestDto['allowedActions'][number]) => v.allowedActions.includes(a);
   const fields = (
     <>
       <input type="hidden" name="id" value={v.id} />

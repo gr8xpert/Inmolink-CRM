@@ -397,6 +397,10 @@ describe('listing service', () => {
     const shared = await update(owner, l, { status: 'ACTIVE', visibility: 'SHARED' });
     const network = await as(reader, (ctx) => properties.getListing(ctx, shared.id));
     expect(network.private).toBeNull();
+    // S17-F56: the agent is the owner agency's business; another agency sees the agency, never which member.
+    expect(shared.ownerUserId).toBe(owner.userId);
+    expect(network.ownerUserId).toBeNull();
+    expect(network.agencyId).toBe(owner.agencyId);
     expect(network.coordinates).toEqual({ lat: 36.51, lng: -4.88 });
     const exact = await update(owner, shared, { locationPrecision: 'EXACT' });
     expect(exact.coordinates).toEqual({ lat: 36.510071, lng: -4.882447 });

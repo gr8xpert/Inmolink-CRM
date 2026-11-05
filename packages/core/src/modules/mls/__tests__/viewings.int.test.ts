@@ -19,6 +19,7 @@ import * as crm from '../../crm';
 import * as developments from '../../developments';
 import * as documents from '../../documents';
 import * as properties from '../../properties';
+import * as search from '../../search';
 import * as taxonomy from '../../taxonomy';
 import * as mls from '../index';
 
@@ -683,5 +684,128 @@ describe('development split (S17-F5)', () => {
     const stored = await bothRows(first.id);
     expect([stored.introducer?.split_bp, stored.owner?.split_bp]).toEqual([5000, 5000]);
     expect((await bothRows(second.id)).owner?.split_bp).toBe(6500);
+  });
+});
+
+describe('S17-F56: the screens offer what the API takes', () => {
+  /** `a` past the give-to-get grace period below the threshold: LOCKED. */
+  async function withALocked(fn: () => Promise<void>): Promise<void> {
+    search.configureNetworkSearch({ giveToGetMinShared: 1_000 });
+    await rows(sql`update agencies set created_at = now() - interval '400 days' where agency_id = ${a.agencyId}`);
+    try {
+      await fn();
+    } finally {
+      search.configureNetworkSearch({});
+      await rows(sql`update agencies set created_at = now() where agency_id = ${a.agencyId}`);
+    }
+  }
+  const received = async (as2: (fn: (ctx: Ctx) => Promise<unknown>) => Promise<unknown>, id: string) => {
+    const page = (await as2((ctx) => mls.listReceivedViewingRequests(ctx, { limit: 100 }))) as {
+      items: { id: string; mayBind: boolean; allowedActions: string[] }[];
+    };
+    const found = page.items.find((v) => v.id === id);
+    if (!found) throw new Error('request not on the page');
+    return found;
+  };
+
+  it('[S17-F56] a give-to-get locked agency registers and requests nothing new, and still answers what is open', async () => {
+    const forLater = await registered(pctListing);
+    const { request: open } = await request(await registered(fixedListing));
+    await withALocked(async () => {
+      expect(await refusal(registered(pctListing))).toBe('NETWORK_GIVE_TO_GET_LOCKED');
+      expect(await refusal(request(forLater))).toBe('NETWORK_GIVE_TO_GET_LOCKED');
+      // what is already open stays answerable
+      const moved = await as(a, (ctx) => mls.rescheduleViewing(ctx, open.id, { proposedStartAt: inDays(5) }));
+      expect(moved.status).toBe('REQUESTED');
+      expect((await as(a, (ctx) => mls.cancelViewing(ctx, open.id))).status).toBe('CANCELLED');
+    });
+    // open again: the same request goes through
+    expect((await request(forLater)).request.status).toBe('REQUESTED');
+  });
+
+  it('[S17-F56] mayBind and allowedActions per side and member, from one batched lookup', async () => {
+    const { request: r } = await request(await registered(pctListing));
+    // the owner's admin, and the listing's own agent as an AGENT: both may bind
+    const admin = await received((fn) => as(b, fn), r.id);
+    expect(admin).toMatchObject({ mayBind: true, allowedActions: ['ACCEPT', 'DECLINE', 'RESCHEDULE', 'CANCEL'] });
+    const agent = await received((fn) => asAgent(b, b.userId, fn), r.id);
+    expect(agent).toMatchObject({ mayBind: true, allowedActions: ['ACCEPT', 'DECLINE', 'RESCHEDULE', 'CANCEL'] });
+    // another agent of the owner may decline or cancel, not bind the agency (as `assertMayBind` refuses)
+    const stranger = newId();
+    const other = await received((fn) => asAgent(b, stranger, fn), r.id);
+    expect(other).toMatchObject({ mayBind: false, allowedActions: ['DECLINE', 'CANCEL'] });
+    expect(await refusal(asAgent(b, stranger, (ctx) => mls.acceptViewing(ctx, r.id)))).toBe('FORBIDDEN');
+    // the introducer is not awaited: another time or cancel
+    expect(await as(a, (ctx) => mls.getViewingRequest(ctx, r.id))).toMatchObject({
+      mayBind: true,
+      allowedActions: ['RESCHEDULE', 'CANCEL'],
+    });
+    // staff acting as the owner may answer nothing
+    const staff = await as(b, async (ctx) => mls.getViewingRequest(await impersonatedCtx(ctx, newId()), r.id));
+    expect(staff).toMatchObject({ mayBind: false, allowedActions: [] });
+    // scheduled and due: the outcome, and cancel
+    await as(b, (ctx) => mls.acceptViewing(ctx, r.id));
+    await system((tx) =>
+      tx.execute(sql`update viewing_requests set scheduled_at = now() - interval '1 hour' where id = ${r.id}`),
+    );
+    expect((await as(a, (ctx) => mls.getViewingRequest(ctx, r.id))).allowedActions).toEqual(['OUTCOME', 'CANCEL']);
+    // closed: nothing
+    await as(a, (ctx) => mls.recordViewingOutcome(ctx, r.id, { outcome: 'ATTENDED' }));
+    expect((await as(b, (ctx) => mls.getViewingRequest(ctx, r.id))).allowedActions).toEqual([]);
+  });
+
+  it('[S17-F56] a registration says whether a viewing is open, one statement for the page', async () => {
+    const registrationId = await registered(pctListing);
+    const flag = async () =>
+      (await as(a, (ctx) => mls.listRegistrations(ctx, { limit: 100 }))).items.find((x) => x.id === registrationId)
+        ?.hasOpenViewing;
+    expect(await flag()).toBe(false);
+    const { request: r } = await request(registrationId);
+    expect(await flag()).toBe(true);
+    await as(a, (ctx) => mls.cancelViewing(ctx, r.id));
+    expect(await flag()).toBe(false);
+  });
+
+  it('[S17-F56] statement budgets with the gate and the new flags', async () => {
+    const setup = await countQueries(() => as(a, async () => null));
+    seq += 1;
+    const contact = (
+      await as(a, (ctx) =>
+        crm.createContact(
+          ctx,
+          CreateContactBody.parse({
+            firstName: 'Budget',
+            lastName: `S${seq}`,
+            emails: [`budget-${seq}-${RUN}@example.com`],
+          }),
+        ),
+      )
+    ).contact;
+    const register = await countQueries(() =>
+      mls.registerClient((fn) => as(a, fn), { contactId: contact.id, target: { kind: 'LISTING', id: pctListing } }),
+    );
+    const again = await countQueries(() =>
+      mls.registerClient((fn) => as(a, fn), { contactId: contact.id, target: { kind: 'LISTING', id: pctListing } }),
+    );
+    const registrationId = (await as(a, (ctx) => mls.listRegistrations(ctx, { limit: 1 }))).items[0]?.id as string;
+    const requested = await countQueries(() => request(registrationId, 7));
+    const ownList = await countQueries(() => as(a, (ctx) => mls.listRegistrations(ctx, { limit: 100 })));
+    const agentSetup = await countQueries(() => asAgent(b, b.userId, async () => null));
+    const agentList = await countQueries(() =>
+      asAgent(b, b.userId, (ctx) => mls.listReceivedViewingRequests(ctx, { limit: 100 })),
+    );
+    const counts = {
+      registerCreated: register - setup,
+      registerExisting: again - setup,
+      requestCreated: requested - setup,
+      listRegistrations: ownList - setup,
+      receivedAsAgent: agentList - agentSetup,
+    };
+    console.log(`[S17-F56] statements ${JSON.stringify(counts)}`);
+    // the dashboard budget is 10 per call; the gate adds two statements to the two creating calls
+    for (const n of Object.values(counts)) expect(n).toBeLessThanOrEqual(10);
+    // the page flags are one statement each, never one per row: an agent's received page adds the agents' lookup
+    expect(counts.listRegistrations).toBeLessThanOrEqual(4);
+    expect(counts.receivedAsAgent).toBeLessThanOrEqual(5);
   });
 });

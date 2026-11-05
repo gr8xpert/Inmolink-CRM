@@ -79,6 +79,7 @@ export {
   listingAgentsOf,
   type NetworkListingTerms,
   networkListingTerms,
+  ownListingAgents,
 } from './network';
 export { earliestListingByAgency, earliestSharedListingByAgency } from './onboarding-reads';
 export {

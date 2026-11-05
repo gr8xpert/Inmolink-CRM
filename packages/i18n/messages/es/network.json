@@ -151,7 +151,8 @@
       "recent": "Tus contactos más recientes",
       "noRecent": "Aún no tienes contactos con correo o teléfono. Busca uno arriba o crea uno.",
       "submit": "Registrar cliente",
-      "newContact": "Crear un contacto"
+      "newContact": "Crear un contacto",
+      "recentFailed": "No se han podido cargar tus contactos. Busca uno por correo o teléfono, o recarga la página."
     },
     "request": {
       "cta": "Solicitar visita",
@@ -185,7 +186,9 @@
       "IMPERSONATING": "El personal de soporte que actúa como miembro no puede registrar clientes ni responder visitas, porque compromete a la agencia.",
       "ROLE": "Tu rol no permite registrar clientes ni responder visitas.",
       "UNVERIFIED": "Solo las agencias verificadas pueden registrar clientes y responder visitas en la red.",
-      "verifyLink": "Ir a la verificación"
+      "verifyLink": "Ir a la verificación",
+      "LOCKED": "Tu agencia debe compartir más inmuebles en la red antes de registrar clientes o solicitar visitas. Puedes seguir respondiendo a lo que ya está abierto.",
+      "shareLink": "Ir a tus inmuebles"
     },
     "errors": {
       "FORBIDDEN": "No puedes hacer esto: requiere ser miembro de una agencia verificada con el rol adecuado.",
@@ -211,7 +214,8 @@
       "STATE_NOT_SCHEDULED": "El resultado solo se puede registrar en una visita programada.",
       "STATE_TOO_EARLY": "El resultado se puede registrar después de la hora programada.",
       "STATE_CHANGED": "Esta visita acaba de cambiar. Comprueba cómo está e inténtalo de nuevo.",
-      "generic": "No ha funcionado. Inténtalo de nuevo."
+      "generic": "No ha funcionado. Inténtalo de nuevo.",
+      "NETWORK_GIVE_TO_GET_LOCKED": "Tu agencia debe compartir más inmuebles antes de iniciar nuevas colaboraciones. Puede seguir respondiendo a las que ya están abiertas."
     },
     "done": {
       "registered": "Cliente registrado. Ya puedes solicitar una visita abajo.",

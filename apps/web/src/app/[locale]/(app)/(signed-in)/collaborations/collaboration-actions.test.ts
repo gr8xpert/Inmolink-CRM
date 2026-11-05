@@ -4,116 +4,55 @@ import { collaborationQuery, parseCollaborationParams } from './filters';
 import { DONE_NOTICES, parseDone, parseRefusal, REFUSALS, refusalOf } from './refusals';
 import { developmentTarget, listingTarget, parseTargetParams } from './register/target';
 import { collaborationBlock } from './rights';
-import { termsText } from './terms-text';
-import { mayBind, viewingControls } from './viewing-controls';
+import { formatMoney, termsText, termsTools } from './terms-text';
+import { viewingHints } from './viewing-controls';
 
 const NOW = new Date('2026-11-10T12:00:00.000Z');
 const FUTURE = '2026-11-20T12:00:00.000Z';
 const PAST = '2026-11-01T12:00:00.000Z';
-const FAR = '2027-05-01T12:00:00.000Z';
 const ID = '01900000-0000-7000-8000-000000000001';
 
-const row = (patch: Partial<Parameters<typeof viewingControls>[0]> = {}): Parameters<typeof viewingControls>[0] => ({
-  side: 'OWNER',
+type HintRow = Parameters<typeof viewingHints>[0];
+const row = (patch: Partial<HintRow> = {}): HintRow => ({
   status: 'REQUESTED',
-  awaiting: 'OWNER',
   expiresAt: FUTURE,
-  scheduledAt: null,
   target: { kind: 'LISTING', id: ID },
-  terms: { validUntil: FAR },
+  mayBind: true,
+  allowedActions: ['ACCEPT', 'DECLINE', 'RESCHEDULE', 'CANCEL'],
   ...patch,
 });
-const controls = (
-  patch: Partial<Parameters<typeof viewingControls>[0]> = {},
-  o: { blocked?: boolean; bind?: boolean } = {},
-) => viewingControls(row(patch), { now: NOW, blocked: o.blocked ?? false, mayBind: o.bind ?? true });
 
-describe('[S17-F56] which actions for which state and side', () => {
-  it('[S17-F56] the side awaited may accept, decline, propose another time and cancel', () => {
-    expect(controls().actions).toEqual(['ACCEPT', 'DECLINE', 'RESCHEDULE', 'CANCEL']);
-    expect(controls({ side: 'INTRODUCER', awaiting: 'INTRODUCER' }).actions).toEqual([
-      'ACCEPT',
-      'DECLINE',
-      'RESCHEDULE',
-      'CANCEL',
-    ]);
-  });
-
-  it('[S17-F56] the side not awaited may only propose another time or cancel', () => {
-    expect(controls({ side: 'INTRODUCER', awaiting: 'OWNER' }).actions).toEqual(['RESCHEDULE', 'CANCEL']);
-    expect(controls({ side: 'OWNER', awaiting: 'INTRODUCER' }).actions).toEqual(['RESCHEDULE', 'CANCEL']);
-  });
-
-  it('[S17-F56] an owner member who may not bind the agency gets decline and cancel, and the reason', () => {
-    const listing = controls({}, { bind: false });
-    expect(listing.actions).toEqual(['DECLINE', 'CANCEL']);
-    expect(listing.hints).toEqual(['BIND_LISTING']);
-    const development = controls({ target: { kind: 'DEVELOPMENT', id: ID } }, { bind: false });
-    expect(development.hints).toEqual(['BIND_DEVELOPMENT']);
-  });
-
-  it('[S17-F56] a scheduled viewing before its time can be moved or cancelled; the outcome comes later', () => {
-    const c = controls({ status: 'SCHEDULED', awaiting: null, scheduledAt: FUTURE, expiresAt: null });
-    expect(c.actions).toEqual(['RESCHEDULE', 'CANCEL']);
-    expect(c.hints).toEqual(['OUTCOME_LATER']);
-  });
-
-  it('[S17-F56] after its time a scheduled viewing takes the outcome and can no longer be moved', () => {
-    const c = controls({ status: 'SCHEDULED', awaiting: null, scheduledAt: PAST, expiresAt: null });
-    expect(c.actions).toEqual(['OUTCOME', 'CANCEL']);
-    expect(c.hints).toEqual([]);
-  });
-
-  it('[S17-F56] no new time is offered once the terms ended, since the API refuses any', () => {
-    expect(controls({ terms: { validUntil: PAST } }).actions).toEqual(['ACCEPT', 'DECLINE', 'CANCEL']);
-  });
-
-  it('[S17-F56] a proposal past its expiry offers nothing and says so', () => {
-    expect(controls({ expiresAt: PAST })).toEqual({ actions: [], hints: ['LAPSED'] });
-  });
-
-  for (const status of ['COMPLETED', 'DECLINED', 'CANCELLED', 'EXPIRED'] as const) {
-    it(`[S17-F56] a ${status} viewing offers nothing`, () => {
-      expect(controls({ status, awaiting: null })).toEqual({ actions: [], hints: [] });
-    });
-  }
-
-  it('[S17-F56] a blocked member is offered nothing, in any open state', () => {
-    expect(controls({}, { blocked: true }).actions).toEqual([]);
+describe('[S17-F56] why a viewing row offers less (the actions are the API’s)', () => {
+  it('[S17-F56] a member who may not bind is told who can, by target kind', () => {
+    expect(viewingHints(row({ mayBind: false, allowedActions: ['DECLINE', 'CANCEL'] }), NOW)).toEqual(['BIND_LISTING']);
     expect(
-      controls({ status: 'SCHEDULED', awaiting: null, scheduledAt: PAST, expiresAt: null }, { blocked: true }).actions,
-    ).toEqual([]);
-  });
-});
-
-describe('[S17-F56] who may bind the agency', () => {
-  const owners = new Map([[ID, 'agent-1']]);
-  const listing = { side: 'OWNER', target: { kind: 'LISTING', id: ID } } as const;
-  it('[S17-F56] the introducer accepted by requesting', () => {
-    expect(mayBind({ ...listing, side: 'INTRODUCER' }, { isAdmin: false, userId: 'x' }, new Map())).toBe(true);
-  });
-  it('[S17-F56] on the owner side: admins and the listing agent, nobody else', () => {
-    expect(mayBind(listing, { isAdmin: true, userId: 'x' }, new Map())).toBe(true);
-    expect(mayBind(listing, { isAdmin: false, userId: 'agent-1' }, owners)).toBe(true);
-    expect(mayBind(listing, { isAdmin: false, userId: 'agent-2' }, owners)).toBe(false);
-  });
-  it('[S17-F56] an unknown listing agent or a development binds admins only', () => {
-    expect(mayBind(listing, { isAdmin: false, userId: 'agent-1' }, new Map())).toBe(false);
-    expect(
-      mayBind(
-        { side: 'OWNER', target: { kind: 'DEVELOPMENT', id: ID } },
-        { isAdmin: false, userId: 'agent-1' },
-        owners,
+      viewingHints(
+        row({ mayBind: false, allowedActions: ['DECLINE', 'CANCEL'], target: { kind: 'DEVELOPMENT', id: ID } }),
+        NOW,
       ),
-    ).toBe(false);
+    ).toEqual(['BIND_DEVELOPMENT']);
+  });
+  it('[S17-F56] a scheduled viewing before its time says the outcome comes later; after it, nothing', () => {
+    expect(viewingHints(row({ status: 'SCHEDULED', allowedActions: ['RESCHEDULE', 'CANCEL'] }), NOW)).toEqual([
+      'OUTCOME_LATER',
+    ]);
+    expect(viewingHints(row({ status: 'SCHEDULED', allowedActions: ['OUTCOME', 'CANCEL'] }), NOW)).toEqual([]);
+  });
+  it('[S17-F56] a lapsed proposal says so', () => {
+    expect(viewingHints(row({ expiresAt: PAST, allowedActions: [] }), NOW)).toEqual(['LAPSED']);
+  });
+  it('[S17-F56] closed rows, and members who may not answer at all, get no row sentence', () => {
+    expect(viewingHints(row({ status: 'DECLINED', allowedActions: [] }), NOW)).toEqual([]);
+    expect(viewingHints(row({ mayBind: false, allowedActions: [] }), NOW)).toEqual([]);
   });
 });
 
 describe('[S17-F56] refusals by error code', () => {
-  it('[S17-F56] registration refusals keep their code', () => {
+  it('[S17-F56] registration, gate and viewing refusals keep their code', () => {
     for (const code of [
       'REGISTRATION_CONFLICT',
       'RATE_LIMITED',
+      'NETWORK_GIVE_TO_GET_LOCKED',
       'REGISTRATION_TARGET_NOT_FOUND',
       'FORBIDDEN',
       'CONTACT_NOT_FOUND',
@@ -160,38 +99,46 @@ describe('[S17-F56] refusals by error code', () => {
     expect(parseDone('nope')).toBeNull();
     expect(parseDone(undefined)).toBeNull();
   });
-  it('[S17-F56] every refusal and notice has its sentence in EN and ES', () => {
+  it('[S17-F56] every refusal, notice and block has its sentence in EN and ES', () => {
     for (const locale of ['en', 'es']) {
       const path = new URL(`../../../../../../../../packages/i18n/messages/${locale}/network.json`, import.meta.url);
       const { collaborations: c } = JSON.parse(readFileSync(path, 'utf8'));
       for (const key of REFUSALS) expect(c.errors[key], `${locale} errors.${key}`).toEqual(expect.any(String));
       for (const key of DONE_NOTICES) expect(c.done[key], `${locale} done.${key}`).toEqual(expect.any(String));
+      for (const key of ['CLIENT_MODE', 'IMPERSONATING', 'ROLE', 'UNVERIFIED', 'LOCKED']) {
+        expect(c.blocked[key], `${locale} blocked.${key}`).toEqual(expect.any(String));
+      }
     }
   });
 });
 
-describe('[S17-F56] who is offered the controls', () => {
+describe('[S17-F56] who is offered a new collaboration', () => {
   const member = (patch: Partial<{ role: string; clientMode: boolean; impersonating: boolean }> = {}) =>
     ({
       kind: 'member',
       caps: { role: 'AGENT', clientMode: false, impersonating: false, sections: [], ...patch },
     }) as Parameters<typeof collaborationBlock>[0];
-  it('[S17-F56] a member of a verified agency is not blocked', () => {
-    expect(collaborationBlock(member(), 'VERIFIED')).toBeNull();
-    expect(collaborationBlock(member({ role: 'DEVELOPER_ADMIN' }), 'VERIFIED')).toBeNull();
+  it('[S17-F56] a member of a verified agency with an open gate is not blocked', () => {
+    expect(collaborationBlock(member(), { status: 'VERIFIED', gate: 'OPEN' })).toBeNull();
+    expect(collaborationBlock(member({ role: 'DEVELOPER_ADMIN' }), { status: 'VERIFIED', gate: 'GRACE' })).toBeNull();
+    expect(collaborationBlock(member(), { status: 'VERIFIED', gate: 'EXEMPT' })).toBeNull();
   });
   it('[S17-F56] an unverified or suspended agency is told so', () => {
-    expect(collaborationBlock(member(), 'PENDING')).toBe('UNVERIFIED');
-    expect(collaborationBlock(member(), 'SUSPENDED')).toBe('UNVERIFIED');
+    expect(collaborationBlock(member(), { status: 'PENDING' })).toBe('UNVERIFIED');
+    expect(collaborationBlock(member(), { status: 'SUSPENDED', gate: 'LOCKED' })).toBe('UNVERIFIED');
+  });
+  it('[S17-F56] a give-to-get locked agency starts nothing new', () => {
+    expect(collaborationBlock(member(), { status: 'VERIFIED', gate: 'LOCKED' })).toBe('LOCKED');
   });
   it('[S17-F56] Client Mode, support acting as a member and other roles are refused, whatever the agency', () => {
-    expect(collaborationBlock(member({ clientMode: true }), 'VERIFIED')).toBe('CLIENT_MODE');
-    expect(collaborationBlock(member({ impersonating: true }), 'VERIFIED')).toBe('IMPERSONATING');
-    expect(collaborationBlock(member({ role: 'PARTNER' }), 'VERIFIED')).toBe('ROLE');
+    const fine = { status: 'VERIFIED', gate: 'OPEN' } as const;
+    expect(collaborationBlock(member({ clientMode: true }), fine)).toBe('CLIENT_MODE');
+    expect(collaborationBlock(member({ impersonating: true }), fine)).toBe('IMPERSONATING');
+    expect(collaborationBlock(member({ role: 'PARTNER' }), fine)).toBe('ROLE');
     expect(collaborationBlock({ kind: 'unknown' })).toBe('ROLE');
   });
-  it('[S17-F56] an unread agency status blocks nothing: the API decides', () => {
-    expect(collaborationBlock(member(), null)).toBeNull();
+  it('[S17-F56] an unread agency status or gate blocks nothing: the API decides', () => {
+    expect(collaborationBlock(member(), { status: null, gate: null })).toBeNull();
   });
 });
 
@@ -248,21 +195,29 @@ describe('[S17-F56] filters and targets', () => {
       title: 'Chalet',
       own: false,
       terms: { commissionBp: 300, commissionFixed: null, splitBp: 5000, includesVat: true },
+      viewingTermsComplete: true,
     });
     expect(listingTarget({ id: ID, ref: 'R', private: {}, commission: null } as never, null, 'en')).toMatchObject({
       own: true,
       terms: null,
       title: null,
     });
-    const development = {
-      id: ID,
-      ref: 'D-1',
-      name: 'Marina',
-      access: null,
-      commission: { type: 'FIXED', amount: { amountCents: 500_000, currency: 'EUR' }, includesVat: false },
-      commissionSplitBp: 6000,
-    } as never;
-    expect(developmentTarget(development)).toMatchObject({
+  });
+  it('[S17-F56] the no-terms notice: a listing without commission or split, a development without commission', () => {
+    const listing = (total: unknown, splitBp: number | null) =>
+      listingTarget({ id: ID, ref: 'R', private: null, commission: { total, splitBp } } as never, null, 'en');
+    const pct = { type: 'PCT', basisPoints: 300, includesVat: false };
+    expect(listing(pct, 5000).viewingTermsComplete).toBe(true);
+    expect(listing(pct, null).viewingTermsComplete).toBe(false);
+    expect(listing(null, 5000).viewingTermsComplete).toBe(false);
+    const development = (commission: unknown, commissionSplitBp: number | null) =>
+      developmentTarget({ id: ID, ref: 'D', name: 'Marina', access: null, commission, commissionSplitBp } as never);
+    // a development's split always has a value (5000 unless the owner set another)
+    expect(development(pct, 5000).viewingTermsComplete).toBe(true);
+    expect(development(null, 5000).viewingTermsComplete).toBe(false);
+    expect(
+      development({ type: 'FIXED', amount: { amountCents: 500_000, currency: 'EUR' }, includesVat: false }, 6000),
+    ).toMatchObject({
       own: false,
       terms: { commissionBp: null, commissionFixed: { amountCents: 500_000, currency: 'EUR' }, splitBp: 6000 },
     });
@@ -288,5 +243,23 @@ describe('[S17-F56] terms as one line', () => {
       'pct{"total":"3%","split":"splitUnknown"}',
     );
     expect(termsText(null, tools)).toBe('none');
+  });
+
+  // The page's formatter is Intl underneath: the same options give the same text.
+  const intl = {
+    number: (value: number, options: Intl.NumberFormatOptions) => new Intl.NumberFormat('en', options).format(value),
+  } as unknown as Parameters<typeof formatMoney>[0];
+  it('[S17-F56] money keeps its cents when it has some, and whole amounts stay whole', () => {
+    expect(formatMoney(intl, { amountCents: 500_000, currency: 'EUR' })).toBe('€5,000');
+    expect(formatMoney(intl, { amountCents: 500_050, currency: 'EUR' })).toBe('€5,000.50');
+    expect(formatMoney(intl, { amountCents: 99, currency: 'EUR' })).toBe('€0.99');
+  });
+  it('[S17-F56] the shared tools format a fixed commission and a percentage the same on every screen', () => {
+    const t = (key: string, values?: Record<string, string>) => `${key}:${values?.amount ?? values?.total}`;
+    const shared = termsTools(intl, t as never);
+    expect(termsText({ ...base, commissionFixed: { amountCents: 1_234_567, currency: 'EUR' } }, shared)).toBe(
+      'fixed:€12,345.67',
+    );
+    expect(termsText({ ...base, commissionBp: 275 }, shared)).toBe('pct:2.75%');
   });
 });

@@ -201,6 +201,7 @@ export const ListingDto = z.object({
   id: z.uuid(),
   /** Null in Client Mode for another agency's listing (white label): the client never learns the owner. */
   agencyId: z.uuid().nullable(),
+  /** The listing's agent, for the owner agency only (S17-F56). */
   ownerUserId: z.uuid().nullable(),
   ref: z.string().nullable(),
   source: z.string(),

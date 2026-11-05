@@ -28,24 +28,24 @@ const viewing = (patch: Partial<ViewingRequestDto>) =>
     scheduledAt: null,
     target: { kind: 'DEVELOPMENT', id: ID },
     terms: { validUntil: '2027-05-01T12:00:00.000Z', accepted: false },
+    mayBind: false,
+    allowedActions: ['DECLINE', 'CANCEL'],
     ...patch,
   }) as ViewingRequestDto;
 
-const render = async (v: ViewingRequestDto, mayBind: boolean) =>
+const render = async (v: ViewingRequestDto) =>
   renderToStaticMarkup(
     await ViewingRowControls({
       viewing: v,
       now: new Date('2026-11-10T12:00:00.000Z'),
-      blocked: false,
-      mayBind,
       timeZone: 'Europe/Madrid',
       back: '',
     }),
   );
 
 describe('[S17-F56] a viewing row as rendered', () => {
-  it('[S17-F56] an owner member who may not bind sees decline, cancel, the terms link and why, not accept', async () => {
-    const html = await render(viewing({}), false);
+  it('[S17-F56] the row offers exactly the API’s actions: decline, cancel, the terms link and why not accept', async () => {
+    const html = await render(viewing({}));
     expect(html).toContain('actions.decline');
     expect(html).toContain('actions.cancel');
     expect(html).toContain(`/collaborations/viewings/${ID}/terms`);
@@ -54,19 +54,28 @@ describe('[S17-F56] a viewing row as rendered', () => {
     expect(html).not.toContain('actions.reschedule');
   });
 
+  it('[S17-F56] the outcome buttons appear only when the API offers the outcome', async () => {
+    const html = await render(
+      viewing({ status: 'SCHEDULED', awaiting: null, mayBind: true, allowedActions: ['OUTCOME', 'CANCEL'] }),
+    );
+    expect(html).toContain('outcomes.ATTENDED');
+    expect(html).toContain('outcomes.NO_SHOW');
+    expect(html).not.toContain('actions.decline');
+  });
+
   it('[S17-F56] the owner side never links to a client, even if a row carried one', async () => {
-    const html = await render(viewing({ contactId: CONTACT }), false);
+    const html = await render(viewing({ contactId: CONTACT }));
     expect(html).not.toContain(`/contacts/${CONTACT}`);
     expect(html).not.toContain('actions.client');
   });
 
   it('[S17-F56] the introducer side links to its own client', async () => {
-    const html = await render(viewing({ side: 'INTRODUCER', awaiting: 'OWNER', contactId: CONTACT }), false);
+    const html = await render(viewing({ side: 'INTRODUCER', awaiting: 'OWNER', contactId: CONTACT }));
     expect(html).toContain(`/contacts/${CONTACT}`);
   });
 
   it('[S17-F56] a closed viewing offers only its terms', async () => {
-    const html = await render(viewing({ status: 'DECLINED', awaiting: null }), true);
+    const html = await render(viewing({ status: 'DECLINED', awaiting: null, allowedActions: [] }));
     expect(html).not.toContain('<form');
     expect(html).toContain('actions.terms');
   });

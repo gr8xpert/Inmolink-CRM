@@ -9,8 +9,13 @@ export interface RegisterTarget {
   title: string | null;
   /** The viewer's agency owns it: there is nobody to register a client with. */
   own: boolean;
-  /** Null when the target publishes no commission: registering works, a viewing is then refused. */
+  /** Null when the target publishes no commission. */
   terms: TermsFacts | null;
+  /**
+   * What `requestViewing` needs (`termsSnapshot`): a listing's commission and split; a development's commission, since its
+   * split always has a value (S17-F5). Without them registering works and a viewing is refused.
+   */
+  viewingTermsComplete: boolean;
 }
 
 /** The page's query as a target; null for anything the API would not take. */
@@ -43,6 +48,7 @@ export function listingTarget(l: ListingDto, content: ListingContentDto | null, 
     title: (translations.find((tr) => tr.locale === locale) ?? translations[0])?.title ?? null,
     own: l.private !== null,
     terms: terms(l.commission?.total, l.commission?.splitBp),
+    viewingTermsComplete: Boolean(l.commission?.total) && (l.commission?.splitBp ?? null) !== null,
   };
 }
 
@@ -54,5 +60,6 @@ export function developmentTarget(d: DevelopmentDto): RegisterTarget {
     title: d.name,
     own: d.access !== null,
     terms: terms(d.commission, d.commissionSplitBp),
+    viewingTermsComplete: d.commission !== null,
   };
 }

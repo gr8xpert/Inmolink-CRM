@@ -15,7 +15,7 @@ import { registerClientAction } from '../actions';
 import { BlockNotice } from '../block-notice';
 import { loadCollaborationBlock } from '../load-rights';
 import { parseRefusal } from '../refusals';
-import { termsText } from '../terms-text';
+import { termsText, termsTools } from '../terms-text';
 import { ContactPicker } from './contact-picker';
 import { developmentTarget, listingTarget, parseTargetParams } from './target';
 
@@ -76,12 +76,10 @@ export default async function RegisterClientPage({ searchParams }: { searchParam
 
   const format = await getFormatter();
   const commission = await getTranslations('network.commission');
-  const terms = termsText(target.terms, {
-    t: (key, values) => commission(key, values),
-    money: (m) =>
-      format.number(m.amountCents / 100, { style: 'currency', currency: m.currency, maximumFractionDigits: 0 }),
-    percent: (bp) => format.number(bp / 10_000, { style: 'percent', maximumFractionDigits: 2 }),
-  });
+  const terms = termsText(
+    target.terms,
+    termsTools(format, (key, values) => commission(key, values)),
+  );
   const refusal = parseRefusal(params.error);
   // A contact with neither an e-mail nor a phone cannot be registered (no fingerprint): the API refuses, so it is not offered.
   const recent = contacts.ok
@@ -102,7 +100,7 @@ export default async function RegisterClientPage({ searchParams }: { searchParam
           {target.title ? ` · ${target.title}` : ''}
         </h2>
         <p>{terms}</p>
-        {target.terms ? null : <p className="text-muted-foreground">{t('register.noTerms')}</p>}
+        {target.viewingTermsComplete ? null : <p className="text-muted-foreground">{t('register.noTerms')}</p>}
       </section>
       <p className="text-sm text-muted-foreground">{t('register.explain')}</p>
       {refusal ? (
@@ -113,6 +111,7 @@ export default async function RegisterClientPage({ searchParams }: { searchParam
       <ContactPicker
         formId={FORM_ID}
         recent={recent}
+        recentFailed={!contacts.ok}
         labels={{
           find: t('register.find'),
           findPlaceholder: t('register.findPlaceholder'),
@@ -125,6 +124,7 @@ export default async function RegisterClientPage({ searchParams }: { searchParam
           found: t('register.found'),
           recent: t('register.recent'),
           noRecent: t('register.noRecent'),
+          recentFailed: t('register.recentFailed'),
         }}
       />
       <form id={FORM_ID} action={registerClientAction} className="flex flex-wrap items-center gap-3 text-sm">

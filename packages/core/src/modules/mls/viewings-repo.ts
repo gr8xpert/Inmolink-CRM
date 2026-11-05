@@ -6,7 +6,7 @@
 import type { RegistrationTargetKind, ViewingStatus } from '@inmolink/contracts';
 import type { Tx } from '@inmolink/db';
 import { clientRegistrations, viewingRequestReceipts, viewingRequests } from '@inmolink/db/schema/mls';
-import { and, desc, eq, gt, type SQL, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, type SQL, sql } from 'drizzle-orm';
 import { type KeysetCursor, rowAfter } from '../../pagination';
 
 export type Side = 'INTRODUCER' | 'OWNER';
@@ -148,6 +148,26 @@ export async function validRegistration(tx: Tx, agencyId: string, id: string) {
       ),
     );
   return row ?? null;
+}
+
+/** S17-F56: which of these registrations have a request open (`viewing_requests_open_uq`). One statement for the page. */
+export async function registrationsWithOpenViewing(
+  tx: Tx,
+  agencyId: string,
+  registrationIds: readonly string[],
+): Promise<Set<string>> {
+  if (registrationIds.length === 0) return new Set();
+  const rows = await tx
+    .select({ registrationId: viewingRequests.registrationId })
+    .from(viewingRequests)
+    .where(
+      and(
+        eq(viewingRequests.agencyId, agencyId),
+        inArray(viewingRequests.registrationId, [...registrationIds]),
+        sql`${viewingRequests.status} in ('REQUESTED', 'SCHEDULED')`,
+      ),
+    );
+  return new Set(rows.flatMap((r) => (r.registrationId ? [r.registrationId] : [])));
 }
 
 /** The request as the caller's side holds it: the introducer's row, else the owner's copy (RLS shows at most one). */
