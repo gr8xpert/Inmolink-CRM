@@ -9,10 +9,14 @@ import { type AuditTarget, audit } from './service';
  * row: ids, the resource, the page size and the list's filter enums only (never free text). A member's own reads write
  * nothing (one branch, no query).
  */
-export type ClientDataReadType = 'crm.clientData.read' | 'mls.clientData.read' | 'chat.clientData.read';
+export type ClientDataReadType =
+  | 'crm.clientData.read'
+  | 'mls.clientData.read'
+  | 'chat.clientData.read'
+  | 'support.clientData.read';
 
 /** The list filters a row may record: enum values or ids as the caller sent them — never free text. */
-export type ClientDataFilterKey = 'assigned' | 'stage' | 'state' | 'status' | 'kind';
+export type ClientDataFilterKey = 'assigned' | 'stage' | 'state' | 'status' | 'kind' | 'attachmentId';
 
 export interface ClientDataRead {
   target?: AuditTarget;

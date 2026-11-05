@@ -18,7 +18,8 @@ export const CLIENT_MODE_ALLOWED: ReadonlySet<SupportAction> = new Set<SupportAc
  * Staff impersonating a member (S1-09, S17-F47) may read the agency's tickets and open their attachments to diagnose a
  * problem, as in chat. They never write in the member's name: a ticket, reply, attachment or "resolved" would read as
  * the member's own, and reach the support inbox as such. Staff answer from the console (`postStaffMessage`,
- * `updateStaffTicket`), signed as support and audited as `staff.support.*`, so nothing here needs its own audit row.
+ * `updateStaffTicket`), signed as support and audited as `staff.support.*`. Each read leaves a
+ * `support.clientData.read` row: a ticket can hold client details and the member's own words.
  */
 export const SUPPORT_IMPERSONATION: ImpersonationRules<SupportAction> = {
   'support.read': 'allowed',

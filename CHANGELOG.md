@@ -1,20 +1,14 @@
 # Changelog
 - Staff acting as a member see a true "not available" sentence instead of refused controls; audit cursor, impersonation duration and duplicate attachment messages; staff tenant page wraps and uses translated labels [S17-F48]
 
-- Staff acting as a member see a true "not available" sentence instead of refused controls; audit cursor, impersonation duration and duplicate attachment messages; staff tenant page wraps and uses translated labels [S17-F48]
 All notable changes to this project are documented here. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
-- Staff acting as a member see a true "not available" sentence instead of refused controls; audit cursor, impersonation duration and duplicate attachment messages; staff tenant page wraps and uses translated labels [S17-F48]
 
-- Staff acting as a member see a true "not available" sentence instead of refused controls; audit cursor, impersonation duration and duplicate attachment messages; staff tenant page wraps and uses translated labels [S17-F48]
 ## [Unreleased]
-- Staff acting as a member see a true "not available" sentence instead of refused controls; audit cursor, impersonation duration and duplicate attachment messages; staff tenant page wraps and uses translated labels [S17-F48]
 
-- Staff acting as a member see a true "not available" sentence instead of refused controls; audit cursor, impersonation duration and duplicate attachment messages; staff tenant page wraps and uses translated labels [S17-F48]
 ### Changed
 - Staging QA (S17-F50): the chat inbox can start a direct chat with an active colleague; an empty bookmark folder name shows a message; auth forms show a message under each invalid field (`aria-describedby`).
 - Support tickets are read-only for staff acting as a member; a module policy without impersonation rules now fails a test [S17-F47]
 - A session acting as a member that ended elsewhere shows the "session ended" banner instead of a redirect loop [S17-F46]
-- Staff acting as a member see a true "not available" sentence instead of refused controls; audit cursor, impersonation duration and duplicate attachment messages; staff tenant page wraps and uses translated labels [S17-F48]
 - Lead detail shows a viewing request's preferred slots; the sitemap ends with a null cursor [S17-F49]
 - Spanish property type names reach the database; migrations must lift FORCE RLS to change data [S17-F43]
 - Website and portal detail pages and the preferred-agency search offer admin controls to admins only [S17-F44]

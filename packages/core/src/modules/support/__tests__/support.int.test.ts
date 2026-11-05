@@ -138,6 +138,19 @@ describe('support tickets', () => {
     expect(seen.messages).toHaveLength(1);
     const listed = await acting((c) => support.listTickets(c, { limit: 25 }));
     expect(listed.items.map((t) => t.id)).toEqual([ticket.id]);
+    // Each look leaves a row naming the staff member, without the ticket's words; the member's own reads leave none.
+    const reads = await admin.query<{ impersonated_by: string | null; metadata: Record<string, unknown> }>(
+      `select impersonated_by, metadata from audit_logs
+        where agency_id = $1 and type = 'support.clientData.read' order by occurred_at`,
+      [a.agencyId],
+    );
+    expect(reads.rows).toEqual([
+      {
+        impersonated_by: staff,
+        metadata: { resource: 'messages', view: 'list', count: 1, parentId: ticket.id },
+      },
+      { impersonated_by: staff, metadata: { resource: 'tickets', view: 'list', count: 1 } },
+    ]);
 
     const body = CreateSupportTicketBody.parse({
       subject: 'Written by staff',

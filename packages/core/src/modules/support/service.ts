@@ -166,13 +166,23 @@ export async function listTickets(ctx: Ctx, q: SupportTicketListQuery): Promise<
     limit: q.limit,
     cursor: decodeCursor(q.cursor),
   });
-  return toPage(rows, q.limit, (r) => ({ at: r.createdAt, id: r.id, atUs: r.atUs }), toSummary);
+  const page = toPage(rows, q.limit, (r) => ({ at: r.createdAt, id: r.id, atUs: r.atUs }), toSummary);
+  await compliance.auditImpersonatedRead(ctx, 'support.clientData.read', 'tickets', {
+    count: page.items.length,
+    filter: { status: q.status },
+  });
+  return page;
 }
 
 /** One ticket with the latest page of its conversation, or the page before `before`. */
 export async function getTicket(ctx: Ctx, input: { id: string } & SupportTicketQuery): Promise<SupportTicketDto> {
   assertCan(ctx, 'support.read');
-  return loadTicketDto(ctx, input.id, decodeCursor(input.before));
+  const ticket = await loadTicketDto(ctx, input.id, decodeCursor(input.before));
+  await compliance.auditImpersonatedRead(ctx, 'support.clientData.read', 'messages', {
+    count: ticket.messages.length,
+    parentId: input.id,
+  });
+  return ticket;
 }
 
 /** A member's reply: the ticket waits for staff again (a resolved one reopens). */
@@ -304,7 +314,12 @@ async function signAttachment(tx: Tx, agencyId: string, ticketId: string, attach
 
 export async function getAttachmentUrl(ctx: Ctx, input: { id: string; attachmentId: string }): Promise<SignedUrlDto> {
   assertCan(ctx, 'support.read');
-  return signAttachment(ctx.tx, ctx.tenant.agencyId, input.id, input.attachmentId);
+  const signed = await signAttachment(ctx.tx, ctx.tenant.agencyId, input.id, input.attachmentId);
+  await compliance.auditImpersonatedRead(ctx, 'support.clientData.read', 'attachment', {
+    parentId: input.id,
+    filter: { attachmentId: input.attachmentId },
+  });
+  return signed;
 }
 
 // ── Staff ──────────────────────────────────────────────────────────────────────────────────────

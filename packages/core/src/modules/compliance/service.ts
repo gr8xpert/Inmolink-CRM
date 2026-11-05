@@ -159,6 +159,8 @@ export const AUDIT_TYPES = [
   // NETWORK chat messages read by staff impersonating a member — one row per list / get call.
   'mls.clientData.read',
   'chat.clientData.read',
+  // S17-F47: support tickets, their conversation and attachments read by staff impersonating a member.
+  'support.clientData.read',
   // S12-F13: a network board post published / closed (target: the post; metadata: its kind — never title or body).
   'network.post.published',
   'network.post.closed',
