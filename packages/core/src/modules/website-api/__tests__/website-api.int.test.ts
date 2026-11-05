@@ -310,7 +310,8 @@ describe('website API v2 reads (S7-03)', () => {
       sitemap: await countQueries(() => websiteApi.sitemap(custom, WebsiteSitemapQuery.parse({ limit: 10 }))),
       siteForKey: await countQueries(() => site(a, S.a as string)),
     };
-    expect(budget).toEqual({ search: 2, detail: 2, changesSince: 3, changes: 2, sitemap: 2, siteForKey: 0 });
+    // sitemap: the last listing page of a site with new builds also probes for a development (S17-F49).
+    expect(budget).toEqual({ search: 2, detail: 2, changesSince: 3, changes: 2, sitemap: 3, siteForKey: 0 });
     // Owner identities are read with the overrides, compiled or not: the same statements cold.
     websiteApi.resetWebsiteApiCaches();
     expect(await countQueries(() => websiteApi.searchListings(s, listings()))).toBe(2);
