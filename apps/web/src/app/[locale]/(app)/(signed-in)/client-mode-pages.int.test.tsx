@@ -40,6 +40,7 @@ vi.mock('@/server/crm-api', () => refuse);
 vi.mock('@/server/contacts-api', () => refuse);
 vi.mock('@/server/chat-api', () => refuse);
 vi.mock('@/server/social-api', () => refuse);
+vi.mock('@/server/collaborations-api', () => refuse);
 vi.mock('@/server/agency-time-zone', () => ({
   agencyTimeZone: () => Promise.reject(new Error('the API must not be asked')),
 }));
@@ -62,6 +63,7 @@ const PAGES: Array<[string, () => Promise<{ default: unknown }>, unknown]> = [
   ['social/callback', () => import('./social/callback/page'), search],
   ['pipeline', () => import('./pipeline/page'), search],
   ['pipeline/stages', () => import('./pipeline/stages/page'), search],
+  ['collaborations', () => import('./collaborations/page'), search],
 ];
 
 describe('Client Mode on pages the API closes', () => {
@@ -71,6 +73,7 @@ describe('Client Mode on pages the API closes', () => {
       const out = await (mod.default as Page)(props as never);
       expect(isValidElement(out)).toBe(true);
       expect((out as { type: ComponentType }).type).toBe(ClientModeUnavailable);
-    });
+      // The first page's import compiles the shared app code, about 20 s alone and more beside other test files.
+    }, 120_000);
   }
 });

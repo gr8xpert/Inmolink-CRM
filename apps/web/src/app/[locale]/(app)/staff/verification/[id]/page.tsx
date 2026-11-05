@@ -75,7 +75,8 @@ export default async function VerificationRequestPage({
         <h2 id="details-heading" className="font-medium">
           {t('request.details', { version: a.version })}
         </h2>
-        {r.detailsVersion !== a.version ? (
+        {/* S17-F52: a decision bumps the agency's version itself: only an open request can have been edited since. */}
+        {r.status === 'SUBMITTED' && r.detailsVersion !== a.version ? (
           <p className="rounded-md bg-muted p-2">{t('request.changedSince', { submitted: r.detailsVersion })}</p>
         ) : null}
         <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1">

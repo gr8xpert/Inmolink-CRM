@@ -421,7 +421,7 @@
     "remove": "Quitar",
     "more": "Más",
     "button": "Guardar en favoritos",
-    "saved": "Guardado en {count} carpeta(s)",
+    "saved": "Guardado en {count, plural, one {# carpeta} other {# carpetas}}",
     "saveIn": "Guardar en",
     "noteFor": "Nota para este inmueble",
     "manage": "Gestionar favoritos",

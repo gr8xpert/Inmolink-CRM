@@ -12,6 +12,7 @@ import { EmptyState } from '@inmolink/ui';
 import { redirect } from 'next/navigation';
 import { getFormatter, getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
+import { ClientModeUnavailable } from '@/components/shell/client-mode-unavailable';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
 import { sessionRef } from '@/server/api';
 import {
@@ -20,6 +21,8 @@ import {
   fetchReceivedRegistrations,
   fetchReceivedViewings,
 } from '@/server/collaborations-api';
+import { inClientMode } from '@/server/nav';
+import { loadShell } from '@/server/shell';
 import { parseCollaborationParams, type SectionKey, sectionsFor } from './filters';
 
 /**
@@ -32,6 +35,9 @@ export default async function CollaborationsPage({ searchParams }: { searchParam
   const locale = await getLocale();
   const session = await auth();
   if (!session?.user?.id) return localeRedirect({ href: '/login', locale });
+  // S17-F52: the API refuses it in Client Mode; say so, as every other closed page does.
+  const clientShell = await loadShell();
+  if (clientShell && inClientMode(clientShell.identity)) return <ClientModeUnavailable />;
   const f = parseCollaborationParams(await searchParams);
   const t = await getTranslations('network.collaborations');
   const format = await getFormatter();

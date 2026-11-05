@@ -82,8 +82,8 @@ export default async function BookmarksPage(props: { searchParams: Promise<Recor
           {errorText(res.folders.error?.code)}
         </p>
       ) : (
-        <div className="grid gap-6 md:grid-cols-[16rem_1fr]">
-          <nav aria-label={t('bookmarks.folders')} className="flex flex-col gap-2">
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-[16rem_1fr]">
+          <nav aria-label={t('bookmarks.folders')} className="flex min-w-0 flex-col gap-2">
             <h2 className="text-sm font-medium">{t('bookmarks.folders')}</h2>
             {folders.length === 0 ? (
               <p className="text-sm text-muted-foreground">{t('bookmarks.noFolders')}</p>
@@ -96,7 +96,7 @@ export default async function BookmarksPage(props: { searchParams: Promise<Recor
                       aria-current={f.id === folderId ? 'page' : undefined}
                       className="flex justify-between rounded-md px-2 py-1 text-sm hover:bg-accent aria-[current=page]:bg-accent aria-[current=page]:font-medium"
                     >
-                      <span className="truncate">{f.name}</span>
+                      <span className="min-w-0 truncate">{f.name}</span>
                       <span className="text-muted-foreground">{format.number(f.count)}</span>
                     </Link>
                   </li>
@@ -105,7 +105,7 @@ export default async function BookmarksPage(props: { searchParams: Promise<Recor
             )}
             <FolderControls current={current} messages={messages.listings} />
           </nav>
-          <section className="flex flex-col gap-3">
+          <section className="flex min-w-0 flex-col gap-3">
             {!current ? (
               <EmptyState title={t('bookmarks.pickFolder')} />
             ) : res.bookmarks && !res.bookmarks.ok ? (

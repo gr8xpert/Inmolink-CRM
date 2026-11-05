@@ -2,7 +2,7 @@
 
 import type { BookmarkFolderDto, ListingBookmarkDto } from '@inmolink/contracts';
 import { Button, Input, Label } from '@inmolink/ui';
-import { type FormEvent, useState, useTransition } from 'react';
+import { type FormEvent, useId, useState, useTransition } from 'react';
 import { Link } from '@/i18n/navigation';
 import {
   createBookmarkAction,
@@ -24,6 +24,7 @@ export interface BookmarkButtonProps {
  */
 export function BookmarkButton({ listingId, messages }: BookmarkButtonProps) {
   const t = makeT(messages);
+  const noteId = useId();
   const [open, setOpen] = useState(false);
   const [folders, setFolders] = useState<BookmarkFolderDto[] | null>(null);
   const [saved, setSaved] = useState<ListingBookmarkDto[]>([]);
@@ -83,14 +84,14 @@ export function BookmarkButton({ listingId, messages }: BookmarkButtonProps) {
   return (
     <div className="relative">
       <Button type="button" variant="outline" size="sm" aria-expanded={open} onClick={toggleOpen}>
-        {saved.length > 0 ? t('bookmarks.saved', { count: String(saved.length) }) : t('bookmarks.button')}
+        {saved.length > 0 ? t('bookmarks.saved', { count: saved.length }) : t('bookmarks.button')}
       </Button>
       {open ? (
         <div className="absolute right-0 z-20 mt-2 flex w-80 flex-col gap-3 rounded-md border bg-background p-4 shadow-md">
           <div className="flex flex-col gap-1">
-            <Label htmlFor="bookmark-note">{t('bookmarks.noteFor')}</Label>
+            <Label htmlFor={noteId}>{t('bookmarks.noteFor')}</Label>
             <Input
-              id="bookmark-note"
+              id={noteId}
               value={note}
               maxLength={1000}
               placeholder={t('bookmarks.notePlaceholder')}

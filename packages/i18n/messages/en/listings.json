@@ -421,7 +421,7 @@
     "remove": "Remove",
     "more": "More",
     "button": "Bookmark",
-    "saved": "Saved in {count} folder(s)",
+    "saved": "Saved in {count, plural, one {# folder} other {# folders}}",
     "saveIn": "Save in",
     "noteFor": "Note for this listing",
     "manage": "Manage bookmarks",
