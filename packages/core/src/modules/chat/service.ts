@@ -54,6 +54,8 @@ interface ThreadLookups {
   names: Map<string, string>;
   /** Agencies listed now (VERIFIED) — looked up only when a `NETWORK` thread is shown. */
   listed: ReadonlySet<string>;
+  /** S17-F51: an untitled `DIRECT` thread's other participants, by name. */
+  colleagues: ReadonlyMap<string, string[]>;
 }
 
 /**
@@ -74,6 +76,7 @@ function toThreadDto(r: repo.ThreadRow, l: ThreadLookups, readerAgencyId: string
     peerAgency: r.peerAgencyId ? { id: r.peerAgencyId, name: names.get(r.peerAgencyId) ?? null } : null,
     title: r.title,
     subject: r.subject,
+    colleagues: l.colleagues.get(r.id) ?? [],
     lastMessageAt: r.lastMessageAt.toISOString(),
     lastReadAt: r.lastReadAt ? r.lastReadAt.toISOString() : null,
     unread: isUnread(r),
@@ -100,7 +103,7 @@ export function toMessageDto(m: repo.MessageRow, readerAgencyId: string): ChatMe
 /** The peers' names, and — when a `NETWORK` thread is among them — which of the agencies are listed (one more query). */
 async function threadLookups(ctx: Ctx, rows: readonly repo.ThreadRow[]): Promise<ThreadLookups> {
   const network = rows.filter((r) => r.kind === 'NETWORK' && r.peerAgencyId !== null);
-  const [names, listed] = await Promise.all([
+  const [names, listed, colleagues] = await Promise.all([
     agencies.directoryNamesOf(
       ctx.tx,
       rows.flatMap((r) => (r.peerAgencyId ? [r.peerAgencyId] : [])),
@@ -108,8 +111,23 @@ async function threadLookups(ctx: Ctx, rows: readonly repo.ThreadRow[]): Promise
     network.length === 0
       ? Promise.resolve(new Map<string, string>())
       : agencies.listedAgencyNamesOf(ctx.tx, [ctx.tenant.agencyId, ...network.map((r) => r.peerAgencyId as string)]),
+    directColleagues(ctx, rows),
   ]);
-  return { names, listed: new Set(listed.keys()) };
+  return { names, listed: new Set(listed.keys()), colleagues };
+}
+
+/** S17-F51: who else is in each untitled `DIRECT` thread, by name (two queries, none without such a thread). */
+async function directColleagues(ctx: Ctx, rows: readonly repo.ThreadRow[]): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
+  const ids = rows.filter((r) => r.kind === 'DIRECT' && r.title === null).map((r) => r.id);
+  if (ids.length === 0) return out;
+  const others = await repo.otherParticipantsOf(ctx.tx, ctx.tenant.agencyId, ids, memberUserId(ctx));
+  const names = await identity.memberNames(ctx, [...new Set(others.map((o) => o.userId))]);
+  for (const o of others) {
+    const name = names.get(o.userId);
+    if (name) out.set(o.threadId, [...(out.get(o.threadId) ?? []), name]);
+  }
+  return out;
 }
 
 async function memberThread(ctx: Ctx, threadId: string): Promise<repo.ThreadRow> {
@@ -118,7 +136,7 @@ async function memberThread(ctx: Ctx, threadId: string): Promise<repo.ThreadRow>
   return t;
 }
 
-/** `GET /v1/chat/threads/:id`: the thread, the caller's agency's participants and the handoff links (≤ 5 queries). */
+/** `GET /v1/chat/threads/:id`: the thread, the caller's agency's participants and the handoff links (≤ 5 queries; ≤ 7 when untitled and `DIRECT`). */
 export async function getThread(ctx: Ctx, threadId: string): Promise<ChatThreadDetailDto> {
   assertCan(ctx, 'chat.read');
   const t = await memberThread(ctx, threadId);
@@ -141,7 +159,7 @@ export async function getThread(ctx: Ctx, threadId: string): Promise<ChatThreadD
   };
 }
 
-/** `GET /v1/chat/threads`: the caller's threads, latest activity first, keyset (two queries; three with a `NETWORK` thread). */
+/** `GET /v1/chat/threads`: the caller's threads, latest activity first, keyset (two queries; two more with an untitled `DIRECT` thread, one with a `NETWORK` thread). */
 export async function listThreads(ctx: Ctx, query: ListChatThreadsQuery): Promise<ChatThreadPage> {
   assertCan(ctx, 'chat.read');
   const rows = await repo.inbox(ctx.tx, ctx.tenant.agencyId, memberUserId(ctx), {
@@ -185,6 +203,7 @@ export async function listMessages(ctx: Ctx, threadId: string, query: ListChatMe
 /**
  * `POST /v1/chat/threads`: a `DIRECT` thread with colleagues (active members of the caller's agency, at most
  * `CHAT_LIMITS.directMembers`). The participants guard lets only the starter add them, in this transaction.
+ * S17-F51: asking again for an untitled chat with one colleague opens the one that exists, with its history.
  */
 export async function createDirectThread(ctx: Ctx, raw: CreateDirectThreadBody): Promise<ChatThreadDetailDto> {
   assertCan(ctx, 'chat.write');
@@ -194,6 +213,11 @@ export async function createDirectThread(ctx: Ctx, raw: CreateDirectThreadBody):
   if (others.length === 0) throw new AppError('CHAT_PARTICIPANTS_INVALID', { reason: 'no_colleague' });
   const members = await identity.activeClientMembersAmong(ctx.tx, ctx.tenant.agencyId, others);
   if (others.some((u) => !members.has(u))) throw new AppError('CHAT_PARTICIPANTS_INVALID', { reason: 'not_members' });
+  const [only] = others;
+  if (only && others.length === 1 && !body.title) {
+    const existing = await repo.untitledDirectThreadBetween(ctx.tx, ctx.tenant.agencyId, me, only);
+    if (existing) return getThread(ctx, existing);
+  }
   const id = newId();
   const { lastMessageAt } = await repo.insertDirectThread(ctx.tx, {
     agencyId: ctx.tenant.agencyId,

@@ -92,7 +92,7 @@ export default async function ChatInboxPage({ searchParams }: { searchParams: Pr
               <Link href={`/chat/${th.id}`} className="flex flex-wrap items-center gap-3 p-3 text-sm hover:bg-accent">
                 <div className="flex min-w-60 flex-1 flex-col">
                   <span className={th.unread ? 'font-semibold' : 'font-medium'}>
-                    {th.title ?? th.subject ?? th.peerAgency?.name ?? t('untitled')}
+                    {th.title ?? th.subject ?? th.peerAgency?.name ?? (th.colleagues.join(', ') || t('untitled'))}
                   </span>
                   <span className="text-muted-foreground">
                     {[t(`kinds.${th.kind}`), th.peerAgency?.name, th.closed ? t('closed') : null]

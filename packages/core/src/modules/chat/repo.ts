@@ -113,6 +113,45 @@ export async function joinThread(
   return (result.rowCount ?? 0) > 0;
 }
 
+/** S17-F51: the latest untitled `DIRECT` thread of exactly these two members, if any (one statement, from the inbox index). */
+export async function untitledDirectThreadBetween(
+  tx: Tx,
+  agencyId: string,
+  userId: string,
+  otherUserId: string,
+): Promise<string | null> {
+  const result = await tx.execute<{ id: string }>(sql`
+    select t.id from ${chatParticipants} me
+      join ${chatThreads} t on t.agency_id = me.agency_id and t.id = me.thread_id
+     where me.agency_id = ${agencyId} and me.user_id = ${userId}
+       and t.kind = 'DIRECT' and t.title is null
+       and exists (select 1 from ${chatParticipants} o
+                    where o.agency_id = ${agencyId} and o.thread_id = t.id and o.user_id = ${otherUserId})
+       and (select count(*) from ${chatParticipants} p where p.agency_id = ${agencyId} and p.thread_id = t.id) = 2
+     order by t.last_message_at desc
+     limit 1`);
+  return result.rows[0]?.id ?? null;
+}
+
+/** S17-F51: the participants of these threads other than the member (a page of threads, each with a bounded number). */
+export async function otherParticipantsOf(
+  tx: Tx,
+  agencyId: string,
+  threadIds: readonly string[],
+  userId: string,
+): Promise<{ threadId: string; userId: string }[]> {
+  return tx
+    .select({ threadId: chatParticipants.threadId, userId: chatParticipants.userId })
+    .from(chatParticipants)
+    .where(
+      and(
+        eq(chatParticipants.agencyId, agencyId),
+        inArray(chatParticipants.threadId, [...threadIds]),
+        sql`${chatParticipants.userId} <> ${userId}`,
+      ),
+    );
+}
+
 /** A `DIRECT` thread (the insert guard stamps its starter and times). */
 export async function insertDirectThread(
   tx: Tx,

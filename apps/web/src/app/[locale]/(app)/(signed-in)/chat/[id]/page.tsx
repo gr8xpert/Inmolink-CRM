@@ -65,7 +65,9 @@ export default async function ChatThreadPage({
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-4 p-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-xl font-semibold">{th.title ?? th.subject ?? th.peerAgency?.name ?? t('untitled')}</h1>
+        <h1 className="text-xl font-semibold">
+          {th.title ?? th.subject ?? th.peerAgency?.name ?? (th.colleagues.join(', ') || t('untitled'))}
+        </h1>
         <Link href="/chat" className="text-sm underline-offset-4 hover:underline">
           {t('back')}
         </Link>

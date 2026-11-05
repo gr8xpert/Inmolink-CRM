@@ -177,6 +177,31 @@ afterAll(async () => {
 });
 
 describe('who reads a thread', () => {
+  it('[S17-F51] the same untitled chat with one colleague opens again, named after the colleague', async () => {
+    const pal = await agent(a.agencyId, 'Paloma');
+    const first = await as(a, (ctx) => chat.createDirectThread(ctx, { userIds: [pal.userId] }));
+    await as(a, (ctx) => chat.sendMessage(ctx, first.id, { body: 'Hola' }));
+    const again = await as(a, (ctx) => chat.createDirectThread(ctx, { userIds: [pal.userId] }));
+    expect(again.id).toBe(first.id);
+    // Either side reaches the same conversation.
+    expect((await as(pal, (ctx) => chat.createDirectThread(ctx, { userIds: [a.userId] }))).id).toBe(first.id);
+
+    expect(again.colleagues).toEqual(['Paloma']);
+    const listed = await as(a, (ctx) => chat.listThreads(ctx, { limit: 100 }));
+    expect(listed.items.find((t) => t.id === first.id)?.colleagues).toEqual(['Paloma']);
+
+    // A named chat, or one with more people, is a new conversation and never reused by this path.
+    const named = await as(a, (ctx) => chat.createDirectThread(ctx, { userIds: [pal.userId], title: 'Deal' }));
+    expect(named.id).not.toBe(first.id);
+    expect(named.colleagues).toEqual([]);
+    const group = await as(a, (ctx) => chat.createDirectThread(ctx, { userIds: [pal.userId, a2.userId] }));
+    expect(group.id).not.toBe(first.id);
+    expect(group.colleagues).toHaveLength(2);
+    expect((await as(a, (ctx) => chat.createDirectThread(ctx, { userIds: [pal.userId] }))).id).toBe(first.id);
+    // Never another pair's chat.
+    expect((await as(a2, (ctx) => chat.createDirectThread(ctx, { userIds: [pal.userId] }))).id).not.toBe(first.id);
+  });
+
   it('[S11-03] users cannot read threads they are not part of — service, RLS and the database guards', async () => {
     const thread = await as(a, (ctx) => chat.createDirectThread(ctx, { userIds: [a2.userId], title: 'Deal' }));
     expect(thread.participants.map((p) => p.userId).sort()).toEqual([a.userId, a2.userId].sort());
@@ -427,7 +452,7 @@ describe('delivery, read state and the digest', () => {
   });
 
   it('[S11-03] a retried send with the same clientKey answers the first message; lists stay within their query budgets', async () => {
-    const thread = await as(a, (ctx) => chat.createDirectThread(ctx, { userIds: [a2.userId] }));
+    const thread = await as(a, (ctx) => chat.createDirectThread(ctx, { userIds: [a2.userId], title: 'Retries' }));
     const clientKey = newId();
     const first = await as(a, (ctx) => chat.sendMessage(ctx, thread.id, { body: 'Once', clientKey }));
     const again = await as(a, (ctx) => chat.sendMessage(ctx, thread.id, { body: 'Once', clientKey }));
@@ -446,7 +471,7 @@ describe('delivery, read state and the digest', () => {
     const setup = await countQueries(() => as(a, async () => null));
     expect(
       (await countQueries(() => as(a, (ctx) => chat.listThreads(ctx, { limit: 25 })))) - setup,
-    ).toBeLessThanOrEqual(2);
+    ).toBeLessThanOrEqual(4); // two, and two for the names of untitled direct threads (S17-F51)
     expect(
       (await countQueries(() => as(a, (ctx) => chat.listMessages(ctx, thread.id, { limit: 25 })))) - setup,
     ).toBeLessThanOrEqual(2);
@@ -460,7 +485,7 @@ describe('delivery, read state and the digest', () => {
     expect(
       (await countQueries(() => as(a, (ctx) => chat.createDirectThread(ctx, { userIds: [a2.userId, a3.userId] })))) -
         setup,
-    ).toBeLessThanOrEqual(7);
+    ).toBeLessThanOrEqual(8); // seven, and one for the other participants of an untitled thread (S17-F51)
     // a first join of a viewing thread (the owner's side, by a member not seated yet)
     const b2 = await agent(b.agencyId, 'Dora');
     const opened = await countQueries(() =>

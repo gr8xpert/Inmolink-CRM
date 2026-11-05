@@ -82,6 +82,8 @@ export const ChatThreadDto = z.strictObject({
   title: z.string().nullable(),
   /** `VIEWING`: the listing's reference (never the client); `NETWORK`: the post's title. */
   subject: z.string().nullable(),
+  /** `DIRECT` without a title (S17-F51): the other participants' names, to tell the conversations apart. Else empty. */
+  colleagues: z.array(z.string()),
   lastMessageAt: z.iso.datetime(),
   /** The caller's read state. */
   lastReadAt: z.iso.datetime().nullable(),

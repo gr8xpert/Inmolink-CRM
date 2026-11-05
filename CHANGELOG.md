@@ -6,6 +6,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Changed
+- Staging QA (S17-F51): asking again for a chat with the same colleague opens the existing conversation; untitled direct chats show the colleague's name; the give-to-get button on the staff tenant page wraps at 390 px.
 - Staging QA (S17-F50): the chat inbox can start a direct chat with an active colleague; an empty bookmark folder name shows a message; auth forms show a message under each invalid field (`aria-describedby`).
 - Support tickets are read-only for staff acting as a member; a module policy without impersonation rules now fails a test [S17-F47]
 - A session acting as a member that ended elsewhere shows the "session ended" banner instead of a redirect loop [S17-F46]

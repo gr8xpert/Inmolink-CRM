@@ -149,7 +149,12 @@ export default async function TenantPage({
                   rows={2}
                   className="rounded-md border bg-background p-2 text-sm"
                 />
-                <Button type="submit" variant="outline" size="sm" className="self-start">
+                <Button
+                  type="submit"
+                  variant="outline"
+                  size="sm"
+                  className="h-auto max-w-full self-start whitespace-normal py-1.5 text-left"
+                >
                   {a.giveToGetExempt ? t('tenant.giveToGetEnd') : t('tenant.giveToGetGrant')}
                 </Button>
               </form>
