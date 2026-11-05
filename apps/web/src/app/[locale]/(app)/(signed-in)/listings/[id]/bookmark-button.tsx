@@ -84,7 +84,11 @@ export function BookmarkButton({ listingId, messages }: BookmarkButtonProps) {
   return (
     <div className="relative">
       <Button type="button" variant="outline" size="sm" aria-expanded={open} onClick={toggleOpen}>
-        {saved.length > 0 ? t('bookmarks.saved', { count: saved.length }) : t('bookmarks.button')}
+        {saved.length === 1
+          ? t('bookmarks.savedOne')
+          : saved.length > 1
+            ? t('bookmarks.saved', { count: String(saved.length) })
+            : t('bookmarks.button')}
       </Button>
       {open ? (
         <div className="absolute right-0 z-20 mt-2 flex w-80 flex-col gap-3 rounded-md border bg-background p-4 shadow-md">
