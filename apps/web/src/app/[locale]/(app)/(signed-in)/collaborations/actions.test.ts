@@ -27,7 +27,7 @@ const { registerClientAction, requestViewingAction } = await import('./actions')
 const REGISTRATION = '01900000-0000-7000-8000-000000000001';
 const CONTACT = '01900000-0000-7000-8000-000000000002';
 const LISTING = '01900000-0000-7000-8000-000000000003';
-const KEY = '5f0c7c1e-9a4b-4d0e-8f7a-2b1c3d4e5f60';
+const IDEMPOTENCY_ID = '01900000-0000-7000-8000-000000000004';
 
 const form = (values: Record<string, string>) => {
   const f = new FormData();
@@ -49,7 +49,7 @@ describe('[S17-F56] request viewing action', () => {
   const viewingForm = () =>
     form({
       registrationId: REGISTRATION,
-      idempotencyKey: KEY,
+      idempotencyKey: IDEMPOTENCY_ID,
       proposedStartAt: '2026-11-20T10:30',
       back: 'direction=OUT&type=REGISTRATION&evil=1',
     });
@@ -61,7 +61,7 @@ describe('[S17-F56] request viewing action', () => {
     expect(h.apiRequest).toHaveBeenCalledTimes(1);
     const [, path, , init] = h.apiRequest.mock.calls[0] as [unknown, string, unknown, Record<string, unknown>];
     expect(path).toBe('/v1/mls/viewing-requests');
-    expect(init.headers).toEqual({ 'idempotency-key': KEY });
+    expect(init.headers).toEqual({ 'idempotency-key': IDEMPOTENCY_ID });
     // 10:30 in Madrid in November (UTC+1) is 09:30 UTC
     expect(init.body).toEqual({ registrationId: REGISTRATION, proposedStartAt: '2026-11-20T09:30:00.000Z' });
     // back to the same filters, nothing the page does not know
@@ -98,9 +98,9 @@ describe('[S17-F56] request viewing action', () => {
 
   it('[S17-F56] a missing time or a malformed key is refused before the API', async () => {
     h.timeZone.mockResolvedValue('Europe/Madrid');
-    expect(await run(requestViewingAction, form({ registrationId: REGISTRATION, idempotencyKey: KEY }))).toContain(
-      'error=TIME_REQUIRED',
-    );
+    expect(
+      await run(requestViewingAction, form({ registrationId: REGISTRATION, idempotencyKey: IDEMPOTENCY_ID })),
+    ).toContain('error=TIME_REQUIRED');
     expect(
       await run(requestViewingAction, form({ ...Object.fromEntries(viewingForm()), idempotencyKey: 'short' })),
     ).toContain('error=VALIDATION_FAILED');
