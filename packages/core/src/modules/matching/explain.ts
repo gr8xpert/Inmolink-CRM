@@ -1,5 +1,6 @@
 import { DEFAULT_UI_LOCALE, isUiLocale } from '@inmolink/i18n';
 import { translator } from '@inmolink/i18n/server';
+import type { BoostReason } from './boost';
 
 /**
  * The match engine's scoring and explanation (R2-02b, PLAN §7 M9), pure: for each hard criterion of a client profile,
@@ -17,7 +18,7 @@ import { translator } from '@inmolink/i18n/server';
 export const PRICE_TOLERANCE = 0.1;
 /** The neutral semantic score: either vector is missing (embeddings off, not embedded yet). */
 export const NEUTRAL_SEMANTIC = 0.5;
-/** Weights of the total score (the learned boost of R2-02c is added on top). */
+/** Weights of the total score (the learned boost of R2-02c, `boost.ts`, is added on top; the total is clamped to 0–1). */
 export const HARD_WEIGHT = 0.7;
 export const SEMANTIC_WEIGHT = 0.3;
 /** A match is recorded only at or above this total. */
@@ -85,6 +86,8 @@ export interface MatchExplanation {
   priceOnRequest: boolean;
   /** Must-haves the listing has, of the profile's; null: the profile names none. */
   mustHaves: { met: number; total: number } | null;
+  /** R2-02c: why the learned boost moved the score (absent when it is 0, and on matches written before R2-02c). */
+  boost?: BoostReason;
 }
 
 const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
@@ -186,16 +189,19 @@ export interface MatchScore {
   total: number;
 }
 
-/** Hard fit and semantic similarity (cosine, clamped to 0–1; null → neutral) into the total; boost 0 until R2-02c. */
+/**
+ * Hard fit and semantic similarity (cosine, clamped to 0–1; null → neutral) into the total, plus the learned boost
+ * (R2-02c, `boostOf`: within ±`MAX_BOOST`); the total clamped to 0–1.
+ */
 export function scoreMatch(e: MatchExplanation, similarity: number | null, boost = 0): MatchScore {
   const hard = hardScore(e);
   const semantic = similarity === null || !Number.isFinite(similarity) ? null : clamp01(similarity);
-  const total = HARD_WEIGHT * hard + SEMANTIC_WEIGHT * (semantic ?? NEUTRAL_SEMANTIC) + boost;
+  const total = clamp01(HARD_WEIGHT * hard + SEMANTIC_WEIGHT * (semantic ?? NEUTRAL_SEMANTIC) + boost);
   return { hard, semantic, boost, total };
 }
 
 /**
- * The explanation in words, one line per criterion in the profile's order, then a summary — from i18n keys only
+ * The explanation in words, one line per criterion in the profile's order (then the boost's reasons), and a summary — from i18n keys only
  * (`contacts.matchExplanation`), in the member's UI locale (EN fallback).
  */
 export function explanationText(e: MatchExplanation, locale: string): { summary: string; lines: string[] } {
@@ -214,6 +220,12 @@ export function explanationText(e: MatchExplanation, locale: string): { summary:
     }
     return t(`matchExplanation.${c.key}.${c.ok ? 'ok' : 'no'}`);
   });
+  // R2-02c: the learned boost's reason ("similar to listings the client liked (type, area)")
+  if (e.boost) {
+    const what = (dims: readonly string[]) => dims.map((d) => t(`matchExplanation.boost.${d}`)).join(', ');
+    if (e.boost.liked.length > 0) lines.push(t('matchExplanation.boost.liked', { what: what(e.boost.liked) }));
+    if (e.boost.disliked.length > 0) lines.push(t('matchExplanation.boost.disliked', { what: what(e.boost.disliked) }));
+  }
   return {
     summary: t('matchExplanation.summary', { met: e.satisfied.length, total: e.criteria.length }),
     lines,

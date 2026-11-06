@@ -124,6 +124,11 @@ export const selectionInteractions = pgTable(
     index('selection_interactions_selection_idx').on(t.selectionId, t.createdAt),
     // FK (agency's rows)
     index('selection_interactions_agency_idx').on(t.agencyId),
+    // R2-02c, a contact's latest word on a listing (the learned boost): where agency_id = ? and target_id = ? and kind
+    // in ('LIKE', 'UNLIKE') order by created_at desc, id desc (joined to the contact's selections)
+    index('selection_interactions_likes_idx')
+      .on(t.agencyId, t.targetId, t.createdAt.desc(), t.id.desc())
+      .where(sql`${t.kind} in ('LIKE', 'UNLIKE')`),
     check('selection_interactions_kind_ck', sql`${t.kind} in ('VIEW', 'LIKE', 'UNLIKE', 'ENQUIRE')`),
     check(
       'selection_interactions_target_ck',

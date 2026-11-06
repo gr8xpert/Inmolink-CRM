@@ -18,6 +18,28 @@ export {
   type Transition,
   transitionOf,
 } from './alerts';
+// R2-02c: the learned boost (pure) and its feedback (worker-only).
+export {
+  AFFINITY_DIMENSIONS,
+  AFFINITY_PRIOR,
+  AFFINITY_WEIGHTS,
+  type AffinityDimension,
+  type AffinityListing,
+  type AffinitySummary,
+  affinityDeltas,
+  affinityKey,
+  affinityKeys,
+  type Boost,
+  type BoostReason,
+  boostOf,
+  dimensionOf,
+  EMPTY_SUMMARY,
+  type FeedbackSignal,
+  MAX_AFFINITY_KEYS,
+  MAX_BOOST,
+  priceBand,
+  withDeltas,
+} from './boost';
 // R2-02b: the client-profile match engine (worker-only) and its scoring / explanation (pure).
 export {
   backfillListingFacts,
@@ -49,9 +71,11 @@ export {
   SEMANTIC_WEIGHT,
   scoreMatch,
 } from './explain';
+export { FEEDBACK_PROFILES_PER_CONTACT, recordDismissalFeedback, recordSelectionFeedback } from './feedback';
 export {
   clientMatchJobs,
   clientProfileJobs,
+  feedbackJobs,
   matchingJobs,
   matchWindowKey,
   PROFILE_EMBEDDINGS_SWEEP_EVERY_MS,

@@ -1588,6 +1588,14 @@ export const tenantTables: Record<string, TenantTable> = {
       profile_version: 1,
     },
   },
+  // R2-02c: the learned boost's ledger and summary (the profile's agency's own, numbers and taxonomy ids only) —
+  // worker-only like the matches: no request plants a like or rewrites the counts that move a client's scores.
+  client_profile_feedback: {
+    kind: 'STRICT',
+    userReadOnly: true,
+    base: { signal: 'LIKE', signal_at: '2026-11-07T00:00:00Z', keys: '{}' },
+  },
+  client_profile_affinities: { kind: 'STRICT', userReadOnly: true, base: { keys: '{}', likes: '{}', dislikes: '{}' } },
   // S12-04: selections. S13-F1: the public pages (`app_public`, which also serves feed-api, export downloads and
   // websites) read no row of either table: a live selection and its items are answered only by the SECURITY DEFINER
   // `selection_by_token(hashes)` (owner app_owner, `definerRead`) for the token's keyed hash — never a scan, never

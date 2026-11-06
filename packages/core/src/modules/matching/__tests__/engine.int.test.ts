@@ -304,7 +304,8 @@ describe('client profile match engine (R2-02b)', () => {
     });
     expect(await pairCount(late, L3)).toBe(1);
     expect(matched).toBeGreaterThanOrEqual(1);
-    expect(queries).toBeLessThanOrEqual(12);
+    // R2-02b's 12 + the profiles' affinity summaries (R2-02c)
+    expect(queries).toBeLessThanOrEqual(13);
 
     const queued: unknown[] = [];
     const spy = vi.spyOn(matching.clientMatchJobs.matchProfilesToListings, 'enqueue').mockImplementation(async (p) => {

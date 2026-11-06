@@ -309,6 +309,14 @@
       "ok": "Superficie construida en el rango",
       "no": "Superficie construida fuera del rango"
     },
-    "mustHaves": "{met}/{total} imprescindibles"
+    "mustHaves": "{met}/{total} imprescindibles",
+    "boost": {
+      "liked": "Parecido a inmuebles que le gustaron al cliente ({what})",
+      "disliked": "Parecido a inmuebles que el cliente descartó ({what})",
+      "propertyType": "tipo",
+      "location": "zona",
+      "features": "características",
+      "price": "rango de precio"
+    }
   }
 }

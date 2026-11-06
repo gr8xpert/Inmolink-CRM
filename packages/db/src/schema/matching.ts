@@ -9,6 +9,7 @@ import {
   jsonb,
   numeric,
   pgTable,
+  primaryKey,
   real,
   text,
   timestamp,
@@ -385,6 +386,71 @@ export const clientProfileMatches = pgTable(
     check(
       'client_profile_matches_scores_ck',
       sql`${t.hardScore} between 0 and 1 and (${t.semanticScore} is null or ${t.semanticScore} between 0 and 1)`,
+    ),
+  ],
+);
+
+/**
+ * R2-02c, the learned boost's ledger: one feedback signal per client profile and listing — `LIKE` (the client's latest
+ * word on the listing across the selections of the profile's contact is a like) or `DISLIKE` (a member dismissed the
+ * match) — at `signal_at` (when it was given: an older event never overwrites a newer signal), an unlike or a restored
+ * match takes its signal back. `keys` are the listing's affinity keys when the signal was given (`boost.ts`: hashes of
+ * the property type, places, features and price band — no client data), so a change takes back exactly what it added
+ * to `client_profile_affinities`. The profile's agency's own; written by the matching worker only; goes with the
+ * profile (FK cascade: profile delete, contact erasure, agency erasure; a contact merge moves the profile itself).
+ */
+export const clientProfileFeedback = pgTable(
+  'client_profile_feedback',
+  {
+    profileId: uuid('profile_id')
+      .notNull()
+      .references(() => clientProfiles.id, { onDelete: 'cascade' }),
+    listingId: uuid('listing_id').notNull(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agencies.id),
+    signal: text('signal').notNull(),
+    signalAt: timestamp('signal_at', { withTimezone: true }).notNull(),
+    keys: integer('keys').array().notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // one signal per profile and listing (also the profile FK index): where profile_id = any(?) and listing_id = ?
+    primaryKey({ columns: [t.profileId, t.listingId] }),
+    // FK (agency's rows)
+    index('client_profile_feedback_agency_idx').on(t.agencyId),
+    check('client_profile_feedback_signal_ck', sql`${t.signal} in ('LIKE', 'DISLIKE')`),
+  ],
+);
+
+/**
+ * R2-02c, the learned boost's summary: one row per client profile with feedback — parallel arrays, sorted by key, of
+ * affinity key hashes (`boost.ts` `affinityKey`: the dimension in the low 2 bits) and how many liked / disliked
+ * listings carried each. At most `MAX_AFFINITY_KEYS` keys (≈ 1.5 KB: stored inline, never TOASTed), so the engine's
+ * batch read (`profile_id = any(?)`, one row a profile) stays small. Kept up to date from `client_profile_feedback`
+ * by deltas under the profile's lock. Numbers only. Goes with the profile (FK cascade).
+ */
+export const clientProfileAffinities = pgTable(
+  'client_profile_affinities',
+  {
+    profileId: uuid('profile_id')
+      .primaryKey()
+      .references(() => clientProfiles.id, { onDelete: 'cascade' }),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agencies.id),
+    keys: integer('keys').array().notNull(),
+    likes: integer('likes').array().notNull(),
+    dislikes: integer('dislikes').array().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // FK (agency's rows); the engine's batch read is the primary key (profile_id = any(?))
+    index('client_profile_affinities_agency_idx').on(t.agencyId),
+    check(
+      'client_profile_affinities_arrays_ck',
+      sql`cardinality(${t.keys}) = cardinality(${t.likes}) and cardinality(${t.keys}) = cardinality(${t.dislikes})`,
     ),
   ],
 );

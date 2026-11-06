@@ -1,9 +1,10 @@
 import { subscribe } from '@inmolink/platform/outbox';
 import * as agencies from '../agencies';
 import * as crm from '../crm';
+import * as presentations from '../presentations';
 import * as search from '../search';
 import { matchingEvents } from './events';
-import { clientMatchJobs, clientProfileJobs, matchingJobs, profileEmbeddingJobs } from './jobs';
+import { clientMatchJobs, clientProfileJobs, feedbackJobs, matchingJobs, profileEmbeddingJobs } from './jobs';
 
 let unsubscribe: (() => void)[] | undefined;
 
@@ -17,6 +18,9 @@ let unsubscribe: (() => void)[] | undefined;
  * (`crm.contact.merged`) moves the closed contact's client profiles to the survivor, a contact erasure
  * (`crm.contact.erased`) deletes its profiles and their vectors (one job per event, job ID = the event's id). R2-02b:
  * the same two events also run the match engine (`matching.matchListingsToProfiles`, `matching.matchProfilesToListings`).
+ * R2-02c: a client's like / unlike on a selection (`presentations.selection.interacted`) and a dismissed match
+ * (`matching.clientProfileMatch.dismissed`) feed the learned boost (`matching.selectionFeedback`,
+ * `matching.dismissalFeedback`).
  */
 export function registerMatchingSubscriptions(): void {
   if (unsubscribe) return;
@@ -84,6 +88,31 @@ export function registerMatchingSubscriptions(): void {
           contactId: payload.contactId,
         }),
       { name: 'matching.clientProfiles.contactErased' },
+    ),
+    // R2-02c: likes / unlikes (the item named) → the learned boost of the selection's contact's profiles.
+    subscribe(
+      presentations.presentationsEvents.selectionInteracted,
+      async (payload, meta) => {
+        if ((payload.kind !== 'LIKE' && payload.kind !== 'UNLIKE') || !payload.targetId) return;
+        await feedbackJobs.selectionFeedback.enqueue({
+          eventId: meta.eventId,
+          agencyId: meta.agencyId,
+          selectionId: payload.selectionId,
+          targetId: payload.targetId,
+        });
+      },
+      { name: 'matching.boost.selection' },
+    ),
+    // R2-02c: a dismissed match → the learned boost of its profile.
+    subscribe(
+      matchingEvents.clientProfileMatchDismissed,
+      (payload, meta) =>
+        feedbackJobs.dismissalFeedback.enqueue({
+          eventId: meta.eventId,
+          agencyId: meta.agencyId,
+          matchId: payload.matchId,
+        }),
+      { name: 'matching.boost.dismissal' },
     ),
     subscribe(
       agencies.agenciesEvents.statusChanged,

@@ -17,6 +17,7 @@ import { importsJobs } from '@inmolink/core/modules/imports';
 import {
   clientMatchJobs,
   clientProfileJobs,
+  feedbackJobs,
   matchingJobs,
   profileEmbeddingJobs,
 } from '@inmolink/core/modules/matching';
@@ -97,6 +98,9 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     clientMatchJobs.matchProfilesToListings,
     clientMatchJobs.profileMatchWindow,
     clientMatchJobs.backfillListingFacts,
+    // R2-02c: likes / unlikes and dismissals into the learned boost's summaries.
+    feedbackJobs.selectionFeedback,
+    feedbackJobs.dismissalFeedback,
   ],
   // S7-07: per-site XML feeds (Kyero and generic) and their 15-minute refresh sweep; S9-03: portal feeds.
   exports: [

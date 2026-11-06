@@ -4,6 +4,7 @@ import { newId } from '@inmolink/platform/ids';
 import * as agencies from '../agencies';
 import * as search from '../search';
 import * as taxonomy from '../taxonomy';
+import { type AffinitySummary, boostOf } from './boost';
 import { explainMatch, MATCH_MIN_TOTAL, passesHardFilters, scoreMatch } from './explain';
 import { listingEventKeys, listingMatchKeys, profileProbeKeys } from './match-keys';
 import * as repo from './repo';
@@ -20,7 +21,8 @@ import { networkOpenAmong, sharedWith } from './service';
  *   active profile probes `matching_listing_facts_match_keys_idx` for the newest live listings it could see.
  *
  * Then, in both: the hard filters (with their two tolerances, `explain.ts`) → the semantic score (cosine of the
- * profile's and the listing's vectors when both exist, same model; else neutral) → the total (≥ `MATCH_MIN_TOTAL`), at
+ * profile's and the listing's vectors when both exist, same model; else neutral) → the learned boost (R2-02c,
+ * `boost.ts`: the profile's likes and dismissals, its summary read once per batch) → the total (≥ `MATCH_MIN_TOTAL`), at
  * most `MATCH_TOP_N` a profile a run → the structured explanation, written once per profile and listing ever
  * (`client_profile_matches_pair_uq`): `PENDING_REVIEW` for REVIEW profiles, `QUEUED` for AUTO_SEND ones (R2-02e
  * sends; nothing is sent here). OFF profiles are never read.
@@ -49,13 +51,22 @@ export interface EngineResult {
 
 const NONE: EngineResult = { candidates: 0, matched: 0, agencies: [] };
 
-/** Scores and explains the candidates; keeps those over the threshold, `MATCH_TOP_N` a profile, as new rows. */
-export function decideMatches(candidates: readonly repo.MatchCandidateRow[], topN = MATCH_TOP_N): repo.NewMatch[] {
+/**
+ * Scores and explains the candidates (the learned boost from each profile's affinity summary, none: 0); keeps those
+ * over the threshold, `MATCH_TOP_N` a profile, as new rows.
+ */
+export function decideMatches(
+  candidates: readonly repo.MatchCandidateRow[],
+  options: { topN?: number; affinities?: ReadonlyMap<string, AffinitySummary> } = {},
+): repo.NewMatch[] {
+  const topN = options.topN ?? MATCH_TOP_N;
   const byProfile = new Map<string, Map<string, repo.NewMatch>>();
   for (const c of candidates) {
-    const explanation = explainMatch(c.profile, c.listing);
-    if (!passesHardFilters(explanation)) continue;
-    const s = scoreMatch(explanation, c.similarity);
+    const hard = explainMatch(c.profile, c.listing);
+    if (!passesHardFilters(hard)) continue;
+    const boost = boostOf(options.affinities?.get(c.profile.id), c.listing);
+    const explanation = boost.reason ? { ...hard, boost: boost.reason } : hard;
+    const s = scoreMatch(explanation, c.similarity, boost.value);
     if (s.total < MATCH_MIN_TOTAL) continue;
     const mine = byProfile.get(c.profile.id) ?? new Map<string, repo.NewMatch>();
     if (mine.has(c.listing.listingId)) continue;
@@ -105,7 +116,13 @@ async function write(
   candidates: readonly repo.MatchCandidateRow[],
   options: { recheck?: boolean } = {},
 ): Promise<EngineResult> {
-  const decided = decideMatches(candidates);
+  // R2-02c: the affinity summaries of the profiles with a candidate past the hard filters (one statement a batch)
+  const passing = candidates.filter((c) => passesHardFilters(explainMatch(c.profile, c.listing)));
+  const affinities = await repo.affinitiesOf(
+    tx,
+    passing.map((c) => c.profile.id),
+  );
+  const decided = decideMatches(passing, { affinities });
   const rows = options.recheck ? await stillShared(tx, decided) : decided;
   const written = await repo.insertMatches(tx, rows);
   return {
@@ -157,7 +174,7 @@ async function refreshFacts(tx: Tx, ids: readonly string[]): Promise<search.List
  * against every agency's active profiles that may see them, over the listing's places below the country
  * (`listingEventKeys`: broad profiles — anywhere, or a whole country — are left to the sweep). Statements: read models
  * (+ commission), facts (2); owners listed, vectors, a candidate statement per `LISTING_PROBE_CHUNK` listings,
- * standings of the profiles' agencies (≤ 3), the inserts.
+ * standings of the profiles' agencies (≤ 3), the profiles' affinity summaries (R2-02c), the inserts.
  */
 export async function matchListingsToProfiles(input: {
   agencyId: string;
@@ -204,7 +221,7 @@ const isBroad = (p: repo.MatchProfileRow, ancestors: Map<string, Set<string>>) =
  * `LISTINGS_PER_PROFILE` newest candidates each; broad profiles read the `BROAD_WINDOW` most recently written facts.
  * One transaction; statements: profiles, the agency's standing (≤ 3), the places' levels, a candidate statement per
  * `PROFILE_PROBE_CHUNK` profiles of each kind, owners listed, profile vectors, one similarity statement (none while
- * embeddings are off), the survivors' sharing re-check (≤ 3), the inserts.
+ * embeddings are off), the affinity summaries (R2-02c), the survivors' sharing re-check (≤ 3), the inserts.
  */
 export async function matchProfilesToListings(
   input: { agencyId: string; profileIds: readonly string[] },

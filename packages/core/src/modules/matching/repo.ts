@@ -1,6 +1,8 @@
 import type { Tx } from '@inmolink/db';
 import {
+  clientProfileAffinities,
   clientProfileEmbeddings,
+  clientProfileFeedback,
   clientProfileMatches,
   clientProfiles,
   matchingListingFacts,
@@ -1373,4 +1375,197 @@ export async function keyUnkeyedProfiles(tx: Tx, agencyId: string, ids: readonly
       from jsonb_to_recordset(${json}::jsonb) as x(id uuid, keys text[])
      where p.agency_id = ${agencyId} and p.id = x.id and cardinality(p.match_keys) = 0`);
   return done.rowCount ?? 0;
+}
+
+/* ------------------------------------------------------------------ learned boost (R2-02c, worker) */
+
+export type FeedbackSignal = 'LIKE' | 'DISLIKE';
+
+/** A profile's stored summary: parallel arrays sorted by key hash (`boost.ts`). */
+export interface AffinityRow {
+  keys: number[];
+  likes: number[];
+  dislikes: number[];
+}
+
+/** Profiles per affinity read statement (a listing event's job can reach thousands). */
+export const AFFINITY_READ_CHUNK = 500;
+
+const intArr = (v: number[] | string | null): number[] =>
+  v === null ? [] : Array.isArray(v) ? v : v === '{}' ? [] : v.slice(1, -1).split(',').map(Number);
+
+/**
+ * These profiles' affinity summaries (a statement per `AFFINITY_READ_CHUNK` distinct profiles — one in practice —,
+ * one inline row of ≤ `MAX_AFFINITY_KEYS` integers a profile over the primary key). Profiles without feedback are
+ * absent.
+ */
+export async function affinitiesOf(tx: Tx, profileIds: readonly string[]): Promise<Map<string, AffinityRow>> {
+  const out = new Map<string, AffinityRow>();
+  const ids = [...new Set(profileIds)];
+  for (let i = 0; i < ids.length; i += AFFINITY_READ_CHUNK) {
+    const res = await tx.execute<{
+      profile_id: string;
+      keys: number[] | string;
+      likes: number[] | string;
+      dislikes: number[] | string;
+    }>(sql`
+      select profile_id, keys, likes, dislikes from ${clientProfileAffinities}
+       where profile_id = any(${uuids(ids.slice(i, i + AFFINITY_READ_CHUNK))})`);
+    for (const r of res.rows) {
+      out.set(r.profile_id, { keys: intArr(r.keys), likes: intArr(r.likes), dislikes: intArr(r.dislikes) });
+    }
+  }
+  return out;
+}
+
+/** A listing's facts for its affinity keys (`matching_listing_facts`; null: not a live listing the engine offers). */
+export async function affinityFactsOf(
+  tx: Tx,
+  listingId: string,
+): Promise<{
+  transactionType: string;
+  propertyTypeId: string;
+  locationIds: string[];
+  featureIds: string[];
+  priceCents: number | null;
+} | null> {
+  const res = await tx.execute<{
+    transaction_type: string;
+    property_type_id: string;
+    location_ids: string[] | string;
+    feature_ids: string[] | string;
+    price_cents: string | null;
+  }>(sql`
+    select transaction_type, property_type_id, location_ids, feature_ids, price_cents
+      from ${matchingListingFacts} where listing_id = ${listingId}`);
+  const r = res.rows[0];
+  if (!r) return null;
+  return {
+    transactionType: r.transaction_type,
+    propertyTypeId: r.property_type_id,
+    locationIds: arr(r.location_ids),
+    featureIds: arr(r.feature_ids),
+    priceCents: r.price_cents === null ? null : Number(r.price_cents),
+  };
+}
+
+/** The profiles of a contact in the agency (`client_profiles_contact_idx`), any mode, at most `limit`. */
+export async function profileIdsOfContact(
+  tx: Tx,
+  p: { agencyId: string; contactId: string; limit: number },
+): Promise<string[]> {
+  const res = await tx.execute<{ id: string }>(sql`
+    select id from ${clientProfiles} where agency_id = ${p.agencyId} and contact_id = ${p.contactId}
+     order by id limit ${p.limit}`);
+  return res.rows.map((r) => r.id);
+}
+
+export interface StoredSignal {
+  signal: FeedbackSignal;
+  at: Date;
+  keys: number[];
+}
+
+/**
+ * Locks these profiles of the agency (id order, `FOR NO KEY UPDATE`: one feedback change of a profile at a time; a
+ * delete or erasure waits) and answers the locked ids with their signals on the listing and their summaries
+ * (≤ 3 statements).
+ */
+export async function lockFeedback(
+  tx: Tx,
+  p: { agencyId: string; profileIds: readonly string[]; listingId: string },
+): Promise<{ profileIds: string[]; signals: Map<string, StoredSignal>; summaries: Map<string, AffinityRow> }> {
+  if (p.profileIds.length === 0) return { profileIds: [], signals: new Map(), summaries: new Map() };
+  const locked = await tx.execute<{ id: string }>(sql`
+    select id from ${clientProfiles} where agency_id = ${p.agencyId} and id = any(${uuids(p.profileIds)})
+     order by id for no key update`);
+  const ids = locked.rows.map((r) => r.id);
+  if (ids.length === 0) return { profileIds: [], signals: new Map(), summaries: new Map() };
+  const res = await tx.execute<{
+    profile_id: string;
+    signal: FeedbackSignal;
+    signal_at: string | Date;
+    keys: number[] | string;
+  }>(sql`
+    select profile_id, signal, signal_at, keys from ${clientProfileFeedback}
+     where profile_id = any(${uuids(ids)}) and listing_id = ${p.listingId}`);
+  return {
+    profileIds: ids,
+    signals: new Map(
+      res.rows.map((r) => [r.profile_id, { signal: r.signal, at: new Date(r.signal_at), keys: intArr(r.keys) }]),
+    ),
+    summaries: await affinitiesOf(tx, ids),
+  };
+}
+
+/** Writes (signal) or removes (null) these profiles' signals on the listing (≤ 2 statements). */
+export async function writeFeedback(
+  tx: Tx,
+  p: {
+    agencyId: string;
+    listingId: string;
+    set: readonly { profileId: string; signal: FeedbackSignal; at: Date; keys: readonly number[] }[];
+    remove: readonly string[];
+  },
+): Promise<void> {
+  if (p.set.length > 0) {
+    const json = JSON.stringify(
+      p.set.map((r) => ({ profile_id: r.profileId, signal: r.signal, signal_at: r.at.toISOString(), keys: r.keys })),
+    );
+    await tx.execute(sql`
+      insert into ${clientProfileFeedback} (profile_id, listing_id, agency_id, signal, signal_at, keys)
+      select profile_id, ${p.listingId}::uuid, ${p.agencyId}::uuid, signal, signal_at, keys
+        from jsonb_to_recordset(${json}::jsonb) as x(profile_id uuid, signal text, signal_at timestamptz, keys int[])
+       order by profile_id
+      on conflict (profile_id, listing_id) do update
+        set signal = excluded.signal, signal_at = excluded.signal_at, keys = excluded.keys, updated_at = now()`);
+  }
+  if (p.remove.length > 0) {
+    await tx.execute(sql`
+      delete from ${clientProfileFeedback}
+       where profile_id = any(${uuids(p.remove)}) and listing_id = ${p.listingId}`);
+  }
+}
+
+/** Writes these profiles' summaries (an empty one is removed): ≤ 2 statements. */
+export async function writeAffinities(
+  tx: Tx,
+  agencyId: string,
+  rows: readonly ({ profileId: string } & AffinityRow)[],
+): Promise<void> {
+  const keep = rows.filter((r) => r.keys.length > 0);
+  const drop = rows.filter((r) => r.keys.length === 0).map((r) => r.profileId);
+  if (keep.length > 0) {
+    const json = JSON.stringify(
+      keep.map((r) => ({ profile_id: r.profileId, keys: r.keys, likes: r.likes, dislikes: r.dislikes })),
+    );
+    await tx.execute(sql`
+      insert into ${clientProfileAffinities} (profile_id, agency_id, keys, likes, dislikes)
+      select profile_id, ${agencyId}::uuid, keys, likes, dislikes
+        from jsonb_to_recordset(${json}::jsonb) as x(profile_id uuid, keys int[], likes int[], dislikes int[])
+       order by profile_id
+      on conflict (profile_id) do update
+        set keys = excluded.keys, likes = excluded.likes, dislikes = excluded.dislikes, updated_at = now()`);
+  }
+  if (drop.length > 0) {
+    await tx.execute(sql`delete from ${clientProfileAffinities} where profile_id = any(${uuids(drop)})`);
+  }
+}
+
+/** A match's profile, listing, status and when it last changed (the profile's agency). */
+export async function matchOf(
+  tx: Tx,
+  agencyId: string,
+  matchId: string,
+): Promise<{ profileId: string; listingId: string; status: string; updatedAt: Date } | null> {
+  const [row] = await tx
+    .select({
+      profileId: clientProfileMatches.profileId,
+      listingId: clientProfileMatches.listingId,
+      status: clientProfileMatches.status,
+      updatedAt: clientProfileMatches.updatedAt,
+    })
+    .from(clientProfileMatches)
+    .where(and(eq(clientProfileMatches.agencyId, agencyId), eq(clientProfileMatches.id, matchId)));
+  return row ?? null;
 }

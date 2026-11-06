@@ -14,6 +14,7 @@ export {
 } from './erasure';
 export { presentationsErrors } from './errors';
 export { presentationsEvents } from './events';
+export { contactLikeState, selectionContactOf } from './feedback'; // R2-02c
 export { presentationsJobs } from './jobs';
 export {
   CLIENT_MODE_ALLOWED,

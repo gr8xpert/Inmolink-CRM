@@ -215,6 +215,24 @@ export async function selectionContact(
   return row ?? null;
 }
 
+/**
+ * R2-02c: the client's latest like or unlike of this item across the contact's selections, and when (one row over
+ * `selection_interactions_likes_idx`, newest first, joined to the selection for its contact); null: neither.
+ */
+export async function latestLikeOfContact(
+  tx: Tx,
+  p: { agencyId: string; contactId: string; targetId: string },
+): Promise<{ liked: boolean; at: Date } | null> {
+  const res = await tx.execute<{ kind: string; created_at: string | Date }>(sql`
+    select i.kind, i.created_at from ${selectionInteractions} i
+      join ${selections} s on s.id = i.selection_id
+     where i.agency_id = ${p.agencyId} and i.target_id = ${p.targetId} and i.kind in ('LIKE', 'UNLIKE')
+       and s.agency_id = ${p.agencyId} and s.contact_id = ${p.contactId}
+     order by i.created_at desc, i.id desc limit 1`);
+  const r = res.rows[0];
+  return r ? { liked: r.kind === 'LIKE', at: new Date(r.created_at) } : null;
+}
+
 export type EndedSelection = { id: string; endedAt: string };
 
 /**

@@ -309,6 +309,14 @@
       "ok": "Built area in range",
       "no": "Built area out of range"
     },
-    "mustHaves": "{met}/{total} must-haves"
+    "mustHaves": "{met}/{total} must-haves",
+    "boost": {
+      "liked": "Similar to listings the client liked ({what})",
+      "disliked": "Similar to listings the client turned down ({what})",
+      "propertyType": "type",
+      "location": "area",
+      "features": "features",
+      "price": "price range"
+    }
   }
 }

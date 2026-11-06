@@ -7,6 +7,7 @@ import * as crm from '../crm';
 import * as search from '../search';
 import { backfillListingFacts, matchListingsToProfiles, matchProfilesToListings, profileMatchWindow } from './engine';
 import { CLIENT_PROFILE_EVENT_IDS } from './events';
+import { recordDismissalFeedback, recordSelectionFeedback } from './feedback';
 import { embedProfiles, profileBackfillPage } from './profile-embeddings';
 import { eraseContactProfiles, repointClientProfiles } from './profiles';
 import {
@@ -371,6 +372,44 @@ export const clientProfileJobs = {
     async run(p) {
       const contactIds = await crm.erasedContactIds({ agencyId: p.agencyId, contactIds: [p.contactId] });
       return eraseContactProfiles({ agencyId: p.agencyId, contactIds });
+    },
+  }),
+};
+
+/**
+ * R2-02c, the learned boost's feedback (`feedback.ts`), pool `matching`, group = the agency, job id from the event (a
+ * redelivered event adds nothing; a re-run reads the current state and changes nothing twice):
+ *
+ * - `matching.selectionFeedback` — one per `presentations.selection.interacted` like / unlike: the client's current
+ *   like of the item on the profiles of the selection's contact.
+ * - `matching.dismissalFeedback` — one per `matching.clientProfileMatch.dismissed`: the listing turned down.
+ */
+export const feedbackJobs = {
+  selectionFeedback: defineJob({
+    name: 'matching.selectionFeedback',
+    pool: 'matching',
+    payload: z.object({ eventId: z.uuid(), agencyId: z.uuid(), selectionId: z.uuid(), targetId: z.uuid() }),
+    jobId: (p) => `pfb-s:${p.eventId}`,
+    group: (p) => p.agencyId,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 2_000 },
+    timeoutMs: 30_000,
+    async run(p) {
+      return recordSelectionFeedback(p);
+    },
+  }),
+
+  dismissalFeedback: defineJob({
+    name: 'matching.dismissalFeedback',
+    pool: 'matching',
+    payload: z.object({ eventId: z.uuid(), agencyId: z.uuid(), matchId: z.uuid() }),
+    jobId: (p) => `pfb-d:${p.eventId}`,
+    group: (p) => p.agencyId,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 2_000 },
+    timeoutMs: 30_000,
+    async run(p) {
+      return recordDismissalFeedback(p);
     },
   }),
 };
