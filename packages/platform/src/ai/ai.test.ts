@@ -458,10 +458,21 @@ describe('AI gateway — batch and embeddings', () => {
       dimensions: 2,
     });
     expect(store.jobs[0]).toMatchObject({ kind: 'EMBED', costMicroUsd: 10, itemCount: 2 });
-    const capped = setup({ embeddings, spend: 100_000 });
+    const capped = setup({
+      embeddings,
+      spend: 100_000,
+      pricing: { ...PRICING, 'embed-model': { input: 1, output: 0 } },
+    });
     await expect(capped.gateway.embed(ctx, { feature: 'search.semantic', texts: ['x'] })).rejects.toMatchObject({
       code: 'AI_BUDGET_EXCEEDED',
     });
+    // R2-01a: an unpriced embedding model would cost 0 and never meet the cap — refused before any call
+    const unpriced = setup({ embeddings });
+    await expect(unpriced.gateway.embed(ctx, { feature: 'search.semantic', texts: ['x'] })).rejects.toMatchObject({
+      code: 'AI_UNAVAILABLE',
+      details: { reason: 'EMBED_MODEL_UNPRICED' },
+    });
+    expect(unpriced.gateway.embeddingModel()).toEqual({ model: 'embed-model', dimensions: 2 });
   });
 });
 

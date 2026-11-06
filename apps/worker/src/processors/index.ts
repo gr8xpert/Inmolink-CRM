@@ -23,7 +23,7 @@ import { notificationsJobs } from '@inmolink/core/modules/notifications';
 import { presentationsJobs } from '@inmolink/core/modules/presentations';
 import { propertiesJobs } from '@inmolink/core/modules/properties';
 import { qualityJobs } from '@inmolink/core/modules/quality';
-import { searchJobs } from '@inmolink/core/modules/search';
+import { embeddingJobs, searchJobs } from '@inmolink/core/modules/search';
 import { socialJobs } from '@inmolink/core/modules/social';
 import { supportJobs } from '@inmolink/core/modules/support';
 import { websiteApiJobs } from '@inmolink/core/modules/website-api';
@@ -226,6 +226,8 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     aiFeaturesJobs.pruneListingStudioBatches,
     // S13-F7: every 30 days, queues each agency's white-label backfill walk (network-shown documents).
     whiteLabelJobs.whiteLabelSweep,
+    // R2-01a: daily, queues each agency's listing embedding backfill walk (nothing while embeddings are off).
+    embeddingJobs.embeddingsSweep,
     // S13-F9: retention of the S12 growth tables — settled AI job rows (13 months), finished social posts and the
     // interactions of ended selections (12 months).
     aiJobs.pruneJobs,
@@ -246,6 +248,9 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     aiFeaturesJobs.collectListingStudioBatch,
     // S12-07: AI captions of social posts, per language and platform.
     socialJobs.generateCaptions,
+    // R2-01a: listing embeddings — changed listings, and the backfill walk one page per job.
+    embeddingJobs.embedListings,
+    embeddingJobs.embeddingsBackfill,
   ],
   // S12-01 (ADR 0018): request-path AI usage records and spend-mirror seeds, on their own queue — the only one
   // feed-api's `feed_ai` Redis user can write; the worker validates every record.

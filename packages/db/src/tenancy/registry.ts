@@ -1774,6 +1774,12 @@ export const globalTables: Record<string, GlobalTable> = {
     reason: 'targets of every agency whose search index document must be pushed again (worker-only work queue)',
     noUserRead: true,
   },
+  // Listing embeddings (R2-01a): written and read (kNN for matching) by the search worker via withSystem() only.
+  listing_embeddings: {
+    reason: 'embedding vectors of listings of every agency (worker-only: cross-agency matching kNN)',
+    noUserRead: true,
+    base: { embedding: `[${new Array(1024).fill(0.1).join(',')}]` },
+  },
   // Read-model rebuild queue (S5-F4): written by the search subscriptions and drained by the search worker via withSystem().
   read_model_queue: {
     reason: 'listings and units of every agency whose read models must be rebuilt (worker-only work queue)',

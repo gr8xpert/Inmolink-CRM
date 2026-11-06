@@ -16,6 +16,7 @@ import {
   check,
   customType,
   doublePrecision,
+  halfvec,
   index,
   integer,
   jsonb,
@@ -158,6 +159,58 @@ export const readModelQueue = pgTable(
   (t) => [
     // claim: an agency's due targets, oldest first; the sweep's agencies with due rows
     index('read_model_queue_agency_due_idx').on(t.ownerAgencyId, t.dueAt),
+  ],
+);
+
+/**
+ * R2-01a: the size of a listing embedding. Fixed by the column type (an HNSW index needs one size); the embedding
+ * provider must answer this many dimensions (the pipeline refuses another size). 1024 is what the multilingual
+ * candidates offer natively or by truncation (STATUS, R2-01a decisions); changing it is a migration plus a re-embed.
+ */
+export const LISTING_EMBEDDING_DIMENSIONS = 1024;
+
+/**
+ * Listing embeddings (R2-01a, PLAN §8 #4): one vector per listing with a read model, from its read-model text and
+ * structured facts (`search/embeddings.ts`), for the buyer match engine's kNN (R2-02). Written by the search worker
+ * (`withSystem`) after the read model changed; never by request handlers.
+ *
+ * `content_hash` is the hash of the embedding model and the exact text sent: a listing whose text and model are
+ * unchanged is never embedded again, whatever else changed (`source_version` / `source_updated_at` then just move on).
+ * Half-precision (`halfvec`, 2,056 B a vector, stored out of line) with an HNSW cosine index: 2M listings ≈ 5 GB of
+ * vectors plus ≈ 5 GB of graph — staging sizes RAM so the graph stays cached (R2-01c).
+ *
+ * `fillfactor = 80` (set in migration 0185; Drizzle has no table storage parameters): the in-line row is ~170 B, so a
+ * touch (`source_version`, `source_updated_at`) stays a HOT update and never re-inserts the vector into the graph.
+ *
+ * Global, worker-only: vectors of every agency's listings (matching runs across agencies); `owner_agency_id` is the
+ * fair-share group and the backfill's walk, not an access boundary. No tenant or public role reads it.
+ */
+export const listingEmbeddings = pgTable(
+  'listing_embeddings',
+  {
+    targetId: uuid('target_id').primaryKey(),
+    ownerAgencyId: uuid('owner_agency_id').notNull(),
+    embedding: halfvec('embedding', { dimensions: LISTING_EMBEDDING_DIMENSIONS }).notNull(),
+    /** The embedding model (from env, `AI_EMBED_MODEL`): part of the hash, kept for audits and model moves. */
+    model: text('model').notNull(),
+    /** sha256 hex of model + text. */
+    contentHash: text('content_hash').notNull(),
+    /** The read model's (highest) version this row was last checked against: a write never goes back below it. */
+    sourceVersion: integer('source_version').notNull(),
+    /**
+     * The read model's latest `updated_at` when this row was last checked: a read-model rewrite at the same version (a
+     * place, type or feature rename) is newer, so the backfill looks at the listing again.
+     */
+    sourceUpdatedAt: timestamp('source_updated_at', { withTimezone: true, mode: 'string' }).notNull(),
+    embeddedAt: timestamp('embedded_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // kNN (cosine distance `<=>`), PLAN §5.3 budget: p95 < 50 ms over 2M vectors
+    index('listing_embeddings_hnsw_idx').using('hnsw', t.embedding.op('halfvec_cosine_ops')),
+    // the backfill's orphan sweep: an agency's rows in a target window
+    index('listing_embeddings_owner_idx').on(t.ownerAgencyId, t.targetId),
+    check('listing_embeddings_version_ck', sql`${t.sourceVersion} >= 1`),
   ],
 );
 

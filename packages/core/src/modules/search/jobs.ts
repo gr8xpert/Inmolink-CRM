@@ -1,7 +1,12 @@
+import { withSystem } from '@inmolink/db';
+import { ai } from '@inmolink/platform/ai';
 import { clock } from '@inmolink/platform/clock';
 import { defineJob } from '@inmolink/platform/queue';
 import { z } from 'zod';
+import * as agencies from '../agencies';
 import { DOC_OWNERS_REFRESH_MS, noteDocOwner, refreshDocOwners } from './doc-owners';
+import { embeddingBackfillPage, embedListings } from './embeddings';
+import { PUBLIC_DOCS_EVENT_TARGETS } from './events';
 import { checkIndexDrift, repairIndex, syncIndex } from './indexer';
 import {
   drainReadModelQueue,
@@ -241,6 +246,102 @@ export const searchJobs = {
       });
       await requestIndexSync();
       log.info({ ...result }, 'search index repair walk done');
+      return result;
+    },
+  }),
+};
+
+/** R2-01a: the embedding jobs' fair-share group, apart from the agency's interactive `ai` jobs (as `wl:<agency>`). */
+export const embeddingGroup = (agencyId: string): string => `emb:${agencyId}`;
+/** Once a day: listings an event missed (embeddings were off, over budget, an outage) get their vector. */
+export const EMBEDDINGS_SWEEP_EVERY_MS = 24 * 3_600_000;
+const SWEEP_AGENCY_PAGE = 500;
+/** Job ids of a backfill page: run, agency and cursor (resumable; a re-run of the same page collapses). */
+export const embeddingBackfillKey = (p: { run: string; agencyId: string; after: string | null }): string =>
+  `emb.${p.run}.${p.agencyId}.${p.after ?? 'start'}`;
+
+/**
+ * Listing embedding jobs (R2-01a, `embeddings.ts`), pool `ai` (model calls) and `maintenance` (the sweep):
+ *
+ * - `search.embedListings` (`search.listings.changed`; job id = the event's id, so a redelivered event is one job):
+ *   embeds that event's listings whose text changed, drops the vectors of those without a read model. Degraded
+ *   (budget, outage): logged, left to the sweep.
+ * - `search.embeddingsSweep` (schedule: every `EMBEDDINGS_SWEEP_EVERY_MS`, job ids per run day): queues one backfill
+ *   walk per agency (`SWEEP_AGENCY_PAGE` agencies a query). Nothing while embeddings are off.
+ * - `search.embeddingsBackfill` (one at a time per agency, group `emb:<agency>`): one window of listings (stale ones embedded, orphan
+ *   vectors dropped), then queues the next page; a degraded page ends the agency's walk until the next sweep.
+ */
+export const embeddingJobs = {
+  embedListings: defineJob({
+    name: 'search.embedListings',
+    pool: 'ai',
+    payload: z.object({
+      eventId: z.uuid(),
+      agencyId: z.uuid(),
+      listingIds: z.array(z.uuid()).min(1).max(PUBLIC_DOCS_EVENT_TARGETS),
+    }),
+    jobId: (p) => `emb.${p.eventId}`,
+    group: (p) => embeddingGroup(p.agencyId),
+    concurrencyPerGroup: 1,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 30_000 },
+    timeoutMs: 5 * 60_000,
+    async run(p, { log, jobId }) {
+      const result = await embedListings({ agencyId: p.agencyId, listingIds: p.listingIds }, { requestId: jobId });
+      if (result.degraded > 0) log.warn(result, 'listing embeddings degraded: left to the sweep');
+      return result;
+    },
+  }),
+
+  embeddingsSweep: defineJob({
+    name: 'search.embeddingsSweep',
+    pool: 'maintenance',
+    payload: z.object({}),
+    every: EMBEDDINGS_SWEEP_EVERY_MS,
+    timeoutMs: 10 * 60_000,
+    async run(_p, job) {
+      if (ai.embeddingModel() === null) return { run: null, queued: 0 };
+      const run = clock.now().toISOString().slice(0, 10);
+      let after: string | null = null;
+      let queued = 0;
+      for (;;) {
+        const ids: string[] = await withSystem('search.embeddingsSweep', (tx) =>
+          agencies.agencyIdsPage(tx, after, SWEEP_AGENCY_PAGE),
+        );
+        if (ids.length > 0) {
+          await embeddingJobs.embeddingsBackfill.enqueueMany(
+            ids.map((agencyId) => ({ payload: { run, agencyId, after: null } })),
+          );
+        }
+        queued += ids.length;
+        after = ids.at(-1) ?? null;
+        if (ids.length < SWEEP_AGENCY_PAGE || job.signal.aborted) break;
+      }
+      return { run, queued };
+    },
+  }),
+
+  embeddingsBackfill: defineJob({
+    name: 'search.embeddingsBackfill',
+    pool: 'ai',
+    payload: z.object({
+      run: z.string().regex(/^[0-9A-Za-z-]{1,32}$/),
+      agencyId: z.uuid(),
+      after: z.uuid().nullable(),
+    }),
+    jobId: embeddingBackfillKey,
+    group: (p) => embeddingGroup(p.agencyId),
+    concurrencyPerGroup: 1,
+    attempts: 3,
+    backoff: { type: 'exponential', delay: 60_000 },
+    timeoutMs: 10 * 60_000,
+    async run(p, { log }) {
+      const key = embeddingBackfillKey(p);
+      const result = await embeddingBackfillPage({ agencyId: p.agencyId, after: p.after }, { requestId: key });
+      if (result.degraded > 0) log.warn(result, 'listing embedding backfill degraded: walk stopped');
+      if (result.next) {
+        await embeddingJobs.embeddingsBackfill.enqueue({ run: p.run, agencyId: p.agencyId, after: result.next });
+      }
       return result;
     },
   }),

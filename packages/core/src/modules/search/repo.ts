@@ -7,6 +7,7 @@
 import { randomBytes } from 'node:crypto';
 import type { Tx } from '@inmolink/db';
 import {
+  listingEmbeddings,
   listingPublicChanges,
   listingPublicCodes,
   listingReadModels,
@@ -2331,4 +2332,226 @@ export async function ownsSearchDoc(tx: Tx, agencyId: string): Promise<boolean> 
     sql`select 1 as x from ${listingSearchDocs} where owner_agency_id = ${agencyId}::uuid limit 1`,
   );
   return res.rows.length > 0;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Listing embeddings (R2-01a)
+
+const textList = (values: readonly string[]) =>
+  sql`(${sql.join(
+    values.map((v) => sql`${v}`),
+    sql`, `,
+  )})`;
+
+/** A listing's embedding source: its read models' highest version and latest write, and the facts of one row. */
+export interface EmbeddingSource {
+  targetId: string;
+  version: number;
+  /** `max(updated_at)` as Postgres text (microseconds: a JS Date would cut them and make every row look stale). */
+  updatedAt: string;
+  /** In one of the `live` statuses (matching shows only those): the others get no vector. */
+  live: boolean;
+  /** The chosen row's `detail` fields named by `factKeys` (null when not live: never read). */
+  facts: Record<string, unknown> | null;
+}
+
+/**
+ * The embedding source of each of these listings owned by `agencyId`. The text row is one whose text is in its own
+ * locale (`card.textLocale` null — the card, not the detail, so only one detail per listing is read), else the first
+ * by locale; version and write time are the highest over all its locale rows. Units and other agencies' rows are left
+ * out. Of `detail`, only `factKeys` are read.
+ */
+export async function embeddingSources(
+  tx: Tx,
+  input: { agencyId: string; ids: readonly string[]; live: readonly string[]; factKeys: readonly string[] },
+): Promise<EmbeddingSource[]> {
+  if (input.ids.length === 0) return [];
+  const facts = sql`jsonb_build_object(${sql.join(
+    input.factKeys.map((k) => sql`${k}::text, r.detail -> ${k}::text`),
+    sql`, `,
+  )})`;
+  const res = await tx.execute<{
+    target_id: string;
+    version: number;
+    updated_at: string;
+    live: boolean;
+    facts: Record<string, unknown> | null;
+  }>(sql`
+    with c as (
+      select distinct on (target_id) target_id, locale,
+             max(version) over w as version,
+             max(updated_at) over w as updated_at,
+             bool_or(status in ${textList(input.live)}) over w as live
+        from ${listingReadModels}
+       where target_id = any(${uuidArray(input.ids)}) and kind = 'LISTING' and agency_id = ${input.agencyId}
+      window w as (partition by target_id)
+       order by target_id, (card->>'textLocale' is null) desc, locale)
+    select c.target_id, c.version, c.updated_at::text as updated_at, c.live,
+           case when c.live then ${facts} end as facts
+      from c
+      join ${listingReadModels} r on r.target_id = c.target_id and r.locale = c.locale`);
+  return res.rows.map((r) => ({
+    targetId: r.target_id,
+    version: r.version,
+    updatedAt: r.updated_at,
+    live: r.live,
+    facts: r.facts,
+  }));
+}
+
+/** What is stored for these listings: the hash of each embedding. */
+export async function embeddingHashes(tx: Tx, ids: readonly string[]): Promise<Map<string, string>> {
+  if (ids.length === 0) return new Map();
+  const rows = await tx
+    .select({ targetId: listingEmbeddings.targetId, contentHash: listingEmbeddings.contentHash })
+    .from(listingEmbeddings)
+    .where(inArray(listingEmbeddings.targetId, [...ids]));
+  return new Map(rows.map((r) => [r.targetId, r.contentHash]));
+}
+
+/** Unchanged text: the rows move on to the read model's version and write time (never back), the vector stays. */
+export async function touchEmbeddings(
+  tx: Tx,
+  rows: readonly { targetId: string; version: number; updatedAt: string }[],
+): Promise<void> {
+  if (rows.length === 0) return;
+  const versions = sql`array[${sql.join(
+    rows.map((r) => sql`${r.version}`),
+    sql`, `,
+  )}]::int[]`;
+  const times = sql`array[${sql.join(
+    rows.map((r) => sql`${r.updatedAt}`),
+    sql`, `,
+  )}]::timestamptz[]`;
+  await tx.execute(sql`
+    update ${listingEmbeddings} e
+       set source_version = greatest(e.source_version, c.version),
+           source_updated_at = greatest(e.source_updated_at, c.updated_at),
+           updated_at = now()
+      from unnest(${uuidArray(rows.map((r) => r.targetId))}, ${versions}, ${times}) as c(target_id, version, updated_at)
+     where e.target_id = c.target_id and (e.source_version < c.version or e.source_updated_at < c.updated_at)`);
+}
+
+export interface EmbeddingRow {
+  targetId: string;
+  ownerAgencyId: string;
+  embedding: number[];
+  model: string;
+  contentHash: string;
+  sourceVersion: number;
+  sourceUpdatedAt: string;
+}
+
+/**
+ * Writes new vectors; a row already written from a newer read model (higher version, or the same version written
+ * later) is kept — an embedding never goes backwards when two jobs of one listing finish out of order. Answers the
+ * rows written.
+ */
+export async function upsertEmbeddings(tx: Tx, rows: readonly EmbeddingRow[]): Promise<number> {
+  if (rows.length === 0) return 0;
+  const written = await tx
+    .insert(listingEmbeddings)
+    .values(rows.map((r) => ({ ...r })))
+    .onConflictDoUpdate({
+      target: listingEmbeddings.targetId,
+      set: {
+        ownerAgencyId: sql`excluded.owner_agency_id`,
+        embedding: sql`excluded.embedding`,
+        model: sql`excluded.model`,
+        contentHash: sql`excluded.content_hash`,
+        sourceVersion: sql`excluded.source_version`,
+        sourceUpdatedAt: sql`excluded.source_updated_at`,
+        embeddedAt: sql`now()`,
+        updatedAt: sql`now()`,
+      },
+      setWhere: sql`excluded.source_version > ${listingEmbeddings.sourceVersion}
+        or (excluded.source_version = ${listingEmbeddings.sourceVersion}
+            and excluded.source_updated_at >= ${listingEmbeddings.sourceUpdatedAt})`,
+    })
+    .returning({ targetId: listingEmbeddings.targetId });
+  return written.length;
+}
+
+/** Drops the embeddings of these listings of `agencyId` (no live read model any more). Answers the rows deleted. */
+export async function deleteEmbeddings(tx: Tx, agencyId: string, ids: readonly string[]): Promise<number> {
+  if (ids.length === 0) return 0;
+  const res = await tx
+    .delete(listingEmbeddings)
+    .where(and(eq(listingEmbeddings.ownerAgencyId, agencyId), inArray(listingEmbeddings.targetId, [...ids])))
+    .returning({ targetId: listingEmbeddings.targetId });
+  return res.length;
+}
+
+/**
+ * One window of an agency's listings for the backfill: the next `window` listings with a read model after `after`
+ * (`listing_read_models_agency_idx` order, grouped as it is read, so the scan stops at the window), and which of them
+ * are stale — live and with no embedding of `model` at their version and write time (a probe by primary key each).
+ * The cursor is the window's last listing (null: the agency's last window).
+ */
+export async function embeddingWindow(
+  tx: Tx,
+  page: { agencyId: string; model: string; live: readonly string[]; after: string | null; window: number },
+): Promise<{ stale: string[]; last: string | null; end: string | null }> {
+  const after = page.after === null ? sql`` : sql`and target_id > ${page.after}`;
+  const res = await tx.execute<{ target_id: string; stale: boolean }>(sql`
+    with w as (
+      select target_id, max(version) as v, max(updated_at) as u, bool_or(status in ${textList(page.live)}) as live
+        from ${listingReadModels}
+       where agency_id = ${page.agencyId} and kind = 'LISTING' ${after}
+       group by target_id
+       order by target_id
+       limit ${page.window})
+    select w.target_id,
+           w.live and not exists (
+             select 1 from ${listingEmbeddings} e
+              where e.target_id = w.target_id and e.model = ${page.model}
+                and e.source_version >= w.v and e.source_updated_at >= w.u) as stale
+      from w
+     order by w.target_id`);
+  const end = res.rows.at(-1)?.target_id ?? null;
+  return {
+    stale: res.rows.filter((r) => r.stale).map((r) => r.target_id),
+    last: res.rows.length < page.window ? null : end,
+    end,
+  };
+}
+
+/**
+ * Drops an agency's embeddings in the target range `(after, upTo]` (`upTo` null: to the end) whose listing has no
+ * live read model any more, so a drop whose event job gave up leaves no vector behind past the next sweep
+ * (`listing_embeddings_owner_idx`, then a probe of the read models by target). Answers the rows deleted.
+ */
+export async function deleteOrphanEmbeddings(
+  tx: Tx,
+  range: { agencyId: string; live: readonly string[]; after: string | null; upTo: string | null },
+): Promise<number> {
+  const after = range.after === null ? sql`` : sql`and e.target_id > ${range.after}`;
+  const upTo = range.upTo === null ? sql`` : sql`and e.target_id <= ${range.upTo}`;
+  const res = await tx.execute(sql`
+    delete from ${listingEmbeddings} e
+     where e.owner_agency_id = ${range.agencyId} ${after} ${upTo}
+       and not exists (
+         select 1 from ${listingReadModels} r
+          where r.target_id = e.target_id and r.kind = 'LISTING' and r.agency_id = ${range.agencyId}
+            and r.status in ${textList(range.live)})`);
+  return res.rowCount ?? 0;
+}
+
+/**
+ * The `limit` listings nearest to `vector` by cosine distance, over the HNSW index (approximate: `hnsw.ef_search`
+ * candidates, set for this transaction only). Answers ids, owners and distances, nearest first.
+ */
+export async function nearestListingEmbeddings(
+  tx: Tx,
+  vector: readonly number[],
+  opts: { limit: number; efSearch: number },
+): Promise<{ targetId: string; ownerAgencyId: string; distance: number }[]> {
+  await tx.execute(sql`select set_config('hnsw.ef_search', ${String(opts.efSearch)}, true)`);
+  const literal = `[${vector.join(',')}]`;
+  const res = await tx.execute<{ target_id: string; owner_agency_id: string; distance: number }>(sql`
+    select target_id, owner_agency_id, (embedding <=> ${literal}::halfvec)::float8 as distance
+      from ${listingEmbeddings}
+     order by embedding <=> ${literal}::halfvec
+     limit ${opts.limit}`);
+  return res.rows.map((r) => ({ targetId: r.target_id, ownerAgencyId: r.owner_agency_id, distance: r.distance }));
 }

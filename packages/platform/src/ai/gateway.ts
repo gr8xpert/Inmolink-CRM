@@ -103,6 +103,12 @@ export interface AiGateway {
    */
   collectBatch(ctx: AiCtx, input: AiBatchRef & { request: AiBatchRequest }): Promise<AiBatchCollect>;
   embed(ctx: AiCtx, request: AiEmbedRequest): Promise<AiEmbedResult>;
+  /**
+   * R2-01a: the embedding model `embed` would use and its vector size, or null while embeddings are off
+   * (`AI_EMBED_PROVIDER=none`). Callers hash it with the text, so a model change re-embeds and an unchanged pair never
+   * does, and skip whole walks while it is null.
+   */
+  embeddingModel(): { model: string; dimensions: number } | null;
   /** The breaker's state (health checks, tests). */
   readonly breakerState: 'closed' | 'open' | 'half-open';
 }
@@ -877,11 +883,18 @@ export function createAiGateway(options: AiGatewayOptions): AiGateway {
       return { status: 'ENDED', results, costMicroUsd: cost };
     },
 
+    embeddingModel() {
+      const p = options.embeddings;
+      return p ? { model: p.model, dimensions: p.dimensions } : null;
+    },
+
     async embed(ctx, request) {
       assertFeature(request.feature);
       const agencyId = payerOf(ctx);
       const provider = options.embeddings;
       if (!provider) throw unavailable('EMBEDDINGS_DISABLED', false);
+      // R2-01a review: an unpriced model would cost 0, so the hard cap would never stop a 2M-listing backfill.
+      if (!options.pricing[provider.model]) throw unavailable('EMBED_MODEL_UNPRICED', false);
       if (request.texts.length === 0 || request.texts.length > MAX_EMBED_TEXTS) {
         throw new AppError('VALIDATION_FAILED', { reason: 'AI_EMBED_SIZE', max: MAX_EMBED_TEXTS });
       }

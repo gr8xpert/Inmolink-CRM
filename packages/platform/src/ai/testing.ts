@@ -1,9 +1,11 @@
+import { createHash } from 'node:crypto';
 import type { CacheKey } from '../cache/key';
 import type { AiCache } from './gateway';
 import type { SpendMirror } from './mirror';
 import {
   type AiProvider,
   AiProviderError,
+  type EmbeddingProvider,
   type ProviderBatchItem,
   type ProviderBatchLookup,
   type ProviderBatchResult,
@@ -274,4 +276,47 @@ export function memorySpendMirror(): SpendMirror & {
       if (!values.has(k)) values.set(k, spent);
     },
   };
+}
+
+/**
+ * R2-01a: a deterministic embedding provider — a hashed bag of words, L2-normalised, so texts sharing words land near
+ * each other (kNN tests can assert an order) and the same text always gives the same vector. Counts calls and texts.
+ */
+export class FakeEmbeddingProvider implements EmbeddingProvider {
+  readonly name = 'fake-embed';
+  readonly calls: (readonly string[])[] = [];
+  /** Throws this on the next call instead of answering (then clears it). */
+  failNext: Error | undefined;
+
+  constructor(
+    readonly model = 'fake-embed-model',
+    readonly dimensions = 1024,
+  ) {}
+
+  get texts(): number {
+    return this.calls.reduce((n, c) => n + c.length, 0);
+  }
+
+  async embed(texts: readonly string[]): Promise<{ vectors: number[][]; inputTokens: number }> {
+    if (this.failNext) {
+      const err = this.failNext;
+      this.failNext = undefined;
+      throw err;
+    }
+    this.calls.push([...texts]);
+    let tokens = 0;
+    const vectors = texts.map((t) => {
+      const v = new Array<number>(this.dimensions).fill(0);
+      const words = t.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+      tokens += words.length;
+      for (const w of words) {
+        const h = createHash('sha256').update(w).digest();
+        const i = h.readUInt32BE(0) % this.dimensions;
+        v[i] = (v[i] ?? 0) + ((h[4] ?? 0) & 1 ? 1 : -1);
+      }
+      const norm = Math.hypot(...v) || 1;
+      return v.map((x) => x / norm);
+    });
+    return { vectors, inputTokens: tokens };
+  }
 }

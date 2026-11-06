@@ -83,6 +83,8 @@ export function registerSubscriptions(): void {
   quality.registerQualitySubscriptions();
   developments.registerDevelopmentsSubscriptions();
   search.registerSearchSubscriptions();
+  // R2-01a: listings whose read models changed get their embedding (re)computed when their text changed.
+  search.registerEmbeddingSubscriptions();
   imports.registerImportsSubscriptions();
   // S10-01: a started contact import queues its run.
   crm.registerCrmSubscriptions();

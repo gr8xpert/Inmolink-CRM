@@ -3,7 +3,9 @@ import * as agencies from '../agencies';
 import * as developments from '../developments';
 import * as media from '../media';
 import * as properties from '../properties';
+import { searchEvents } from './events';
 import {
+  embeddingJobs,
   queueAgencyIndexSync,
   queueAgencyReadModels,
   queueReadModel,
@@ -166,4 +168,33 @@ export function registerSearchSubscriptions(): void {
 export function unregisterSearchSubscriptions(): void {
   for (const off of unsubscribe ?? []) off();
   unsubscribe = undefined;
+}
+
+let unsubscribeEmbeddings: (() => void)[] | undefined;
+
+/**
+ * R2-01a: listings whose read model changed (`search.listings.changed`, already debounced by the read-model queue)
+ * → one `search.embedListings` job per event (job id = the event's id: a redelivered event adds nothing). The tenant
+ * (fair-share group, who pays) is the listings' agency. Called once by the worker.
+ */
+export function registerEmbeddingSubscriptions(): void {
+  if (unsubscribeEmbeddings) return;
+  unsubscribeEmbeddings = [
+    subscribe(
+      searchEvents.listingsChanged,
+      (payload, meta) =>
+        embeddingJobs.embedListings.enqueue({
+          eventId: meta.eventId,
+          agencyId: meta.agencyId,
+          listingIds: payload.listingIds,
+        }),
+      { name: 'search.embeddings.listingsChanged' },
+    ),
+  ];
+}
+
+/** Tests: drop the subscriptions again. */
+export function unregisterEmbeddingSubscriptions(): void {
+  for (const off of unsubscribeEmbeddings ?? []) off();
+  unsubscribeEmbeddings = undefined;
 }

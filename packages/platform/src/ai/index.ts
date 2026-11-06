@@ -144,4 +144,6 @@ export const ai = {
   collectBatch: async (ctx: AiCtx, input: AiBatchRef & { request: AiBatchRequest }) =>
     gateway().collectBatch(ctx, input),
   embed: async (ctx: AiCtx, request: AiEmbedRequest) => gateway().embed(ctx, request),
+  /** R2-01a: the embedding model and size, or null while embeddings are off (or no gateway is installed). */
+  embeddingModel: () => current?.embeddingModel() ?? null,
 };

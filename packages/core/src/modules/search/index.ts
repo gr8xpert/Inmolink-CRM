@@ -10,6 +10,20 @@ export {
   resetDocOwnersCopy,
   sharedDocOwners,
 } from './doc-owners';
+// R2-01a: listing embeddings (worker-only) and their jobs. The kNN (`embeddings.ts` `nearestListings`) joins the API
+// with R2-02, which adds the visibility filter.
+export {
+  EMBED_BACKFILL_WINDOW,
+  EMBED_BATCH,
+  EMBED_TEXT_MAX_CHARS,
+  type EmbeddingBackfillResult,
+  type EmbedListingsResult,
+  embeddingBackfillPage,
+  embeddingHash,
+  embedListings,
+  LISTING_EMBED_FEATURE,
+  listingEmbeddingText,
+} from './embeddings';
 export { searchErrors } from './errors';
 export { searchEvents } from './events';
 export {
@@ -38,6 +52,10 @@ export {
   syncIndex,
 } from './indexer';
 export {
+  EMBEDDINGS_SWEEP_EVERY_MS,
+  embeddingBackfillKey,
+  embeddingGroup,
+  embeddingJobs,
   INDEX_SYNC_THROTTLE_MS,
   queueAgencyIndexSync,
   queueAgencyReadModels,
@@ -109,7 +127,9 @@ export {
 } from './service';
 export {
   DEVELOPMENT_IGNORED_FIELDS,
+  registerEmbeddingSubscriptions,
   registerSearchSubscriptions,
+  unregisterEmbeddingSubscriptions,
   unregisterSearchSubscriptions,
 } from './subscriptions';
 export {
