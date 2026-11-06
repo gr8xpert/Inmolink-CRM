@@ -241,6 +241,7 @@ describe('data subject export', () => {
     expect([...entries.keys()].sort()).toEqual(
       [
         'activities.csv',
+        'client_profiles.csv',
         'consents.csv',
         'contact.csv',
         'enquiries.csv',
