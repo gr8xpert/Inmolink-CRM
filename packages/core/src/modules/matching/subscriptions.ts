@@ -1,7 +1,8 @@
 import { subscribe } from '@inmolink/platform/outbox';
 import * as agencies from '../agencies';
 import * as search from '../search';
-import { matchingJobs } from './jobs';
+import { matchingEvents } from './events';
+import { matchingJobs, profileEmbeddingJobs } from './jobs';
 
 let unsubscribe: (() => void)[] | undefined;
 
@@ -10,7 +11,8 @@ let unsubscribe: (() => void)[] | undefined;
  * models were just written or dropped, already debounced by the read-model queue) becomes one
  * `matching.matchListings` job — job ID = the event's id, so a redelivered event adds nothing; the tenant (fair-share
  * group) is the listings' agency. An agency's status change (verified, suspended) re-keys its saved searches
- * (`matching.rekeyAgency`: network keys only while it takes part in the network).
+ * (`matching.rekeyAgency`: network keys only while it takes part in the network). R2-01b: a changed client
+ * profile (`matching.clientProfiles.changed`) is re-embedded (`matching.embedProfiles`).
  */
 export function registerMatchingSubscriptions(): void {
   if (unsubscribe) return;
@@ -24,6 +26,17 @@ export function registerMatchingSubscriptions(): void {
           listingIds: payload.listingIds,
         }),
       { name: 'matching.savedSearchAlerts' },
+    ),
+    // R2-01b: a changed client profile → one `matching.embedProfiles` job per event (job id = the event's id).
+    subscribe(
+      matchingEvents.clientProfilesChanged,
+      (payload, meta) =>
+        profileEmbeddingJobs.embedProfiles.enqueue({
+          eventId: meta.eventId,
+          agencyId: meta.agencyId,
+          profileIds: payload.profileIds,
+        }),
+      { name: 'matching.profileEmbeddings' },
     ),
     subscribe(
       agencies.agenciesEvents.statusChanged,

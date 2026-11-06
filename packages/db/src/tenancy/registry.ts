@@ -1556,6 +1556,9 @@ export const tenantTables: Record<string, TenantTable> = {
   // S5-06: the last state of each listing the matching worker saw (owned by the listing's agency); worker-only —
   // S13-F3: `userReadOnly`, so no request can plant or rewrite the state the matcher diffs against.
   matching_listing_states: { kind: 'STRICT', userReadOnly: true, base: { status: 'ACTIVE', version: 1 } },
+  // R2-01b: a client's search profile (criteria + wishes: client data) — the agency's own, like its contacts; R2-02
+  // adds the service and routes. The matching worker (app_system) reads every agency's active ones.
+  client_profiles: { kind: 'STRICT' },
   // S12-04: selections. S13-F1: the public pages (`app_public`, which also serves feed-api, export downloads and
   // websites) read no row of either table: a live selection and its items are answered only by the SECURITY DEFINER
   // `selection_by_token(hashes)` (owner app_owner, `definerRead`) for the token's keyed hash — never a scan, never
@@ -1777,6 +1780,12 @@ export const globalTables: Record<string, GlobalTable> = {
   // Listing embeddings (R2-01a): written and read (kNN for matching) by the search worker via withSystem() only.
   listing_embeddings: {
     reason: 'embedding vectors of listings of every agency (worker-only: cross-agency matching kNN)',
+    noUserRead: true,
+    base: { embedding: `[${new Array(1024).fill(0.1).join(',')}]` },
+  },
+  // Client-profile embeddings (R2-01b): written and read (match scores) by the matching worker via withSystem() only.
+  client_profile_embeddings: {
+    reason: 'embedding vectors of client profiles of every agency (worker-only: cross-agency matching)',
     noUserRead: true,
     base: { embedding: `[${new Array(1024).fill(0.1).join(',')}]` },
   },

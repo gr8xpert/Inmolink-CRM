@@ -14,7 +14,7 @@ import { documentsJobs } from '@inmolink/core/modules/documents';
 import { exportsJobs } from '@inmolink/core/modules/exports/worker';
 import { identityJobs } from '@inmolink/core/modules/identity';
 import { importsJobs } from '@inmolink/core/modules/imports';
-import { matchingJobs } from '@inmolink/core/modules/matching';
+import { matchingJobs, profileEmbeddingJobs } from '@inmolink/core/modules/matching';
 import { mediaDocumentJobs, mediaJobs } from '@inmolink/core/modules/media';
 import { migrationJobs } from '@inmolink/core/modules/migration';
 import { mlsJobs } from '@inmolink/core/modules/mls';
@@ -228,6 +228,8 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     whiteLabelJobs.whiteLabelSweep,
     // R2-01a: daily, queues each agency's listing embedding backfill walk (nothing while embeddings are off).
     embeddingJobs.embeddingsSweep,
+    // R2-01b: daily, the same for client profiles.
+    profileEmbeddingJobs.profileEmbeddingsSweep,
     // S13-F9: retention of the S12 growth tables — settled AI job rows (13 months), finished social posts and the
     // interactions of ended selections (12 months).
     aiJobs.pruneJobs,
@@ -251,6 +253,9 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     // R2-01a: listing embeddings — changed listings, and the backfill walk one page per job.
     embeddingJobs.embedListings,
     embeddingJobs.embeddingsBackfill,
+    // R2-01b: client-profile embeddings — changed profiles, and their backfill walk.
+    profileEmbeddingJobs.embedProfiles,
+    profileEmbeddingJobs.profileEmbeddingsBackfill,
   ],
   // S12-01 (ADR 0018): request-path AI usage records and spend-mirror seeds, on their own queue — the only one
   // feed-api's `feed_ai` Redis user can write; the worker validates every record.

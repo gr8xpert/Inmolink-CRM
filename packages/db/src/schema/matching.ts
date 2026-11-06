@@ -3,6 +3,7 @@ import {
   bigint,
   boolean,
   check,
+  halfvec,
   index,
   integer,
   numeric,
@@ -161,5 +162,116 @@ export const matchingListingStates = pgTable(
     index('matching_listing_states_agency_idx').on(t.agencyId),
     // the prune of listings gone long ago: where status = 'GONE' and updated_at < ? limit ?
     index('matching_listing_states_gone_idx').on(t.updatedAt).where(sql`${t.status} = 'GONE'`),
+  ],
+);
+
+/**
+ * R2-01b: the size of a client-profile embedding — the listing embeddings' (`LISTING_EMBEDDING_DIMENSIONS`), since the
+ * match engine scores a profile's vector against listing vectors (one space, one model). A test pins them equal.
+ */
+export const CLIENT_PROFILE_EMBEDDING_DIMENSIONS = 1024;
+
+/**
+ * A client's search profile (R2-01b, PLAN §7 M9, §3 #23): what a buyer or tenant (a CRM contact of the agency) is
+ * looking for — hard criteria in the saved-search vocabulary (transaction, taxonomy ids, ranges) and free-text wishes —
+ * and how the match engine (R2-02) works it: `mode` (`OFF` · `REVIEW`: matches wait for the agent · `AUTO_SEND`) and
+ * `frequency`. R2-01b adds the table and its embedding; R2-02 adds the service, routes, engine and UI, and with them
+ * the contact merge and erasure handling (no profile is written before R2-02).
+ *
+ * The agency's own (STRICT): wishes are client data, never shown to another agency or in Client Mode. `contact_id`
+ * points at crm's `contacts` (no FK: another module's table; R2-02 follows merges and erasures). `version` moves on
+ * every change and is the embedding's `source_version`.
+ */
+export const clientProfiles = pgTable(
+  'client_profiles',
+  {
+    id: uuid('id').primaryKey(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agencies.id),
+    /** The client (a crm contact of this agency). */
+    contactId: uuid('contact_id').notNull(),
+    /** `OFF` (kept, never matched or embedded) · `REVIEW` · `AUTO_SEND`. */
+    mode: text('mode').notNull().default('OFF'),
+    /** `INSTANT` · `DAILY` · `WEEKLY` (how often matches go out or wait for review). */
+    frequency: text('frequency').notNull().default('DAILY'),
+    /** Null: any. */
+    transactionType: text('transaction_type'),
+    /** Empty: any. */
+    propertyTypeIds: uuid('property_type_ids').array().notNull().default(sql`'{}'::uuid[]`),
+    /** Empty: anywhere; else a listing at or under one of them. */
+    locationIds: uuid('location_ids').array().notNull().default(sql`'{}'::uuid[]`),
+    /** Must-haves (empty: none). */
+    featureIds: uuid('feature_ids').array().notNull().default(sql`'{}'::uuid[]`),
+    priceMinCents: bigint('price_min_cents', { mode: 'number' }),
+    priceMaxCents: bigint('price_max_cents', { mode: 'number' }),
+    bedsMin: integer('beds_min'),
+    bathsMin: integer('baths_min'),
+    areaMinM2: numeric('area_min_m2', { precision: 10, scale: 2, mode: 'number' }),
+    areaMaxM2: numeric('area_max_m2', { precision: 10, scale: 2, mode: 'number' }),
+    /** The client's wishes in their words ("sea view, walk to the beach, quiet street"); internal. */
+    wishes: text('wishes'),
+    version: integer('version').notNull().default(1),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // a contact's profiles: where agency_id = ? and contact_id = ? order by created_at, id
+    index('client_profiles_contact_idx').on(t.agencyId, t.contactId, t.createdAt, t.id),
+    // the embedding backfill walk: where agency_id = ? and id > ? order by id limit ? (also the FK index)
+    uniqueIndex('client_profiles_agency_id_uq').on(t.agencyId, t.id),
+    check('client_profiles_mode_ck', sql`${t.mode} in ('OFF', 'REVIEW', 'AUTO_SEND')`),
+    check('client_profiles_frequency_ck', sql`${t.frequency} in ('INSTANT', 'DAILY', 'WEEKLY')`),
+    check(
+      'client_profiles_transaction_ck',
+      sql`${t.transactionType} is null or ${t.transactionType} in ('SALE', 'RENT_LONG_TERM', 'RENT_SHORT_TERM')`,
+    ),
+    check(
+      'client_profiles_arrays_ck',
+      sql`cardinality(${t.propertyTypeIds}) <= 20 and cardinality(${t.locationIds}) <= 20
+        and cardinality(${t.featureIds}) <= 20`,
+    ),
+    check(
+      'client_profiles_price_ck',
+      sql`${t.priceMinCents} is null or ${t.priceMaxCents} is null or ${t.priceMinCents} <= ${t.priceMaxCents}`,
+    ),
+    check(
+      'client_profiles_area_ck',
+      sql`${t.areaMinM2} is null or ${t.areaMaxM2} is null or ${t.areaMinM2} <= ${t.areaMaxM2}`,
+    ),
+    check('client_profiles_wishes_ck', sql`${t.wishes} is null or char_length(${t.wishes}) <= 2000`),
+    check('client_profiles_version_ck', sql`${t.version} >= 1`),
+  ],
+);
+
+/**
+ * Client-profile embeddings (R2-01b, PLAN §8 #4): one vector per active profile (`mode` not `OFF`), from its criteria
+ * as words and its wishes with contact details removed (`matching/profile-embeddings.ts`), for the match engine's
+ * semantic score (R2-02). Same model and size as `listing_embeddings`; written by the matching worker only.
+ *
+ * `content_hash` = sha256(model, text): an unchanged text is never embedded again (a price, mode or frequency edit only
+ * moves `source_version` on). `fillfactor = 80` (migration): those touches stay HOT and never re-insert into the graph.
+ * Global, worker-only like `listing_embeddings`: matching runs across agencies; `owner_agency_id` is the fair-share
+ * group and the backfill's walk. No tenant or public role reads it.
+ */
+export const clientProfileEmbeddings = pgTable(
+  'client_profile_embeddings',
+  {
+    profileId: uuid('profile_id').primaryKey(),
+    ownerAgencyId: uuid('owner_agency_id').notNull(),
+    embedding: halfvec('embedding', { dimensions: CLIENT_PROFILE_EMBEDDING_DIMENSIONS }).notNull(),
+    model: text('model').notNull(),
+    contentHash: text('content_hash').notNull(),
+    /** The profile's version this row was last checked against: a write never goes back below it. */
+    sourceVersion: integer('source_version').notNull(),
+    embeddedAt: timestamp('embedded_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // profiles nearest a listing's vector (cosine `<=>`): the engine's candidates beyond the hard filters (R2-02)
+    index('client_profile_embeddings_hnsw_idx').using('hnsw', t.embedding.op('halfvec_cosine_ops')),
+    // the backfill's orphan sweep: an agency's rows in a profile window
+    index('client_profile_embeddings_owner_idx').on(t.ownerAgencyId, t.profileId),
+    check('client_profile_embeddings_version_ck', sql`${t.sourceVersion} >= 1`),
   ],
 );

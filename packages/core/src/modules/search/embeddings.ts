@@ -72,8 +72,12 @@ export type EmbeddingFacts = Partial<Pick<ListingDetailDoc, (typeof FACT_KEYS)[n
 
 /** Contact details anyone may have typed into a free text (no owner identity: the generic matchers only). */
 const contacts = compileOwner(NO_OWNER);
-/** Collapses whitespace (an edit that only re-wraps a description is no text change) and removes contact details. */
-const clean = (s: string | null | undefined): string => contacts.clean((s ?? '').replace(/\s+/g, ' ')).trim();
+/**
+ * Collapses whitespace (an edit that only re-wraps a description is no text change) and removes contact details.
+ * R2-01b: shared with the client-profile embeddings (wishes).
+ */
+export const embeddingClean = (s: string | null | undefined): string =>
+  contacts.clean((s ?? '').replace(/\s+/g, ' ')).trim();
 
 /**
  * The text a listing is embedded from (pure; the same document always gives the same text). Facts first, so the cut
@@ -94,12 +98,12 @@ export function listingEmbeddingText(doc: EmbeddingFacts): string {
   ].filter((s): s is string => s !== null);
   const features = (doc.features ?? []).map((f) => f.name).sort();
   const lines = [
-    clean(doc.title),
+    embeddingClean(doc.title),
     [doc.propertyType?.name, doc.transactionType?.toLowerCase()].filter(Boolean).join(', '),
     place.join(', '),
     sizes.join(', '),
     features.length > 0 ? `Features: ${features.join(', ')}` : '',
-    clean(doc.description),
+    embeddingClean(doc.description),
   ].filter((l) => l.length > 0);
   return lines.join('\n').slice(0, EMBED_TEXT_MAX_CHARS);
 }
@@ -135,14 +139,50 @@ const NOTHING: EmbedListingsResult = {
 const misconfigured = (reason: string, details: Record<string, unknown> = {}) =>
   new AppError('INTERNAL', { reason, ...details }, false);
 
-/** The embedding model, checked against the column's size; null while embeddings are off. */
-function embeddingModel(): string | null {
+/** The size of every embedding (listings', and the client profiles' that are scored against them: R2-01b). */
+export const EMBEDDING_DIMENSIONS = LISTING_EMBEDDING_DIMENSIONS;
+
+/**
+ * The embedding model, checked against the columns' size; null while embeddings are off. R2-01b: shared with the
+ * matching module's client-profile embeddings (one model, one vector space).
+ */
+export function embeddingModel(): string | null {
   const m = ai.embeddingModel();
   if (!m) return null;
-  if (m.dimensions !== LISTING_EMBEDDING_DIMENSIONS) {
-    throw misconfigured('EMBED_DIMENSIONS', { expected: LISTING_EMBEDDING_DIMENSIONS, got: m.dimensions });
+  if (m.dimensions !== EMBEDDING_DIMENSIONS) {
+    throw misconfigured('EMBED_DIMENSIONS', { expected: EMBEDDING_DIMENSIONS, got: m.dimensions });
   }
   return m.model;
+}
+
+/**
+ * One `ai.embed` call (≤ `EMBED_BATCH` texts; never inside a transaction): the vectors, in order, or the degrade code
+ * when the gateway said no (budget, outage — the caller leaves the rest stale). An answer of another model, size or
+ * count, or with a non-finite value, is a misconfigured provider: thrown, not retried (`INTERNAL`). R2-01b: shared
+ * with the client-profile embeddings.
+ */
+export async function embedChunk(
+  ctx: AiCtx,
+  feature: string,
+  model: string,
+  texts: readonly string[],
+): Promise<{ vectors: number[][]; degradeCode: null } | { vectors: null; degradeCode: ErrorCode }> {
+  let res: Awaited<ReturnType<typeof ai.embed>>;
+  try {
+    res = await ai.embed(ctx, { feature, texts: [...texts] });
+  } catch (err) {
+    if (isAppError(err) && DEGRADE.has(err.code)) return { vectors: null, degradeCode: err.code };
+    throw err;
+  }
+  if (
+    res.model !== model ||
+    res.dimensions !== EMBEDDING_DIMENSIONS ||
+    res.vectors.length !== texts.length ||
+    res.vectors.some((v) => v.length !== EMBEDDING_DIMENSIONS || !v.every(Number.isFinite))
+  ) {
+    throw misconfigured('EMBED_ANSWER', { texts: texts.length, vectors: res.vectors.length });
+  }
+  return { vectors: res.vectors, degradeCode: null };
 }
 
 /**
@@ -189,29 +229,21 @@ export async function embedListings(
   let embedded = 0;
   for (let i = 0; i < read.todo.length; i += EMBED_BATCH) {
     const chunk = read.todo.slice(i, i + EMBED_BATCH);
-    let res: Awaited<ReturnType<typeof ai.embed>>;
-    try {
-      res = await ai.embed(ctx, { feature: LISTING_EMBED_FEATURE, texts: chunk.map((c) => c.text) });
-    } catch (err) {
-      if (isAppError(err) && DEGRADE.has(err.code)) {
-        return {
-          ...NOTHING,
-          embedded,
-          unchanged: read.unchanged,
-          deleted: read.deleted,
-          degraded: read.todo.length - i,
-          degradeCode: err.code,
-        };
-      }
-      throw err;
-    }
-    if (
-      res.model !== model ||
-      res.dimensions !== LISTING_EMBEDDING_DIMENSIONS ||
-      res.vectors.length !== chunk.length ||
-      res.vectors.some((v) => v.length !== LISTING_EMBEDDING_DIMENSIONS || !v.every(Number.isFinite))
-    ) {
-      throw misconfigured('EMBED_ANSWER', { texts: chunk.length, vectors: res.vectors.length });
+    const res = await embedChunk(
+      ctx,
+      LISTING_EMBED_FEATURE,
+      model,
+      chunk.map((c) => c.text),
+    );
+    if (res.vectors === null) {
+      return {
+        ...NOTHING,
+        embedded,
+        unchanged: read.unchanged,
+        deleted: read.deleted,
+        degraded: read.todo.length - i,
+        degradeCode: res.degradeCode,
+      };
     }
     const vectors = res.vectors;
     embedded += await withSystem('search.embedListings', (tx) =>
@@ -278,10 +310,10 @@ export async function nearestListings(
   limit = 20,
 ): Promise<{ targetId: string; ownerAgencyId: string; distance: number }[]> {
   if (
-    vector.length !== LISTING_EMBEDDING_DIMENSIONS ||
+    vector.length !== EMBEDDING_DIMENSIONS ||
     !vector.every((x) => Number.isFinite(x) && Math.abs(x) <= HALFVEC_MAX)
   ) {
-    throw new AppError('VALIDATION_FAILED', { reason: 'EMBED_VECTOR', dimensions: LISTING_EMBEDDING_DIMENSIONS });
+    throw new AppError('VALIDATION_FAILED', { reason: 'EMBED_VECTOR', dimensions: EMBEDDING_DIMENSIONS });
   }
   const n = Math.max(1, Math.min(KNN_MAX_LIMIT, Math.trunc(limit)));
   return repo.nearestListingEmbeddings(tx, vector, { limit: n, efSearch: Math.max(KNN_EF_SEARCH, n) });

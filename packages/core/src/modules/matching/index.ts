@@ -20,8 +20,16 @@ export {
 } from './alerts';
 export { deleteAgencySavedSearches } from './erasure';
 export { matchingErrors } from './errors';
-export { matchingEvents } from './events';
-export { matchingJobs, STALE_INSTANT_MS, SWEEP_SPREAD_MS, sweepDelayOf } from './jobs';
+export { CLIENT_PROFILE_EVENT_IDS, matchingEvents } from './events';
+export {
+  matchingJobs,
+  PROFILE_EMBEDDINGS_SWEEP_EVERY_MS,
+  profileBackfillKey,
+  profileEmbeddingJobs,
+  STALE_INSTANT_MS,
+  SWEEP_SPREAD_MS,
+  sweepDelayOf,
+} from './jobs';
 export {
   CLIENT_MODE_ALLOWED,
   can,
@@ -29,6 +37,16 @@ export {
   MATCHING_IMPERSONATION,
   type MatchingAction,
 } from './policy';
+// R2-01b: client-profile embeddings (worker-only); the profiles' service and routes come with R2-02.
+export {
+  type EmbedProfilesResult,
+  embedProfiles,
+  PROFILE_BACKFILL_WINDOW,
+  PROFILE_EMBED_FEATURE,
+  type ProfileBackfillResult,
+  profileBackfillPage,
+  profileEmbeddingText,
+} from './profile-embeddings';
 export {
   ALERT_DAILY_CAP,
   ALERT_RETENTION_DAYS,

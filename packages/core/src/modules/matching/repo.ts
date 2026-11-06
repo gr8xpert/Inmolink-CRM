@@ -1,7 +1,13 @@
 import type { Tx } from '@inmolink/db';
-import { matchingListingStates, savedSearchAlerts, savedSearches } from '@inmolink/db/schema/matching';
+import {
+  clientProfileEmbeddings,
+  clientProfiles,
+  matchingListingStates,
+  savedSearchAlerts,
+  savedSearches,
+} from '@inmolink/db/schema/matching';
 import { NIL_UUID as NIL } from '@inmolink/platform/tenancy';
-import { and, asc, eq, type SQL, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, type SQL, sql } from 'drizzle-orm';
 
 /**
  * matching queries (PATTERNS §5). Takes `tx`, selects only the columns it needs. Queries only
@@ -515,5 +521,167 @@ export async function pruneGoneStates(tx: Tx, before: Date, limit: number): Prom
     delete from ${matchingListingStates} where listing_id in (
       select listing_id from ${matchingListingStates}
        where status = 'GONE' and updated_at < ${before.toISOString()}::timestamptz limit ${limit})`);
+  return res.rowCount ?? 0;
+}
+
+/* ------------------------------------------------------------------ client-profile embeddings (R2-01b, worker) */
+
+/** Orphan vectors one backfill page drops at most. */
+export const ORPHAN_DELETE_CAP = 5_000;
+
+export interface ProfileSource {
+  id: string;
+  version: number;
+  mode: string;
+  transactionType: string | null;
+  propertyTypeIds: string[];
+  locationIds: string[];
+  featureIds: string[];
+  bedsMin: number | null;
+  bathsMin: number | null;
+  areaMinM2: number | null;
+  areaMaxM2: number | null;
+  wishes: string | null;
+}
+
+/** These profiles of `agencyId` (only the columns the text is built from; price is never read). */
+export async function profileSources(tx: Tx, agencyId: string, ids: readonly string[]): Promise<ProfileSource[]> {
+  if (ids.length === 0) return [];
+  const p = clientProfiles;
+  const rows = await tx
+    .select({
+      id: p.id,
+      version: p.version,
+      mode: p.mode,
+      transactionType: p.transactionType,
+      propertyTypeIds: p.propertyTypeIds,
+      locationIds: p.locationIds,
+      featureIds: p.featureIds,
+      bedsMin: p.bedsMin,
+      bathsMin: p.bathsMin,
+      areaMinM2: p.areaMinM2,
+      areaMaxM2: p.areaMaxM2,
+      wishes: p.wishes,
+    })
+    .from(p)
+    .where(and(eq(p.agencyId, agencyId), inArray(p.id, [...ids])));
+  return rows;
+}
+
+/** The next `window` profile ids of an agency after `after` (`client_profiles_agency_id_uq` order). */
+export async function profileWindow(
+  tx: Tx,
+  p: { agencyId: string; after: string | null; window: number },
+): Promise<string[]> {
+  const t = clientProfiles;
+  const rows = await tx
+    .select({ id: t.id })
+    .from(t)
+    .where(p.after === null ? eq(t.agencyId, p.agencyId) : and(eq(t.agencyId, p.agencyId), gt(t.id, p.after)))
+    .orderBy(asc(t.agencyId), asc(t.id))
+    .limit(p.window);
+  return rows.map((r) => r.id);
+}
+
+/** What is stored for these profiles: each embedding's hash. */
+export async function profileEmbeddingHashes(tx: Tx, ids: readonly string[]): Promise<Map<string, string>> {
+  if (ids.length === 0) return new Map();
+  const e = clientProfileEmbeddings;
+  const rows = await tx
+    .select({ profileId: e.profileId, contentHash: e.contentHash })
+    .from(e)
+    .where(inArray(e.profileId, [...ids]));
+  return new Map(rows.map((r) => [r.profileId, r.contentHash]));
+}
+
+/** Unchanged text: the rows move on to the profile's version (never back); the vector stays. One statement. */
+export async function touchProfileEmbeddings(
+  tx: Tx,
+  rows: readonly { profileId: string; version: number }[],
+): Promise<void> {
+  if (rows.length === 0) return;
+  const ids = sql`array[${sql.join(
+    rows.map((r) => sql`${r.profileId}`),
+    sql`, `,
+  )}]::uuid[]`;
+  const versions = sql`array[${sql.join(
+    rows.map((r) => sql`${r.version}`),
+    sql`, `,
+  )}]::int[]`;
+  await tx.execute(sql`
+    update ${clientProfileEmbeddings} e
+       set source_version = c.version, updated_at = now()
+      from unnest(${ids}, ${versions}) as c(profile_id, version)
+     where e.profile_id = c.profile_id and e.source_version < c.version`);
+}
+
+export interface ProfileEmbeddingRow {
+  profileId: string;
+  ownerAgencyId: string;
+  embedding: number[];
+  model: string;
+  contentHash: string;
+  sourceVersion: number;
+}
+
+/**
+ * Writes new vectors; a row written from a newer profile version is kept (two jobs of one profile finishing out of
+ * order). The same version may be rewritten: a taxonomy rename or a model switch changes the text, not the version.
+ * Answers the rows written.
+ */
+export async function upsertProfileEmbeddings(tx: Tx, rows: readonly ProfileEmbeddingRow[]): Promise<number> {
+  if (rows.length === 0) return 0;
+  const e = clientProfileEmbeddings;
+  const written = await tx
+    .insert(e)
+    .values(rows.map((r) => ({ ...r })))
+    .onConflictDoUpdate({
+      target: e.profileId,
+      set: {
+        ownerAgencyId: sql`excluded.owner_agency_id`,
+        embedding: sql`excluded.embedding`,
+        model: sql`excluded.model`,
+        contentHash: sql`excluded.content_hash`,
+        sourceVersion: sql`excluded.source_version`,
+        embeddedAt: sql`now()`,
+        updatedAt: sql`now()`,
+      },
+      setWhere: sql`excluded.source_version >= ${e.sourceVersion}`,
+    })
+    .returning({ profileId: e.profileId });
+  return written.length;
+}
+
+/** Drops the embeddings of these profiles of `agencyId` (gone, or `mode` OFF). Answers the rows deleted. */
+export async function deleteProfileEmbeddings(tx: Tx, agencyId: string, ids: readonly string[]): Promise<number> {
+  if (ids.length === 0) return 0;
+  const e = clientProfileEmbeddings;
+  const res = await tx
+    .delete(e)
+    .where(and(eq(e.ownerAgencyId, agencyId), inArray(e.profileId, [...ids])))
+    .returning({ profileId: e.profileId });
+  return res.length;
+}
+
+/**
+ * The backfill's orphan sweep: drops the agency's embeddings in the window `(after, upTo]` (`upTo` null: to the end)
+ * whose profile no longer exists (`client_profile_embeddings_owner_idx`, a primary-key probe each), at most
+ * `ORPHAN_DELETE_CAP` a call (`.claude/rules/database.md`: batches ≤ 5,000) — any more go with the next day's walk.
+ * Answers the rows deleted.
+ */
+export async function deleteOrphanProfileEmbeddings(
+  tx: Tx,
+  p: { agencyId: string; after: string | null; upTo: string | null },
+): Promise<number> {
+  const res = await tx.execute(sql`
+    delete from ${clientProfileEmbeddings}
+     where profile_id in (
+       select e.profile_id from ${clientProfileEmbeddings} e
+        where e.owner_agency_id = ${p.agencyId}
+          ${p.after === null ? sql`` : sql`and e.profile_id > ${p.after}`}
+          ${p.upTo === null ? sql`` : sql`and e.profile_id <= ${p.upTo}`}
+          and not exists (select 1 from ${clientProfiles} c where c.id = e.profile_id and c.agency_id = ${p.agencyId})
+        order by e.profile_id
+        limit ${ORPHAN_DELETE_CAP})`);
   return res.rowCount ?? 0;
 }

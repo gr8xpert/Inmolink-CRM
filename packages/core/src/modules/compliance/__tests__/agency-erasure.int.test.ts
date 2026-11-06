@@ -228,6 +228,9 @@ describe('agency erasure', () => {
         values (${newId()}, ${leaving.agencyId}, ${threadId}, ${leaving.agencyId}, ${leaving.userId}, 'Agent', ${NOTE})`);
       await tx.execute(sql`insert into saved_searches (id, agency_id, user_id, name, match_keys)
         values (${newId()}, ${leaving.agencyId}, ${leaving.userId}, ${`For ${T}`}, '{any}')`);
+      // R2-01b: a client profile (its wishes are client data) is erased in the saved-searches step
+      await tx.execute(sql`insert into client_profiles (id, agency_id, contact_id, mode, wishes)
+        values (${newId()}, ${leaving.agencyId}, ${newId()}, 'REVIEW', ${`Wishes of ${T}`})`);
       await tx.execute(sql`insert into selections (id, agency_id, created_by, title, message, locale, token_hash,
           token_hint, expires_at)
         values (${newId()}, ${leaving.agencyId}, ${leaving.userId}, ${`For ${T}`}, ${NOTE}, 'en', ${`ae-${RUN}`},
@@ -280,6 +283,7 @@ describe('agency erasure', () => {
         'chat_messages.body',
         'property_translations.title',
         'saved_searches.name',
+        'client_profiles.wishes',
         'selections.title',
         'notifications.params',
       ]),
@@ -360,7 +364,7 @@ describe('agency erasure', () => {
       chat: 2, // the message, then the thread (with its participant)
       listings: 1,
       listingPurge: 1,
-      savedSearches: 1,
+      savedSearches: 2, // the client profile (R2-01b), then the saved search
       selections: 1,
       exports: 1,
     });

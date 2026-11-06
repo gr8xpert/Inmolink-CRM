@@ -1,5 +1,11 @@
+import { withSystem } from '@inmolink/db';
+import { clock } from '@inmolink/platform/clock';
 import { defineJob } from '@inmolink/platform/queue';
 import { z } from 'zod';
+import * as agencies from '../agencies';
+import * as search from '../search';
+import { CLIENT_PROFILE_EVENT_IDS } from './events';
+import { embedProfiles, profileBackfillPage } from './profile-embeddings';
 import {
   backfillListingStates,
   INSTANT_WINDOW_MS,
@@ -224,6 +230,104 @@ export const matchingJobs = {
       if (r.next) await matchingJobs.backfillListingStates.enqueue({ after: r.next });
       else log.info('matching listing states backfilled');
       return r;
+    },
+  }),
+};
+
+/** Once a day: profiles an event missed (embeddings off, over budget, an outage) or whose text changed without one. */
+export const PROFILE_EMBEDDINGS_SWEEP_EVERY_MS = 24 * 3_600_000;
+const PROFILE_SWEEP_AGENCY_PAGE = 500;
+/** Job ids of a profile backfill page: run, agency and cursor (a re-run of the same page collapses). */
+export const profileBackfillKey = (p: { run: string; agencyId: string; after: string | null }): string =>
+  `pemb.${p.run}.${p.agencyId}.${p.after ?? 'start'}`;
+
+/**
+ * Client-profile embedding jobs (R2-01b, `profile-embeddings.ts`), pool `ai` (model calls; the agency's embedding
+ * group `emb:<agency>`, shared with its listing embeddings) and `maintenance` (the sweep):
+ *
+ * - `matching.embedProfiles` (`matching.clientProfiles.changed`; job id = the event's id): embeds that event's profiles
+ *   whose text changed, drops the vectors of deleted or `OFF` ones. Degraded: logged, left to the sweep.
+ * - `matching.profileEmbeddingsSweep` (schedule: every `PROFILE_EMBEDDINGS_SWEEP_EVERY_MS`, job ids per run day):
+ *   queues one backfill walk per agency. Nothing while embeddings are off.
+ * - `matching.profileEmbeddingsBackfill` (one at a time per agency): one window of profiles, then the next page; a
+ *   degraded page ends the agency's walk until the next sweep.
+ */
+export const profileEmbeddingJobs = {
+  embedProfiles: defineJob({
+    name: 'matching.embedProfiles',
+    pool: 'ai',
+    payload: z.object({
+      eventId: z.uuid(),
+      agencyId: z.uuid(),
+      profileIds: z.array(z.uuid()).min(1).max(CLIENT_PROFILE_EVENT_IDS),
+    }),
+    jobId: (p) => `pemb.${p.eventId}`,
+    group: (p) => search.embeddingGroup(p.agencyId),
+    concurrencyPerGroup: 1,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 30_000 },
+    timeoutMs: 5 * 60_000,
+    async run(p, { log, jobId }) {
+      const result = await embedProfiles({ agencyId: p.agencyId, profileIds: p.profileIds }, { requestId: jobId });
+      if (result.degraded > 0) log.warn(result, 'client-profile embeddings degraded: left to the sweep');
+      return result;
+    },
+  }),
+
+  profileEmbeddingsSweep: defineJob({
+    name: 'matching.profileEmbeddingsSweep',
+    pool: 'maintenance',
+    payload: z.object({}),
+    every: PROFILE_EMBEDDINGS_SWEEP_EVERY_MS,
+    timeoutMs: 10 * 60_000,
+    async run(_p, job) {
+      if (search.embeddingModel() === null) return { run: null, queued: 0 };
+      const run = clock.now().toISOString().slice(0, 10);
+      let after: string | null = null;
+      let queued = 0;
+      for (;;) {
+        const ids: string[] = await withSystem('matching.profileEmbeddingsSweep', (tx) =>
+          agencies.agencyIdsPage(tx, after, PROFILE_SWEEP_AGENCY_PAGE),
+        );
+        if (ids.length > 0) {
+          await profileEmbeddingJobs.profileEmbeddingsBackfill.enqueueMany(
+            ids.map((agencyId) => ({ payload: { run, agencyId, after: null } })),
+          );
+        }
+        queued += ids.length;
+        after = ids.at(-1) ?? null;
+        if (ids.length < PROFILE_SWEEP_AGENCY_PAGE || job.signal.aborted) break;
+      }
+      return { run, queued };
+    },
+  }),
+
+  profileEmbeddingsBackfill: defineJob({
+    name: 'matching.profileEmbeddingsBackfill',
+    pool: 'ai',
+    payload: z.object({
+      run: z.string().regex(/^[0-9A-Za-z-]{1,32}$/),
+      agencyId: z.uuid(),
+      after: z.uuid().nullable(),
+    }),
+    jobId: profileBackfillKey,
+    group: (p) => search.embeddingGroup(p.agencyId),
+    concurrencyPerGroup: 1,
+    attempts: 3,
+    backoff: { type: 'exponential', delay: 60_000 },
+    timeoutMs: 10 * 60_000,
+    async run(p, { log }) {
+      const key = profileBackfillKey(p);
+      const result = await profileBackfillPage({ agencyId: p.agencyId, after: p.after }, { requestId: key });
+      if (result.degraded > 0) log.warn(result, 'client-profile embedding backfill degraded: walk stopped');
+      if (result.next) {
+        await profileEmbeddingJobs.profileEmbeddingsBackfill.enqueue({
+          run: p.run,
+          agencyId: p.agencyId,
+          after: result.next,
+        });
+      }
+      return result;
     },
   }),
 };
