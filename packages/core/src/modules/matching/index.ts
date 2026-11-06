@@ -51,6 +51,7 @@ export {
   matchListingsToProfiles,
   matchProfilesToListings,
   profileMatchWindow,
+  refreshListingFacts,
 } from './engine';
 export { deleteAgencySavedSearches } from './erasure';
 export { matchingErrors } from './errors';

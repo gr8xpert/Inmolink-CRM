@@ -358,7 +358,7 @@ describe('client profile match engine (R2-02b)', () => {
     const L4 = await listing({ priceCents: 35_000_000 });
     // facts only (as if the event's match was lost): the sweep finds it
     await rebuild([L4]);
-    await matching.backfillListingFacts(null, 100_000);
+    await matching.refreshListingFacts([L4]);
     const w = await system(
       async (tx) =>
         (
@@ -380,7 +380,7 @@ describe('client profile match engine (R2-02b)', () => {
     const later = Date.now() + 3 * 86_400_000;
     const old = await listing({ priceCents: 36_000_000 });
     await rebuild([old]);
-    await matching.backfillListingFacts(null, 100_000);
+    await matching.refreshListingFacts([old]);
     expect((await matching.profileMatchWindow({ agencyId: c.agencyId, after: null, nowMs: later })).matched).toBe(0);
     expect(await pairCount(P.cheap as string, old)).toBe(0);
     // a profile written before match keys existed gets them in its window

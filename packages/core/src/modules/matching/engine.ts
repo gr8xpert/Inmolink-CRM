@@ -294,6 +294,15 @@ export async function profileMatchWindow(input: {
 }
 
 /**
+ * The facts of these listings from their read models, in one transaction (≤ a few hundred ids): what a listing event
+ * does before it matches, without the match. Answers how many are live (ACTIVE listings with a read model).
+ */
+export async function refreshListingFacts(ids: readonly string[]): Promise<{ live: number }> {
+  if (ids.length === 0) return { live: 0 };
+  return withSystem('matching.refreshListingFacts', async (tx) => ({ live: (await refreshFacts(tx, ids)).length }));
+}
+
+/**
  * `matching.backfillListingFacts` (worker, once after deploy): the facts of every ACTIVE listing with a read model,
  * `FACTS_BACKFILL_BATCH` listings per transaction (keyset on the listing id). Answers where to go on (null: done).
  */

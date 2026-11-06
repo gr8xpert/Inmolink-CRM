@@ -323,7 +323,7 @@ describe('learned boost (R2-02c)', () => {
   it('[R2-02c] the summary moves on contact merge and is removed by contact erasure, profile delete and agency erasure', async () => {
     const A = await listing(o);
     await system((tx) => search.rebuildReadModels(tx, 'LISTING', [A]));
-    await matching.backfillListingFacts(null, 100_000);
+    await matching.refreshListingFacts([A]);
     // merge: the closed contact's profile (and its summary) now belongs to the survivor; the survivor's likes reach it
     const closed = await contact(o);
     const survivor = await contact(o);
@@ -335,7 +335,7 @@ describe('learned boost (R2-02c)', () => {
     expect(await affinityRows(P)).toEqual(before);
     const A2 = await listing(o, { priceCents: 70_000_000 });
     await system((tx) => search.rebuildReadModels(tx, 'LISTING', [A2]));
-    await matching.backfillListingFacts(null, 100_000);
+    await matching.refreshListingFacts([A2]);
     expect(await react(o, await selection(o, survivor), A2, 'LIKE')).toMatchObject({ profiles: 1 });
     // contact erasure: the profiles go, and their feedback and summary with them
     await matching.eraseContactProfiles({ agencyId: o.agencyId, contactIds: [survivor] });
@@ -358,7 +358,7 @@ describe('learned boost (R2-02c)', () => {
     const P3 = await profile(leaving, c3);
     const own = await listing(leaving);
     await system((tx) => search.rebuildReadModels(tx, 'LISTING', [own]));
-    await matching.backfillListingFacts(null, 100_000);
+    await matching.refreshListingFacts([own]);
     expect(await react(leaving, await selection(leaving, c3), own, 'LIKE')).toMatchObject({ profiles: 1 });
     for (let i = 0; i < 10 && (await matching.deleteAgencySavedSearches({ agencyId: leaving.agencyId })).more; i++);
     const [left] = await rows<{ f: number; a: number }>(sql`select
