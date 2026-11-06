@@ -7,6 +7,7 @@ import * as identity from '@inmolink/core/modules/identity';
 import * as imports from '@inmolink/core/modules/imports';
 import * as media from '@inmolink/core/modules/media';
 import * as mls from '@inmolink/core/modules/mls';
+import * as presentations from '@inmolink/core/modules/presentations';
 import * as search from '@inmolink/core/modules/search';
 import * as social from '@inmolink/core/modules/social';
 import * as support from '@inmolink/core/modules/support';
@@ -69,6 +70,10 @@ try {
     config.MEDIA_CDN_URL
   ) {
     websiteApi.configureWebsiteApi({ mediaBaseUrl: config.MEDIA_CDN_URL, cursorKey: config.HMAC_KEY });
+  }
+  // R2-02e: client alerts (email) make selections and send their links.
+  if (config.WORKER_POOLS.includes('email') && config.HMAC_KEY) {
+    presentations.configurePresentations({ tokenKey: config.HMAC_KEY, publicBaseUrl: config.PUBLIC_PAGES_URL ?? null });
   }
   // S12-05: the pdf pool — listings presented like the website API (media CDN, white-label), rendered by Chrome whose
   // pages may load only the media CDN's assets.

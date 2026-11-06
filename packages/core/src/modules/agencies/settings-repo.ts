@@ -292,6 +292,16 @@ export async function timeZoneOf(tx: Tx, agencyId: string): Promise<string | nul
   return row?.timeZone ?? null;
 }
 
+/** R2-02e: the time zones of those of these agencies with a settings row (primary key probes, one statement). */
+export async function timeZonesOf(tx: Tx, agencyIds: readonly string[]): Promise<Map<string, string>> {
+  if (agencyIds.length === 0) return new Map();
+  const rows = await tx
+    .select({ agencyId: agencySettings.agencyId, timeZone: agencySettings.timeZone })
+    .from(agencySettings)
+    .where(inArray(agencySettings.agencyId, [...new Set(agencyIds)]));
+  return new Map(rows.map((r) => [r.agencyId, r.timeZone]));
+}
+
 // ── AI feature toggles (S13-F17) ────────────────────────────────────────────────────────────────
 
 /** The agency's switched-on AI features, under the caller's RLS (primary key lookup); null without a settings row. */

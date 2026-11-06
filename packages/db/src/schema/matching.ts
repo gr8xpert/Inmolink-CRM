@@ -458,3 +458,47 @@ export const clientProfileAffinities = pgTable(
     ),
   ],
 );
+
+/**
+ * R2-02e, AUTO_SEND delivery: one row per alert sent (or being sent) to a client — the profile's `QUEUED` matches as
+ * one branded selection (`selection_id`, presentations; no FK across modules) by e-mail to the client or as a WhatsApp
+ * deep link e-mailed to the agent who sends it (`channel`). `period_key` makes a digest once per period and profile
+ * (`D:<local day>` DAILY, `W:<ISO week>` WEEKLY, `I:<delivery id>` INSTANT); `PENDING` until the e-mail left (a retry
+ * re-links the selection and sends again), then `SENT`. The per-agency and per-contact daily caps count these rows.
+ * The profile's agency's own; written by the matching worker only (members read them); goes with the profile (FK
+ * cascade: profile delete, contact erasure, agency erasure; a merge moves the profile itself).
+ */
+export const clientProfileDeliveries = pgTable(
+  'client_profile_deliveries',
+  {
+    id: uuid('id').primaryKey(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agencies.id),
+    profileId: uuid('profile_id')
+      .notNull()
+      .references(() => clientProfiles.id, { onDelete: 'cascade' }),
+    selectionId: uuid('selection_id').notNull(),
+    /** The member the selection is from (the contact's agent, else an admin). */
+    senderUserId: uuid('sender_user_id').notNull(),
+    channel: text('channel').notNull(),
+    periodKey: text('period_key').notNull(),
+    matchCount: integer('match_count').notNull(),
+    status: text('status').notNull().default('PENDING'),
+    attempts: integer('attempts').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+  },
+  (t) => [
+    // once per period: where profile_id = ? and period_key = ? (also the profile FK index)
+    uniqueIndex('client_profile_deliveries_period_uq').on(t.profileId, t.periodKey),
+    // a profile's recent / pending deliveries and the per-contact cap: where profile_id = any(?) and created_at >= ?
+    index('client_profile_deliveries_profile_created_idx').on(t.profileId, t.createdAt),
+    // the per-agency daily cap (and the FK): where agency_id = ? and created_at >= ?
+    index('client_profile_deliveries_agency_created_idx').on(t.agencyId, t.createdAt),
+    check('client_profile_deliveries_channel_ck', sql`${t.channel} in ('EMAIL', 'WHATSAPP')`),
+    check('client_profile_deliveries_status_ck', sql`${t.status} in ('PENDING', 'SENT')`),
+    check('client_profile_deliveries_count_ck', sql`${t.matchCount} between 1 and 100`),
+    check('client_profile_deliveries_period_ck', sql`${t.periodKey} ~ '^(I|D|W):[0-9A-Za-z-]{1,40}$'`),
+  ],
+);

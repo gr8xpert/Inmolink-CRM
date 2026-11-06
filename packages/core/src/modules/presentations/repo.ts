@@ -4,7 +4,7 @@
  */
 import type { Tx } from '@inmolink/db';
 import { selectionInteractions, selectionItems, selections } from '@inmolink/db/schema/presentations';
-import { and, eq, type SQL, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, type SQL, sql } from 'drizzle-orm';
 import { type KeysetCursor, keysetAfterRaw, keysetOrderRaw, keysetStamp } from '../../pagination';
 
 export type SelectionRow = typeof selections.$inferSelect;
@@ -306,4 +306,52 @@ export async function appendDraftItem(
            (select count(*) from ins)::int > 0 as added, (select count(*) from bump)::int as bumped`);
   const row = res.rows[0] as { open: boolean; present: boolean; added: boolean };
   return { open: row.open, present: row.present, added: row.added };
+}
+
+/**
+ * R2-02e (never twice across sends): of these targets, the ones already in any selection the agency made for the
+ * contact — live, expired or revoked. Over `selections_contact_idx` and `selection_items_target_uq`; one statement.
+ */
+export async function contactSelectionTargets(
+  tx: Tx,
+  agencyId: string,
+  contactId: string,
+  targetIds: readonly string[],
+): Promise<string[]> {
+  if (targetIds.length === 0) return [];
+  const rows = await tx
+    .selectDistinct({ targetId: selectionItems.targetId })
+    .from(selections)
+    .innerJoin(selectionItems, eq(selectionItems.selectionId, selections.id))
+    .where(
+      and(
+        eq(selections.agencyId, agencyId),
+        eq(selections.contactId, contactId),
+        inArray(selectionItems.targetId, [...new Set(targetIds)]),
+      ),
+    );
+  return rows.map((r) => r.targetId);
+}
+
+/**
+ * R2-02e: a new link for the agency's selection (the old one stops); an expired one lives again until `expiresAt`. A
+ * selection a member revoked stays revoked (false): a retried alert never re-opens it. One statement.
+ */
+export async function relinkSelection(
+  tx: Tx,
+  ref: { agencyId: string; id: string },
+  link: { tokenHash: string; tokenHint: string; expiresAt: Date },
+): Promise<boolean> {
+  const rows = await tx
+    .update(selections)
+    .set({
+      tokenHash: link.tokenHash,
+      tokenHint: link.tokenHint,
+      expiresAt: sql`greatest(coalesce(${selections.expiresAt}, ${link.expiresAt}), ${link.expiresAt})`,
+      version: sql`${selections.version} + 1`,
+      updatedAt: sql`now()`,
+    })
+    .where(and(eq(selections.agencyId, ref.agencyId), eq(selections.id, ref.id), isNull(selections.revokedAt)))
+    .returning({ id: selections.id });
+  return rows.length > 0;
 }

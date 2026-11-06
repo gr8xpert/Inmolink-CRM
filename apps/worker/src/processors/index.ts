@@ -17,6 +17,7 @@ import { importsJobs } from '@inmolink/core/modules/imports';
 import {
   clientMatchJobs,
   clientProfileJobs,
+  deliveryJobs,
   feedbackJobs,
   matchingJobs,
   profileEmbeddingJobs,
@@ -101,6 +102,9 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     // R2-02c: likes / unlikes and dismissals into the learned boost's summaries.
     feedbackJobs.selectionFeedback,
     feedbackJobs.dismissalFeedback,
+    // R2-02e: AUTO_SEND client alerts' digest sweep (hourly, local digest hour) and per-agency walks.
+    deliveryJobs.sweepDeliveries,
+    deliveryJobs.deliverDigests,
   ],
   // S7-07: per-site XML feeds (Kyero and generic) and their 15-minute refresh sweep; S9-03: portal feeds.
   exports: [
@@ -124,6 +128,8 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     identityJobs.sendTwoFactorNotice,
     identityJobs.sendVerificationDecisionEmail,
     websiteApiJobs.sendLeadAcknowledgement,
+    // R2-02e: AUTO_SEND client alerts (the selection by e-mail, or the WhatsApp link to the agent).
+    deliveryJobs.deliverProfile,
     websiteApiJobs.notifyLeadAgency,
     websiteApiJobs.notifyLeadRecipient,
     websiteApiJobs.notifyLeadAgencyFallback,

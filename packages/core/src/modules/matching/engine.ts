@@ -47,9 +47,11 @@ export interface EngineResult {
   matched: number;
   /** The profiles' agencies that got matches (R2-02d/e's queues). */
   agencies: string[];
+  /** R2-02e: the AUTO_SEND profiles that got `QUEUED` matches now, with their agency (INSTANT delivery). */
+  queued: { agencyId: string; profileId: string }[];
 }
 
-const NONE: EngineResult = { candidates: 0, matched: 0, agencies: [] };
+const NONE: EngineResult = { candidates: 0, matched: 0, agencies: [], queued: [] };
 
 /**
  * Scores and explains the candidates (the learned boost from each profile's affinity summary, none: 0); keeps those
@@ -129,6 +131,7 @@ async function write(
     candidates: candidates.length,
     matched: written.reduce((s, w) => s + w.n, 0),
     agencies: written.map((w) => w.agencyId),
+    queued: written.flatMap((w) => w.queued.map((profileId) => ({ agencyId: w.agencyId, profileId }))),
   };
 }
 

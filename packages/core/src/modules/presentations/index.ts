@@ -1,4 +1,12 @@
 /** presentations — public API (PATTERNS §1). The only import path for other modules and apps. */
+// R2-02e: client alerts' selections (worker-only).
+export {
+  contactSelectionTargets,
+  createAlertSelection,
+  relinkAlertSelection,
+  selectionLinksConfigured,
+  selectionUrl,
+} from './alerts';
 export {
   configurePresentations,
   type PresentationsConfig,

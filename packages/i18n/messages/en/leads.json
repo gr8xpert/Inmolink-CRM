@@ -239,5 +239,25 @@
       "VALIDATION_FAILED": "Check the values and try again.",
       "LEAD_NOT_FOUND": "This lead no longer exists."
     }
+  },
+  "profileAlert": {
+    "selectionTitle": "New properties for you",
+    "subject": "{count, plural, one {# new property for you} other {# new properties for you}} · {agency}",
+    "greeting": "Hello {name},",
+    "greetingNeutral": "Hello,",
+    "intro": "{count, plural, one {We found a new property that matches what you are looking for.} other {We found # new properties that match what you are looking for.}}",
+    "cta": "See the selection",
+    "more": "And {count} more in the selection.",
+    "priceOnRequest": "Price on request",
+    "bedrooms": "{count, plural, one {# bedroom} other {# bedrooms}}",
+    "signature": "Kind regards,",
+    "why": "You receive these e-mails because you asked {agency} for property alerts.",
+    "stop": "To stop them, reply to this e-mail or tell your agent, and we will not send you any more.",
+    "whatsappText": "Hello {name}, we found new properties that match your search: {url}",
+    "whatsappTextNeutral": "Hello, we found new properties that match your search: {url}",
+    "agentSubject": "Send {client} their new matches on WhatsApp",
+    "agentBody": "{count, plural, one {A new listing matches a search profile of {client}.} other {# new listings match a search profile of {client}.}} We put them in a selection for the client. Tap the button on your phone to open WhatsApp with the message ready to send.",
+    "agentCta": "Send on WhatsApp",
+    "agentFooter": "You receive this because {client} is your client and their profile is set to send automatically."
   }
 }

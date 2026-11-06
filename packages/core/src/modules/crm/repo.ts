@@ -710,6 +710,30 @@ export async function openContactExists(
   return row !== undefined;
 }
 
+/**
+ * R2-02e: what a client alert needs of an open contact of the agency — first name, language, agent, first e-mail and
+ * phone, marketing consent, do-not-contact — locked (`FOR NO KEY UPDATE`) until the transaction ends, so a consent
+ * withdrawal, merge or erasure waits for the delivery deciding on it (and then sees its selection). One statement.
+ */
+export async function lockContactReach(tx: Tx, agencyId: string, contactId: string) {
+  const [row] = await tx
+    .select({
+      id: contacts.id,
+      firstName: contacts.firstName,
+      language: contacts.language,
+      ownerUserId: contacts.ownerUserId,
+      email: contacts.primaryEmail,
+      phone: contacts.primaryPhone,
+      consentMarketing: contacts.consentMarketing,
+      doNotContact: contacts.doNotContact,
+    })
+    .from(contacts)
+    .where(and(eq(contacts.agencyId, agencyId), eq(contacts.id, contactId), isNull(contacts.deletedAt)))
+    .limit(1)
+    .for('no key update', { of: contacts });
+  return row ?? null;
+}
+
 /** R2-02d: the names and language of those of these contacts that are open contacts of the agency (one statement). */
 export async function openContactNames(tx: Tx, agencyId: string, ids: readonly string[]) {
   if (ids.length === 0) return [];

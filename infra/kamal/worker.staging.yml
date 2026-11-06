@@ -12,5 +12,7 @@ env:
     OTEL_TRACES_SAMPLE_RATIO: "1"
     WEB_URL: "https://staging-app.inmolink.es"
     PORTAL_URL: "https://staging-sites.inmolink.es"
+    # R2-02e: client alerts link selections on the public pages host (unset: no alert is sent).
+    PUBLIC_PAGES_URL: "https://staging-sites.inmolink.es"
     # Owner 2026-11-06: support tickets mail this inbox for now; info@inmolink.es later.
     SUPPORT_INBOX_EMAIL: "info@smartpropertywidget.com"

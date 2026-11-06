@@ -1,3 +1,4 @@
+import { DEFAULT_AGENCY_TIME_ZONE } from '@inmolink/contracts';
 import { withSystem } from '@inmolink/db';
 import { clock } from '@inmolink/platform/clock';
 import { defineJob } from '@inmolink/platform/queue';
@@ -5,6 +6,7 @@ import { z } from 'zod';
 import * as agencies from '../agencies';
 import * as crm from '../crm';
 import * as search from '../search';
+import { DELIVERY_LIMITS, type DeliveryPeriod, deliverProfile, digestPeriodsDue, digestProfilesPage } from './delivery';
 import { backfillListingFacts, matchListingsToProfiles, matchProfilesToListings, profileMatchWindow } from './engine';
 import { CLIENT_PROFILE_EVENT_IDS } from './events';
 import { recordDismissalFeedback, recordSelectionFeedback } from './feedback';
@@ -448,6 +450,7 @@ export const clientMatchJobs = {
     timeoutMs: 60_000,
     async run(p, { log }) {
       const r = await matchListingsToProfiles(p);
+      await queueInstantDeliveries(r.queued);
       if (r.matched > 0) log.info({ candidates: r.candidates, matched: r.matched }, 'client profile matches written');
       return { candidates: r.candidates, matched: r.matched };
     },
@@ -468,6 +471,7 @@ export const clientMatchJobs = {
     timeoutMs: 60_000,
     async run(p) {
       const r = await matchProfilesToListings(p);
+      await queueInstantDeliveries(r.queued);
       return { candidates: r.candidates, matched: r.matched };
     },
   }),
@@ -520,6 +524,7 @@ export const clientMatchJobs = {
     timeoutMs: 120_000,
     async run(p) {
       const r = await profileMatchWindow({ agencyId: p.agencyId, after: p.after });
+      await queueInstantDeliveries(r.queued);
       if (r.next) await clientMatchJobs.profileMatchWindow.enqueue({ run: p.run, agencyId: p.agencyId, after: r.next });
       return { profiles: r.profiles, candidates: r.candidates, matched: r.matched, next: r.next };
     },
@@ -538,6 +543,135 @@ export const clientMatchJobs = {
       if (r.next) await clientMatchJobs.backfillListingFacts.enqueue({ after: r.next });
       else log.info('matching listing facts backfilled');
       return r;
+    },
+  }),
+};
+
+const PERIOD = z.union([
+  z.literal('INSTANT'),
+  z.string().regex(/^D:\d{4}-\d{2}-\d{2}$/),
+  z.string().regex(/^W:\d{4}-W\d{2}$/),
+]);
+const DELIVERY_SWEEP_AGENCY_PAGE = 500;
+const LOCAL_DAY = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+/**
+ * R2-02e: the INSTANT deliveries of the profiles the engine just queued matches for — one per profile, throttled
+ * (`DELIVERY_LIMITS.instantDebounceMs`: the first new match starts the wait, the ones until then ride along). After
+ * the engine's commit; a lost enqueue is picked up by the next daily walk (`matching.sweepDeliveries`).
+ */
+async function queueInstantDeliveries(queued: readonly { agencyId: string; profileId: string }[]): Promise<void> {
+  if (queued.length === 0) return;
+  await deliveryJobs.deliverProfile.enqueueMany(
+    queued.map((q) => ({
+      payload: { agencyId: q.agencyId, profileId: q.profileId, period: 'INSTANT' as const },
+      options: { throttleMs: DELIVERY_LIMITS.instantDebounceMs },
+    })),
+  );
+}
+
+/**
+ * R2-02e, AUTO_SEND delivery (`delivery.ts`), group = the agency (fair share):
+ *
+ * - `matching.deliverProfile` (pool `email`: it sends, and reads the client's page as `app_public`) — one profile's
+ *   delivery for a period (job id per profile and period: a digest is queued once; INSTANT ones are throttled).
+ *   Idempotent: a re-run finds the matches sent; a failed e-mail is retried (with a new link) by the job's attempts.
+ * - `matching.sweepDeliveries` (every hour): the agencies whose local time is the digest hour or later that day get
+ *   their walks — DAILY every day, WEEKLY on the weekly day, and INSTANT ones too (what a lost enqueue left); a missed
+ *   hour (deploy, worker down) is caught up later the same day, never twice (job ids, `period_uq`).
+ * - `matching.deliverDigests` — one agency's walk for a frequency and period: `DELIVERY_LIMITS.digestPage` profiles
+ *   with queued matches a run, one `deliverProfile` each, then the next page.
+ */
+export const deliveryJobs = {
+  deliverProfile: defineJob({
+    name: 'matching.deliverProfile',
+    pool: 'email',
+    payload: z.object({ agencyId: z.uuid(), profileId: z.uuid(), period: PERIOD }),
+    jobId: (p) => `pdel:${p.profileId}:${p.period}`,
+    group: (p) => p.agencyId,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 60_000 },
+    timeoutMs: 60_000,
+    async run(p, { log }) {
+      const r = await deliverProfile({ ...p, period: p.period as DeliveryPeriod });
+      if (r.outcome === 'NOT_CONFIGURED') log.warn('client alerts: PUBLIC_PAGES_URL not configured, nothing sent');
+      else if (r.outcome === 'CAPPED') log.warn({ profileId: p.profileId }, 'client alert capped');
+      else if (r.outcome === 'SENT' || r.resent)
+        log.info({ profileId: p.profileId, channel: r.channel, sent: r.sent, resent: r.resent }, 'client alert sent');
+      return { outcome: r.outcome, sent: r.sent, duplicates: r.duplicates, expired: r.expired, resent: r.resent };
+    },
+  }),
+
+  sweepDeliveries: defineJob({
+    name: 'matching.sweepDeliveries',
+    pool: 'matching',
+    payload: z.object({}).strict(),
+    every: 3_600_000,
+    attempts: 3,
+    timeoutMs: 10 * 60_000,
+    async run(_p, { log, signal }) {
+      const now = clock.now();
+      let after: string | null = null;
+      let queued = 0;
+      while (!signal.aborted) {
+        const page: { ids: string[]; zones: Map<string, string> } = await withSystem(
+          'matching.sweepDeliveries',
+          async (tx) => {
+            const ids = await agencies.agencyIdsPage(tx, after, DELIVERY_SWEEP_AGENCY_PAGE);
+            return { ids, zones: await agencies.agencyTimeZones(tx, ids) };
+          },
+        );
+        const walks = page.ids.flatMap((agencyId) => {
+          const due = digestPeriodsDue(now, page.zones.get(agencyId) ?? DEFAULT_AGENCY_TIME_ZONE);
+          const daily = due.find((d) => d.frequency === 'DAILY');
+          if (!daily) return [];
+          const localDay = daily.period.slice(2);
+          return [
+            ...due.map((d) => ({ agencyId, frequency: d.frequency, period: d.period, day: localDay, after: null })),
+            { agencyId, frequency: 'INSTANT' as const, period: 'INSTANT' as const, day: localDay, after: null },
+          ];
+        });
+        if (walks.length > 0) await deliveryJobs.deliverDigests.enqueueMany(walks.map((payload) => ({ payload })));
+        queued += walks.length;
+        after = page.ids.at(-1) ?? null;
+        if (page.ids.length < DELIVERY_SWEEP_AGENCY_PAGE) break;
+      }
+      if (queued > 0) log.info({ queued }, 'client alert digests queued');
+      return { queued };
+    },
+  }),
+
+  deliverDigests: defineJob({
+    name: 'matching.deliverDigests',
+    pool: 'matching',
+    payload: z.object({
+      agencyId: z.uuid(),
+      frequency: z.enum(['INSTANT', 'DAILY', 'WEEKLY']),
+      period: PERIOD,
+      /** The agency's local day the walk is for (one walk per frequency and local day). */
+      day: LOCAL_DAY,
+      after: z.uuid().nullable(),
+    }),
+    // one walk per agency, frequency and local day (the hourly sweep queues it again until the day ends: collapsed)
+    jobId: (p) => `pdig:${p.agencyId}:${p.frequency}:${p.period}:${p.day}:${p.after ?? 'start'}`,
+    group: (p) => p.agencyId,
+    concurrencyPerGroup: 1,
+    attempts: 3,
+    backoff: { type: 'exponential', delay: 10_000 },
+    timeoutMs: 120_000,
+    async run(p) {
+      const ids = await digestProfilesPage(p.agencyId, p.frequency, p.after, DELIVERY_LIMITS.digestPage);
+      if (ids.length > 0) {
+        await deliveryJobs.deliverProfile.enqueueMany(
+          ids.map((profileId) => ({
+            payload: { agencyId: p.agencyId, profileId, period: p.period },
+            ...(p.period === 'INSTANT' ? { options: { throttleMs: DELIVERY_LIMITS.instantDebounceMs } } : {}),
+          })),
+        );
+      }
+      const next = ids.length < DELIVERY_LIMITS.digestPage ? null : (ids.at(-1) ?? null);
+      if (next) await deliveryJobs.deliverDigests.enqueue({ ...p, after: next });
+      return { profiles: ids.length, next };
     },
   }),
 };

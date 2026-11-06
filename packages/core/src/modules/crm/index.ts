@@ -51,6 +51,7 @@ export {
   eraseContactsBySystem,
   eraseContactsData,
   erasedContactIds,
+  lockContactReach,
   lockOpenContact,
   openContactExists,
   openContactNames,

@@ -99,6 +99,8 @@ const indexingEnv = {
 const leadEmailEnv = {
   DATABASE_URL_APP_PUBLIC: databaseEnv.DATABASE_URL_APP_PUBLIC,
   ...mediaCdnEnv,
+  /** R2-02e: the public pages' origin the client alerts' selection links point at (unset: no alert is sent). */
+  PUBLIC_PAGES_URL: z.url().optional(),
 };
 
 /**

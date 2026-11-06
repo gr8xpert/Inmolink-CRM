@@ -40,6 +40,20 @@ export {
   priceBand,
   withDeltas,
 } from './boost';
+// R2-02e: AUTO_SEND delivery (worker-only) and its e-mails (pure).
+export {
+  channelOf,
+  DELIVERY_LIMITS,
+  type DeliveryLimits,
+  type DeliveryOutcome,
+  type DeliveryPeriod,
+  type DeliveryResult,
+  deliverProfile,
+  digestPeriodsDue,
+  isoWeekOf,
+  mayAlert,
+} from './delivery';
+export { ALERT_EMAIL_CARDS, alertWhatsappUrl, renderProfileAlert, renderWhatsappHandoff } from './delivery-email';
 // R2-02b: the client-profile match engine (worker-only) and its scoring / explanation (pure).
 export {
   backfillListingFacts,
@@ -78,6 +92,7 @@ export { FEEDBACK_PROFILES_PER_CONTACT, recordDismissalFeedback, recordSelection
 export {
   clientMatchJobs,
   clientProfileJobs,
+  deliveryJobs,
   feedbackJobs,
   matchingJobs,
   matchWindowKey,

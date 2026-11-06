@@ -1,6 +1,7 @@
 import type { Tx } from '@inmolink/db';
 import {
   clientProfileAffinities,
+  clientProfileDeliveries,
   clientProfileEmbeddings,
   clientProfileFeedback,
   clientProfileMatches,
@@ -1309,17 +1310,27 @@ export interface NewMatch {
 /** Matches written per statement (each ≈ 1 KB of JSON). */
 export const MATCH_INSERT_CHUNK = 1_000;
 
-export async function insertMatches(tx: Tx, rows: readonly NewMatch[]): Promise<{ agencyId: string; n: number }[]> {
-  const counts = new Map<string, number>();
-  for (let i = 0; i < rows.length; i += MATCH_INSERT_CHUNK) {
-    for (const w of await insertMatchChunk(tx, rows.slice(i, i + MATCH_INSERT_CHUNK))) {
-      counts.set(w.agencyId, (counts.get(w.agencyId) ?? 0) + w.n);
-    }
-  }
-  return [...counts].map(([agencyId, n]) => ({ agencyId, n }));
+export interface WrittenMatches {
+  agencyId: string;
+  n: number;
+  /** R2-02e: the AUTO_SEND profiles that got `QUEUED` matches now (their INSTANT delivery is queued). */
+  queued: string[];
 }
 
-async function insertMatchChunk(tx: Tx, rows: readonly NewMatch[]): Promise<{ agencyId: string; n: number }[]> {
+export async function insertMatches(tx: Tx, rows: readonly NewMatch[]): Promise<WrittenMatches[]> {
+  const counts = new Map<string, { n: number; queued: Set<string> }>();
+  for (let i = 0; i < rows.length; i += MATCH_INSERT_CHUNK) {
+    for (const w of await insertMatchChunk(tx, rows.slice(i, i + MATCH_INSERT_CHUNK))) {
+      const c = counts.get(w.agencyId) ?? { n: 0, queued: new Set<string>() };
+      c.n += w.n;
+      for (const p of w.queued ?? []) c.queued.add(p);
+      counts.set(w.agencyId, c);
+    }
+  }
+  return [...counts].map(([agencyId, c]) => ({ agencyId, n: c.n, queued: [...c.queued] }));
+}
+
+async function insertMatchChunk(tx: Tx, rows: readonly NewMatch[]): Promise<WrittenMatches[]> {
   if (rows.length === 0) return [];
   const json = JSON.stringify(
     rows.map((r) => ({
@@ -1349,9 +1360,11 @@ async function insertMatchChunk(tx: Tx, rows: readonly NewMatch[]): Promise<{ ag
                boost_score real, total_score real, explanation jsonb, status text)
        order by profile_id, listing_id
       on conflict (profile_id, listing_id) do nothing
-      returning agency_id)
-    select agency_id as "agencyId", count(*)::int as n from w group by agency_id`);
-  return res.rows as unknown as { agencyId: string; n: number }[];
+      returning agency_id, profile_id, status)
+    select agency_id as "agencyId", count(*)::int as n,
+           coalesce(array_agg(distinct profile_id) filter (where status = 'QUEUED'), '{}') as queued
+      from w group by agency_id`);
+  return res.rows as unknown as WrittenMatches[];
 }
 
 /**
@@ -1721,4 +1734,268 @@ export async function approvedSelectionsOfContact(
      order by max(m.updated_at) desc
      limit ${limit}`);
   return (res.rows as { selectionId: string }[]).map((r) => r.selectionId);
+}
+
+/* ------------------------------------------------------------------ R2-02e: AUTO_SEND delivery (worker) */
+
+export interface DeliveryProfile {
+  id: string;
+  contactId: string;
+  mode: string;
+  frequency: string;
+}
+
+const deliveryProfileColumns = {
+  id: clientProfiles.id,
+  contactId: clientProfiles.contactId,
+  mode: clientProfiles.mode,
+  frequency: clientProfiles.frequency,
+};
+
+/** The profile; `lock`: `FOR UPDATE` until the transaction ends (one delivery of a profile at a time). */
+export async function deliveryProfileOf(
+  tx: Tx,
+  agencyId: string,
+  id: string,
+  opts: { lock?: boolean } = {},
+): Promise<DeliveryProfile | null> {
+  const q = tx
+    .select(deliveryProfileColumns)
+    .from(clientProfiles)
+    .where(and(eq(clientProfiles.agencyId, agencyId), eq(clientProfiles.id, id)));
+  const [row] = opts.lock ? await q.for('update') : await q;
+  return row ?? null;
+}
+
+export interface QueuedMatch {
+  id: string;
+  listingId: string;
+  listingAgencyId: string;
+}
+
+/**
+ * The profile's `QUEUED` matches — the newest `limit` (`client_profile_matches_queue_idx`), best score first; `ids`:
+ * only those; `lock`: `FOR UPDATE` of the rows. One statement.
+ */
+export async function queuedMatchesOf(
+  tx: Tx,
+  q: { agencyId: string; profileId: string; limit: number; ids?: readonly string[]; lock?: boolean },
+): Promise<QueuedMatch[]> {
+  const m = clientProfileMatches;
+  const query = tx
+    .select({ id: m.id, listingId: m.listingId, listingAgencyId: m.listingAgencyId, total: m.totalScore })
+    .from(m)
+    .where(
+      and(
+        eq(m.agencyId, q.agencyId),
+        eq(m.profileId, q.profileId),
+        eq(m.status, 'QUEUED'),
+        ...(q.ids ? [inArray(m.id, q.ids.length > 0 ? [...q.ids] : [NIL])] : []),
+      ),
+    )
+    .orderBy(sql`${m.createdAt} desc`, sql`${m.id} desc`)
+    .limit(q.limit);
+  const rows = q.lock ? await query.for('update') : await query;
+  return rows.sort((a, b) => b.total - a.total || (a.listingId < b.listingId ? -1 : 1)).map(({ total: _t, ...r }) => r);
+}
+
+/**
+ * Never twice: of these listings, the ones already `SENT` to the contact through any of its profiles (the contact's
+ * profiles, then `client_profile_matches_pair_uq`). One statement.
+ */
+export async function sentListingsOfContact(
+  tx: Tx,
+  agencyId: string,
+  contactId: string,
+  listingIds: readonly string[],
+): Promise<Set<string>> {
+  if (listingIds.length === 0) return new Set();
+  const m = clientProfileMatches;
+  const p = clientProfiles;
+  const rows = await tx
+    .selectDistinct({ listingId: m.listingId })
+    .from(m)
+    .innerJoin(p, eq(p.id, m.profileId))
+    .where(
+      and(
+        eq(p.agencyId, agencyId),
+        eq(p.contactId, contactId),
+        eq(m.agencyId, agencyId),
+        eq(m.status, 'SENT'),
+        inArray(m.listingId, [...new Set(listingIds)]),
+      ),
+    );
+  return new Set(rows.map((r) => r.listingId));
+}
+
+/** `QUEUED` matches → `SENT`, with the selection they went in (null: the client has the listing already). */
+export async function markMatchesSent(
+  tx: Tx,
+  agencyId: string,
+  ids: readonly string[],
+  selectionId: string | null,
+): Promise<number> {
+  if (ids.length === 0) return 0;
+  const m = clientProfileMatches;
+  const rows = await tx
+    .update(m)
+    .set({ status: 'SENT', selectionId, updatedAt: sql`now()` })
+    .where(and(eq(m.agencyId, agencyId), inArray(m.id, [...ids]), eq(m.status, 'QUEUED')))
+    .returning({ id: m.id });
+  return rows.length;
+}
+
+/** `QUEUED` matches of the agency's own listings that can no longer be offered → `EXPIRED` (final). */
+export async function expireQueuedMatches(tx: Tx, agencyId: string, ids: readonly string[]): Promise<number> {
+  if (ids.length === 0) return 0;
+  const m = clientProfileMatches;
+  const rows = await tx
+    .update(m)
+    .set({ status: 'EXPIRED', updatedAt: sql`now()` })
+    .where(and(eq(m.agencyId, agencyId), inArray(m.id, [...ids]), eq(m.status, 'QUEUED')))
+    .returning({ id: m.id });
+  return rows.length;
+}
+
+export interface DeliveryRow {
+  id: string;
+  profileId: string;
+  selectionId: string;
+  senderUserId: string;
+  channel: string;
+  matchCount: number;
+  attempts: number;
+}
+
+const deliveryColumns = {
+  id: clientProfileDeliveries.id,
+  profileId: clientProfileDeliveries.profileId,
+  selectionId: clientProfileDeliveries.selectionId,
+  senderUserId: clientProfileDeliveries.senderUserId,
+  channel: clientProfileDeliveries.channel,
+  matchCount: clientProfileDeliveries.matchCount,
+  attempts: clientProfileDeliveries.attempts,
+};
+
+/** The profile's oldest delivery not sent yet (its e-mail failed) made since `since`. */
+export async function pendingDeliveryOf(
+  tx: Tx,
+  agencyId: string,
+  profileId: string,
+  since: Date,
+): Promise<DeliveryRow | null> {
+  const d = clientProfileDeliveries;
+  const [row] = await tx
+    .select(deliveryColumns)
+    .from(d)
+    .where(
+      and(
+        eq(d.agencyId, agencyId),
+        eq(d.profileId, profileId),
+        eq(d.status, 'PENDING'),
+        sql`${d.createdAt} >= ${since.toISOString()}::timestamptz`,
+      ),
+    )
+    .orderBy(asc(d.createdAt))
+    .limit(1);
+  return row ?? null;
+}
+
+/** Whether the profile has a delivery for the period (`client_profile_deliveries_period_uq`). */
+export async function periodDelivered(
+  tx: Tx,
+  agencyId: string,
+  profileId: string,
+  periodKey: string,
+): Promise<boolean> {
+  const d = clientProfileDeliveries;
+  const [row] = await tx
+    .select({ id: d.id })
+    .from(d)
+    .where(and(eq(d.agencyId, agencyId), eq(d.profileId, profileId), eq(d.periodKey, periodKey)))
+    .limit(1);
+  return row !== undefined;
+}
+
+/**
+ * The caps' counts under the agency's delivery lock (a transaction-scoped advisory lock: parallel deliveries of one
+ * agency decide one after the other, so no cap is overrun): the agency's deliveries and the contact's since `since`.
+ * Three statements.
+ */
+export async function lockedDeliveryCounts(
+  tx: Tx,
+  q: { agencyId: string; contactId: string; since: Date },
+): Promise<{ agency: number; contact: number }> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`pdel:${q.agencyId}`}, 0))`);
+  const d = clientProfileDeliveries;
+  const since = sql`${q.since.toISOString()}::timestamptz`;
+  const [agency] = await tx
+    .select({ n: sql<number>`count(*)::int` })
+    .from(d)
+    .where(and(eq(d.agencyId, q.agencyId), sql`${d.createdAt} >= ${since}`));
+  const [contact] = await tx
+    .select({ n: sql<number>`count(*)::int` })
+    .from(d)
+    .where(
+      and(
+        eq(d.agencyId, q.agencyId),
+        sql`${d.profileId} in (select ${clientProfiles.id} from ${clientProfiles}
+              where ${clientProfiles.agencyId} = ${q.agencyId} and ${clientProfiles.contactId} = ${q.contactId})`,
+        sql`${d.createdAt} >= ${since}`,
+      ),
+    );
+  return { agency: agency?.n ?? 0, contact: contact?.n ?? 0 };
+}
+
+export type DeliveryInsert = typeof clientProfileDeliveries.$inferInsert;
+
+export async function insertDelivery(tx: Tx, row: DeliveryInsert): Promise<void> {
+  await tx.insert(clientProfileDeliveries).values(row);
+}
+
+/** A send attempt starts: answers its number (the idempotency key's suffix), 0 when the delivery is not pending. */
+export async function bumpDeliveryAttempt(tx: Tx, id: string): Promise<number> {
+  const d = clientProfileDeliveries;
+  const [row] = await tx
+    .update(d)
+    .set({ attempts: sql`${d.attempts} + 1` })
+    .where(and(eq(d.id, id), eq(d.status, 'PENDING')))
+    .returning({ attempts: d.attempts });
+  return row?.attempts ?? 0;
+}
+
+export async function markDeliverySent(tx: Tx, id: string): Promise<void> {
+  const d = clientProfileDeliveries;
+  await tx
+    .update(d)
+    .set({ status: 'SENT', sentAt: sql`now()` })
+    .where(and(eq(d.id, id), eq(d.status, 'PENDING')));
+}
+
+/**
+ * A page of the agency's AUTO_SEND profiles of `frequency` with `QUEUED` matches, by id after `after`
+ * (`client_profiles_agency_id_uq`, a `queue_idx` probe each). One statement.
+ */
+export async function digestProfilesPage(
+  tx: Tx,
+  q: { agencyId: string; frequency: string; after: string | null; limit: number },
+): Promise<string[]> {
+  const p = clientProfiles;
+  const m = clientProfileMatches;
+  const rows = await tx
+    .select({ id: p.id })
+    .from(p)
+    .where(
+      and(
+        eq(p.agencyId, q.agencyId),
+        gt(p.id, q.after ?? NIL),
+        eq(p.mode, 'AUTO_SEND'),
+        eq(p.frequency, q.frequency),
+        sql`exists (select 1 from ${m} where ${m.agencyId} = ${q.agencyId} and ${m.profileId} = ${p.id}
+                     and ${m.status} = 'QUEUED')`,
+      ),
+    )
+    .orderBy(asc(p.id))
+    .limit(q.limit);
+  return rows.map((r) => r.id);
 }

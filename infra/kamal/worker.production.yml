@@ -13,3 +13,5 @@ env:
     WEB_URL: "https://app.inmolink.es"
     # S15-02: the public portal's origin — its sitemaps' URLs (exports pool).
     PORTAL_URL: "https://inmolink.es"
+    # R2-02e: client alerts link selections on the public pages host (unset: no alert is sent).
+    PUBLIC_PAGES_URL: "https://sites.inmolink.es"

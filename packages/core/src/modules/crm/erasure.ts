@@ -386,3 +386,11 @@ export async function openContactNames(
  */
 export const lockOpenContact = (tx: Tx, agencyId: string, contactId: string) =>
   repo.openContactExists(tx, agencyId, contactId, { lock: true });
+
+/**
+ * R2-02e (client alerts, worker `withSystem`): an open contact's reach — first name, language, agent, first e-mail and
+ * phone, marketing consent, do-not-contact — locked until the transaction ends (`FOR NO KEY UPDATE`: a consent change,
+ * merge or erasure waits for the delivery). Null for a merged, erased or unknown contact.
+ */
+export const lockContactReach = (tx: Tx, agencyId: string, contactId: string) =>
+  repo.lockContactReach(tx, agencyId, contactId);

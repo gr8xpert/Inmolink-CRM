@@ -239,5 +239,25 @@
       "VALIDATION_FAILED": "Revisa los valores e inténtalo de nuevo.",
       "LEAD_NOT_FOUND": "Este lead ya no existe."
     }
+  },
+  "profileAlert": {
+    "selectionTitle": "Nuevas propiedades para ti",
+    "subject": "{count, plural, one {# nueva propiedad para ti} other {# nuevas propiedades para ti}} · {agency}",
+    "greeting": "Hola {name}:",
+    "greetingNeutral": "Hola:",
+    "intro": "{count, plural, one {Hemos encontrado una nueva propiedad que encaja con lo que buscas.} other {Hemos encontrado # nuevas propiedades que encajan con lo que buscas.}}",
+    "cta": "Ver la selección",
+    "more": "Y {count} más en la selección.",
+    "priceOnRequest": "Precio a consultar",
+    "bedrooms": "{count, plural, one {# dormitorio} other {# dormitorios}}",
+    "signature": "Un saludo,",
+    "why": "Recibes estos correos porque pediste a {agency} alertas de propiedades.",
+    "stop": "Para dejar de recibirlos, responde a este correo o díselo a tu agente y no te enviaremos más.",
+    "whatsappText": "Hola {name}, hemos encontrado nuevas propiedades que encajan con tu búsqueda: {url}",
+    "whatsappTextNeutral": "Hola, hemos encontrado nuevas propiedades que encajan con tu búsqueda: {url}",
+    "agentSubject": "Envía a {client} sus nuevas coincidencias por WhatsApp",
+    "agentBody": "{count, plural, one {Un nuevo inmueble encaja con un perfil de búsqueda de {client}.} other {# nuevos inmuebles encajan con un perfil de búsqueda de {client}.}} Los hemos puesto en una selección para el cliente. Pulsa el botón en tu móvil para abrir WhatsApp con el mensaje listo para enviar.",
+    "agentCta": "Enviar por WhatsApp",
+    "agentFooter": "Recibes esto porque {client} es tu cliente y su perfil está configurado para enviar automáticamente."
   }
 }

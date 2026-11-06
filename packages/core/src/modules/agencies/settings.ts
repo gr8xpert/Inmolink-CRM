@@ -231,6 +231,20 @@ export async function agencyTimeZone(tx: Tx, agencyId: string): Promise<string> 
 }
 
 /**
+ * R2-02e: `agencyTimeZone` for a page of agencies (workers, `withSystem`): the client alerts' digest hour is local.
+ * One statement; every id gets a zone (the default without a settings row or with a bad one).
+ */
+export async function agencyTimeZones(tx: Tx, agencyIds: readonly string[]): Promise<Map<string, string>> {
+  const zones = await repo.timeZonesOf(tx, agencyIds);
+  return new Map(
+    agencyIds.map((id) => {
+      const zone = zones.get(id);
+      return [id, zone && TimeZoneName.safeParse(zone).success ? zone : DEFAULT_AGENCY_TIME_ZONE];
+    }),
+  );
+}
+
+/**
  * `GET /v1/agency/settings`: any member, never in Client Mode — settings hold commission and the PIN
  * policy, none of which a client may see (PLAN §3 #56).
  */

@@ -1614,6 +1614,13 @@ export const tenantTables: Record<string, TenantTable> = {
     base: { signal: 'LIKE', signal_at: '2026-11-07T00:00:00Z', keys: '{}' },
   },
   client_profile_affinities: { kind: 'STRICT', userReadOnly: true, base: { keys: '{}', likes: '{}', dislikes: '{}' } },
+  // R2-02e: the alerts sent to clients (the profile's agency's own) — worker-only like the matches: no request marks an
+  // alert sent or frees a cap slot.
+  client_profile_deliveries: {
+    kind: 'STRICT',
+    userReadOnly: true,
+    base: { channel: 'EMAIL', period_key: 'I:isolation', match_count: 1 },
+  },
   // S12-04: selections. S13-F1: the public pages (`app_public`, which also serves feed-api, export downloads and
   // websites) read no row of either table: a live selection and its items are answered only by the SECURITY DEFINER
   // `selection_by_token(hashes)` (owner app_owner, `definerRead`) for the token's keyed hash — never a scan, never
