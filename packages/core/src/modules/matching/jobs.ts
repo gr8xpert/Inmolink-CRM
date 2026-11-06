@@ -3,9 +3,11 @@ import { clock } from '@inmolink/platform/clock';
 import { defineJob } from '@inmolink/platform/queue';
 import { z } from 'zod';
 import * as agencies from '../agencies';
+import * as crm from '../crm';
 import * as search from '../search';
 import { CLIENT_PROFILE_EVENT_IDS } from './events';
 import { embedProfiles, profileBackfillPage } from './profile-embeddings';
+import { eraseContactProfiles, repointClientProfiles } from './profiles';
 import {
   backfillListingStates,
   INSTANT_WINDOW_MS,
@@ -328,6 +330,46 @@ export const profileEmbeddingJobs = {
         });
       }
       return result;
+    },
+  }),
+};
+
+/**
+ * R2-02a: client profiles follow their contact (pool `maintenance`, like the other modules' merge / erasure reactions;
+ * group = the agency; job ID = the event's id: a redelivered event adds nothing).
+ *
+ * - `matching.repointClientProfiles` — one per `crm.contact.merged`: the closed contact's profiles name the survivor
+ *   (each batch emits `matching.clientProfiles.changed`). Idempotent.
+ * - `matching.eraseContactProfiles` — one per `crm.contact.erased`: the profiles of the erased contact and of the
+ *   contacts merged into it are deleted with their vectors. Idempotent.
+ */
+export const clientProfileJobs = {
+  repointClientProfiles: defineJob({
+    name: 'matching.repointClientProfiles',
+    pool: 'maintenance',
+    payload: z.object({ eventId: z.uuid(), agencyId: z.uuid(), survivorId: z.uuid(), mergedId: z.uuid() }),
+    jobId: (p) => `profiles-merge:${p.eventId}`,
+    group: (p) => p.agencyId,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 5_000 },
+    timeoutMs: 60_000,
+    async run(p) {
+      return repointClientProfiles(p);
+    },
+  }),
+
+  eraseContactProfiles: defineJob({
+    name: 'matching.eraseContactProfiles',
+    pool: 'maintenance',
+    payload: z.object({ eventId: z.uuid(), agencyId: z.uuid(), contactId: z.uuid() }),
+    jobId: (p) => `profiles-erase:${p.eventId}`,
+    group: (p) => p.agencyId,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 5_000 },
+    timeoutMs: 60_000,
+    async run(p) {
+      const contactIds = await crm.erasedContactIds({ agencyId: p.agencyId, contactIds: [p.contactId] });
+      return eraseContactProfiles({ agencyId: p.agencyId, contactIds });
     },
   }),
 };

@@ -241,6 +241,10 @@ export const locationLineage = (tx: Tx, id: string) => repo.lineage(tx, id);
 /** Whether a property type exists (crm's seller prospects keep one without a foreign key, S10-07). */
 export const propertyTypeExists = (tx: Tx, id: string) => repo.propertyTypeExists(tx, id);
 
+/** R2-02a: which of `ids` exist as property types / features (references stored without a foreign key). */
+export const existingCatalogIds = (tx: Tx, kind: 'propertyType' | 'feature', ids: readonly string[]) =>
+  repo.existingCatalogIds(tx, kind, ids);
+
 /** `locationLineage` for many locations at once (feed imports, S6-02): id → its and its ancestors' ids by depth. */
 export const locationLineages = (tx: Tx, ids: readonly string[]) => repo.lineages(tx, ids);
 

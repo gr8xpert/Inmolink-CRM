@@ -206,6 +206,8 @@
     "lost": "Esta página ha perdido el seguimiento de la importación. Puede que siga en curso: consulta el resultado en la lista de abajo."
   },
   "errors": {
+    "CLIENT_PROFILE_NOT_FOUND": "Este perfil de búsqueda ya no existe.",
+    "CLIENT_PROFILE_LIMIT": "Un contacto puede tener como máximo {max} perfiles de búsqueda. Elimina uno primero.",
     "CONTACT_NOT_FOUND": "Este contacto no existe o se fusionó con otro.",
     "CONTACT_DUPLICATE": "Un correo o teléfono ya pertenece a otro contacto.",
     "CONTACT_PHONE_INVALID": "Un número de teléfono no es válido.",

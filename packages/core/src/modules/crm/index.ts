@@ -51,6 +51,7 @@ export {
   eraseContactsBySystem,
   eraseContactsData,
   erasedContactIds,
+  lockOpenContact,
   openContactExists,
   purgeAgencyContactImports,
   purgeContactImportFiles,

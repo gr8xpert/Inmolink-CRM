@@ -364,3 +364,12 @@ export async function eraseAgencyCrmText(p: {
 /** S16-04: whether `contactId` is an open contact of the agency (`SUBJECT` exports; under the caller's RLS). */
 export const openContactExists = (tx: Tx, agencyId: string, contactId: string) =>
   repo.openContactExists(tx, agencyId, contactId);
+
+/**
+ * R2-02a: `openContactExists` that also locks the contact (`FOR NO KEY UPDATE`) until the caller's transaction ends —
+ * another module writing a row that names the contact (a client profile) then commits before a merge or erasure of
+ * that contact can (both lock it `FOR UPDATE`), so the merge's / erasure's after-commit reaction sees the row; and two
+ * such writes for one contact run one after the other (a per-contact cap holds).
+ */
+export const lockOpenContact = (tx: Tx, agencyId: string, contactId: string) =>
+  repo.openContactExists(tx, agencyId, contactId, { lock: true });

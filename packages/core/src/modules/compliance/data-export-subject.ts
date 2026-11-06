@@ -1,6 +1,7 @@
 import { withTenant } from '@inmolink/db';
 import type { ExportCell } from '@inmolink/platform/sheet';
 import * as crm from '../crm';
+import * as matching from '../matching';
 import * as mls from '../mls';
 import * as presentations from '../presentations';
 import * as websites from '../websites';
@@ -15,7 +16,7 @@ import * as gdprRepo from './gdpr-repo';
  * S16-F5: every category the privacy notice lists (`SUBJECT_EXPORT_CATEGORIES`) — besides the contact, notes, leads,
  * tasks, activities and consents, the website enquiries their leads came from, the calendar events they attend, their
  * seller prospects, the selections made for them (and what they did on them), their client registrations and viewing
- * requests — and every table is paged (`crm.SUBJECT_PAGE_MAX` rows per read), so nothing stops at 1,000 rows.
+ * requests (R2-02a: and their search profiles) — and every table is paged (`crm.SUBJECT_PAGE_MAX` rows per read), so nothing stops at 1,000 rows.
  */
 
 export type SubjectTableName =
@@ -28,6 +29,7 @@ export type SubjectTableName =
   | 'prospects'
   | 'selections'
   | 'selection_responses'
+  | 'client_profiles'
   | 'registrations'
   | 'viewings'
   | 'activities'
@@ -46,7 +48,7 @@ export interface SubjectTable {
  */
 export const SUBJECT_EXPORT_CATEGORIES: Readonly<Record<string, readonly SubjectTableName[]>> = {
   contacts: ['contact', 'consents'],
-  enquiries: ['leads', 'enquiries', 'selections', 'selection_responses'],
+  enquiries: ['leads', 'enquiries', 'selections', 'selection_responses', 'client_profiles'],
   viewings: ['registrations', 'viewings', 'events'],
   notes: ['notes', 'tasks', 'activities', 'prospects'],
 };
@@ -312,6 +314,55 @@ export function subjectTables(agencyId: string, contactId: string): SubjectTable
             PAGE,
           );
           for await (const r of all) yield [r.id, r.selectionId, r.kind, r.listingId, r.message, r.createdAt];
+        }
+      },
+    },
+    {
+      // R2-02a: what the client is looking for — criteria, their wishes, how the agency matches it
+      name: 'client_profiles',
+      header: [
+        'id',
+        'mode',
+        'frequency',
+        'transaction_type',
+        'property_type_ids',
+        'location_ids',
+        'feature_ids',
+        'price_min_cents',
+        'price_max_cents',
+        'beds_min',
+        'baths_min',
+        'area_min_m2',
+        'area_max_m2',
+        'wishes',
+        'created_at',
+        'updated_at',
+      ],
+      async *rows() {
+        const all = paged(
+          (after: string | null) => as((tx) => matching.subjectClientProfiles(tx, agencyId, contactId, after)),
+          (p) => p.id,
+          matching.SUBJECT_PROFILE_PAGE,
+        );
+        for await (const p of all) {
+          yield [
+            p.id,
+            p.mode,
+            p.frequency,
+            p.transactionType,
+            p.propertyTypeIds.join(' '),
+            p.locationIds.join(' '),
+            p.featureIds.join(' '),
+            p.priceMinCents,
+            p.priceMaxCents,
+            p.bedsMin,
+            p.bathsMin,
+            p.areaMinM2,
+            p.areaMaxM2,
+            p.wishes,
+            p.createdAt,
+            p.updatedAt,
+          ];
         }
       },
     },

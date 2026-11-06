@@ -1,8 +1,9 @@
 import { subscribe } from '@inmolink/platform/outbox';
 import * as agencies from '../agencies';
+import * as crm from '../crm';
 import * as search from '../search';
 import { matchingEvents } from './events';
-import { matchingJobs, profileEmbeddingJobs } from './jobs';
+import { clientProfileJobs, matchingJobs, profileEmbeddingJobs } from './jobs';
 
 let unsubscribe: (() => void)[] | undefined;
 
@@ -12,7 +13,9 @@ let unsubscribe: (() => void)[] | undefined;
  * `matching.matchListings` job — job ID = the event's id, so a redelivered event adds nothing; the tenant (fair-share
  * group) is the listings' agency. An agency's status change (verified, suspended) re-keys its saved searches
  * (`matching.rekeyAgency`: network keys only while it takes part in the network). R2-01b: a changed client
- * profile (`matching.clientProfiles.changed`) is re-embedded (`matching.embedProfiles`).
+ * profile (`matching.clientProfiles.changed`) is re-embedded (`matching.embedProfiles`). R2-02a: a contact merge
+ * (`crm.contact.merged`) moves the closed contact's client profiles to the survivor, a contact erasure
+ * (`crm.contact.erased`) deletes its profiles and their vectors (one job per event, job ID = the event's id).
  */
 export function registerMatchingSubscriptions(): void {
   if (unsubscribe) return;
@@ -37,6 +40,27 @@ export function registerMatchingSubscriptions(): void {
           profileIds: payload.profileIds,
         }),
       { name: 'matching.profileEmbeddings' },
+    ),
+    subscribe(
+      crm.crmEvents.contactMerged,
+      (payload, meta) =>
+        clientProfileJobs.repointClientProfiles.enqueue({
+          eventId: meta.eventId,
+          agencyId: meta.agencyId,
+          survivorId: payload.survivorId,
+          mergedId: payload.mergedId,
+        }),
+      { name: 'matching.clientProfiles.contactMerged' },
+    ),
+    subscribe(
+      crm.crmEvents.contactErased,
+      (payload, meta) =>
+        clientProfileJobs.eraseContactProfiles.enqueue({
+          eventId: meta.eventId,
+          agencyId: meta.agencyId,
+          contactId: payload.contactId,
+        }),
+      { name: 'matching.clientProfiles.contactErased' },
     ),
     subscribe(
       agencies.agenciesEvents.statusChanged,

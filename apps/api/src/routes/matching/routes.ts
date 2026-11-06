@@ -1,4 +1,17 @@
-import { SavedSearchBody, SavedSearchDto, SavedSearchList, SavedSearchParams } from '@inmolink/contracts';
+import {
+  CLIENT_PROFILE_LIMITS,
+  ClientProfileDto,
+  ClientProfilePage,
+  ClientProfileParams,
+  ContactParams,
+  CreateClientProfileBody,
+  PageQuery,
+  SavedSearchBody,
+  SavedSearchDto,
+  SavedSearchList,
+  SavedSearchParams,
+  UpdateClientProfileBody,
+} from '@inmolink/contracts';
 import * as matching from '@inmolink/core/modules/matching';
 import type { RateLimitRule } from '@inmolink/platform/rate-limit';
 import type { FastifyZod } from '@inmolink/platform/server';
@@ -11,6 +24,15 @@ const READ_LIMITS: readonly RateLimitRule[] = [
 const WRITE_LIMITS: readonly RateLimitRule[] = [
   { name: 'matching.saved-searches.write.ip', scope: 'ip', limit: 300, windowSeconds: 60 },
   { name: 'matching.saved-searches.write.user', scope: 'user', limit: 60, windowSeconds: 60 },
+];
+
+const PROFILE_READ_LIMITS: readonly RateLimitRule[] = [
+  { name: 'matching.client-profiles.read.ip', scope: 'ip', limit: 600, windowSeconds: 60 },
+  { name: 'matching.client-profiles.read.user', scope: 'user', limit: 240, windowSeconds: 60 },
+];
+const PROFILE_WRITE_LIMITS: readonly RateLimitRule[] = [
+  { name: 'matching.client-profiles.write.ip', scope: 'ip', limit: 300, windowSeconds: 60 },
+  { name: 'matching.client-profiles.write.user', scope: 'user', limit: 60, windowSeconds: 60 },
 ];
 
 const tags = ['matching'];
@@ -84,6 +106,97 @@ export async function matchingRoutes(app: FastifyZod): Promise<void> {
     },
     async (req, reply) => {
       await app.withCtx(req, (ctx) => matching.deleteSavedSearch(ctx, req.params.id));
+      return reply.code(204).send(null);
+    },
+  );
+
+  /*
+   * R2-02a, client profiles (PLAN §7 M9): what a client (a CRM contact) is looking for and how the match engine works
+   * it. The owning contact's rule (crm contacts read / write); internal client data, never in Client Mode.
+   */
+  app.get(
+    '/v1/crm/contacts/:id/profiles',
+    {
+      schema: {
+        tags,
+        operationId: 'matching.listClientProfiles',
+        summary: 'A contact’s client profiles, oldest first',
+        params: ContactParams,
+        querystring: PageQuery,
+        response: { 200: ClientProfilePage },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: PROFILE_READ_LIMITS },
+    },
+    (req) => app.withCtx(req, (ctx) => matching.listClientProfiles(ctx, req.params.id, req.query)),
+  );
+
+  app.post(
+    '/v1/crm/contacts/:id/profiles',
+    {
+      schema: {
+        tags,
+        operationId: 'matching.createClientProfile',
+        summary: `Add a client profile to a contact (201; at most ${CLIENT_PROFILE_LIMITS.perContact} per contact)`,
+        params: ContactParams,
+        body: CreateClientProfileBody,
+        response: { 201: ClientProfileDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: PROFILE_WRITE_LIMITS },
+    },
+    async (req, reply) =>
+      reply.code(201).send(await app.withCtx(req, (ctx) => matching.createClientProfile(ctx, req.params.id, req.body))),
+  );
+
+  app.get(
+    '/v1/client-profiles/:id',
+    {
+      schema: {
+        tags,
+        operationId: 'matching.getClientProfile',
+        summary: 'One client profile',
+        params: ClientProfileParams,
+        response: { 200: ClientProfileDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: PROFILE_READ_LIMITS },
+    },
+    (req) => app.withCtx(req, (ctx) => matching.getClientProfile(ctx, req.params.id)),
+  );
+
+  app.put(
+    '/v1/client-profiles/:id',
+    {
+      schema: {
+        tags,
+        operationId: 'matching.updateClientProfile',
+        summary: 'Replace a client profile at its version (409 VERSION_CONFLICT on another version)',
+        params: ClientProfileParams,
+        body: UpdateClientProfileBody,
+        response: { 200: ClientProfileDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: PROFILE_WRITE_LIMITS },
+    },
+    (req) => app.withCtx(req, (ctx) => matching.updateClientProfile(ctx, req.params.id, req.body)),
+  );
+
+  app.delete(
+    '/v1/client-profiles/:id',
+    {
+      schema: {
+        tags,
+        operationId: 'matching.deleteClientProfile',
+        summary: 'Delete a client profile',
+        params: ClientProfileParams,
+        response: { 204: z.null() },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: PROFILE_WRITE_LIMITS },
+    },
+    async (req, reply) => {
+      await app.withCtx(req, (ctx) => matching.deleteClientProfile(ctx, req.params.id));
       return reply.code(204).send(null);
     },
   );

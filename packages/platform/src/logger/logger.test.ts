@@ -289,6 +289,18 @@ describe('logger', () => {
     expect(line.contact.phones).toBe(REDACTED);
   });
 
+  it('[R2-02a] a logged client profile prints none of its wishes', () => {
+    const out = capture();
+    createLogger({ destination: out.destination }).info(
+      { profile: { id: 'p1', wishes: 'wish-secret-sea-view' }, deep: { a: { wishes: 'wish-secret-deeper' } } },
+      'profile',
+    );
+    const text = out.raw.join('');
+    expect(text).not.toContain('wish-secret-sea-view');
+    expect(text).not.toContain('wish-secret-deeper');
+    expect((out.lines[0] as { profile: { wishes: unknown } }).profile.wishes).toBe(REDACTED);
+  });
+
   it('[S0-03] bindings cannot overwrite the request id', () => {
     const out = capture();
     withRequestId(createLogger({ destination: out.destination }), 'req-1', { requestId: 'spoofed' }).info('x');

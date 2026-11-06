@@ -22,6 +22,7 @@ export { deleteAgencySavedSearches } from './erasure';
 export { matchingErrors } from './errors';
 export { CLIENT_PROFILE_EVENT_IDS, matchingEvents } from './events';
 export {
+  clientProfileJobs,
   matchingJobs,
   PROFILE_EMBEDDINGS_SWEEP_EVERY_MS,
   profileBackfillKey,
@@ -37,7 +38,7 @@ export {
   MATCHING_IMPERSONATION,
   type MatchingAction,
 } from './policy';
-// R2-01b: client-profile embeddings (worker-only); the profiles' service and routes come with R2-02.
+// R2-01b: client-profile embeddings (worker-only).
 export {
   type EmbedProfilesResult,
   embedProfiles,
@@ -47,6 +48,18 @@ export {
   profileBackfillPage,
   profileEmbeddingText,
 } from './profile-embeddings';
+// R2-02a: client profiles (requests) and their contact merge / erasure reactions (worker).
+export {
+  createClientProfile,
+  deleteClientProfile,
+  eraseContactProfiles,
+  getClientProfile,
+  listClientProfiles,
+  repointClientProfiles,
+  SUBJECT_PROFILE_PAGE,
+  subjectClientProfiles,
+  updateClientProfile,
+} from './profiles';
 export {
   ALERT_DAILY_CAP,
   ALERT_RETENTION_DAYS,

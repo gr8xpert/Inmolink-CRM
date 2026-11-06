@@ -58,6 +58,7 @@ export {
   createLocationGroup,
   createPropertyType,
   createPropertyTypeGroup,
+  existingCatalogIds,
   findLocationAtPoint,
   importAliases,
   locationAncestors,

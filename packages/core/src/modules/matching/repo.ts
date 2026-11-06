@@ -8,6 +8,7 @@ import {
 } from '@inmolink/db/schema/matching';
 import { NIL_UUID as NIL } from '@inmolink/platform/tenancy';
 import { and, asc, eq, gt, inArray, type SQL, sql } from 'drizzle-orm';
+import { type KeysetCursor, keysetAfterRaw, keysetOrderRaw, keysetStamp } from '../../pagination';
 
 /**
  * matching queries (PATTERNS §5). Takes `tx`, selects only the columns it needs. Queries only
@@ -684,4 +685,184 @@ export async function deleteOrphanProfileEmbeddings(
         order by e.profile_id
         limit ${ORPHAN_DELETE_CAP})`);
   return res.rowCount ?? 0;
+}
+
+/* ------------------------------------------------------------------ client profiles (R2-02a, requests) */
+
+export interface ClientProfileRow {
+  id: string;
+  contactId: string;
+  mode: string;
+  frequency: string;
+  transactionType: string | null;
+  propertyTypeIds: string[];
+  locationIds: string[];
+  featureIds: string[];
+  priceMinCents: number | null;
+  priceMaxCents: number | null;
+  bedsMin: number | null;
+  bathsMin: number | null;
+  areaMinM2: number | null;
+  areaMaxM2: number | null;
+  wishes: string | null;
+  version: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export type ClientProfileFields = Omit<ClientProfileRow, 'id' | 'contactId' | 'version' | 'createdAt' | 'updatedAt'>;
+
+const profileColumns = {
+  id: clientProfiles.id,
+  contactId: clientProfiles.contactId,
+  mode: clientProfiles.mode,
+  frequency: clientProfiles.frequency,
+  transactionType: clientProfiles.transactionType,
+  propertyTypeIds: clientProfiles.propertyTypeIds,
+  locationIds: clientProfiles.locationIds,
+  featureIds: clientProfiles.featureIds,
+  priceMinCents: clientProfiles.priceMinCents,
+  priceMaxCents: clientProfiles.priceMaxCents,
+  bedsMin: clientProfiles.bedsMin,
+  bathsMin: clientProfiles.bathsMin,
+  areaMinM2: clientProfiles.areaMinM2,
+  areaMaxM2: clientProfiles.areaMaxM2,
+  wishes: clientProfiles.wishes,
+  version: clientProfiles.version,
+  createdAt: clientProfiles.createdAt,
+  updatedAt: clientProfiles.updatedAt,
+};
+
+/** One profile of the agency (primary key). */
+export async function clientProfileOf(tx: Tx, agencyId: string, id: string): Promise<ClientProfileRow | null> {
+  const [row] = await tx
+    .select(profileColumns)
+    .from(clientProfiles)
+    .where(and(eq(clientProfiles.agencyId, agencyId), eq(clientProfiles.id, id)));
+  return row ?? null;
+}
+
+/** A page of the contact's profiles, oldest first (`client_profiles_contact_idx`, raw keyset): `limit + 1` rows. */
+export function clientProfilesOfContact(
+  tx: Tx,
+  agencyId: string,
+  contactId: string,
+  page: { limit: number; cursor?: KeysetCursor | undefined },
+): Promise<(ClientProfileRow & { atUs: string })[]> {
+  return tx
+    .select({ ...profileColumns, atUs: keysetStamp(clientProfiles.createdAt) })
+    .from(clientProfiles)
+    .where(
+      and(
+        eq(clientProfiles.agencyId, agencyId),
+        eq(clientProfiles.contactId, contactId),
+        keysetAfterRaw(clientProfiles.createdAt, clientProfiles.id, page.cursor, 'asc'),
+      ),
+    )
+    .orderBy(...keysetOrderRaw(clientProfiles.createdAt, clientProfiles.id, 'asc'))
+    .limit(page.limit + 1);
+}
+
+/**
+ * A profile of the contact, unless it has `max` already (one statement: the count over `client_profiles_contact_idx`
+ * and the insert). Null at the limit.
+ */
+export async function insertClientProfile(
+  tx: Tx,
+  s: ClientProfileFields & { agencyId: string; id: string; contactId: string; max: number },
+): Promise<ClientProfileRow | null> {
+  const result = await tx.execute<{ id: string }>(sql`
+    insert into ${clientProfiles}
+      (id, agency_id, contact_id, mode, frequency, transaction_type, property_type_ids, location_ids, feature_ids,
+       price_min_cents, price_max_cents, beds_min, baths_min, area_min_m2, area_max_m2, wishes)
+    select ${s.id}::uuid, ${s.agencyId}::uuid, ${s.contactId}::uuid, ${s.mode}, ${s.frequency}, ${s.transactionType},
+           ${uuids(s.propertyTypeIds)}, ${uuids(s.locationIds)}, ${uuids(s.featureIds)},
+           ${s.priceMinCents}::bigint, ${s.priceMaxCents}::bigint, ${s.bedsMin}::int, ${s.bathsMin}::int,
+           ${s.areaMinM2}::numeric, ${s.areaMaxM2}::numeric, ${s.wishes}
+     where (select count(*) from ${clientProfiles} n
+             where n.agency_id = ${s.agencyId} and n.contact_id = ${s.contactId}) < ${s.max}
+    returning id`);
+  if (result.rows.length === 0) return null;
+  return clientProfileOf(tx, s.agencyId, s.id);
+}
+
+/** The profile replaced at `version` (its version moves on). Null: no such profile, or another version. */
+export async function updateClientProfile(
+  tx: Tx,
+  agencyId: string,
+  id: string,
+  version: number,
+  s: ClientProfileFields,
+): Promise<ClientProfileRow | null> {
+  const [row] = await tx
+    .update(clientProfiles)
+    .set({ ...s, version: sql`${clientProfiles.version} + 1`, updatedAt: sql`now()` })
+    .where(and(eq(clientProfiles.agencyId, agencyId), eq(clientProfiles.id, id), eq(clientProfiles.version, version)))
+    .returning(profileColumns);
+  return row ?? null;
+}
+
+/** Deletes the profile; answers whether it existed. */
+export async function deleteClientProfile(tx: Tx, agencyId: string, id: string): Promise<boolean> {
+  const rows = await tx
+    .delete(clientProfiles)
+    .where(and(eq(clientProfiles.agencyId, agencyId), eq(clientProfiles.id, id)))
+    .returning({ id: clientProfiles.id });
+  return rows.length > 0;
+}
+
+/**
+ * R2-02a, the `SUBJECT` data export: a page of the contact's profiles by id (`client_profiles_contact_idx` filters the
+ * contact's few rows). Under the caller's RLS.
+ */
+export function subjectClientProfiles(
+  tx: Tx,
+  p: { agencyId: string; contactId: string; afterId: string | null; limit: number },
+): Promise<ClientProfileRow[]> {
+  return tx
+    .select(profileColumns)
+    .from(clientProfiles)
+    .where(
+      and(
+        eq(clientProfiles.agencyId, p.agencyId),
+        eq(clientProfiles.contactId, p.contactId),
+        p.afterId ? gt(clientProfiles.id, p.afterId) : undefined,
+      ),
+    )
+    .orderBy(asc(clientProfiles.id))
+    .limit(p.limit);
+}
+
+/* ------------------------------------------------------------------ client profiles (R2-02a, contact merge / erasure) */
+
+/**
+ * A contact merge: up to `limit` profiles of `fromId` name `toId` (their version moves on). Answers the moved ids
+ * (`client_profiles_contact_idx`).
+ */
+export async function repointClientProfiles(
+  tx: Tx,
+  p: { agencyId: string; fromId: string; toId: string; limit: number },
+): Promise<string[]> {
+  const res = await tx.execute<{ id: string }>(sql`
+    update ${clientProfiles} set contact_id = ${p.toId}, version = version + 1, updated_at = now()
+     where agency_id = ${p.agencyId}
+       and id in (select id from ${clientProfiles}
+                   where agency_id = ${p.agencyId} and contact_id = ${p.fromId} limit ${p.limit})
+    returning id`);
+  return (res.rows as { id: string }[]).map((r) => r.id);
+}
+
+/** A contact erasure: up to `limit` profiles of these contacts deleted. Answers their ids. */
+export async function deleteContactsClientProfiles(
+  tx: Tx,
+  p: { agencyId: string; contactIds: readonly string[]; limit: number },
+): Promise<string[]> {
+  if (p.contactIds.length === 0) return [];
+  const res = await tx.execute<{ id: string }>(sql`
+    delete from ${clientProfiles}
+     where agency_id = ${p.agencyId}
+       and id in (select id from ${clientProfiles}
+                   where agency_id = ${p.agencyId} and contact_id = any(${uuids(p.contactIds)}) limit ${p.limit})
+    returning id`);
+  return (res.rows as { id: string }[]).map((r) => r.id);
 }

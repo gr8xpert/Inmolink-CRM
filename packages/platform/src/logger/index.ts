@@ -92,6 +92,8 @@ export const REDACT_KEYS = [
   'body',
   'description',
   'notes',
+  // R2-02a: a client profile's wishes (the client's own words).
+  'wishes',
   'idempotencyKey',
   'idempotency-key',
   'Idempotency-Key',

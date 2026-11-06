@@ -267,6 +267,17 @@ export async function countCatalogItems(tx: Tx, kind: CatalogKind, groupId: stri
   return rows[0]?.n ?? 0;
 }
 
+/** R2-02a: which of `ids` are property types / features (one statement; none when `ids` is empty). */
+export async function existingCatalogIds(tx: Tx, kind: CatalogKind, ids: readonly string[]): Promise<Set<string>> {
+  if (ids.length === 0) return new Set();
+  const f = FAMILIES[kind];
+  const rows = await tx
+    .select({ id: f.items.id })
+    .from(f.items)
+    .where(inArray(f.items.id, [...ids]));
+  return new Set(rows.map((r) => r.id));
+}
+
 export async function catalogItemExists(tx: Tx, kind: CatalogKind, id: string): Promise<boolean> {
   const f = FAMILIES[kind];
   const rows = await tx.select({ id: f.items.id }).from(f.items).where(eq(f.items.id, id)).limit(1);

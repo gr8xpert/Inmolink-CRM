@@ -6,4 +6,8 @@ export const matchingErrors = [
   'SAVED_SEARCH_LIMIT',
   'NETWORK_GIVE_TO_GET_LOCKED',
   'VERIFICATION_REQUIRED',
+  'CLIENT_PROFILE_NOT_FOUND',
+  'CLIENT_PROFILE_LIMIT',
+  'CONTACT_NOT_FOUND',
+  'VERSION_CONFLICT',
 ] as const satisfies readonly ErrorCode[];

@@ -376,6 +376,10 @@ export const ErrorCodes = {
   SAVED_SEARCH_LIMIT: 422,
   /** S5-06 review: the agency's network give-to-get gate is LOCKED (too few listings shared): no network saved search. */
   NETWORK_GIVE_TO_GET_LOCKED: 403,
+  // R2-02a: client profiles.
+  CLIENT_PROFILE_NOT_FOUND: 404,
+  /** The contact has `CLIENT_PROFILE_LIMITS.perContact` profiles already. */
+  CLIENT_PROFILE_LIMIT: 422,
   // AI gateway (S12-01, ADR 0008). Features catch these and degrade (keep the owner text, "try later").
   /** The agency's monthly AI hard cap is reached: nothing was sent to the provider. */
   AI_BUDGET_EXCEEDED: 429,

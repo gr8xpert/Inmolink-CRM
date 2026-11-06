@@ -27,6 +27,16 @@ describe('matching policy', () => {
     expect(can(ctxAs({ kind: 'system', reason: 'test' }), 'matching.savedSearches.manage')).toBe(false);
   });
 
+  it('[R2-02a] client profiles follow the contact rule: members read and write, partners and non-users cannot', () => {
+    for (const action of ['matching.clientProfiles.read', 'matching.clientProfiles.write'] as const) {
+      expect(can(agent, action)).toBe(true);
+      expect(can(ctxAs({ kind: 'user', userId: ME, role: 'DEVELOPER_AGENT' }), action)).toBe(true);
+      expect(can(ctxAs({ kind: 'user', userId: ME, role: 'PARTNER' }), action)).toBe(false);
+      expect(can(ctxAs({ kind: 'system', reason: 'test' }), action)).toBe(false);
+      expect(MATCHING_IMPERSONATION[action]).toBe('forbidden');
+    }
+  });
+
   it('[S5-06] Client Mode and impersonating staff change nothing', () => {
     expect(CLIENT_MODE_ALLOWED.size).toBe(0);
     expect(Object.keys(MATCHING_IMPERSONATION).sort()).toEqual([...MATCHING_ACTIONS].sort());

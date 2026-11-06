@@ -182,6 +182,11 @@ describe('SUBJECT export', () => {
       await tx.execute(sql`insert into selection_interactions (id, agency_id, selection_id, kind, message)
         values (${newId()}, ${a.agencyId}, ${selectionId}, 'ENQUIRE', 'Can I see it Friday?')`);
     });
+    // R2-02a: her search profile
+    await system((tx) =>
+      tx.execute(sql`insert into client_profiles (id, agency_id, contact_id, mode, transaction_type, wishes)
+        values (${newId()}, ${a.agencyId}, ${id}, 'REVIEW', 'SALE', 'near the sea, quiet street')`),
+    );
     // MLS: registered for another agency's shared listing, a viewing requested
     const { id: theirs } = await as(b, (ctx) =>
       properties.createListing(
@@ -257,6 +262,7 @@ describe('SUBJECT export', () => {
     expect(entries.get('selection_responses.csv')?.toString()).toContain('Can I see it Friday?');
     expect(entries.get('prospects.csv')?.toString()).toContain('wants to sell in spring');
     expect(entries.get('viewings.csv')?.toString()).toContain('REQUESTED');
+    expect(entries.get('client_profiles.csv')?.toString()).toContain('near the sea, quiet street');
     for (const f of ['viewings.csv', 'registrations.csv']) {
       expect(entries.get(f)?.toString()).not.toMatch(/commission|split/i);
     }

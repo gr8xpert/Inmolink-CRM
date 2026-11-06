@@ -206,6 +206,8 @@
     "lost": "This page lost track of the import. It may still be running: see its result in the list below."
   },
   "errors": {
+    "CLIENT_PROFILE_NOT_FOUND": "This search profile no longer exists.",
+    "CLIENT_PROFILE_LIMIT": "A contact can have at most {max} search profiles. Delete one first.",
     "CONTACT_NOT_FOUND": "This contact does not exist or was merged into another one.",
     "CONTACT_DUPLICATE": "An e-mail or phone already belongs to another contact.",
     "CONTACT_PHONE_INVALID": "A phone number is not valid.",

@@ -695,12 +695,18 @@ export async function inboundLeadsOf(
 }
 
 /** S16-04: whether `contactId` is an open contact of the agency (a data subject export names one). */
-export async function openContactExists(tx: Tx, agencyId: string, contactId: string): Promise<boolean> {
-  const [row] = await tx
+export async function openContactExists(
+  tx: Tx,
+  agencyId: string,
+  contactId: string,
+  opts: { lock?: boolean } = {},
+): Promise<boolean> {
+  const q = tx
     .select({ id: contacts.id })
     .from(contacts)
     .where(and(eq(contacts.agencyId, agencyId), eq(contacts.id, contactId), isNull(contacts.deletedAt)))
     .limit(1);
+  const [row] = opts.lock ? await q.for('no key update', { of: contacts }) : await q;
   return row !== undefined;
 }
 

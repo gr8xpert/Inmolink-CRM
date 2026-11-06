@@ -14,7 +14,7 @@ import { documentsJobs } from '@inmolink/core/modules/documents';
 import { exportsJobs } from '@inmolink/core/modules/exports/worker';
 import { identityJobs } from '@inmolink/core/modules/identity';
 import { importsJobs } from '@inmolink/core/modules/imports';
-import { matchingJobs, profileEmbeddingJobs } from '@inmolink/core/modules/matching';
+import { clientProfileJobs, matchingJobs, profileEmbeddingJobs } from '@inmolink/core/modules/matching';
 import { mediaDocumentJobs, mediaJobs } from '@inmolink/core/modules/media';
 import { migrationJobs } from '@inmolink/core/modules/migration';
 import { mlsJobs } from '@inmolink/core/modules/mls';
@@ -210,6 +210,9 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     presentationsJobs.eraseContactSelections,
     // S11-01: a contact merge moves the agency's client registrations to the survivor.
     mlsJobs.repointRegistrations,
+    // R2-02a: a contact merge moves its client profiles to the survivor; an erasure deletes them with their vectors.
+    clientProfileJobs.repointClientProfiles,
+    clientProfileJobs.eraseContactProfiles,
     // S11-01: the client fingerprint rehash during an HMAC rotation window, and the fingerprints' retention.
     mlsJobs.scheduleFingerprintRehash,
     mlsJobs.rehashFingerprints,
