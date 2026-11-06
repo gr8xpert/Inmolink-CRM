@@ -6,8 +6,10 @@ import {
   halfvec,
   index,
   integer,
+  jsonb,
   numeric,
   pgTable,
+  real,
   text,
   timestamp,
   uniqueIndex,
@@ -211,6 +213,13 @@ export const clientProfiles = pgTable(
     areaMaxM2: numeric('area_max_m2', { precision: 10, scale: 2, mode: 'number' }),
     /** The client's wishes in their words ("sea view, walk to the beach, quiet street"); internal. */
     wishes: text('wishes'),
+    /**
+     * R2-02b: the match engine's inverse index (`matching/match-keys.ts` `profileMatchKeys`): `a:<agency>:<tx>:<loc>`
+     * (its agency's own listings) and `n:<tx>:<loc>` (network listings) per place (`*`: anywhere) and transaction
+     * (`*`: any). A changed listing probes `client_profiles_match_keys_idx` with its own keys (`listingMatchKeys`), so
+     * only profiles that could see it at one of its places are read. Written by the repo from the columns.
+     */
+    matchKeys: text('match_keys').array().notNull().default(sql`'{}'::text[]`),
     version: integer('version').notNull().default(1),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -220,6 +229,8 @@ export const clientProfiles = pgTable(
     index('client_profiles_contact_idx').on(t.agencyId, t.contactId, t.createdAt, t.id),
     // the embedding backfill walk: where agency_id = ? and id > ? order by id limit ? (also the FK index)
     uniqueIndex('client_profiles_agency_id_uq').on(t.agencyId, t.id),
+    // R2-02b, the match engine's listing -> profiles probe: where match_keys && ? and mode <> 'OFF' (any agency)
+    index('client_profiles_match_keys_idx').using('gin', t.matchKeys).where(sql`${t.mode} <> 'OFF'`),
     check('client_profiles_mode_ck', sql`${t.mode} in ('OFF', 'REVIEW', 'AUTO_SEND')`),
     check('client_profiles_frequency_ck', sql`${t.frequency} in ('INSTANT', 'DAILY', 'WEEKLY')`),
     check(
@@ -273,5 +284,107 @@ export const clientProfileEmbeddings = pgTable(
     // the backfill's orphan sweep: an agency's rows in a profile window
     index('client_profile_embeddings_owner_idx').on(t.ownerAgencyId, t.profileId),
     check('client_profile_embeddings_version_ck', sql`${t.sourceVersion} >= 1`),
+  ],
+);
+
+/**
+ * The listings the match engine can offer (R2-02b, PLAN §7 M9): one row per ACTIVE listing with a read model, its
+ * criteria as the read model has them (`search.indexDocsFor`, CLAUDE.md rule 9 — never the raw tables) and who may see
+ * it on the network. Written by the matching worker on `search.listings.changed` (a listing no longer ACTIVE or without
+ * a read model is deleted) and by its backfill; read by the profile → listings direction (a profile's change, the
+ * nightly sweep) over `match_keys` (`listingMatchKeys`: `a:<owner>:…` always, `n:…` unless hidden from the network).
+ * Owned by the listing's agency; worker-only (no request reads or writes it).
+ */
+export const matchingListingFacts = pgTable(
+  'matching_listing_facts',
+  {
+    listingId: uuid('listing_id').primaryKey(),
+    /** The owner. */
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agencies.id),
+    /** The read models' version these facts are from: a write never goes back below it. */
+    version: integer('version').notNull(),
+    transactionType: text('transaction_type').notNull(),
+    propertyTypeId: uuid('property_type_id').notNull(),
+    /** Country, region, city and area ids. */
+    locationIds: uuid('location_ids').array().notNull(),
+    featureIds: uuid('feature_ids').array().notNull(),
+    /** Null: price on request. */
+    priceCents: bigint('price_cents', { mode: 'number' }),
+    beds: integer('beds'),
+    baths: integer('baths'),
+    areaM2: numeric('area_m2', { precision: 10, scale: 2, mode: 'number' }),
+    /** `ALL` or `PREFERRED` (then only `preferred_agency_ids` see it on the network). */
+    shareScope: text('share_scope').notNull(),
+    preferredAgencyIds: uuid('preferred_agency_ids').array().notNull().default(sql`'{}'::uuid[]`),
+    matchKeys: text('match_keys').array().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // the profile → listings probe: where match_keys && <profile's keys> (newest listing ids first, bounded)
+    index('matching_listing_facts_match_keys_idx').using('gin', t.matchKeys),
+    // agency_id leads the FK index (the owner's facts)
+    index('matching_listing_facts_agency_idx').on(t.agencyId, t.listingId),
+    // broad profiles' window (order by updated_at desc limit ?) and the sweep's narrow probes (updated_at >= ?)
+    index('matching_listing_facts_updated_idx').on(t.updatedAt),
+    check('matching_listing_facts_share_ck', sql`${t.shareScope} in ('ALL', 'PREFERRED')`),
+    check('matching_listing_facts_version_ck', sql`${t.version} >= 1`),
+  ],
+);
+
+/**
+ * A listing the match engine found for a client profile (R2-02b, PLAN §7 M9, §3 #23): one row per profile and listing
+ * ever (`client_profile_matches_pair_uq`) — a client never gets the same listing twice: a re-run, a listing's later
+ * change or a dismissal never writes the pair again (insert … on conflict do nothing). The score's parts (hard fit,
+ * semantic — null when either vector is missing, the total then uses the neutral score —, the learned boost of R2-02c,
+ * total), the structured explanation (`MatchExplanation`: each criterion satisfied or not, the price delta, must-haves
+ * met) and its status: `PENDING_REVIEW` (REVIEW profiles: waits for the agent, R2-02d) · `QUEUED` (AUTO_SEND: R2-02e
+ * sends it) · `SENT` · `DISMISSED` · `EXPIRED` (the listing went before it was sent). The profile's agency's own;
+ * written by the matching worker only.
+ */
+export const clientProfileMatches = pgTable(
+  'client_profile_matches',
+  {
+    id: uuid('id').primaryKey(),
+    agencyId: uuid('agency_id')
+      .notNull()
+      .references(() => agencies.id),
+    profileId: uuid('profile_id')
+      .notNull()
+      .references(() => clientProfiles.id, { onDelete: 'cascade' }),
+    listingId: uuid('listing_id').notNull(),
+    /** The listing's owner when matched (the agency itself, or a network agency). */
+    listingAgencyId: uuid('listing_agency_id').notNull(),
+    /** The listing's read-model version that matched. */
+    listingVersion: integer('listing_version').notNull(),
+    /** The profile's version that matched. */
+    profileVersion: integer('profile_version').notNull(),
+    hardScore: real('hard_score').notNull(),
+    /** Null: no vector on one side (the total used the neutral score). */
+    semanticScore: real('semantic_score'),
+    /** R2-02c's learned boost (0 until then). */
+    boostScore: real('boost_score').notNull().default(0),
+    totalScore: real('total_score').notNull(),
+    explanation: jsonb('explanation').notNull(),
+    status: text('status').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // never twice: one row per profile and listing, whatever its status (also the profile FK index)
+    uniqueIndex('client_profile_matches_pair_uq').on(t.profileId, t.listingId),
+    // a profile's queue (R2-02d/e): where agency_id = ? and profile_id = ? and status = ? order by created_at, id
+    index('client_profile_matches_queue_idx').on(t.agencyId, t.profileId, t.status, t.createdAt, t.id),
+    // the agency's review queue (R2-02d): where agency_id = ? and status = ? order by created_at, id
+    index('client_profile_matches_agency_status_idx').on(t.agencyId, t.status, t.createdAt, t.id),
+    check(
+      'client_profile_matches_status_ck',
+      sql`${t.status} in ('PENDING_REVIEW', 'QUEUED', 'SENT', 'DISMISSED', 'EXPIRED')`,
+    ),
+    check(
+      'client_profile_matches_scores_ck',
+      sql`${t.hardScore} between 0 and 1 and (${t.semanticScore} is null or ${t.semanticScore} between 0 and 1)`,
+    ),
   ],
 );

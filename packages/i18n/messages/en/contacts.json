@@ -276,5 +276,39 @@
       "noted": "Note added.",
       "edited": "Changes saved."
     }
+  },
+  "matchExplanation": {
+    "summary": "{met}/{total} criteria met",
+    "transaction": {
+      "ok": "Right transaction",
+      "no": "Different transaction"
+    },
+    "propertyType": {
+      "ok": "Wanted property type",
+      "no": "Other property type"
+    },
+    "location": {
+      "ok": "In a wanted area",
+      "no": "Outside the wanted areas"
+    },
+    "price": {
+      "ok": "Within budget",
+      "over": "{pct}% over budget",
+      "under": "Below the minimum price",
+      "onRequest": "Price on request"
+    },
+    "bedrooms": {
+      "ok": "Enough bedrooms",
+      "no": "Fewer bedrooms than wanted"
+    },
+    "bathrooms": {
+      "ok": "Enough bathrooms",
+      "no": "Fewer bathrooms than wanted"
+    },
+    "area": {
+      "ok": "Built area in range",
+      "no": "Built area out of range"
+    },
+    "mustHaves": "{met}/{total} must-haves"
   }
 }

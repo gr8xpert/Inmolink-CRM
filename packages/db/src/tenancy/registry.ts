@@ -1559,6 +1559,35 @@ export const tenantTables: Record<string, TenantTable> = {
   // R2-01b: a client's search profile (criteria + wishes: client data) — the agency's own, like its contacts; R2-02
   // adds the service and routes. The matching worker (app_system) reads every agency's active ones.
   client_profiles: { kind: 'STRICT' },
+  // R2-02b: the listings the match engine can offer (owned by the listing's agency; written from read models) —
+  // worker-only like `matching_listing_states`: no request plants or rewrites a listing's criteria or sharing.
+  matching_listing_facts: {
+    kind: 'STRICT',
+    userReadOnly: true,
+    base: {
+      transaction_type: 'SALE',
+      share_scope: 'ALL',
+      version: 1,
+      location_ids: '{}',
+      feature_ids: '{}',
+      match_keys: '{}',
+    },
+  },
+  // R2-02b: a listing matched to a client profile (the profile's agency's own). Written by the matching worker only
+  // until R2-02d's review queue: `userReadOnly`, so no request forges a match or deletes one (deleting a pair would let
+  // the engine send the same listing to the client again).
+  client_profile_matches: {
+    kind: 'STRICT',
+    userReadOnly: true,
+    base: {
+      status: 'PENDING_REVIEW',
+      hard_score: 1,
+      total_score: 1,
+      explanation: '{}',
+      listing_version: 1,
+      profile_version: 1,
+    },
+  },
   // S12-04: selections. S13-F1: the public pages (`app_public`, which also serves feed-api, export downloads and
   // websites) read no row of either table: a live selection and its items are answered only by the SECURITY DEFINER
   // `selection_by_token(hashes)` (owner app_owner, `definerRead`) for the token's keyed hash — never a scan, never

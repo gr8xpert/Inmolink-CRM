@@ -5,6 +5,7 @@ import { z } from 'zod';
 import * as agencies from '../agencies';
 import * as crm from '../crm';
 import * as search from '../search';
+import { backfillListingFacts, matchListingsToProfiles, matchProfilesToListings, profileMatchWindow } from './engine';
 import { CLIENT_PROFILE_EVENT_IDS } from './events';
 import { embedProfiles, profileBackfillPage } from './profile-embeddings';
 import { eraseContactProfiles, repointClientProfiles } from './profiles';
@@ -370,6 +371,134 @@ export const clientProfileJobs = {
     async run(p) {
       const contactIds = await crm.erasedContactIds({ agencyId: p.agencyId, contactIds: [p.contactId] });
       return eraseContactProfiles({ agencyId: p.agencyId, contactIds });
+    },
+  }),
+};
+
+/** Once a day: every agency's active profiles against the live listings (what events missed, new stock in reach). */
+export const PROFILE_MATCH_SWEEP_EVERY_MS = 24 * 3_600_000;
+const MATCH_SWEEP_AGENCY_PAGE = 500;
+/** Job ids of a match sweep window: run, agency and cursor (a re-run of the same window collapses). */
+export const matchWindowKey = (p: { run: string; agencyId: string; after: string | null }): string =>
+  `pmatch-w.${p.run}.${p.agencyId}.${p.after ?? 'start'}`;
+
+/**
+ * R2-02b, the match engine's jobs (`engine.ts`), pool `matching`, group = the agency (fair share):
+ *
+ * - `matching.matchListingsToProfiles` — one per `search.listings.changed` event (job id from the event): the listings'
+ *   facts, then the profiles of any agency that may see them.
+ * - `matching.matchProfilesToListings` — one per `matching.clientProfiles.changed` event (job id from the event): those
+ *   profiles against the live listings.
+ * - `matching.profileMatchSweep` (every `PROFILE_MATCH_SWEEP_EVERY_MS`, pool `maintenance`): one window walk per agency,
+ *   spread over `SWEEP_SPREAD_MS`.
+ * - `matching.profileMatchWindow` — `MATCH_SWEEP_WINDOW` profiles of an agency, then the next window (one at a time
+ *   per agency).
+ * - `matching.backfillListingFacts` — queued once after deploy (`{ after: null }`): the facts of existing listings.
+ *
+ * Idempotent: a retried or redelivered job writes no pair twice (`client_profile_matches_pair_uq`).
+ */
+export const clientMatchJobs = {
+  matchListingsToProfiles: defineJob({
+    name: 'matching.matchListingsToProfiles',
+    pool: 'matching',
+    payload: z.object({ eventId: z.uuid(), agencyId: z.uuid(), listingIds: z.array(z.uuid()).min(1).max(100) }),
+    jobId: (p) => `pmatch-l:${p.eventId}`,
+    group: (p) => p.agencyId,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 2_000 },
+    timeoutMs: 60_000,
+    async run(p, { log }) {
+      const r = await matchListingsToProfiles(p);
+      if (r.matched > 0) log.info({ candidates: r.candidates, matched: r.matched }, 'client profile matches written');
+      return { candidates: r.candidates, matched: r.matched };
+    },
+  }),
+
+  matchProfilesToListings: defineJob({
+    name: 'matching.matchProfilesToListings',
+    pool: 'matching',
+    payload: z.object({
+      eventId: z.uuid(),
+      agencyId: z.uuid(),
+      profileIds: z.array(z.uuid()).min(1).max(CLIENT_PROFILE_EVENT_IDS),
+    }),
+    jobId: (p) => `pmatch-p:${p.eventId}`,
+    group: (p) => p.agencyId,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 2_000 },
+    timeoutMs: 60_000,
+    async run(p) {
+      const r = await matchProfilesToListings(p);
+      return { candidates: r.candidates, matched: r.matched };
+    },
+  }),
+
+  profileMatchSweep: defineJob({
+    name: 'matching.profileMatchSweep',
+    pool: 'maintenance',
+    payload: z.object({}).strict(),
+    every: PROFILE_MATCH_SWEEP_EVERY_MS,
+    attempts: 3,
+    timeoutMs: 10 * 60_000,
+    async run(_p, { log, signal }) {
+      const run = clock.now().toISOString().slice(0, 10);
+      let after: string | null = null;
+      let queued = 0;
+      while (!signal.aborted) {
+        const ids: string[] = await withSystem('matching.profileMatchSweep', (tx) =>
+          agencies.agencyIdsPage(tx, after, MATCH_SWEEP_AGENCY_PAGE),
+        );
+        if (ids.length > 0) {
+          await clientMatchJobs.profileMatchWindow.enqueueMany(
+            ids.map((agencyId) => ({
+              payload: { run, agencyId, after: null },
+              options: { delayMs: sweepDelayOf(agencyId) },
+            })),
+          );
+        }
+        queued += ids.length;
+        after = ids.at(-1) ?? null;
+        if (ids.length < MATCH_SWEEP_AGENCY_PAGE) break;
+      }
+      log.info({ run, queued }, 'client profile match sweep queued');
+      return { run, queued };
+    },
+  }),
+
+  profileMatchWindow: defineJob({
+    name: 'matching.profileMatchWindow',
+    pool: 'matching',
+    payload: z.object({
+      run: z.string().regex(/^[0-9A-Za-z-]{1,32}$/),
+      agencyId: z.uuid(),
+      after: z.uuid().nullable(),
+    }),
+    jobId: matchWindowKey,
+    group: (p) => p.agencyId,
+    concurrencyPerGroup: 1,
+    attempts: 3,
+    backoff: { type: 'exponential', delay: 10_000 },
+    timeoutMs: 120_000,
+    async run(p) {
+      const r = await profileMatchWindow({ agencyId: p.agencyId, after: p.after });
+      if (r.next) await clientMatchJobs.profileMatchWindow.enqueue({ run: p.run, agencyId: p.agencyId, after: r.next });
+      return { profiles: r.profiles, candidates: r.candidates, matched: r.matched, next: r.next };
+    },
+  }),
+
+  backfillListingFacts: defineJob({
+    name: 'matching.backfillListingFacts',
+    pool: 'matching',
+    payload: z.object({ after: z.uuid().nullable() }),
+    jobId: (p) => `backfill-facts:${p.after ?? 'start'}`,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 5_000 },
+    timeoutMs: 120_000,
+    async run(p, { log }) {
+      const r = await backfillListingFacts(p.after);
+      if (r.next) await clientMatchJobs.backfillListingFacts.enqueue({ after: r.next });
+      else log.info('matching listing facts backfilled');
+      return r;
     },
   }),
 };

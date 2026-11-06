@@ -276,5 +276,39 @@
       "noted": "Nota añadida.",
       "edited": "Cambios guardados."
     }
+  },
+  "matchExplanation": {
+    "summary": "{met}/{total} criterios cumplidos",
+    "transaction": {
+      "ok": "Operación correcta",
+      "no": "Otra operación"
+    },
+    "propertyType": {
+      "ok": "Tipo de inmueble buscado",
+      "no": "Otro tipo de inmueble"
+    },
+    "location": {
+      "ok": "En una zona buscada",
+      "no": "Fuera de las zonas buscadas"
+    },
+    "price": {
+      "ok": "Dentro del presupuesto",
+      "over": "{pct} % por encima del presupuesto",
+      "under": "Por debajo del precio mínimo",
+      "onRequest": "Precio a consultar"
+    },
+    "bedrooms": {
+      "ok": "Dormitorios suficientes",
+      "no": "Menos dormitorios de los deseados"
+    },
+    "bathrooms": {
+      "ok": "Baños suficientes",
+      "no": "Menos baños de los deseados"
+    },
+    "area": {
+      "ok": "Superficie construida en el rango",
+      "no": "Superficie construida fuera del rango"
+    },
+    "mustHaves": "{met}/{total} imprescindibles"
   }
 }

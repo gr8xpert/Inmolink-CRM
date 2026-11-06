@@ -27,6 +27,9 @@ export {
   embedListings,
   LISTING_EMBED_FEATURE,
   listingEmbeddingText,
+  // R2-02b: the match engine's semantic score (worker-only; primary-key probes, no kNN).
+  listingSimilarities,
+  listingVectors,
 } from './embeddings';
 export { searchErrors } from './errors';
 export { searchEvents } from './events';

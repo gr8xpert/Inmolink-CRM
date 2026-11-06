@@ -14,7 +14,12 @@ import { documentsJobs } from '@inmolink/core/modules/documents';
 import { exportsJobs } from '@inmolink/core/modules/exports/worker';
 import { identityJobs } from '@inmolink/core/modules/identity';
 import { importsJobs } from '@inmolink/core/modules/imports';
-import { clientProfileJobs, matchingJobs, profileEmbeddingJobs } from '@inmolink/core/modules/matching';
+import {
+  clientMatchJobs,
+  clientProfileJobs,
+  matchingJobs,
+  profileEmbeddingJobs,
+} from '@inmolink/core/modules/matching';
 import { mediaDocumentJobs, mediaJobs } from '@inmolink/core/modules/media';
 import { migrationJobs } from '@inmolink/core/modules/migration';
 import { mlsJobs } from '@inmolink/core/modules/mls';
@@ -87,6 +92,11 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     matchingJobs.sweepRekey,
     matchingJobs.pruneAlerts,
     matchingJobs.backfillListingStates,
+    // R2-02b: the client-profile match engine (listing and profile events, sweep windows, facts backfill).
+    clientMatchJobs.matchListingsToProfiles,
+    clientMatchJobs.matchProfilesToListings,
+    clientMatchJobs.profileMatchWindow,
+    clientMatchJobs.backfillListingFacts,
   ],
   // S7-07: per-site XML feeds (Kyero and generic) and their 15-minute refresh sweep; S9-03: portal feeds.
   exports: [
@@ -233,6 +243,8 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     embeddingJobs.embeddingsSweep,
     // R2-01b: daily, the same for client profiles.
     profileEmbeddingJobs.profileEmbeddingsSweep,
+    // R2-02b: the nightly client-profile match sweep (queues one window walk per agency).
+    clientMatchJobs.profileMatchSweep,
     // S13-F9: retention of the S12 growth tables — settled AI job rows (13 months), finished social posts and the
     // interactions of ended selections (12 months).
     aiJobs.pruneJobs,

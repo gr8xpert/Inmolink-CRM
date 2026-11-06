@@ -18,19 +18,51 @@ export {
   type Transition,
   transitionOf,
 } from './alerts';
+// R2-02b: the client-profile match engine (worker-only) and its scoring / explanation (pure).
+export {
+  backfillListingFacts,
+  decideMatches,
+  type EngineResult,
+  FACTS_BACKFILL_BATCH,
+  MATCH_SWEEP_WINDOW,
+  MATCH_TOP_N,
+  matchListingsToProfiles,
+  matchProfilesToListings,
+  profileMatchWindow,
+} from './engine';
 export { deleteAgencySavedSearches } from './erasure';
 export { matchingErrors } from './errors';
 export { CLIENT_PROFILE_EVENT_IDS, matchingEvents } from './events';
 export {
+  allowedMissing,
+  type CriterionKey,
+  type CriterionResult,
+  explainMatch,
+  explanationText,
+  HARD_WEIGHT,
+  MATCH_MIN_TOTAL,
+  type MatchExplanation,
+  type MatchScore,
+  NEUTRAL_SEMANTIC,
+  PRICE_TOLERANCE,
+  passesHardFilters,
+  SEMANTIC_WEIGHT,
+  scoreMatch,
+} from './explain';
+export {
+  clientMatchJobs,
   clientProfileJobs,
   matchingJobs,
+  matchWindowKey,
   PROFILE_EMBEDDINGS_SWEEP_EVERY_MS,
+  PROFILE_MATCH_SWEEP_EVERY_MS,
   profileBackfillKey,
   profileEmbeddingJobs,
   STALE_INSTANT_MS,
   SWEEP_SPREAD_MS,
   sweepDelayOf,
 } from './jobs';
+export { listingMatchKeys, profileMatchKeys, profileProbeKeys } from './match-keys';
 export {
   CLIENT_MODE_ALLOWED,
   can,

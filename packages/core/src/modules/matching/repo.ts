@@ -1,7 +1,9 @@
 import type { Tx } from '@inmolink/db';
 import {
   clientProfileEmbeddings,
+  clientProfileMatches,
   clientProfiles,
+  matchingListingFacts,
   matchingListingStates,
   savedSearchAlerts,
   savedSearches,
@@ -9,6 +11,7 @@ import {
 import { NIL_UUID as NIL } from '@inmolink/platform/tenancy';
 import { and, asc, eq, gt, inArray, type SQL, sql } from 'drizzle-orm';
 import { type KeysetCursor, keysetAfterRaw, keysetOrderRaw, keysetStamp } from '../../pagination';
+import { profileMatchKeys } from './match-keys';
 
 /**
  * matching queries (PATTERNS §5). Takes `tx`, selects only the columns it needs. Queries only
@@ -569,16 +572,25 @@ export async function profileSources(tx: Tx, agencyId: string, ids: readonly str
   return rows;
 }
 
-/** The next `window` profile ids of an agency after `after` (`client_profiles_agency_id_uq` order). */
+/**
+ * The next `window` profile ids of an agency after `after` (`client_profiles_agency_id_uq` order); `active`: only
+ * profiles not OFF (the match sweep).
+ */
 export async function profileWindow(
   tx: Tx,
-  p: { agencyId: string; after: string | null; window: number },
+  p: { agencyId: string; after: string | null; window: number; active?: boolean },
 ): Promise<string[]> {
   const t = clientProfiles;
   const rows = await tx
     .select({ id: t.id })
     .from(t)
-    .where(p.after === null ? eq(t.agencyId, p.agencyId) : and(eq(t.agencyId, p.agencyId), gt(t.id, p.after)))
+    .where(
+      and(
+        eq(t.agencyId, p.agencyId),
+        p.after === null ? undefined : gt(t.id, p.after),
+        p.active ? sql`${t.mode} <> 'OFF'` : undefined,
+      ),
+    )
     .orderBy(asc(t.agencyId), asc(t.id))
     .limit(p.window);
   return rows.map((r) => r.id);
@@ -774,11 +786,11 @@ export async function insertClientProfile(
   const result = await tx.execute<{ id: string }>(sql`
     insert into ${clientProfiles}
       (id, agency_id, contact_id, mode, frequency, transaction_type, property_type_ids, location_ids, feature_ids,
-       price_min_cents, price_max_cents, beds_min, baths_min, area_min_m2, area_max_m2, wishes)
+       price_min_cents, price_max_cents, beds_min, baths_min, area_min_m2, area_max_m2, wishes, match_keys)
     select ${s.id}::uuid, ${s.agencyId}::uuid, ${s.contactId}::uuid, ${s.mode}, ${s.frequency}, ${s.transactionType},
            ${uuids(s.propertyTypeIds)}, ${uuids(s.locationIds)}, ${uuids(s.featureIds)},
            ${s.priceMinCents}::bigint, ${s.priceMaxCents}::bigint, ${s.bedsMin}::int, ${s.bathsMin}::int,
-           ${s.areaMinM2}::numeric, ${s.areaMaxM2}::numeric, ${s.wishes}
+           ${s.areaMinM2}::numeric, ${s.areaMaxM2}::numeric, ${s.wishes}, ${texts(profileMatchKeys(s))}
      where (select count(*) from ${clientProfiles} n
              where n.agency_id = ${s.agencyId} and n.contact_id = ${s.contactId}) < ${s.max}
     returning id`);
@@ -796,7 +808,12 @@ export async function updateClientProfile(
 ): Promise<ClientProfileRow | null> {
   const [row] = await tx
     .update(clientProfiles)
-    .set({ ...s, version: sql`${clientProfiles.version} + 1`, updatedAt: sql`now()` })
+    .set({
+      ...s,
+      matchKeys: profileMatchKeys({ ...s, agencyId }),
+      version: sql`${clientProfiles.version} + 1`,
+      updatedAt: sql`now()`,
+    })
     .where(and(eq(clientProfiles.agencyId, agencyId), eq(clientProfiles.id, id), eq(clientProfiles.version, version)))
     .returning(profileColumns);
   return row ?? null;
@@ -865,4 +882,495 @@ export async function deleteContactsClientProfiles(
                    where agency_id = ${p.agencyId} and contact_id = any(${uuids(p.contactIds)}) limit ${p.limit})
     returning id`);
   return (res.rows as { id: string }[]).map((r) => r.id);
+}
+
+/* ------------------------------------------------------------------ match engine (R2-02b, worker) */
+
+/** A live listing as the match engine sees it (`matching_listing_facts`, from its read model). */
+export interface ListingFactsRow {
+  listingId: string;
+  agencyId: string;
+  version: number;
+  transactionType: string;
+  propertyTypeId: string;
+  locationIds: string[];
+  featureIds: string[];
+  priceCents: number | null;
+  beds: number | null;
+  baths: number | null;
+  areaM2: number | null;
+  shareScope: 'ALL' | 'PREFERRED';
+  preferredAgencyIds: string[];
+  matchKeys: string[];
+}
+
+const factsJson = (rows: readonly ListingFactsRow[]) =>
+  JSON.stringify(
+    rows.map((r) => ({
+      listing_id: r.listingId,
+      agency_id: r.agencyId,
+      version: r.version,
+      transaction_type: r.transactionType,
+      property_type_id: r.propertyTypeId,
+      location_ids: r.locationIds,
+      feature_ids: r.featureIds,
+      price_cents: r.priceCents,
+      beds: r.beds,
+      baths: r.baths,
+      area_m2: r.areaM2,
+      share_scope: r.shareScope,
+      preferred_agency_ids: r.preferredAgencyIds,
+      match_keys: r.matchKeys,
+    })),
+  );
+
+/** Writes these listings' facts (one statement, rows in id order); never moves a row back to an older version. */
+export async function upsertListingFacts(tx: Tx, rows: readonly ListingFactsRow[]): Promise<void> {
+  if (rows.length === 0) return;
+  await tx.execute(sql`
+    insert into ${matchingListingFacts} (listing_id, agency_id, version, transaction_type, property_type_id,
+      location_ids, feature_ids, price_cents, beds, baths, area_m2, share_scope, preferred_agency_ids, match_keys)
+    select listing_id, agency_id, version, transaction_type, property_type_id, location_ids, feature_ids, price_cents,
+           beds, baths, area_m2, share_scope, preferred_agency_ids, match_keys
+      from jsonb_to_recordset(${factsJson(rows)}::jsonb) as x(listing_id uuid, agency_id uuid, version int,
+             transaction_type text, property_type_id uuid, location_ids uuid[], feature_ids uuid[], price_cents bigint,
+             beds int, baths int, area_m2 numeric, share_scope text, preferred_agency_ids uuid[], match_keys text[])
+     order by listing_id
+    on conflict (listing_id) do update
+      set agency_id = excluded.agency_id, version = excluded.version, transaction_type = excluded.transaction_type,
+          property_type_id = excluded.property_type_id, location_ids = excluded.location_ids,
+          feature_ids = excluded.feature_ids, price_cents = excluded.price_cents, beds = excluded.beds,
+          baths = excluded.baths, area_m2 = excluded.area_m2, share_scope = excluded.share_scope,
+          preferred_agency_ids = excluded.preferred_agency_ids, match_keys = excluded.match_keys, updated_at = now()
+      where excluded.version > ${matchingListingFacts.version}
+         or (excluded.version = ${matchingListingFacts.version}
+             and (excluded.match_keys, excluded.share_scope, excluded.preferred_agency_ids, excluded.price_cents,
+                  excluded.feature_ids, excluded.location_ids)
+                 is distinct from (${matchingListingFacts.matchKeys}, ${matchingListingFacts.shareScope},
+                  ${matchingListingFacts.preferredAgencyIds}, ${matchingListingFacts.priceCents},
+                  ${matchingListingFacts.featureIds}, ${matchingListingFacts.locationIds}))`);
+}
+
+/** Drops these listings' facts (no longer ACTIVE, or no read model): the engine offers them no more. */
+export async function deleteListingFacts(tx: Tx, listingIds: readonly string[]): Promise<void> {
+  if (listingIds.length === 0) return;
+  await tx.execute(sql`delete from ${matchingListingFacts} where listing_id = any(${uuids(listingIds)})`);
+}
+
+/** A client profile as the match engine reads it (criteria, mode, version; never the wishes). */
+export interface MatchProfileRow {
+  id: string;
+  agencyId: string;
+  mode: 'REVIEW' | 'AUTO_SEND';
+  version: number;
+  transactionType: string | null;
+  propertyTypeIds: string[];
+  locationIds: string[];
+  featureIds: string[];
+  priceMinCents: number | null;
+  priceMaxCents: number | null;
+  bedsMin: number | null;
+  bathsMin: number | null;
+  areaMinM2: number | null;
+  areaMaxM2: number | null;
+}
+
+/** The listing side of a candidate pair. */
+export type MatchListingRow = Omit<ListingFactsRow, 'matchKeys' | 'shareScope' | 'preferredAgencyIds'>;
+
+/** A candidate pair from either direction: the profile, the listing, their cosine similarity (null: no vectors). */
+export interface MatchCandidateRow {
+  profile: MatchProfileRow;
+  listing: MatchListingRow;
+  similarity: number | null;
+}
+
+/**
+ * The hard filters with their tolerances (`explain.ts`): profile `p` against listing `l`, both with their tables'
+ * column names. Places are implied by the shared match key; transaction is too, re-checked as it is free.
+ */
+const hardFilters = sql.raw(`
+       (p.transaction_type is null or p.transaction_type = l.transaction_type)
+   and (cardinality(p.property_type_ids) = 0 or l.property_type_id = any(p.property_type_ids))
+   and (p.price_min_cents is null or l.price_cents >= p.price_min_cents)
+   and (p.price_max_cents is null or l.price_cents * 10 <= p.price_max_cents * 11)
+   and (p.beds_min is null or l.beds >= p.beds_min)
+   and (p.baths_min is null or l.baths >= p.baths_min)
+   and (p.area_min_m2 is null or l.area_m2 >= p.area_min_m2)
+   and (p.area_max_m2 is null or l.area_m2 <= p.area_max_m2)
+   and (cardinality(p.feature_ids) = 0
+        or cardinality(array(select unnest(p.feature_ids) except select unnest(l.feature_ids)))
+           <= cardinality(p.feature_ids) / 4)`);
+
+const profileCols = sql.raw(`p.id, p.agency_id, p.mode, p.version, p.transaction_type, p.property_type_ids,
+       p.location_ids, p.feature_ids, p.price_min_cents, p.price_max_cents, p.beds_min, p.baths_min, p.area_min_m2,
+       p.area_max_m2`);
+
+const listingCols = sql.raw(`l.listing_id as l_id, l.agency_id as l_agency_id, l.version as l_version,
+       l.transaction_type as l_transaction_type, l.property_type_id as l_property_type_id,
+       l.location_ids as l_location_ids, l.feature_ids as l_feature_ids, l.price_cents as l_price_cents,
+       l.beds as l_beds, l.baths as l_baths, l.area_m2 as l_area_m2`);
+
+type RawProfile = {
+  id: string;
+  agency_id: string;
+  mode: 'REVIEW' | 'AUTO_SEND';
+  version: number;
+  transaction_type: string | null;
+  property_type_ids: string[] | string;
+  location_ids: string[] | string;
+  feature_ids: string[] | string;
+  price_min_cents: string | number | null;
+  price_max_cents: string | number | null;
+  beds_min: number | null;
+  baths_min: number | null;
+  area_min_m2: string | number | null;
+  area_max_m2: string | number | null;
+};
+
+type RawCandidate = RawProfile & {
+  l_id: string;
+  l_agency_id: string;
+  l_version: number;
+  l_transaction_type: string;
+  l_property_type_id: string;
+  l_location_ids: string[] | string;
+  l_feature_ids: string[] | string;
+  l_price_cents: string | number | null;
+  l_beds: number | null;
+  l_baths: number | null;
+  l_area_m2: string | number | null;
+  similarity: string | number | null;
+};
+
+const num = (v: string | number | null): number | null => (v === null ? null : Number(v));
+/** Arrays from a recordset may come back as `{…}` literals: accept both shapes (uuid elements never need quoting). */
+const arr = (v: string[] | string | null): string[] =>
+  v === null ? [] : Array.isArray(v) ? v : v === '{}' ? [] : v.slice(1, -1).split(',');
+
+function toProfile(r: RawProfile): MatchProfileRow {
+  return {
+    id: r.id,
+    agencyId: r.agency_id,
+    mode: r.mode,
+    version: r.version,
+    transactionType: r.transaction_type,
+    propertyTypeIds: arr(r.property_type_ids),
+    locationIds: arr(r.location_ids),
+    featureIds: arr(r.feature_ids),
+    priceMinCents: num(r.price_min_cents),
+    priceMaxCents: num(r.price_max_cents),
+    bedsMin: r.beds_min,
+    bathsMin: r.baths_min,
+    areaMinM2: num(r.area_min_m2),
+    areaMaxM2: num(r.area_max_m2),
+  };
+}
+
+function toCandidate(r: RawCandidate): MatchCandidateRow {
+  return {
+    profile: toProfile(r),
+    listing: {
+      listingId: r.l_id,
+      agencyId: r.l_agency_id,
+      version: r.l_version,
+      transactionType: r.l_transaction_type,
+      propertyTypeId: r.l_property_type_id,
+      locationIds: arr(r.l_location_ids),
+      featureIds: arr(r.l_feature_ids),
+      priceCents: num(r.l_price_cents),
+      beds: r.l_beds,
+      baths: r.l_baths,
+      areaM2: num(r.l_area_m2),
+    },
+    similarity: num(r.similarity),
+  };
+}
+
+/** A changed listing as the listing → profiles query probes it. */
+export interface ListingMatchProbe extends Omit<ListingFactsRow, 'matchKeys'> {
+  /** `listingMatchKeys`, with `network` = on the network, not hidden, its owner listed. */
+  keys: string[];
+  network: boolean;
+  /** Its vector (halfvec text, read from the database) and model, when embedded. */
+  vector: string | null;
+  model: string | null;
+}
+
+/** Listings probed per statement. */
+export const LISTING_PROBE_CHUNK = 5;
+/** Profiles read per listing at most, per event (≤ 100 × 500 candidates a job; the nightly sweep finds any beyond). */
+export const PROFILES_PER_LISTING = 500;
+
+/**
+ * The listing → profiles direction (R2-02b, one `search.listings.changed` batch): the active profiles (any agency)
+ * sharing a key with each listing — `client_profiles_match_keys_idx` (GIN, partial on `mode <> 'OFF'`) — that pass the
+ * hard filters, may see it (its own agency's, or on the network and shared with that agency: scope ALL or preferred)
+ * and have no match with it yet (`client_profile_matches_pair_uq`); at most `perListing` a listing. With the profile's
+ * vector's similarity to the listing's (same model), else null. Exported for the plan tests.
+ */
+export function listingToProfilesQuery(probes: readonly ListingMatchProbe[], perListing: number): SQL {
+  const json = JSON.stringify(
+    probes.map((p) => ({
+      listing_id: p.listingId,
+      agency_id: p.agencyId,
+      version: p.version,
+      keys: p.keys,
+      transaction_type: p.transactionType,
+      property_type_id: p.propertyTypeId,
+      location_ids: p.locationIds,
+      feature_ids: p.featureIds,
+      price_cents: p.priceCents,
+      beds: p.beds,
+      baths: p.baths,
+      area_m2: p.areaM2,
+      network: p.network,
+      share_all: p.shareScope === 'ALL',
+      preferred: p.preferredAgencyIds,
+      vec: p.vector,
+      model: p.model,
+    })),
+  );
+  return sql`
+    select c.*, ${listingCols},
+           case when l.vec is null then null
+                else (select 1 - (e.embedding <=> l.vec::halfvec) from ${clientProfileEmbeddings} e
+                       where e.profile_id = c.id and e.model = l.model) end as similarity
+      from jsonb_to_recordset(${json}::jsonb) as l(listing_id uuid, agency_id uuid, version int, keys text[],
+             transaction_type text, property_type_id uuid, location_ids uuid[], feature_ids uuid[], price_cents bigint,
+             beds int, baths int, area_m2 numeric, network boolean, share_all boolean, preferred uuid[], vec text,
+             model text)
+      cross join lateral (
+        select ${profileCols}
+          from ${clientProfiles} p
+         where p.match_keys && l.keys and p.mode <> 'OFF'
+           and ${hardFilters}
+           and (p.agency_id = l.agency_id or (l.network and (l.share_all or p.agency_id = any(l.preferred))))
+           and not exists (select 1 from ${clientProfileMatches} m
+                            where m.profile_id = p.id and m.listing_id = l.listing_id)
+         limit ${perListing}) c`;
+}
+
+export async function listingToProfiles(
+  tx: Tx,
+  probes: readonly ListingMatchProbe[],
+  options: { chunk?: number; perListing?: number } = {},
+): Promise<MatchCandidateRow[]> {
+  const chunk = options.chunk ?? LISTING_PROBE_CHUNK;
+  const all: MatchCandidateRow[] = [];
+  for (let i = 0; i < probes.length; i += chunk) {
+    const q = listingToProfilesQuery(probes.slice(i, i + chunk), options.perListing ?? PROFILES_PER_LISTING);
+    all.push(...(await tx.execute<RawCandidate>(q)).rows.map(toCandidate));
+  }
+  return all;
+}
+
+/** A profile as the profile → listings query probes it. */
+export interface ProfileMatchProbe extends MatchProfileRow {
+  /** `profileProbeKeys`: network keys only while its agency takes part in the network. */
+  keys: string[];
+}
+
+/**
+ * Broad profiles (no place, or only countries) read the `BROAD_WINDOW` most recently written facts
+ * (`matching_listing_facts_updated_idx`, one bounded walk shared by the statement's profiles) instead of their keys'
+ * GIN entries, which would be most of the catalogue.
+ */
+export const BROAD_WINDOW = 2_000;
+
+/** Profiles probed per statement. */
+export const PROFILE_PROBE_CHUNK = 20;
+/** Listings read per profile and run at most (the newest first). */
+export const LISTINGS_PER_PROFILE = 200;
+
+/**
+ * The profile → listings direction (R2-02b, a profile's change and the nightly sweep): per profile, the newest live
+ * listings (`matching_listing_facts`, from read models) sharing one of its keys (`…_match_keys_idx`, GIN) that pass
+ * the hard filters, that it may see (its agency's own, or shared with it: scope ALL or it is preferred) and that it has
+ * no match with yet — at most `perProfile`. Similarity is the caller's (listing vectors are search's); so is the
+ * owners' standing (listed). Exported for the plan tests.
+ */
+export function profileToListingsQuery(
+  probes: readonly ProfileMatchProbe[],
+  perProfile: number,
+  options: { broad?: boolean; since?: Date | null } = {},
+): SQL {
+  const json = JSON.stringify(
+    probes.map((p) => ({
+      id: p.id,
+      agency_id: p.agencyId,
+      mode: p.mode,
+      version: p.version,
+      keys: p.keys,
+      transaction_type: p.transactionType,
+      property_type_ids: p.propertyTypeIds,
+      location_ids: p.locationIds,
+      feature_ids: p.featureIds,
+      price_min_cents: p.priceMinCents,
+      price_max_cents: p.priceMaxCents,
+      beds_min: p.bedsMin,
+      baths_min: p.bathsMin,
+      area_min_m2: p.areaMinM2,
+      area_max_m2: p.areaMaxM2,
+    })),
+  );
+  // broad: the newest-written window, materialized once; narrow: the profile's keys' GIN entries (since: the sweep)
+  const source = options.broad ? sql`recent` : sql`${matchingListingFacts}`;
+  const recent = options.broad
+    ? sql`with recent as materialized (
+        select listing_id, agency_id, version, transaction_type, property_type_id, location_ids, feature_ids, price_cents,
+               beds, baths, area_m2, share_scope, preferred_agency_ids, match_keys
+          from ${matchingListingFacts} order by updated_at desc limit ${BROAD_WINDOW})`
+    : sql``;
+  const since =
+    !options.broad && options.since ? sql`and l.updated_at >= ${options.since.toISOString()}::timestamptz` : sql``;
+  return sql`${recent}
+    select ${profileCols}, c.*, null::float8 as similarity
+      from jsonb_to_recordset(${json}::jsonb) as p(id uuid, agency_id uuid, mode text, version int, keys text[],
+             transaction_type text, property_type_ids uuid[], location_ids uuid[], feature_ids uuid[],
+             price_min_cents bigint, price_max_cents bigint, beds_min int, baths_min int, area_min_m2 numeric,
+             area_max_m2 numeric)
+      cross join lateral (
+        select ${listingCols}
+          from ${source} l
+         where l.match_keys && p.keys ${since}
+           and ${hardFilters}
+           and (l.agency_id = p.agency_id or l.share_scope = 'ALL' or p.agency_id = any(l.preferred_agency_ids))
+           and not exists (select 1 from ${clientProfileMatches} m
+                            where m.profile_id = p.id and m.listing_id = l.listing_id)
+         order by l.listing_id desc
+         limit ${perProfile}) c`;
+}
+
+export async function profileToListings(
+  tx: Tx,
+  probes: readonly ProfileMatchProbe[],
+  options: { chunk?: number; perProfile?: number; broad?: boolean; since?: Date | null } = {},
+): Promise<MatchCandidateRow[]> {
+  const chunk = options.chunk ?? PROFILE_PROBE_CHUNK;
+  const all: MatchCandidateRow[] = [];
+  for (let i = 0; i < probes.length; i += chunk) {
+    const q = profileToListingsQuery(probes.slice(i, i + chunk), options.perProfile ?? LISTINGS_PER_PROFILE, options);
+    all.push(...(await tx.execute<RawCandidate>(q)).rows.map(toCandidate));
+  }
+  return all;
+}
+
+/** These profiles of the agency that are active (`mode` not OFF): the engine's columns only (never the wishes). */
+export async function activeMatchProfiles(
+  tx: Tx,
+  agencyId: string,
+  ids: readonly string[],
+): Promise<MatchProfileRow[]> {
+  if (ids.length === 0) return [];
+  const res = await tx.execute<RawProfile>(sql`
+    select ${profileCols} from ${clientProfiles} p
+     where p.agency_id = ${agencyId} and p.id = any(${uuids(ids)}) and p.mode <> 'OFF'`);
+  return res.rows.map(toProfile);
+}
+
+/** These profiles' vectors (halfvec text) and models. */
+export async function profileVectors(
+  tx: Tx,
+  ids: readonly string[],
+): Promise<Map<string, { model: string; vector: string }>> {
+  if (ids.length === 0) return new Map();
+  const e = clientProfileEmbeddings;
+  const rows = await tx
+    .select({ profileId: e.profileId, model: e.model, vector: sql<string>`${e.embedding}::text` })
+    .from(e)
+    .where(inArray(e.profileId, [...ids]));
+  return new Map(rows.map((r) => [r.profileId, { model: r.model, vector: r.vector }]));
+}
+
+export interface NewMatch {
+  id: string;
+  agencyId: string;
+  profileId: string;
+  listingId: string;
+  listingAgencyId: string;
+  listingVersion: number;
+  profileVersion: number;
+  hardScore: number;
+  semanticScore: number | null;
+  boostScore: number;
+  totalScore: number;
+  explanation: unknown;
+  status: 'PENDING_REVIEW' | 'QUEUED';
+}
+
+/**
+ * Writes the matches (one statement, in key order); a profile and listing matched before — whatever that match's status,
+ * dismissed included — is skipped (`client_profile_matches_pair_uq`): a client never gets a listing twice. Answers how
+ * many were written, per profile agency.
+ */
+/** Matches written per statement (each ≈ 1 KB of JSON). */
+export const MATCH_INSERT_CHUNK = 1_000;
+
+export async function insertMatches(tx: Tx, rows: readonly NewMatch[]): Promise<{ agencyId: string; n: number }[]> {
+  const counts = new Map<string, number>();
+  for (let i = 0; i < rows.length; i += MATCH_INSERT_CHUNK) {
+    for (const w of await insertMatchChunk(tx, rows.slice(i, i + MATCH_INSERT_CHUNK))) {
+      counts.set(w.agencyId, (counts.get(w.agencyId) ?? 0) + w.n);
+    }
+  }
+  return [...counts].map(([agencyId, n]) => ({ agencyId, n }));
+}
+
+async function insertMatchChunk(tx: Tx, rows: readonly NewMatch[]): Promise<{ agencyId: string; n: number }[]> {
+  if (rows.length === 0) return [];
+  const json = JSON.stringify(
+    rows.map((r) => ({
+      id: r.id,
+      agency_id: r.agencyId,
+      profile_id: r.profileId,
+      listing_id: r.listingId,
+      listing_agency_id: r.listingAgencyId,
+      listing_version: r.listingVersion,
+      profile_version: r.profileVersion,
+      hard_score: r.hardScore,
+      semantic_score: r.semanticScore,
+      boost_score: r.boostScore,
+      total_score: r.totalScore,
+      explanation: r.explanation,
+      status: r.status,
+    })),
+  );
+  const res = await tx.execute<{ agency_id: string; n: number }>(sql`
+    with w as (
+      insert into ${clientProfileMatches} (id, agency_id, profile_id, listing_id, listing_agency_id, listing_version,
+        profile_version, hard_score, semantic_score, boost_score, total_score, explanation, status)
+      select id, agency_id, profile_id, listing_id, listing_agency_id, listing_version, profile_version, hard_score,
+             semantic_score, boost_score, total_score, explanation, status
+        from jsonb_to_recordset(${json}::jsonb) as x(id uuid, agency_id uuid, profile_id uuid, listing_id uuid,
+               listing_agency_id uuid, listing_version int, profile_version int, hard_score real, semantic_score real,
+               boost_score real, total_score real, explanation jsonb, status text)
+       order by profile_id, listing_id
+      on conflict (profile_id, listing_id) do nothing
+      returning agency_id)
+    select agency_id as "agencyId", count(*)::int as n from w group by agency_id`);
+  return res.rows as unknown as { agencyId: string; n: number }[];
+}
+
+/**
+ * R2-02b: profiles of these written before their match keys existed (R2-02a) get them (`profileMatchKeys`); two
+ * statements at most, the read only when some lack keys. Answers how many were keyed.
+ */
+export async function keyUnkeyedProfiles(tx: Tx, agencyId: string, ids: readonly string[]): Promise<number> {
+  if (ids.length === 0) return 0;
+  const res = await tx.execute<{ id: string; transaction_type: string | null; location_ids: string[] | string }>(sql`
+    select id, transaction_type, location_ids from ${clientProfiles}
+     where agency_id = ${agencyId} and id = any(${uuids(ids)}) and cardinality(match_keys) = 0`);
+  if (res.rows.length === 0) return 0;
+  const json = JSON.stringify(
+    res.rows.map((r) => ({
+      id: r.id,
+      keys: profileMatchKeys({ agencyId, transactionType: r.transaction_type, locationIds: arr(r.location_ids) }),
+    })),
+  );
+  const done = await tx.execute(sql`
+    update ${clientProfiles} p set match_keys = x.keys
+      from jsonb_to_recordset(${json}::jsonb) as x(id uuid, keys text[])
+     where p.agency_id = ${agencyId} and p.id = x.id and cardinality(p.match_keys) = 0`);
+  return done.rowCount ?? 0;
 }

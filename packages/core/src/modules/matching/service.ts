@@ -170,7 +170,7 @@ export async function deleteSavedSearch(ctx: Ctx, id: string): Promise<void> {
  * Of these agencies, those taking part in the network now: listed (VERIFIED) and give-to-get not LOCKED. Three
  * statements (listed, standings, shared counts) for any number; none when `ids` is empty.
  */
-async function networkOpenAmong(tx: Tx, ids: readonly string[]): Promise<Set<string>> {
+export async function networkOpenAmong(tx: Tx, ids: readonly string[]): Promise<Set<string>> {
   const unique = [...new Set(ids)];
   if (unique.length === 0) return new Set();
   const listed = await agencies.listedAgencyNamesOf(tx, unique);
@@ -182,7 +182,7 @@ async function networkOpenAmong(tx: Tx, ids: readonly string[]): Promise<Set<str
 }
 
 /** May the members of `agencyId` see this listing in network search now (its owner listed: `ownerListed`)? */
-function sharedWith(doc: search.ListingIndexDoc, agencyId: string, ownerListed: boolean): boolean {
+export function sharedWith(doc: search.ListingIndexDoc, agencyId: string, ownerListed: boolean): boolean {
   if (!ownerListed || doc.networkHidden) return false;
   return doc.shareScope === 'ALL' || doc.preferredAgencyIds.includes(agencyId);
 }

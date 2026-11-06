@@ -2555,3 +2555,42 @@ export async function nearestListingEmbeddings(
      limit ${opts.limit}`);
   return res.rows.map((r) => ({ targetId: r.target_id, ownerAgencyId: r.owner_agency_id, distance: r.distance }));
 }
+
+/**
+ * R2-02b, the match engine's semantic score: these listings' vectors as halfvec text, with their model (primary-key
+ * probes). Worker-only.
+ */
+export async function listingVectors(
+  tx: Tx,
+  ids: readonly string[],
+): Promise<Map<string, { model: string; vector: string }>> {
+  if (ids.length === 0) return new Map();
+  const rows = await tx
+    .select({
+      targetId: listingEmbeddings.targetId,
+      model: listingEmbeddings.model,
+      vector: sql<string>`${listingEmbeddings.embedding}::text`,
+    })
+    .from(listingEmbeddings)
+    .where(inArray(listingEmbeddings.targetId, [...ids]));
+  return new Map(rows.map((r) => [r.targetId, { model: r.model, vector: r.vector }]));
+}
+
+/**
+ * R2-02b: cosine similarity (1 − cosine distance) of each probe's vector of `model` to its listings' vectors of the same
+ * model — one statement for any number of probes (primary-key probes, no kNN). Keyed `<probe key>:<listing id>`;
+ * listings without a vector of that model are left out.
+ */
+export async function listingSimilarities(
+  tx: Tx,
+  probes: readonly { key: string; vector: string; model: string; ids: readonly string[] }[],
+): Promise<Map<string, number>> {
+  const some = probes.filter((p) => p.ids.length > 0);
+  if (some.length === 0) return new Map();
+  const json = JSON.stringify(some.map((p) => ({ key: p.key, vec: p.vector, model: p.model, ids: p.ids })));
+  const res = await tx.execute<{ key: string; target_id: string; similarity: number }>(sql`
+    select x.key, e.target_id, 1 - (e.embedding <=> x.vec::halfvec) as similarity
+      from jsonb_to_recordset(${json}::jsonb) as x(key text, vec text, model text, ids uuid[])
+      join ${listingEmbeddings} e on e.target_id = any(x.ids) and e.model = x.model`);
+  return new Map(res.rows.map((r) => [`${r.key}:${r.target_id}`, Number(r.similarity)]));
+}

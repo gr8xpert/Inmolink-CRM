@@ -318,3 +318,23 @@ export async function nearestListings(
   const n = Math.max(1, Math.min(KNN_MAX_LIMIT, Math.trunc(limit)));
   return repo.nearestListingEmbeddings(tx, vector, { limit: n, efSearch: Math.max(KNN_EF_SEARCH, n) });
 }
+
+/** R2-02b, the match engine (worker): these listings' vectors as halfvec text, with their model. */
+export function listingVectors(
+  tx: Tx,
+  ids: readonly string[],
+): Promise<Map<string, { model: string; vector: string }>> {
+  return repo.listingVectors(tx, ids);
+}
+
+/**
+ * R2-02b, the match engine (worker): cosine similarity of each client profile's vector (halfvec text read from the
+ * database, never caller input) to its candidate listings' vectors of the same model, in one statement; keyed
+ * `<key>:<listing id>`, listings without one left out.
+ */
+export function listingSimilarities(
+  tx: Tx,
+  probes: readonly { key: string; vector: string; model: string; ids: readonly string[] }[],
+): Promise<Map<string, number>> {
+  return repo.listingSimilarities(tx, probes);
+}
