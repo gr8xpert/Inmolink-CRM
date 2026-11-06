@@ -1,20 +1,29 @@
+import { CLIENT_PROFILE_LIMITS } from '@inmolink/contracts';
 import { notFound, redirect } from 'next/navigation';
 import { getFormatter, getLocale, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
-import { sessionRef } from '@/server/api';
+import { fetchTaxonomy, sessionRef } from '@/server/api';
 import { fetchContactConsents } from '@/server/compliance-api';
 import { fetchContact, fetchContactNotes } from '@/server/contacts-api';
+import { fetchClientProfiles } from '@/server/matching-api';
+import { listingTaxonomy } from '../../listings/taxonomy';
 import { addNoteAction } from '../actions';
 import { ContactFinder } from '../contact-finder';
 import { contactName } from '../lookup';
+import { ClientProfiles } from './client-profiles';
 import { ConsentHistory } from './consent-history';
+import { deleteProfileAction, saveProfileAction } from './profile-actions';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CURSOR = /^[A-Za-z0-9_-]{1,400}$/;
 const DONE = ['merged', 'noted', 'edited'] as const;
+/** R2-02d: the profile form's outcomes (`contacts.profiles.done`). */
+const PROFILE_DONE = ['profileSaved', 'profileDeleted'] as const;
 const ERRORS = ['generic', 'VERSION_CONFLICT', 'VALIDATION_FAILED', 'FORBIDDEN', 'CONTACT_NOT_FOUND'] as const;
 const CONTACT_ERRORS = [
+  'CLIENT_PROFILE_NOT_FOUND',
+  'CLIENT_PROFILE_LIMIT',
   'CONTACT_NOT_FOUND',
   'CONTACT_MERGE_INVALID',
   'CONTACT_MERGE_LIMIT',
@@ -42,12 +51,23 @@ export default async function ContactPage({
   const t = await getTranslations('contacts');
   const format = await getFormatter();
   const cursor = typeof q.notes === 'string' && CURSOR.test(q.notes) ? q.notes : undefined;
-  const [contact, notes, consents] = await Promise.all([
+  const [contact, notes, consents, profiles, tax] = await Promise.all([
     fetchContact(ref, id),
     fetchContactNotes(ref, id, cursor),
     fetchContactConsents(ref, id),
+    fetchClientProfiles(ref, id),
+    fetchTaxonomy(ref),
   ]);
-  if (contact === 'revoked' || notes === 'revoked' || consents === 'revoked') redirect('/session/expired');
+  if (
+    contact === 'revoked' ||
+    notes === 'revoked' ||
+    consents === 'revoked' ||
+    profiles === 'revoked' ||
+    tax === 'revoked'
+  ) {
+    redirect('/session/expired');
+  }
+  const tp = await getTranslations('contacts.profiles');
   const back = (
     <Link href="/contacts" className="text-sm underline-offset-4 hover:underline">
       {t('detail.back')}
@@ -67,6 +87,9 @@ export default async function ContactPage({
   }
   const c = contact.data;
   const done = (DONE as readonly string[]).includes(q.done ?? '') ? (q.done as (typeof DONE)[number]) : null;
+  const profileDone = PROFILE_DONE.find((d) => d === q.done) ?? null;
+  const profileItems = profiles.ok ? profiles.data.items : null;
+  const editing = (q.profile && profileItems?.find((p) => p.id === q.profile)) || null;
   const errorCode = q.error
     ? ([...ERRORS, ...CONTACT_ERRORS] as readonly string[]).includes(q.error)
       ? q.error
@@ -106,9 +129,14 @@ export default async function ContactPage({
           {t(`detail.done.${done}`)}
         </p>
       ) : null}
+      {profileDone ? (
+        <p role="status" className="text-sm">
+          {tp(`done.${profileDone}`)}
+        </p>
+      ) : null}
       {errorCode ? (
         <p role="alert" className="text-sm text-destructive">
-          {t(`errors.${errorCode as 'generic'}`)}
+          {t(`errors.${errorCode as 'generic'}`, { max: CLIENT_PROFILE_LIMITS.perContact })}
         </p>
       ) : null}
 
@@ -144,6 +172,25 @@ export default async function ContactPage({
           policy: (version) => t('consents.policy', { version }),
         }}
       />
+
+      {/* R2-02d: the client's search profiles and a way into their matches */}
+      <ClientProfiles
+        contactId={c.id}
+        profiles={profileItems}
+        editing={editing}
+        conflict={editing !== null && q.error === 'VERSION_CONFLICT'}
+        confirmDelete={q.confirmDelete ?? null}
+        tax={listingTaxonomy(tax.ok ? tax.data : null)}
+        t={(key, values) => tp(key as never, values as never)}
+        euros={(cents) => format.number(cents / 100, { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 })}
+        actions={{ save: saveProfileAction, delete: deleteProfileAction }}
+      />
+      <Link
+        href={{ pathname: '/matches', query: { contact: c.id } }}
+        className="self-start text-sm font-medium underline-offset-4 hover:underline"
+      >
+        {t('matchQueue.link')}
+      </Link>
 
       <section aria-labelledby="notes" className="flex flex-col gap-2">
         <h2 id="notes" className="text-base font-semibold">

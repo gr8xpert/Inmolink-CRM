@@ -60,7 +60,9 @@ export {
   allowedMissing,
   type CriterionKey,
   type CriterionResult,
+  type ExplanationReason,
   explainMatch,
+  explanationReasons,
   explanationText,
   HARD_WEIGHT,
   MATCH_MIN_TOTAL,
@@ -117,6 +119,13 @@ export {
   subjectClientProfiles,
   updateClientProfile,
 } from './profiles';
+// R2-02d: the review queue (requests).
+export {
+  approveClientProfileMatch,
+  dismissClientProfileMatch,
+  listClientProfileMatches,
+  restoreClientProfileMatch,
+} from './review';
 export {
   ALERT_DAILY_CAP,
   ALERT_RETENTION_DAYS,

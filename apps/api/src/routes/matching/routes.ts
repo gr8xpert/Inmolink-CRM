@@ -1,10 +1,14 @@
 import {
   CLIENT_PROFILE_LIMITS,
   ClientProfileDto,
+  ClientProfileMatchMoveDto,
+  ClientProfileMatchPage,
+  ClientProfileMatchParams,
   ClientProfilePage,
   ClientProfileParams,
   ContactParams,
   CreateClientProfileBody,
+  ListClientProfileMatchesQuery,
   PageQuery,
   SavedSearchBody,
   SavedSearchDto,
@@ -33,6 +37,15 @@ const PROFILE_READ_LIMITS: readonly RateLimitRule[] = [
 const PROFILE_WRITE_LIMITS: readonly RateLimitRule[] = [
   { name: 'matching.client-profiles.write.ip', scope: 'ip', limit: 300, windowSeconds: 60 },
   { name: 'matching.client-profiles.write.user', scope: 'user', limit: 60, windowSeconds: 60 },
+];
+
+const QUEUE_READ_LIMITS: readonly RateLimitRule[] = [
+  { name: 'matching.match-queue.read.ip', scope: 'ip', limit: 600, windowSeconds: 60 },
+  { name: 'matching.match-queue.read.user', scope: 'user', limit: 240, windowSeconds: 60 },
+];
+const QUEUE_WRITE_LIMITS: readonly RateLimitRule[] = [
+  { name: 'matching.match-queue.write.ip', scope: 'ip', limit: 300, windowSeconds: 60 },
+  { name: 'matching.match-queue.write.user', scope: 'user', limit: 120, windowSeconds: 60 },
 ];
 
 const tags = ['matching'];
@@ -200,4 +213,60 @@ export async function matchingRoutes(app: FastifyZod): Promise<void> {
       return reply.code(204).send(null);
     },
   );
+
+  /*
+   * R2-02d, the review queue (PLAN §7 M9): the matches of the agency's REVIEW profiles — approve (into a selection for
+   * the client; nothing is sent), dismiss (the learned boost's dislike), restore. The clients' rule (crm contacts read /
+   * write); never in Client Mode.
+   */
+  app.get(
+    '/v1/client-profile-matches',
+    {
+      schema: {
+        tags,
+        operationId: 'matching.listClientProfileMatches',
+        summary:
+          'The review queue: matches pending review (or dismissed), newest first; agency-wide, or one contact’s or profile’s',
+        querystring: ListClientProfileMatchesQuery,
+        response: { 200: ClientProfileMatchPage },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: QUEUE_READ_LIMITS },
+    },
+    (req) => app.withCtx(req, (ctx) => matching.listClientProfileMatches(ctx, req.query)),
+  );
+
+  for (const [verb, summary, run] of [
+    [
+      'approve',
+      'Approve a pending match: its listing goes into a selection for the client (nothing is sent). An own listing no longer offerable answers 200 with status EXPIRED (the match is closed); a network one 410 CLIENT_PROFILE_MATCH_EXPIRED (nothing changes)',
+      matching.approveClientProfileMatch,
+    ],
+    [
+      'dismiss',
+      'Dismiss a pending match (the client is taken not to want listings like it)',
+      matching.dismissClientProfileMatch,
+    ],
+    [
+      'restore',
+      'Restore a dismissed match to the review queue (410 CLIENT_PROFILE_MATCH_EXPIRED when the listing can no longer be offered)',
+      matching.restoreClientProfileMatch,
+    ],
+  ] as const) {
+    app.post(
+      `/v1/client-profile-matches/:id/${verb}`,
+      {
+        schema: {
+          tags,
+          operationId: `matching.${verb}ClientProfileMatch`,
+          summary,
+          params: ClientProfileMatchParams,
+          response: { 200: ClientProfileMatchMoveDto },
+        },
+        onRequest: [app.requireSession],
+        config: { rateLimit: QUEUE_WRITE_LIMITS },
+      },
+      (req) => app.withCtx(req, (ctx) => run(ctx, req.params.id)),
+    );
+  }
 }

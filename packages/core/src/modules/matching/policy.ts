@@ -14,6 +14,13 @@ export const MATCHING_ACTIONS = [
   'matching.clientProfiles.read',
   /** R2-02a: create, change and delete a contact's client profiles — the contact's write rule (`crm.contacts.write`). */
   'matching.clientProfiles.write',
+  /** R2-02d: the review queue — read the matches of the agency's clients (the contacts' read rule). */
+  'matching.clientProfileMatches.read',
+  /**
+   * R2-02d: approve (into a selection: the selections' own write rule applies too), dismiss and restore a match — the
+   * contact's write rule (`crm.contacts.write`).
+   */
+  'matching.clientProfileMatches.review',
 ] as const;
 export type MatchingAction = (typeof MATCHING_ACTIONS)[number];
 
@@ -25,12 +32,15 @@ export const CLIENT_MODE_ALLOWED: ReadonlySet<MatchingAction> = new Set<Matching
 
 /**
  * Staff impersonating a member (S1-09) never change the member's saved searches (their alerts go to the member). R2-02a:
- * nor read or change client profiles — a client's wishes and budget are not needed to diagnose the dashboard.
+ * nor read or change client profiles — a client's wishes and budget are not needed to diagnose the dashboard. R2-02d:
+ * nor the review queue (it shows which listings fit which client).
  */
 export const MATCHING_IMPERSONATION: ImpersonationRules<MatchingAction> = {
   'matching.savedSearches.manage': 'forbidden',
   'matching.clientProfiles.read': 'forbidden',
   'matching.clientProfiles.write': 'forbidden',
+  'matching.clientProfileMatches.read': 'forbidden',
+  'matching.clientProfileMatches.review': 'forbidden',
 };
 
 /** Members who work clients and stock (a `PARTNER` membership does not). */
@@ -46,8 +56,10 @@ export function can(ctx: Ctx, action: MatchingAction): boolean {
       return true;
     // the owning contact's rule: an agent who may not see / change the contact may not see / change its profiles
     case 'matching.clientProfiles.read':
+    case 'matching.clientProfileMatches.read':
       return crm.can(ctx, 'crm.contacts.read');
     case 'matching.clientProfiles.write':
+    case 'matching.clientProfileMatches.review':
       return crm.can(ctx, 'crm.contacts.write');
   }
 }

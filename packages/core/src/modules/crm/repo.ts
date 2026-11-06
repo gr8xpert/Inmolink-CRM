@@ -710,6 +710,20 @@ export async function openContactExists(
   return row !== undefined;
 }
 
+/** R2-02d: the names and language of those of these contacts that are open contacts of the agency (one statement). */
+export async function openContactNames(tx: Tx, agencyId: string, ids: readonly string[]) {
+  if (ids.length === 0) return [];
+  return tx
+    .select({
+      id: contacts.id,
+      firstName: contacts.firstName,
+      lastName: contacts.lastName,
+      language: contacts.language,
+    })
+    .from(contacts)
+    .where(and(eq(contacts.agencyId, agencyId), inArray(contacts.id, [...ids]), isNull(contacts.deletedAt)));
+}
+
 /**
  * S16-04, agency erasure: up to `limit` open contacts of the agency (`contacts_agency_created_idx`). Each one erased
  * closes it, so the next call answers the next ones; merged (closed) contacts follow their survivor's erasure.

@@ -42,13 +42,17 @@ export default async function ContactsPage({ searchParams }: { searchParams: Pro
 
   return (
     <div className="flex flex-col gap-4 p-6">
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-xl font-semibold">{t('title')}</h1>
         {shell && canImportContacts(shell.identity) ? (
           <Link href="/contacts/import" className="text-sm font-medium underline-offset-4 hover:underline">
             {t('import.title')}
           </Link>
         ) : null}
+        {/* R2-02d: the review queue of the clients' search profiles */}
+        <Link href="/matches" className="text-sm font-medium underline-offset-4 hover:underline">
+          {t('matchQueue.link')}
+        </Link>
         <Link href="/contacts/new" className="ml-auto text-sm font-medium underline-offset-4 hover:underline">
           {t('list.new')}
         </Link>

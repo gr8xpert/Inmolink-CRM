@@ -741,10 +741,17 @@ grant select, insert, update, delete on table public."client_profile_feedback" t
 -- client_profile_matches: STRICT
 alter table public."client_profile_matches" enable row level security;
 alter table public."client_profile_matches" force row level security;
-create policy own_rows on public."client_profile_matches" for select to app_user
-  using (agency_id = app_agency());
+create policy own_rows on public."client_profile_matches" to app_user
+  using (agency_id = app_agency()) with check (agency_id = app_agency());
 revoke all on table public."client_profile_matches" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
-grant select on table public."client_profile_matches" to app_user;
+grant select, insert on table public."client_profile_matches" to app_user;
+do $$
+declare cols text;
+begin
+  select string_agg(format('%I', attname), ', ' order by attnum) into cols from pg_attribute
+   where attrelid = 'public."client_profile_matches"'::regclass and attnum > 0 and not attisdropped and attname <> all (array['id', 'profile_id', 'listing_id', 'listing_agency_id', 'listing_version', 'profile_version', 'hard_score', 'semantic_score', 'boost_score', 'total_score', 'explanation', 'created_at']);
+  execute format('grant update (%s) on table public."client_profile_matches" to app_user', cols);
+end $$;
 grant select, insert, update, delete on table public."client_profile_matches" to app_system;
 
 -- client_profiles: STRICT

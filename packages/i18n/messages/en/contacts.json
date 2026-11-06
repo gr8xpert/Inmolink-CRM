@@ -222,7 +222,11 @@
     "generic": "Something went wrong. Try again.",
     "PLAN_REQUIRED": "Your plan's contact limit was reached.",
     "RATE_LIMITED": "Too many requests. Wait a moment and try again.",
-    "PAYLOAD_TOO_LARGE": "This file is too large."
+    "PAYLOAD_TOO_LARGE": "This file is too large.",
+    "CLIENT_PROFILE_MATCH_NOT_FOUND": "This match no longer exists.",
+    "CLIENT_PROFILE_MATCH_STATE": "This match was already handled. Reload to see where it is now.",
+    "CLIENT_PROFILE_MATCH_EXPIRED": "This listing can no longer be offered to the client.",
+    "SELECTION_ITEMS_INVALID": "This listing can no longer be added to a selection."
   },
   "list": {
     "new": "New contact",
@@ -317,6 +321,113 @@
       "location": "area",
       "features": "features",
       "price": "price range"
+    }
+  },
+  "profiles": {
+    "title": "Search profiles",
+    "intro": "What this client is looking for. The matching engine finds listings for each active profile.",
+    "empty": "No search profiles yet.",
+    "loadError": "The search profiles could not be loaded.",
+    "listLabel": "Search profiles of this contact",
+    "anything": "Any listing",
+    "edit": "Edit",
+    "editLabel": "Edit search profile {n}",
+    "delete": "Delete",
+    "deleteLabel": "Delete search profile {n}",
+    "confirmDelete": "Delete profile {n}? Its matches go with it. This cannot be undone.",
+    "confirmDeleteYes": "Yes, delete",
+    "matches": "Matches",
+    "matchesLabel": "Matches of search profile {n}",
+    "profileN": "Profile {n}",
+    "beds": "{count, plural, one {# bedroom} other {# bedrooms}} or more",
+    "baths": "{count, plural, one {# bathroom} other {# bathrooms}} or more",
+    "area": "{min} – {max} m²",
+    "mustHaves": "Must-haves: {list}",
+    "modes": {
+      "OFF": "Off",
+      "REVIEW": "Review matches",
+      "AUTO_SEND": "Send automatically"
+    },
+    "modeHelp": "Off: no matching. Review: matches wait in the review queue. Send automatically: matches are sent to the client.",
+    "frequencies": {
+      "INSTANT": "As they come",
+      "DAILY": "Daily",
+      "WEEKLY": "Weekly"
+    },
+    "transactions": {
+      "SALE": "Buy",
+      "RENT_LONG_TERM": "Rent (long term)",
+      "RENT_SHORT_TERM": "Rent (short term)"
+    },
+    "done": {
+      "profileSaved": "Search profile saved.",
+      "profileDeleted": "Search profile deleted."
+    },
+    "form": {
+      "createTitle": "New search profile",
+      "editTitle": "Edit search profile",
+      "mode": "Matching",
+      "frequency": "How often",
+      "transaction": "Transaction",
+      "any": "Any",
+      "propertyTypes": "Property types",
+      "locations": "Areas",
+      "multiHelp": "Choose more than one with Ctrl or Cmd + click, or with Shift + the arrow keys.",
+      "features": "Must-haves",
+      "priceMin": "Price from (€)",
+      "priceMax": "Price up to (€)",
+      "bedsMin": "Bedrooms at least",
+      "bathsMin": "Bathrooms at least",
+      "areaMin": "Built area from (m²)",
+      "areaMax": "Built area up to (m²)",
+      "wishes": "Wishes in the client's words",
+      "wishesHelp": "For example: sea view, walking distance to the beach. Up to {max} characters.",
+      "save": "Save profile",
+      "cancel": "Cancel",
+      "conflict": "Someone changed this profile meanwhile. The form shows the latest version: check it and save again."
+    }
+  },
+  "matchQueue": {
+    "selectionTitle": "Properties selected for you",
+    "title": "Matches to review",
+    "intro": "Listings the matching engine found for your clients' search profiles. Approve one to add it to a selection for the client (nothing is sent), or dismiss it.",
+    "link": "Matches to review",
+    "listLabel": "Matches",
+    "empty": "Nothing to review.",
+    "emptyDismissed": "No dismissed matches.",
+    "pageHidden": "None of these matches can still be offered. Older matches follow.",
+    "load": "The matches could not be loaded.",
+    "loadMore": "Older matches",
+    "statusFilter": "Show",
+    "statuses": {
+      "PENDING_REVIEW": "To review",
+      "DISMISSED": "Dismissed"
+    },
+    "forContact": "For {name}",
+    "clearFilter": "Show all clients",
+    "contactLink": "Open the contact",
+    "noName": "Unnamed contact",
+    "score": "Match {pct}",
+    "network": "Network listing",
+    "own": "Own listing",
+    "met": "Met",
+    "notMet": "Not met",
+    "reasonsLabel": "Why it matches",
+    "priceOnRequest": "Price on request",
+    "beds": "{count, plural, one {# bedroom} other {# bedrooms}}",
+    "m2": "{value} m²",
+    "approve": "Approve",
+    "approveLabel": "Approve {title} for {name}",
+    "dismiss": "Dismiss",
+    "dismissLabel": "Dismiss {title} for {name}",
+    "restore": "Restore",
+    "restoreLabel": "Restore {title} for {name}",
+    "openSelection": "Open the selection",
+    "done": {
+      "APPROVED": "Added to a selection for the client. Nothing was sent: share it from the selection.",
+      "DISMISSED": "Match dismissed.",
+      "PENDING_REVIEW": "Match restored to the review queue.",
+      "EXPIRED": "This listing can no longer be offered, so the match was closed."
     }
   }
 }

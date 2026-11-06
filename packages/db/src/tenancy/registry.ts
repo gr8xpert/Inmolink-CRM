@@ -1573,12 +1573,30 @@ export const tenantTables: Record<string, TenantTable> = {
       match_keys: '{}',
     },
   },
-  // R2-02b: a listing matched to a client profile (the profile's agency's own). Written by the matching worker only
-  // until R2-02d's review queue: `userReadOnly`, so no request forges a match or deletes one (deleting a pair would let
+  // R2-02b: a listing matched to a client profile (the profile's agency's own). Inserted by the matching worker only.
+  // R2-02d's review queue: members change `status`, `selection_id` and `updated_at` only (every other column is
+  // `userNoUpdateColumns`), along the review moves the guard trigger allows (approve, dismiss, restore, expire; 0189),
+  // and never insert (the guard: no request forges a match) or delete one (`userNoDelete`: deleting a pair would let
   // the engine send the same listing to the client again).
   client_profile_matches: {
     kind: 'STRICT',
-    userReadOnly: true,
+    guardedInsert: true,
+    userNoDelete: true,
+    userNoUpdateColumns: [
+      'id',
+      'profile_id',
+      'listing_id',
+      'listing_agency_id',
+      'listing_version',
+      'profile_version',
+      'hard_score',
+      'semantic_score',
+      'boost_score',
+      'total_score',
+      'explanation',
+      'created_at',
+    ],
+    triggers: ['client_profile_matches_guard'],
     base: {
       status: 'PENDING_REVIEW',
       hard_score: 1,

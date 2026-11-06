@@ -39,6 +39,8 @@ export {
 } from './public';
 export { INTERACTION_RETENTION, pruneSelectionInteractions } from './retention';
 export {
+  addToDraftSelection,
+  createDraftSelection,
   createSelection,
   getSelection,
   listSelectionInteractions,

@@ -199,6 +199,58 @@ export async function createSelection(ctx: Ctx, body: CreateSelectionBody): Prom
   };
 }
 
+/**
+ * R2-02d (the match review queue): the listing goes into the contact's draft selection `selectionId` when it still is
+ * one — live, never viewed by the client, room left (`'added'`, or `'present'` when it was in it already) — else
+ * `'closed'` (the caller starts a new one with `createDraftSelection`). The target must be one the caller may present
+ * (`SELECTION_ITEMS_INVALID`). Nothing is sent. Two statements.
+ */
+export async function addToDraftSelection(
+  ctx: Ctx,
+  p: { selectionId: string; contactId: string; targetId: string },
+): Promise<'added' | 'present' | 'closed'> {
+  assertCan(ctx, 'presentations.write');
+  if ((await search.visibleTargets(ctx.tx, [p.targetId])).length === 0) throw new AppError('SELECTION_ITEMS_INVALID');
+  const r = await repo.appendDraftItem(ctx.tx, {
+    ...p,
+    agencyId: ctx.tenant.agencyId,
+    itemId: newId(),
+    max: SELECTION_LIMITS.items,
+  });
+  if (r.present && r.open) return 'present';
+  return r.added ? 'added' : 'closed';
+}
+
+/**
+ * R2-02d: a new selection for the contact holding one listing, in the client's language — a draft: its link is not
+ * shown here (the agent shares it from the selection with a new link, R2-02e sends it). The caller checked the
+ * contact is an open contact of the agency. Three statements; nothing is sent.
+ */
+export async function createDraftSelection(
+  ctx: Ctx,
+  p: { contactId: string; title: string; locale: string; targetId: string },
+): Promise<string> {
+  assertCan(ctx, 'presentations.write');
+  assertLocale(ctx, p.locale);
+  const [item] = await visibleItems(ctx, [{ targetId: p.targetId }]);
+  const id = newId();
+  const t = newToken();
+  await repo.insertSelection(ctx.tx, {
+    id,
+    agencyId: ctx.tenant.agencyId,
+    createdBy: memberId(ctx),
+    contactId: p.contactId,
+    title: p.title.trim().slice(0, SELECTION_LIMITS.titleChars),
+    message: null,
+    locale: p.locale,
+    tokenHash: t.hash,
+    tokenHint: t.hint,
+    expiresAt: expiryIn(SELECTION_LIMITS.expiryDaysDefault),
+  });
+  if (item) await repo.insertItems(ctx.tx, [{ ...item, selectionId: id }]);
+  return id;
+}
+
 /** `GET /v1/selections/:id`: the selection, its items with likes and enquiries, its views. */
 export async function getSelection(ctx: Ctx, id: string): Promise<SelectionDto> {
   assertCan(ctx, 'presentations.read');

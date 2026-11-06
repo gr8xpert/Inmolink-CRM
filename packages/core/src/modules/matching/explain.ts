@@ -1,3 +1,4 @@
+import type { MATCH_CRITERION_KEYS } from '@inmolink/contracts';
 import { DEFAULT_UI_LOCALE, isUiLocale } from '@inmolink/i18n';
 import { translator } from '@inmolink/i18n/server';
 import type { BoostReason } from './boost';
@@ -56,15 +57,8 @@ export interface MatchListingFacts {
   areaM2: number | null;
 }
 
-export type CriterionKey =
-  | 'transaction'
-  | 'propertyType'
-  | 'location'
-  | 'price'
-  | 'bedrooms'
-  | 'bathrooms'
-  | 'area'
-  | 'mustHaves';
+/** The hard criteria (one list with the review queue's contract, `MATCH_CRITERION_KEYS`). */
+export type CriterionKey = (typeof MATCH_CRITERION_KEYS)[number];
 
 export interface CriterionResult {
   key: CriterionKey;
@@ -200,34 +194,57 @@ export function scoreMatch(e: MatchExplanation, similarity: number | null, boost
   return { hard, semantic, boost, total };
 }
 
+/** One line of the explanation: a criterion met or not, or the learned boost's reason (R2-02d's chips). */
+export interface ExplanationReason {
+  key: CriterionKey | 'boost';
+  ok: boolean;
+  text: string;
+}
+
 /**
- * The explanation in words, one line per criterion in the profile's order (then the boost's reasons), and a summary — from i18n keys only
- * (`contacts.matchExplanation`), in the member's UI locale (EN fallback).
+ * The explanation as reasons: one per criterion in the profile's order (met or not), then the boost's (liked: ok,
+ * turned down: not), and a summary — from i18n keys only (`contacts.matchExplanation`), in the member's UI locale (EN
+ * fallback).
  */
-export function explanationText(e: MatchExplanation, locale: string): { summary: string; lines: string[] } {
+export function explanationReasons(
+  e: MatchExplanation,
+  locale: string,
+): { summary: string; reasons: ExplanationReason[] } {
   const t = translator(isUiLocale(locale) ? locale : DEFAULT_UI_LOCALE, 'contacts');
-  const lines = e.criteria.map((c) => {
+  const reasons: ExplanationReason[] = e.criteria.map((c) => {
+    const line = (text: string): ExplanationReason => ({ key: c.key, ok: c.ok, text });
     if (c.key === 'price') {
-      if (e.priceOnRequest) return t('matchExplanation.price.onRequest');
-      if (c.ok) return t('matchExplanation.price.ok');
+      if (e.priceOnRequest) return line(t('matchExplanation.price.onRequest'));
+      if (c.ok) return line(t('matchExplanation.price.ok'));
       if (e.priceDeltaPct !== null && e.priceDeltaPct > 0) {
-        return t('matchExplanation.price.over', { pct: e.priceDeltaPct });
+        return line(t('matchExplanation.price.over', { pct: e.priceDeltaPct }));
       }
-      return t('matchExplanation.price.under');
+      return line(t('matchExplanation.price.under'));
     }
     if (c.key === 'mustHaves' && e.mustHaves) {
-      return t('matchExplanation.mustHaves', { met: e.mustHaves.met, total: e.mustHaves.total });
+      return line(t('matchExplanation.mustHaves', { met: e.mustHaves.met, total: e.mustHaves.total }));
     }
-    return t(`matchExplanation.${c.key}.${c.ok ? 'ok' : 'no'}`);
+    return line(t(`matchExplanation.${c.key}.${c.ok ? 'ok' : 'no'}`));
   });
   // R2-02c: the learned boost's reason ("similar to listings the client liked (type, area)")
   if (e.boost) {
     const what = (dims: readonly string[]) => dims.map((d) => t(`matchExplanation.boost.${d}`)).join(', ');
-    if (e.boost.liked.length > 0) lines.push(t('matchExplanation.boost.liked', { what: what(e.boost.liked) }));
-    if (e.boost.disliked.length > 0) lines.push(t('matchExplanation.boost.disliked', { what: what(e.boost.disliked) }));
+    if (e.boost.liked.length > 0) {
+      reasons.push({ key: 'boost', ok: true, text: t('matchExplanation.boost.liked', { what: what(e.boost.liked) }) });
+    }
+    if (e.boost.disliked.length > 0) {
+      reasons.push({
+        key: 'boost',
+        ok: false,
+        text: t('matchExplanation.boost.disliked', { what: what(e.boost.disliked) }),
+      });
+    }
   }
-  return {
-    summary: t('matchExplanation.summary', { met: e.satisfied.length, total: e.criteria.length }),
-    lines,
-  };
+  return { summary: t('matchExplanation.summary', { met: e.satisfied.length, total: e.criteria.length }), reasons };
+}
+
+/** The explanation in words: `explanationReasons` as plain lines. */
+export function explanationText(e: MatchExplanation, locale: string): { summary: string; lines: string[] } {
+  const { summary, reasons } = explanationReasons(e, locale);
+  return { summary, lines: reasons.map((r) => r.text) };
 }

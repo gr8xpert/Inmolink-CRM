@@ -577,6 +577,28 @@ export async function visibleTargetIds(tx: Tx, ids: readonly string[]): Promise<
   return rows.map((r) => r.targetId);
 }
 
+/**
+ * R2-02d: the cards of these listings that are ACTIVE and that the caller's RLS shows (their own, or a network listing
+ * they may read now: shared with them, owner listed, not hidden), in `locale` else `fallback` else any built locale.
+ * One statement (primary-key range per target).
+ */
+export async function activeListingCards(
+  tx: Tx,
+  agencyId: string,
+  ids: readonly string[],
+  locale: string,
+  fallback: string,
+): Promise<{ targetId: string; network: boolean; card: unknown }[]> {
+  if (ids.length === 0) return [];
+  // only whether another agency owns it leaves search (never the owner's id)
+  const result = await tx.execute(sql`
+    select distinct on (m.target_id) m.target_id as "targetId", m.agency_id <> ${agencyId}::uuid as network, m.card
+      from ${listingReadModels} m
+     where m.target_id = any(${uuidArray([...new Set(ids)])}) and m.kind = 'LISTING' and m.status = 'ACTIVE'
+     order by m.target_id, (m.locale = ${locale}) desc, (m.locale = ${fallback}) desc, m.locale`);
+  return result.rows as { targetId: string; network: boolean; card: unknown }[];
+}
+
 /** Reference and title of these listings' cards, every locale built (S12-F21): two JSON fields, one statement. */
 export async function cardLabels(tx: Tx, ids: readonly string[], publicOnly = false) {
   if (ids.length === 0) return [];

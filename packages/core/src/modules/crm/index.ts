@@ -53,6 +53,7 @@ export {
   erasedContactIds,
   lockOpenContact,
   openContactExists,
+  openContactNames,
   purgeAgencyContactImports,
   purgeContactImportFiles,
   SYSTEM_ERASE_BATCH,

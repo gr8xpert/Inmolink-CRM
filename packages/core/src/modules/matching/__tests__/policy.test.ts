@@ -37,6 +37,16 @@ describe('matching policy', () => {
     }
   });
 
+  it('[R2-02d] the review queue follows the contact rule: members read and review, partners and non-users cannot', () => {
+    for (const action of ['matching.clientProfileMatches.read', 'matching.clientProfileMatches.review'] as const) {
+      expect(can(agent, action)).toBe(true);
+      expect(can(ctxAs({ kind: 'user', userId: ME, role: 'AGENCY_ADMIN' }), action)).toBe(true);
+      expect(can(ctxAs({ kind: 'user', userId: ME, role: 'PARTNER' }), action)).toBe(false);
+      expect(can(ctxAs({ kind: 'system', reason: 'test' }), action)).toBe(false);
+      expect(MATCHING_IMPERSONATION[action]).toBe('forbidden');
+    }
+  });
+
   it('[S5-06] Client Mode and impersonating staff change nothing', () => {
     expect(CLIENT_MODE_ALLOWED.size).toBe(0);
     expect(Object.keys(MATCHING_IMPERSONATION).sort()).toEqual([...MATCHING_ACTIONS].sort());

@@ -272,3 +272,38 @@ export async function pruneInteractionsOf(tx: Tx, selectionIds: readonly string[
        limit ${limit} for update skip locked)`);
   return res.rowCount ?? 0;
 }
+
+/**
+ * R2-02d: appends `targetId` to the selection while it is a draft of the contact — the agency's, for that contact,
+ * live (not revoked, not expired), never viewed by the client, fewer than `max` items — at the next position, and moves
+ * the selection's version on (an open editor gets VERSION_CONFLICT). `open`: it is such a draft; `present`: the target
+ * was in it already; `added`: appended now. One statement.
+ */
+export async function appendDraftItem(
+  tx: Tx,
+  p: { agencyId: string; selectionId: string; contactId: string; targetId: string; itemId: string; max: number },
+): Promise<{ open: boolean; present: boolean; added: boolean }> {
+  const res = await tx.execute(sql`
+    with s as (
+      select s.id from ${selections} s
+       where s.agency_id = ${p.agencyId}::uuid and s.id = ${p.selectionId}::uuid and s.contact_id = ${p.contactId}::uuid
+         and s.revoked_at is null and (s.expires_at is null or s.expires_at > now())
+         and not exists (select 1 from ${selectionInteractions} x where x.selection_id = s.id and x.kind = 'VIEW')
+       for update),
+    c as (
+      select count(*)::int as n, coalesce(max(i.position), -1) as last, coalesce(bool_or(i.target_id = ${p.targetId}::uuid), false) as present
+        from ${selectionItems} i where i.selection_id = ${p.selectionId}::uuid),
+    ins as (
+      insert into ${selectionItems} (id, agency_id, selection_id, target_id, position)
+      select ${p.itemId}::uuid, ${p.agencyId}::uuid, s.id, ${p.targetId}::uuid, c.last + 1
+        from s, c where not c.present and c.n < ${p.max}
+      returning 1),
+    bump as (
+      update ${selections} set version = version + 1, updated_at = now()
+       where id in (select id from s) and exists (select 1 from ins)
+      returning 1)
+    select (select count(*) from s)::int > 0 as open, (select present from c) as present,
+           (select count(*) from ins)::int > 0 as added, (select count(*) from bump)::int as bumped`);
+  const row = res.rows[0] as { open: boolean; present: boolean; added: boolean };
+  return { open: row.open, present: row.present, added: row.added };
+}

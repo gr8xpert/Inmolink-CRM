@@ -222,7 +222,11 @@
     "generic": "Algo ha salido mal. Inténtalo de nuevo.",
     "PLAN_REQUIRED": "Se ha alcanzado el límite de contactos de tu plan.",
     "RATE_LIMITED": "Demasiadas solicitudes. Espera un momento e inténtalo de nuevo.",
-    "PAYLOAD_TOO_LARGE": "Este archivo es demasiado grande."
+    "PAYLOAD_TOO_LARGE": "Este archivo es demasiado grande.",
+    "CLIENT_PROFILE_MATCH_NOT_FOUND": "Esta coincidencia ya no existe.",
+    "CLIENT_PROFILE_MATCH_STATE": "Esta coincidencia ya se ha gestionado. Recarga para ver su estado actual.",
+    "CLIENT_PROFILE_MATCH_EXPIRED": "Este inmueble ya no se puede ofrecer al cliente.",
+    "SELECTION_ITEMS_INVALID": "Este inmueble ya no se puede añadir a una selección."
   },
   "list": {
     "new": "Nuevo contacto",
@@ -317,6 +321,113 @@
       "location": "zona",
       "features": "características",
       "price": "rango de precio"
+    }
+  },
+  "profiles": {
+    "title": "Perfiles de búsqueda",
+    "intro": "Lo que busca este cliente. El motor de coincidencias encuentra inmuebles para cada perfil activo.",
+    "empty": "Aún no hay perfiles de búsqueda.",
+    "loadError": "No se han podido cargar los perfiles de búsqueda.",
+    "listLabel": "Perfiles de búsqueda de este contacto",
+    "anything": "Cualquier inmueble",
+    "edit": "Editar",
+    "editLabel": "Editar el perfil de búsqueda {n}",
+    "delete": "Eliminar",
+    "deleteLabel": "Eliminar el perfil de búsqueda {n}",
+    "confirmDelete": "¿Eliminar el perfil {n}? Sus coincidencias se eliminan con él. No se puede deshacer.",
+    "confirmDeleteYes": "Sí, eliminar",
+    "matches": "Coincidencias",
+    "matchesLabel": "Coincidencias del perfil de búsqueda {n}",
+    "profileN": "Perfil {n}",
+    "beds": "{count, plural, one {# dormitorio} other {# dormitorios}} o más",
+    "baths": "{count, plural, one {# baño} other {# baños}} o más",
+    "area": "{min} – {max} m²",
+    "mustHaves": "Imprescindibles: {list}",
+    "modes": {
+      "OFF": "Desactivado",
+      "REVIEW": "Revisar coincidencias",
+      "AUTO_SEND": "Enviar automáticamente"
+    },
+    "modeHelp": "Desactivado: sin coincidencias. Revisar: las coincidencias esperan en la cola de revisión. Enviar automáticamente: las coincidencias se envían al cliente.",
+    "frequencies": {
+      "INSTANT": "Según llegan",
+      "DAILY": "A diario",
+      "WEEKLY": "Semanal"
+    },
+    "transactions": {
+      "SALE": "Comprar",
+      "RENT_LONG_TERM": "Alquiler de larga duración",
+      "RENT_SHORT_TERM": "Alquiler vacacional"
+    },
+    "done": {
+      "profileSaved": "Perfil de búsqueda guardado.",
+      "profileDeleted": "Perfil de búsqueda eliminado."
+    },
+    "form": {
+      "createTitle": "Nuevo perfil de búsqueda",
+      "editTitle": "Editar perfil de búsqueda",
+      "mode": "Coincidencias",
+      "frequency": "Frecuencia",
+      "transaction": "Operación",
+      "any": "Cualquiera",
+      "propertyTypes": "Tipos de inmueble",
+      "locations": "Zonas",
+      "multiHelp": "Elige más de una opción con Ctrl o Cmd + clic, o con Mayús + las flechas.",
+      "features": "Imprescindibles",
+      "priceMin": "Precio desde (€)",
+      "priceMax": "Precio hasta (€)",
+      "bedsMin": "Dormitorios como mínimo",
+      "bathsMin": "Baños como mínimo",
+      "areaMin": "Superficie construida desde (m²)",
+      "areaMax": "Superficie construida hasta (m²)",
+      "wishes": "Deseos con las palabras del cliente",
+      "wishesHelp": "Por ejemplo: vistas al mar, a poca distancia de la playa. Hasta {max} caracteres.",
+      "save": "Guardar perfil",
+      "cancel": "Cancelar",
+      "conflict": "Otra persona ha cambiado este perfil mientras tanto. El formulario muestra la última versión: revísala y vuelve a guardar."
+    }
+  },
+  "matchQueue": {
+    "selectionTitle": "Inmuebles seleccionados para usted",
+    "title": "Coincidencias por revisar",
+    "intro": "Inmuebles que el motor de coincidencias ha encontrado para los perfiles de búsqueda de tus clientes. Aprueba uno para añadirlo a una selección para el cliente (no se envía nada) o descártalo.",
+    "link": "Coincidencias por revisar",
+    "listLabel": "Coincidencias",
+    "empty": "No hay nada que revisar.",
+    "emptyDismissed": "No hay coincidencias descartadas.",
+    "pageHidden": "Ninguna de estas coincidencias se puede ofrecer ya. Siguen coincidencias anteriores.",
+    "load": "No se han podido cargar las coincidencias.",
+    "loadMore": "Coincidencias anteriores",
+    "statusFilter": "Mostrar",
+    "statuses": {
+      "PENDING_REVIEW": "Por revisar",
+      "DISMISSED": "Descartadas"
+    },
+    "forContact": "Para {name}",
+    "clearFilter": "Mostrar todos los clientes",
+    "contactLink": "Abrir el contacto",
+    "noName": "Contacto sin nombre",
+    "score": "Coincidencia {pct}",
+    "network": "Inmueble de la red",
+    "own": "Inmueble propio",
+    "met": "Cumple",
+    "notMet": "No cumple",
+    "reasonsLabel": "Por qué coincide",
+    "priceOnRequest": "Precio a consultar",
+    "beds": "{count, plural, one {# dormitorio} other {# dormitorios}}",
+    "m2": "{value} m²",
+    "approve": "Aprobar",
+    "approveLabel": "Aprobar {title} para {name}",
+    "dismiss": "Descartar",
+    "dismissLabel": "Descartar {title} para {name}",
+    "restore": "Restaurar",
+    "restoreLabel": "Restaurar {title} para {name}",
+    "openSelection": "Abrir la selección",
+    "done": {
+      "APPROVED": "Añadido a una selección para el cliente. No se ha enviado nada: compártela desde la selección.",
+      "DISMISSED": "Coincidencia descartada.",
+      "PENDING_REVIEW": "Coincidencia devuelta a la cola de revisión.",
+      "EXPIRED": "Este inmueble ya no se puede ofrecer, así que la coincidencia se ha cerrado."
     }
   }
 }

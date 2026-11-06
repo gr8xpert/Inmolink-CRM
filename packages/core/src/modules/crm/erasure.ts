@@ -366,6 +366,19 @@ export const openContactExists = (tx: Tx, agencyId: string, contactId: string) =
   repo.openContactExists(tx, agencyId, contactId);
 
 /**
+ * R2-02d: of these contacts, the open contacts of the agency, with their names and language (a list page naming the
+ * contact a row is for; a merged or erased one is left out). Under the caller's RLS; one statement.
+ */
+export async function openContactNames(
+  tx: Tx,
+  agencyId: string,
+  ids: readonly string[],
+): Promise<Map<string, { firstName: string | null; lastName: string | null; language: string | null }>> {
+  const rows = await repo.openContactNames(tx, agencyId, [...new Set(ids)]);
+  return new Map(rows.map(({ id, ...r }) => [id, r]));
+}
+
+/**
  * R2-02a: `openContactExists` that also locks the contact (`FOR NO KEY UPDATE`) until the caller's transaction ends —
  * another module writing a row that names the contact (a client profile) then commits before a merge or erasure of
  * that contact can (both lock it `FOR UPDATE`), so the merge's / erasure's after-commit reaction sees the row; and two

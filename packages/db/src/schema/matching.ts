@@ -341,8 +341,10 @@ export const matchingListingFacts = pgTable(
  * semantic — null when either vector is missing, the total then uses the neutral score —, the learned boost of R2-02c,
  * total), the structured explanation (`MatchExplanation`: each criterion satisfied or not, the price delta, must-haves
  * met) and its status: `PENDING_REVIEW` (REVIEW profiles: waits for the agent, R2-02d) · `QUEUED` (AUTO_SEND: R2-02e
- * sends it) · `SENT` · `DISMISSED` · `EXPIRED` (the listing went before it was sent). The profile's agency's own;
- * written by the matching worker only.
+ * sends it) · `SENT` · `DISMISSED` · `EXPIRED` (the listing went before it was sent) · `APPROVED` (R2-02d: a member
+ * put it in a selection for the client, `selection_id`; nothing sent). The profile's agency's own; inserted by the
+ * matching worker only — R2-02d's review queue (`app_user`) changes only `status`, `selection_id` and `updated_at`,
+ * along the review moves its guard trigger allows (migration 0189), and never deletes a row.
  */
 export const clientProfileMatches = pgTable(
   'client_profile_matches',
@@ -369,6 +371,8 @@ export const clientProfileMatches = pgTable(
     totalScore: real('total_score').notNull(),
     explanation: jsonb('explanation').notNull(),
     status: text('status').notNull(),
+    /** R2-02d: the selection an `APPROVED` match was added to (presentations; no FK across modules). */
+    selectionId: uuid('selection_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -381,7 +385,7 @@ export const clientProfileMatches = pgTable(
     index('client_profile_matches_agency_status_idx').on(t.agencyId, t.status, t.createdAt, t.id),
     check(
       'client_profile_matches_status_ck',
-      sql`${t.status} in ('PENDING_REVIEW', 'QUEUED', 'SENT', 'DISMISSED', 'EXPIRED')`,
+      sql`${t.status} in ('PENDING_REVIEW', 'QUEUED', 'SENT', 'DISMISSED', 'EXPIRED', 'APPROVED')`,
     ),
     check(
       'client_profile_matches_scores_ck',

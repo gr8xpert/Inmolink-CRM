@@ -1569,3 +1569,156 @@ export async function matchOf(
     .where(and(eq(clientProfileMatches.agencyId, agencyId), eq(clientProfileMatches.id, matchId)));
   return row ?? null;
 }
+
+/* ------------------------------------------------------------------ review queue (R2-02d, request side) */
+
+export interface QueueRow {
+  id: string;
+  profileId: string;
+  contactId: string;
+  listingId: string;
+  /** Internal (the expiry rule): never in a DTO. */
+  listingAgencyId: string;
+  status: string;
+  totalScore: number;
+  explanation: unknown;
+  selectionId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  atUs: string;
+}
+
+/**
+ * A page of the review queue, newest first (raw keyset; `limit + 1` rows): the agency's matches in `status`
+ * (`client_profile_matches_agency_status_idx`), or one profile's (`client_profile_matches_queue_idx`), or one contact's
+ * (its profiles' `queue_idx` ranges). Each row with its profile's contact (primary-key probe per row). One statement.
+ */
+export function reviewQueuePage(
+  tx: Tx,
+  q: {
+    agencyId: string;
+    status: string;
+    profileId?: string | undefined;
+    contactId?: string | undefined;
+    cursor?: KeysetCursor | undefined;
+    limit: number;
+  },
+): Promise<QueueRow[]> {
+  const m = clientProfileMatches;
+  return tx
+    .select({
+      id: m.id,
+      profileId: m.profileId,
+      contactId: clientProfiles.contactId,
+      listingId: m.listingId,
+      listingAgencyId: m.listingAgencyId,
+      status: m.status,
+      totalScore: m.totalScore,
+      explanation: m.explanation,
+      selectionId: m.selectionId,
+      createdAt: m.createdAt,
+      updatedAt: m.updatedAt,
+      atUs: keysetStamp(m.createdAt),
+    })
+    .from(m)
+    .innerJoin(clientProfiles, eq(clientProfiles.id, m.profileId))
+    .where(
+      and(
+        eq(m.agencyId, q.agencyId),
+        eq(m.status, q.status),
+        q.profileId ? eq(m.profileId, q.profileId) : undefined,
+        q.contactId
+          ? inArray(
+              m.profileId,
+              tx
+                .select({ id: clientProfiles.id })
+                .from(clientProfiles)
+                .where(and(eq(clientProfiles.agencyId, q.agencyId), eq(clientProfiles.contactId, q.contactId))),
+            )
+          : undefined,
+        keysetAfterRaw(m.createdAt, m.id, q.cursor, 'desc'),
+      ),
+    )
+    .orderBy(...keysetOrderRaw(m.createdAt, m.id, 'desc'))
+    .limit(q.limit + 1);
+}
+
+/** Marks these matches `EXPIRED` (the listing can no longer be offered) while they are pending review. */
+export async function expireMatches(tx: Tx, agencyId: string, ids: readonly string[]): Promise<number> {
+  if (ids.length === 0) return 0;
+  const m = clientProfileMatches;
+  const rows = await tx
+    .update(m)
+    .set({ status: 'EXPIRED', updatedAt: sql`now()` })
+    .where(and(eq(m.agencyId, agencyId), inArray(m.id, [...ids]), eq(m.status, 'PENDING_REVIEW')))
+    .returning({ id: m.id });
+  return rows.length;
+}
+
+export interface MoveRow {
+  id: string;
+  profileId: string;
+  contactId: string;
+  listingId: string;
+  /** Internal (the expiry rule): never in a DTO. */
+  listingAgencyId: string;
+  status: string;
+  selectionId: string | null;
+}
+
+/** One match of the agency with its profile's contact, locked (`FOR UPDATE` of the match) until the transaction ends. */
+export async function lockMatch(tx: Tx, agencyId: string, id: string): Promise<MoveRow | null> {
+  const m = clientProfileMatches;
+  const [row] = await tx
+    .select({
+      id: m.id,
+      profileId: m.profileId,
+      contactId: clientProfiles.contactId,
+      listingId: m.listingId,
+      listingAgencyId: m.listingAgencyId,
+      status: m.status,
+      selectionId: m.selectionId,
+    })
+    .from(m)
+    .innerJoin(clientProfiles, eq(clientProfiles.id, m.profileId))
+    .where(and(eq(m.agencyId, agencyId), eq(m.id, id)))
+    .for('update', { of: m });
+  return row ?? null;
+}
+
+/** Moves a locked match to `status` (and its selection, on approval); `updated_at` is now. */
+export async function moveMatch(
+  tx: Tx,
+  agencyId: string,
+  id: string,
+  status: string,
+  selectionId?: string,
+): Promise<void> {
+  const m = clientProfileMatches;
+  await tx
+    .update(m)
+    .set({ status, updatedAt: sql`now()`, ...(selectionId ? { selectionId } : {}) })
+    .where(and(eq(m.agencyId, agencyId), eq(m.id, id)));
+}
+
+/**
+ * The selections the contact's approved matches went into, the most recently used first (at most `limit`): where an
+ * approval looks for an open selection to add to. Over the contact's profiles' `queue_idx` ranges; one statement.
+ */
+export async function approvedSelectionsOfContact(
+  tx: Tx,
+  agencyId: string,
+  contactId: string,
+  limit: number,
+): Promise<string[]> {
+  const res = await tx.execute(sql`
+    select m.selection_id as "selectionId"
+      from ${clientProfileMatches} m
+     where m.agency_id = ${agencyId}::uuid and m.status = 'APPROVED' and m.selection_id is not null
+       and m.profile_id in (select p.id from ${clientProfiles} p
+                             where p.agency_id = ${agencyId}::uuid and p.contact_id = ${contactId}::uuid)
+     group by m.selection_id
+     order by max(m.updated_at) desc
+     limit ${limit}`);
+  return (res.rows as { selectionId: string }[]).map((r) => r.selectionId);
+}

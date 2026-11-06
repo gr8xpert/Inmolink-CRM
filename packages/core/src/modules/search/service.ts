@@ -8,9 +8,10 @@
  * the other, the later one reading at least what the earlier one read. The upsert never lowers `version`, so
  * events delivered late, twice or out of order cannot move a read model backwards.
  */
-import { ListingDetailDoc, PUBLIC_SEARCH_STATUSES } from '@inmolink/contracts';
+import { type ListingCardDoc, ListingDetailDoc, PUBLIC_SEARCH_STATUSES } from '@inmolink/contracts';
 import type { Tx } from '@inmolink/db';
 import { withSystem } from '@inmolink/db';
+import { FALLBACK_CONTENT_LOCALE } from '@inmolink/i18n';
 import { emit, MAX_EVENT_PAYLOAD_BYTES, type OutboxMessage } from '@inmolink/platform/outbox';
 import {
   type EnsureIndexResult,
@@ -853,6 +854,27 @@ export function networkPresentable(tx: Tx, presentingAgencyId: string, ids: read
  */
 export function visibleTargets(tx: Tx, ids: readonly string[]): Promise<string[]> {
   return repo.visibleTargetIds(tx, [...new Set(ids)]);
+}
+
+/**
+ * R2-02d, the review queue's offer check and card: of these listings, the ones the caller's agency may still offer a
+ * client — ACTIVE, with a read model the caller's RLS shows (its own, or a network listing shared with it now, its
+ * owner listed, not hidden from the network) — with the card in `locale` (else the fallback content locale, else any),
+ * as network search shows it (no portal extras), and whether another agency owns it. One statement.
+ */
+export async function offerableListingCards(
+  tx: Tx,
+  agencyId: string,
+  ids: readonly string[],
+  locale: string,
+): Promise<Map<string, { card: Omit<ListingCardDoc, 'portalText' | 'portalTerraceM2'>; network: boolean }>> {
+  const rows = await repo.activeListingCards(tx, agencyId, ids, locale, FALLBACK_CONTENT_LOCALE);
+  return new Map(
+    rows.map((r) => {
+      const { portalText: _t, portalTerraceM2: _m, ...card } = r.card as ListingCardDoc;
+      return [r.targetId, { card, network: r.network }];
+    }),
+  );
 }
 
 /**

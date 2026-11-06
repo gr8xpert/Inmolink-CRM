@@ -4,7 +4,8 @@
  * notification (`SAVED_SEARCH_ALERT`) at once or in a daily digest, and in the notifications' e-mail summary.
  */
 import { z } from 'zod';
-import { pageOf } from './common';
+import { PageQuery, pageOf } from './common';
+import { ListingCardDoc } from './search';
 import { TRANSACTION_TYPES } from './values';
 
 export const SAVED_SEARCH_LIMITS = {
@@ -215,3 +216,98 @@ export type ClientProfilePage = z.infer<typeof ClientProfilePage>;
 
 export const ClientProfileParams = z.strictObject({ id: z.uuid() });
 export type ClientProfileParams = z.infer<typeof ClientProfileParams>;
+
+/* ------------------------------------------------------------------ R2-02d: the review queue */
+
+/**
+ * A match's status (R2-02b): `PENDING_REVIEW` waits for the agent (REVIEW profiles) · `QUEUED` waits for R2-02e's
+ * delivery (AUTO_SEND) · `SENT` · `DISMISSED` (the agent turned it down: the learned boost counts a dislike) ·
+ * `EXPIRED` (the listing can no longer be offered) · `APPROVED` (in a selection for the client; nothing sent).
+ */
+export const CLIENT_PROFILE_MATCH_STATUSES = [
+  'PENDING_REVIEW',
+  'QUEUED',
+  'SENT',
+  'DISMISSED',
+  'EXPIRED',
+  'APPROVED',
+] as const;
+export const ClientProfileMatchStatus = z.enum(CLIENT_PROFILE_MATCH_STATUSES);
+export type ClientProfileMatchStatus = z.infer<typeof ClientProfileMatchStatus>;
+
+/** The review queue lists these: pending (to approve or dismiss) or dismissed (to restore). */
+export const REVIEW_QUEUE_STATUSES = ['PENDING_REVIEW', 'DISMISSED'] as const;
+
+/**
+ * `GET /v1/client-profile-matches`: the agency's queue, newest first (keyset, ≤ 100), or one contact's or one
+ * profile's (not both).
+ */
+export const ListClientProfileMatchesQuery = PageQuery.extend({
+  status: z.enum(REVIEW_QUEUE_STATUSES).default('PENDING_REVIEW'),
+  contactId: z.uuid().optional(),
+  profileId: z.uuid().optional(),
+})
+  .strict()
+  .refine((q) => q.contactId === undefined || q.profileId === undefined, {
+    message: 'give contactId or profileId, not both',
+    path: ['profileId'],
+  });
+export type ListClientProfileMatchesQuery = z.input<typeof ListClientProfileMatchesQuery>;
+
+/** A client profile's hard criteria, in the explanation's order (the match engine's `CriterionKey`). */
+export const MATCH_CRITERION_KEYS = [
+  'transaction',
+  'propertyType',
+  'location',
+  'price',
+  'bedrooms',
+  'bathrooms',
+  'area',
+  'mustHaves',
+] as const;
+
+/** One line of a match's explanation in the reader's language: a criterion met or not, or the learned boost. */
+export const MatchReason = z.strictObject({
+  key: z.enum([...MATCH_CRITERION_KEYS, 'boost']),
+  ok: z.boolean(),
+  text: z.string(),
+});
+export type MatchReason = z.infer<typeof MatchReason>;
+
+/**
+ * A match in the review queue (member-facing): the listing's card from its read model (as network search shows it:
+ * never the owner's details, commission or portal extras), the profile and contact it is for, the score and the
+ * explanation in the caller's language. The listing's owner agency is never named here.
+ */
+export const ClientProfileMatchDto = z.strictObject({
+  id: z.uuid(),
+  profileId: z.uuid(),
+  contact: z.strictObject({ id: z.uuid(), firstName: z.string().nullable(), lastName: z.string().nullable() }),
+  status: ClientProfileMatchStatus,
+  /** 0–1. */
+  score: z.number(),
+  /** The listing is another agency's (network), not the caller's own. */
+  network: z.boolean(),
+  card: ListingCardDoc.omit({ portalText: true, portalTerraceM2: true }),
+  explanation: z.strictObject({ summary: z.string(), reasons: z.array(MatchReason) }),
+  /** Approved: the selection it was added to. */
+  selectionId: z.uuid().nullable(),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+});
+export type ClientProfileMatchDto = z.infer<typeof ClientProfileMatchDto>;
+
+export const ClientProfileMatchPage = pageOf(ClientProfileMatchDto);
+export type ClientProfileMatchPage = z.infer<typeof ClientProfileMatchPage>;
+
+export const ClientProfileMatchParams = z.strictObject({ id: z.uuid() });
+export type ClientProfileMatchParams = z.infer<typeof ClientProfileMatchParams>;
+
+/** `POST /v1/client-profile-matches/:id/approve` · `/dismiss` · `/restore`: the match's status after the move. */
+export const ClientProfileMatchMoveDto = z.strictObject({
+  id: z.uuid(),
+  status: ClientProfileMatchStatus,
+  /** Approve: the selection (an open one of the contact reused, or a new one); nothing is sent. */
+  selectionId: z.uuid().nullable(),
+});
+export type ClientProfileMatchMoveDto = z.infer<typeof ClientProfileMatchMoveDto>;
