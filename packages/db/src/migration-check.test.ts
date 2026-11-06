@@ -57,6 +57,11 @@ describe('migration check (S4-F2)', () => {
         'ALTER TABLE "a" ADD FOREIGN KEY ("b") REFERENCES "c" ON DELETE CASCADE ON UPDATE NO ACTION;',
       ),
     ).toEqual([]);
+    expect(
+      checkMigrationRlsData(
+        'create trigger t_guard before insert or update on t for each row execute function t_guard();',
+      ),
+    ).toEqual([]);
     expect(checkMigrationRlsData('-- migration-check: allow no RLS on this table\nUPDATE "x" SET "y" = 1;')).toEqual(
       [],
     );

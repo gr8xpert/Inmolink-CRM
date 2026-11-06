@@ -81,6 +81,8 @@ export function checkMigrationSql(sql: string, large: readonly string[] = LARGE_
 
 /** A function or trigger body runs later, as another role: not a data change of the migration itself. */
 const FUNCTION_BODY = /create\s+(?:or\s+replace\s+)?function\b[\s\S]*?(\$[a-z_]*\$)[\s\S]*?\1/gi;
+/** A trigger definition names its events (`before insert or update on t`): no data change either. */
+const TRIGGER_DEF = /create\s+(?:or\s+replace\s+)?(?:constraint\s+)?trigger\b[^;]*/gi;
 const DATA_CHANGE = /(?<!\bon\s)\b(?:insert\s+into|update|delete\s+from)\s+(?:"?public"?\.)?"?([a-z_][a-z0-9_]*)"?/gi;
 const LIFTED = /alter\s+table\s+(?:"?public"?\.)?"?([a-z_][a-z0-9_]*)"?\s+no\s+force\s+row\s+level\s+security/gi;
 
@@ -93,7 +95,7 @@ export function checkMigrationRlsData(sql: string): MigrationViolation[] {
   const out: MigrationViolation[] = [];
   for (const { text, waived } of statements(sql)) {
     if (waived) continue;
-    const body = text.replace(FUNCTION_BODY, '');
+    const body = text.replace(FUNCTION_BODY, '').replace(TRIGGER_DEF, '');
     const lifted = new Set([...body.matchAll(LIFTED)].map((m) => (m[1] as string).toLowerCase()));
     for (const m of body.matchAll(DATA_CHANGE)) {
       const name = (m[1] as string).toLowerCase();
