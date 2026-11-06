@@ -65,8 +65,10 @@ async function prepare(
 ): Promise<PreparedDocument> {
   assertCan(ctx, 'documents.create');
   const locale = localeOf(ctx, input.locale);
-  // What the agency may show: its own listings and network listings its RLS reveals (one statement).
-  const visible = await search.listingLabels(ctx.tx, input.listingIds, locale);
+  // What the agency may show (its own and network listings its RLS reveals), and only public ones: the render reads
+  // the public read models, so a SHARED or PRIVATE listing is refused here, never accepted and failed in the worker
+  // (S17-F58). One statement.
+  const visible = await search.listingLabels(ctx.tx, input.listingIds, locale, { publicOnly: true });
   const listingIds = input.listingIds.filter((id) => visible.has(id));
   if (listingIds.length === 0 || (input.kind === 'BROCHURE' && listingIds.length !== 1)) {
     throw new AppError('DOCUMENT_LISTINGS_INVALID', { requested: input.listingIds.length });

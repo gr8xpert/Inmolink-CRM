@@ -288,29 +288,54 @@ describe('PDF documents (S12-05)', () => {
     expect(await refusal(documents.getDocument(run(a), '0'.repeat(32)))).toBe('DOCUMENT_NOT_FOUND');
   });
 
-  it('[S12-05] only listings the agency may show: an invisible one is refused, a non-public one fails without retry', async () => {
+  it('[S12-05] [S17-F58] only public listings the agency may show: invisible or non-public ones are refused at the request', async () => {
     // c's listing is shared with preferred partners only: a cannot see it.
     expect(await refusal(documents.requestBrochure(run(a), { listingId: L.cOwn as string, locale: 'en' }))).toBe(
       'DOCUMENT_LISTINGS_INVALID',
     );
-    // b's listing is shared with agencies but not public: a sees it, a client document cannot show it.
-    const asked = await documents.requestBrochure(run(a), { listingId: L.bShared as string });
+    // b's listing is shared with agencies but not public: a sees it, a client document cannot show it. Refused
+    // before anything is queued (it used to be accepted and fail in the worker).
+    expect(await refusal(documents.requestBrochure(run(a), { listingId: L.bShared as string }))).toBe(
+      'DOCUMENT_LISTINGS_INVALID',
+    );
+    expect(await refusal(documents.requestPortfolio(run(a), { listingIds: [L.bShared as string], locale: 'en' }))).toBe(
+      'DOCUMENT_LISTINGS_INVALID',
+    );
+  });
+
+  it('[S12-05] [S17-F58] a render that fails (listing no longer public) is queued afresh when asked again', async () => {
+    const id = await listing(
+      a,
+      {},
+      { title: `Comeback villa ${RUN}`, description: 'Public, private, public.' },
+      { visibility: 'PUBLIC', shareScope: 'ALL' },
+    );
+    const setVisibility = (visibility: 'PUBLIC' | 'PRIVATE') =>
+      as(a, async (ctx) =>
+        properties.updateListing(
+          ctx,
+          id,
+          UpdateListingBody.parse({ visibility, version: (await properties.getListing(ctx, id)).version }),
+        ),
+      ).then(() => system((tx) => search.rebuildReadModels(tx, 'LISTING', [id])));
+    // Checked while public, made private before the worker renders: the render fails for good.
+    const prepared = await as(a, (ctx) => documents.prepareBrochure(ctx, { listingId: id, locale: 'en' }));
+    await setVisibility('PRIVATE');
+    const asked = await documents.startDocument(prepared);
+    const failed = await until(
+      () => documents.getDocument(run(a), asked.id),
+      (d) => d.status !== 'PENDING',
+    );
+    expect(failed).toMatchObject({ status: 'FAILED', url: null });
+    // Public again: asking again (same document id) renders it, not "failed" for the 7 days BullMQ keeps the job.
+    await setVisibility('PUBLIC');
+    const again = await documents.requestBrochure(run(a), { listingId: id, locale: 'en' });
+    expect(again.id).toBe(asked.id);
     const done = await until(
       () => documents.getDocument(run(a), asked.id),
       (d) => d.status !== 'PENDING',
     );
-    expect(done).toMatchObject({ status: 'FAILED', url: null });
-    // Asking again queues it afresh (a failed job is not left blocking its id for days).
-    const again = await documents.requestBrochure(run(a), { listingId: L.bShared as string });
-    expect(again).toMatchObject({ id: asked.id, status: 'PENDING' });
-    expect(
-      (
-        await until(
-          () => documents.getDocument(run(a), asked.id),
-          (d) => d.status !== 'PENDING',
-        )
-      ).status,
-    ).toBe('FAILED');
+    expect(done.status).toBe('READY');
   });
 
   it("[S12-05] a selection as a PDF: its items in order, under its title, in the client's language", async () => {

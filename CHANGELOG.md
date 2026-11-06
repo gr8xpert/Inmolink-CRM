@@ -8,6 +8,8 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ### Changed
 - Agents register clients and request and answer viewings from the dashboard (S17-F56): register from network rows and detail pages, viewing actions on /collaborations decided by the API, terms page with PDF link. A give-to-get locked agency starts no new registration or viewing request; `GET /v1/network/gate`.
 - The give-to-get exemption is granted by a super admin only (S17-F57); support keeps verification.
+- Brochures, portfolios and selection PDFs only take public listings (S17-F58): a shared or private listing is refused at the request (422 `DOCUMENT_LISTINGS_INVALID`) instead of being accepted and failing in the worker. Found by the internal security test on staging.
+- Internal security test on staging (owner decision for H8): no Critical, High or Medium finding; results in `docs/build/reviews/security-R1.md` §8. The `NEXT_LOCALE` cookie is Secure; the side that must answer a viewing reads "Waiting for you" (S17-F56).
 - Staging QA (S17-F52): Collaborations in Client Mode says it is closed; no false "details changed" note after approving a verification; bookmark wording, ids and long folder names.
 - Staging QA (S17-F55): the portal sitemap can be overwritten again; the storage adapter's `head` reads the uncompressed object, so conditional writes on R2 match.
 - Staging QA (S17-F54): portfolio PDFs use smaller photos and a limit of 80 MB, so portfolios of up to 50 listings are stored.

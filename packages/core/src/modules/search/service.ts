@@ -863,8 +863,9 @@ export async function listingLabels(
   tx: Tx,
   ids: readonly string[],
   locale: string,
+  options: { publicOnly?: boolean } = {},
 ): Promise<Map<string, { reference: string; title: string | null }>> {
-  const rows = await repo.cardLabels(tx, [...new Set(ids)]);
+  const rows = await repo.cardLabels(tx, [...new Set(ids)], options.publicOnly);
   const rank = (l: string) => (l === locale ? 0 : l === 'en' ? 1 : 2);
   const best = new Map<string, (typeof rows)[number]>();
   for (const r of rows) {

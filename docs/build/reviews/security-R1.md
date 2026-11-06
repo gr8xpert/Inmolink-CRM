@@ -174,3 +174,36 @@ in); physical / social engineering.
 
 A report with each finding's severity (CVSS 3.1), reproduction steps and affected host; a re-test after fixes. Critical
 and High block R1 go-live.
+
+## 8. Internal security test on staging (owner decision for H8, 2026-11-06)
+
+The owner has no outside vendor yet, so Claude ran an internal test on staging (`d9289098`) with the made-up pilot
+agencies, at low volume. **This is not an independent pen test.** §7 still applies before real customer data goes in.
+Evidence lives outside the repo (session scratchpad, `pentest/`).
+
+**Result: no Critical, High or Medium finding.**
+
+| Area (§7 checklist) | How | Result |
+|---|---|---|
+| Tenant isolation | Live: Pilot 04 against Pilots 05 and 06, 34 cross-tenant probes each over listings, contacts, leads, tasks, API keys, exports, selections, media, documents, `/v1/mls/*`, `/v1/network/gate` | Pass: every probe 404 / 403 / 422, nothing read or changed |
+| Signed media / document URLs | Live: path, signature, expiry and date tampering | Pass: 403 / 400 |
+| Realtime | Live: joining another agency's chat thread | Pass: `FORBIDDEN`, rooms are server-chosen |
+| White-label | Live: website API, 6 detail JSONs, embed HTML, selection page carrying another agency's listing | Pass: no owner agency, contacts, commission or notes. Selection PDF not checked live (PDFs failed, see below) |
+| Client Mode | Live: realtime token, commission, CRM, chat, exports; leaving without / with a wrong PIN | Pass |
+| Authentication | Live: login limits without lockout, no account enumeration, reset token single use, used TOTP refused, pre-2FA token 403, 2FA forced on fresh sessions, logout revokes the session | Pass |
+| Staff | Live: every `/v1/staff/*` route with an agency admin token | Pass: 403, nothing executed |
+| API keys | Live: origins, secret key from a browser, scope escalation, bogus key | Pass |
+| Injection (stored XSS, templates), uploads, SSRF, XML | **Code review and the automated tests only** (§3, §6, S16-03 audit). The live payload run was stopped by a safety check in the testing tool and not retried | Not tested live — on the outside tester's list |
+
+**Lows and notes:**
+- Staff write routes validate the body before the staff check: a malformed body gets 422, a valid one 403. Only the
+  route's shape leaks; nothing runs. Accepted.
+- Presigned R2 URLs show the account id and bucket names. Tampering is refused. Accepted (a media CDN hostname for
+  private files would hide it; not R1).
+- HSTS: the app sends `max-age=63072000; includeSubDomains`, but Cloudflare replaces it with `max-age=15552000; preload`.
+  Set the zone's HSTS at the production cutover.
+- The `NEXT_LOCALE` cookie had no `Secure` flag. Fixed (S17-F56, `074f121c`).
+- Tokens already issued stay valid up to 15 minutes after a plain logout (short-lived by design; the session is revoked).
+
+**Third-party services:** none needed for this test. An outside pen tester (§7) is still recommended before production,
+mainly for the rows not tested live.

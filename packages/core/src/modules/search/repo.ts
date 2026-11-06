@@ -577,8 +577,9 @@ export async function visibleTargetIds(tx: Tx, ids: readonly string[]): Promise<
 }
 
 /** Reference and title of these listings' cards, every locale built (S12-F21): two JSON fields, one statement. */
-export async function cardLabels(tx: Tx, ids: readonly string[]) {
+export async function cardLabels(tx: Tx, ids: readonly string[], publicOnly = false) {
   if (ids.length === 0) return [];
+  const which = and(inArray(listingReadModels.targetId, [...ids]), eq(listingReadModels.kind, 'LISTING'));
   return tx
     .select({
       targetId: listingReadModels.targetId,
@@ -587,7 +588,7 @@ export async function cardLabels(tx: Tx, ids: readonly string[]) {
       title: sql<string | null>`${listingReadModels.card}->>'title'`,
     })
     .from(listingReadModels)
-    .where(and(inArray(listingReadModels.targetId, [...ids]), eq(listingReadModels.kind, 'LISTING')));
+    .where(publicOnly ? and(which, eq(listingReadModels.public, true)) : which);
 }
 
 /**
