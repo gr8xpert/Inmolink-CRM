@@ -52,7 +52,7 @@ describe('portal sitemaps and robots.txt (S15-02)', () => {
     const text = await res.text();
     expect(res.headers.get('cache-control')).toBe('public, max-age=86400');
     expect(text).toContain('Sitemap: https://inmolink.test/sitemap.xml');
-    for (const path of ['/api/', '/embed/', '/s/']) expect(text).toContain(`Disallow: ${path}`);
+    for (const path of ['/api/', '/embed/', '/s/', '/u/']) expect(text).toContain(`Disallow: ${path}`);
     expect(text).not.toMatch(/Disallow: \/\s*$/m);
   });
 

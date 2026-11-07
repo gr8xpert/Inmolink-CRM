@@ -106,5 +106,16 @@
     "error": "That did not work. Please try again.",
     "gone": "This selection is no longer available",
     "goneHint": "The link has expired or was replaced. Please ask your agent for a new one."
+  },
+  "unsubscribe": {
+    "title": "Unsubscribe from property alerts",
+    "intro": "Do you want to stop receiving property alerts from {agency} by e-mail?",
+    "introNeutral": "Do you want to stop receiving property alerts by e-mail?",
+    "confirm": "Unsubscribe",
+    "doneTitle": "You are unsubscribed",
+    "done": "You will not receive any more property alerts by e-mail. If you change your mind, tell your agent.",
+    "gone": "This link is not valid",
+    "goneHint": "The unsubscribe link is incomplete or no longer valid. Please contact your agent.",
+    "limited": "Too many requests from this connection. Please try again in a minute."
   }
 }

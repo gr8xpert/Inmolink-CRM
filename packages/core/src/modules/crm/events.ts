@@ -38,6 +38,9 @@ import { z } from 'zod';
  *   claiming transaction.
  * - `crm.task.reminderDue` (S10-05) — the reminder sweep claimed a task that came due (`dueMs`: the due time it claimed, `remindedMs`: when, both
  *   epoch ms); the subscription queues `crm.sendTaskReminder`. Written in the claiming transaction.
+ * - `crm.contact.unsubscribeRequested` (R2-02g) — the client used the one-click unsubscribe link of a marketing e-mail
+ *   (`crm/unsubscribe.ts`): written by the public pages as `app_intake`, pinned to the contact's agency (the signed
+ *   link names both); the subscription queues `crm.applyUnsubscribe`, which withdraws the marketing consent.
  */
 export const crmEvents = {
   contactCreated: defineEvent(
@@ -56,6 +59,11 @@ export const crmEvents = {
     z.object({ agencyId: z.uuid(), survivorId: z.uuid(), mergedId: z.uuid() }),
   ),
   contactErased: defineEvent('crm.contact.erased', 1, z.object({ agencyId: z.uuid(), contactId: z.uuid() })),
+  contactUnsubscribeRequested: defineEvent(
+    'crm.contact.unsubscribeRequested',
+    1,
+    z.object({ agencyId: z.uuid(), contactId: z.uuid() }),
+  ),
   importRequested: defineEvent('crm.import.requested', 1, z.object({ agencyId: z.uuid(), importId: z.uuid() })),
   leadCreated: defineEvent(
     'crm.lead.created',

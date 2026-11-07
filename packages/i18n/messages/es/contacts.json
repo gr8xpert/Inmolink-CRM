@@ -78,7 +78,8 @@
       "WEBSITE": "Formulario web",
       "PORTAL": "Formulario de portal",
       "IMPORT": "Importación de contactos",
-      "MERGE": "Fusión de contactos"
+      "MERGE": "Fusión de contactos",
+      "UNSUBSCRIBE_LINK": "Enlace de baja en un correo"
     },
     "byMember": "por un miembro del equipo",
     "impersonated": "por soporte en nombre de un miembro del equipo",

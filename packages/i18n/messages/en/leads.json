@@ -258,6 +258,8 @@
     "agentSubject": "Send {client} their new matches on WhatsApp",
     "agentBody": "{count, plural, one {A new listing matches a search profile of {client}.} other {# new listings match a search profile of {client}.}} We put them in a selection for the client. Tap the button on your phone to open WhatsApp with the message ready to send.",
     "agentCta": "Send on WhatsApp",
-    "agentFooter": "You receive this because {client} is your client and their profile is set to send automatically."
+    "agentFooter": "You receive this because {client} is your client and their profile is set to send automatically.",
+    "unsubscribe": "Unsubscribe from these alerts",
+    "unsubscribeText": "Unsubscribe with one click: {url}"
   }
 }

@@ -1621,7 +1621,7 @@ revoke all on table public."outbox_events" from public, app_user, app_system, ap
 grant insert on table public."outbox_events" to app_user;
 grant select, insert, update, delete on table public."outbox_events" to app_system;
 create policy intake_append on public."outbox_events" for insert to app_intake
-  with check (agency_id = app_agency() and "type" in ('websites.lead.received', 'presentations.selection.interacted'));
+  with check (agency_id = app_agency() and "type" in ('websites.lead.received', 'presentations.selection.interacted', 'crm.contact.unsubscribeRequested'));
 grant insert on table public."outbox_events" to app_intake;
 create policy auth_append on public."outbox_events" for insert to app_auth
   with check (agency_id = '00000000-0000-0000-0000-000000000000'::uuid and starts_with("type", 'identity.'));

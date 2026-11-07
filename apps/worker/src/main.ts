@@ -1,6 +1,7 @@
 import { closeDb, configureAiRuntime, configureDb, createOutboxDispatcher, loadStackEnv, pingDb } from '@inmolink/core';
 import * as billing from '@inmolink/core/modules/billing';
 import * as complianceWorker from '@inmolink/core/modules/compliance/worker';
+import * as crm from '@inmolink/core/modules/crm';
 import * as documents from '@inmolink/core/modules/documents';
 import * as exportsWorker from '@inmolink/core/modules/exports/worker';
 import * as identity from '@inmolink/core/modules/identity';
@@ -74,6 +75,8 @@ try {
   // R2-02e: client alerts (email) make selections and send their links.
   if (config.WORKER_POOLS.includes('email') && config.HMAC_KEY) {
     presentations.configurePresentations({ tokenKey: config.HMAC_KEY, publicBaseUrl: config.PUBLIC_PAGES_URL ?? null });
+    // R2-02g: every alert carries the client's one-click unsubscribe link (none is sent without one).
+    crm.configureUnsubscribeLinks({ tokenKey: config.HMAC_KEY, publicBaseUrl: config.PUBLIC_PAGES_URL ?? null });
   }
   // S12-05: the pdf pool — listings presented like the website API (media CDN, white-label), rendered by Chrome whose
   // pages may load only the media CDN's assets.

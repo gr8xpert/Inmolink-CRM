@@ -193,12 +193,16 @@ async function send(agencyId: string, d: Prepared): Promise<string | undefined> 
           identity.memberRecipient(tx, agencyId, d.senderUserId),
         );
     if (!agencyReply && !agentReply) throw new Error('matching.delivery: no reply address for the opt-out');
+    // R2-02g: the contact's one-click unsubscribe link (body and List-Unsubscribe headers)
+    const unsubscribeUrl = crm.unsubscribeUrl({ agencyId, contactId: d.contact.id, locale: page.locale });
+    if (!unsubscribeUrl) throw new Error('matching.delivery: unsubscribe links are not configured');
     await mailer().send(
       renderProfileAlert({
         to: d.contact.email as string,
         firstName: firstNameOf(d.contact.firstName),
         locale: page.locale,
         url,
+        unsubscribeUrl,
         presenter: page.presenter,
         items,
         idempotencyKey: key,
@@ -278,7 +282,10 @@ export async function deliverProfile(
   const now = options.now ?? clock.now();
   const { agencyId, profileId } = input;
   const result: DeliveryResult = { outcome: 'NONE', sent: 0, duplicates: 0, expired: 0, resent: false };
-  if (!presentations.selectionLinksConfigured()) return { ...result, outcome: 'NOT_CONFIGURED' };
+  // R2-02g: no alert without the client's one-click unsubscribe link
+  if (!presentations.selectionLinksConfigured() || !crm.unsubscribeLinksConfigured()) {
+    return { ...result, outcome: 'NOT_CONFIGURED' };
+  }
 
   const pending = await preparePending(agencyId, profileId, limits, now);
   if (pending) {

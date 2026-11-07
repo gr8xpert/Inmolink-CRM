@@ -126,7 +126,7 @@ export type CreateDataExportHeaders = z.infer<typeof CreateDataExportHeaders>;
 export const ConsentPurpose = z.enum(['MARKETING', 'PROCESSING']);
 export type ConsentPurpose = z.infer<typeof ConsentPurpose>;
 /** Where the choice was made. */
-export const ConsentSource = z.enum(['DASHBOARD', 'WEBSITE', 'PORTAL', 'IMPORT', 'MERGE']);
+export const ConsentSource = z.enum(['DASHBOARD', 'WEBSITE', 'PORTAL', 'IMPORT', 'MERGE', 'UNSUBSCRIBE_LINK']);
 export type ConsentSource = z.infer<typeof ConsentSource>;
 
 /** One consent given or withdrawn (`GET /v1/crm/contacts/:id/consents`): ids and times only. */

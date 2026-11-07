@@ -166,6 +166,7 @@ export default async function ContactPage({
             PORTAL: t('consents.sources.PORTAL'),
             IMPORT: t('consents.sources.IMPORT'),
             MERGE: t('consents.sources.MERGE'),
+            UNSUBSCRIBE_LINK: t('consents.sources.UNSUBSCRIBE_LINK'),
           },
           byMember: t('consents.byMember'),
           impersonated: t('consents.impersonated'),

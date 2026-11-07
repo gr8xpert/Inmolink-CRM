@@ -144,6 +144,18 @@ export function registerCrmSubscriptions(): void {
         }),
       { name: 'crm.contact.eraseData' },
     ),
+    // R2-02g: the client's one-click unsubscribe (public pages, app_intake) withdraws the marketing consent
+    subscribe(
+      crmEvents.contactUnsubscribeRequested,
+      (payload, meta) =>
+        crmJobs.applyUnsubscribe.enqueue({
+          eventId: meta.eventId,
+          agencyId: meta.agencyId,
+          contactId: payload.contactId,
+          requestedAt: meta.createdAt.toISOString(),
+        }),
+      { name: 'crm.contact.unsubscribe' },
+    ),
     subscribe(
       crmEvents.taskReminderDue,
       (payload, meta) =>

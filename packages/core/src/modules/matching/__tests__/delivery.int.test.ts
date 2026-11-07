@@ -9,7 +9,13 @@ import { closeDb, type Tx, withSystem } from '@inmolink/db';
 import { setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
 import { FALLBACK_CONTENT_LOCALE } from '@inmolink/i18n';
 import { closeCache, configureCache } from '@inmolink/platform/cache';
-import { closeEmail, configureEmail, type EmailMessage, type Mailer } from '@inmolink/platform/email';
+import {
+  closeEmail,
+  configureEmail,
+  type EmailMessage,
+  type Mailer,
+  unsubscribeHeaders,
+} from '@inmolink/platform/email';
 import { newId } from '@inmolink/platform/ids';
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -189,6 +195,10 @@ beforeAll(async () => {
   await configureCache({ prefix: `t:dl:${RUN}`, commandTimeoutMs: 2_000 });
   await configureEmail(mailer);
   presentations.configurePresentations({
+    tokenKey: 'test-hmac-key-0123456789abcdef0123456789',
+    publicBaseUrl: 'https://sites.example',
+  });
+  crm.configureUnsubscribeLinks({
     tokenKey: 'test-hmac-key-0123456789abcdef0123456789',
     publicBaseUrl: 'https://sites.example',
   });
@@ -392,7 +402,7 @@ describe('AUTO_SEND delivery (R2-02e)', () => {
     expect(await deliver(o, P)).toMatchObject({ outcome: 'SENT', sent: 1 });
     const [m] = mailsTo(c.email);
     const ownerRef = (await as(net, (ctx) => properties.getListing(ctx, N))).ref as string;
-    const whole = `${m?.subject}\n${m?.text}\n${m?.html}\n${m?.fromName}\n${m?.replyTo ?? ''}`;
+    const whole = `${m?.subject}\n${m?.text}\n${m?.html}\n${m?.fromName}\n${m?.replyTo ?? ''}\n${m?.listUnsubscribe}`;
     for (const leak of [
       OWNER_NAME,
       OWNER_MAIL,
@@ -551,5 +561,129 @@ describe('AUTO_SEND delivery (R2-02e)', () => {
       },
     );
     expect(state).toBe('42501');
+  });
+});
+
+describe('one-click unsubscribe (R2-02g)', () => {
+  /** The unsubscribe link in an alert e-mail (the same one as its `List-Unsubscribe` header). */
+  const unsubscribeIn = (m: EmailMessage) =>
+    /https:\/\/sites\.example\/u\/([A-Za-z0-9_-]{64})\?l=[a-z]{2}/.exec(m.text);
+  /** The pending unsubscribe requests of the contact (the public pages' intake events). */
+  const requests = (agencyId: string, contactId: string) =>
+    rows<{ created_at: Date }>(
+      sql`select created_at from outbox_events
+           where agency_id = ${agencyId} and processed_at is null and type = 'crm.contact.unsubscribeRequested'
+             and payload ->> 'contactId' = ${contactId}`,
+    );
+  const consents = (contactId: string) =>
+    rows<{ granted: boolean; source: string; actor_user_id: string | null }>(
+      sql`select granted, source, actor_user_id from consent_records
+           where agency_id = ${o.agencyId} and contact_id = ${contactId} order by recorded_at, id`,
+    );
+  /** The worker's side of the request events (`crm.applyUnsubscribe`, as the subscription queues it). */
+  async function applyRequests(agencyId: string, contactId: string) {
+    const out = [];
+    for (const r of await requests(agencyId, contactId)) {
+      out.push(await crm.applyUnsubscribe({ agencyId, contactId, requestedAt: new Date(r.created_at).toISOString() }));
+    }
+    return out;
+  }
+
+  it('[R2-02g] headers present on the alert e-mail: List-Unsubscribe (https) + One-Click, and a visible link (ES / EN)', async () => {
+    const ci = await city();
+    const es = await contact(o, { language: 'es' });
+    const en = await contact(o, { language: 'en', firstName: 'Mary' });
+    const Pes = await profile(o, es.id, ci);
+    const Pen = await profile(o, en.id, ci);
+    await listing(o, ci);
+    await deliver(o, Pes);
+    await deliver(o, Pen);
+    const [mes] = mailsTo(es.email);
+    const [men] = mailsTo(en.email);
+    for (const [m, c, lang] of [
+      [mes, es, 'es'],
+      [men, en, 'en'],
+    ] as const) {
+      const link = unsubscribeIn(m as EmailMessage);
+      expect(link, lang).not.toBeNull();
+      expect(m?.listUnsubscribe).toBe(link?.[0]);
+      expect(m?.listUnsubscribe).toBe(`https://sites.example/u/${crm.unsubscribeToken(o.agencyId, c.id)}?l=${lang}`);
+      expect(crm.readUnsubscribeToken(link?.[1] as string)).toEqual({ agencyId: o.agencyId, contactId: c.id });
+      expect(m?.html).toContain(`href="${link?.[0]}"`);
+      // no PII in the URL
+      expect(m?.listUnsubscribe).not.toContain(c.email.split('@')[0]);
+    }
+    expect(mes?.text).toContain('Darse de baja con un clic: https://sites.example/u/');
+    expect(mes?.html).toContain('Darse de baja de estas alertas');
+    expect(men?.text).toContain('Unsubscribe with one click: https://sites.example/u/');
+    expect(men?.html).toContain('Unsubscribe from these alerts');
+    // the adapter turns it into the RFC 8058 pair
+    expect(unsubscribeHeaders(men as EmailMessage)).toEqual({
+      'List-Unsubscribe': `<${men?.listUnsubscribe}>`,
+      'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+    });
+  });
+
+  it('[R2-02g] GET does not unsubscribe; POST withdraws consent with an audit entry, idempotent; the next delivery sends nothing', async () => {
+    const ci = await city();
+    const c = await contact(o, { language: 'es' });
+    const P = await profile(o, c.id, ci);
+    await listing(o, ci);
+    expect(await deliver(o, P)).toMatchObject({ outcome: 'SENT', sent: 1 });
+    const token = unsubscribeIn(mailsTo(c.email)[0] as EmailMessage)?.[1] as string;
+
+    // GET: the confirm page's model (branding only) — nothing recorded, consent unchanged
+    const page = await crm.unsubscribePage(token);
+    expect(page).toMatchObject({ agencyId: o.agencyId, presenter: { name: 'Costa Homes S.L.' } });
+    expect(JSON.stringify(page)).not.toContain(c.email);
+    expect(await requests(o.agencyId, c.id)).toHaveLength(0);
+    expect((await as(o, (ctx) => crm.getContact(ctx, c.id))).consentMarketing).toBe(true);
+
+    // POST: one request (the public pages' intake), then the worker withdraws the consent with a consent record
+    expect(await crm.requestUnsubscribe(token)).toBe(true);
+    expect(await applyRequests(o.agencyId, c.id)).toEqual([{ withdrawn: true }]);
+    const seen = await as(o, (ctx) => crm.getContact(ctx, c.id));
+    expect(seen).toMatchObject({ consentMarketing: false });
+    expect(seen.consentMarketingAt).not.toBeNull();
+    const history = await as(o, (ctx) => crm.listContactConsents(ctx, c.id));
+    expect(history.items[0]).toMatchObject({ purpose: 'MARKETING', granted: false, source: 'UNSUBSCRIBE_LINK' });
+    expect((await consents(c.id)).at(-1)).toEqual({ granted: false, source: 'UNSUBSCRIBE_LINK', actor_user_id: null });
+
+    // idempotent: a second POST (a mail client's retry, the page button after one-click) records nothing more
+    const before = (await consents(c.id)).length;
+    expect(await crm.requestUnsubscribe(token)).toBe(true);
+    expect(await applyRequests(o.agencyId, c.id)).toEqual([{ withdrawn: false }, { withdrawn: false }]);
+    expect(await consents(c.id)).toHaveLength(before);
+
+    // R2-02e's consent check: a new match for the client is not sent
+    await listing(o, ci);
+    expect((await statuses(P)).filter((s) => s.status === 'QUEUED')).toHaveLength(1);
+    expect(await deliver(o, P)).toMatchObject({ outcome: 'NO_CONSENT', sent: 0 });
+    expect(mailsTo(c.email)).toHaveLength(1);
+
+    // a forged token records nothing
+    expect(await crm.requestUnsubscribe(`${token.slice(0, 60)}AAAA`)).toBe(false);
+    expect(await crm.unsubscribePage('x'.repeat(64))).toBeNull();
+  });
+
+  it("[R2-02g] a merged contact's link withdraws the survivor's consent; an unknown contact's does nothing", async () => {
+    const survivor = await contact(o);
+    const merged = await contact(o, { firstName: 'Dup' });
+    const { version } = await as(o, (ctx) => crm.getContact(ctx, survivor.id));
+    await as(o, (ctx) => crm.mergeContacts(ctx, survivor.id, { duplicateId: merged.id, version }));
+    expect(await crm.requestUnsubscribe(crm.unsubscribeToken(o.agencyId, merged.id))).toBe(true);
+    expect(await applyRequests(o.agencyId, merged.id)).toEqual([{ withdrawn: true }]);
+    expect((await as(o, (ctx) => crm.getContact(ctx, survivor.id))).consentMarketing).toBe(false);
+    expect(
+      await crm.applyUnsubscribe({ agencyId: o.agencyId, contactId: newId(), requestedAt: new Date().toISOString() }),
+    ).toEqual({ withdrawn: false });
+    // consent given again after a request the job applies late: the newer choice stays
+    const asked = new Date(Date.now() - 60_000).toISOString();
+    const { version: v2 } = await as(o, (ctx) => crm.getContact(ctx, survivor.id));
+    await as(o, (ctx) => crm.updateContact(ctx, survivor.id, { version: v2, consentMarketing: true }));
+    expect(await crm.applyUnsubscribe({ agencyId: o.agencyId, contactId: survivor.id, requestedAt: asked })).toEqual({
+      withdrawn: false,
+    });
+    expect((await as(o, (ctx) => crm.getContact(ctx, survivor.id))).consentMarketing).toBe(true);
   });
 });

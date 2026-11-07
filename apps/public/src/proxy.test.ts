@@ -58,6 +58,12 @@ describe('public locale routing', () => {
       expect(runs(url)).toBe(false);
     }
   });
+
+  it('[R2-02g] the unsubscribe link (`/u/<token>`, a route handler with its own headers) bypasses the proxy', () => {
+    const runs = (url: string) => unstable_doesMiddlewareMatch({ config, url });
+    for (const url of ['/u/abcDEF123_-', '/u/abcDEF123_-?l=es', '/s/abcDEF123_-']) expect(runs(url), url).toBe(false);
+    expect(runs('/useful-page')).toBe(true);
+  });
 });
 
 const SITE = '01900000-0000-7000-8000-0000000000aa';

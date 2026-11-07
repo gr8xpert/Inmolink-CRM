@@ -1,4 +1,5 @@
 import { configureDb, loadStackEnv } from '@inmolink/core';
+import * as crm from '@inmolink/core/modules/crm';
 import * as presentations from '@inmolink/core/modules/presentations';
 import * as search from '@inmolink/core/modules/search';
 import * as websiteApi from '@inmolink/core/modules/website-api';
@@ -193,6 +194,8 @@ async function setup(): Promise<PublicConfig> {
     tokenKey: config.HMAC_KEY,
     publicBaseUrl: config.PUBLIC_URL ?? LOCAL_PUBLIC_URL,
   });
+  // R2-02g: unsubscribe links are checked with the key the worker signed them with (HMAC_KEY).
+  crm.configureUnsubscribeLinks({ tokenKey: config.HMAC_KEY, publicBaseUrl: config.PUBLIC_URL ?? LOCAL_PUBLIC_URL });
   // S7-06 edge tags on embed pages: a listing or site change purges them like the website API's answers.
   websiteApi.configureEdgeCache({ tagKey: config.HMAC_KEY });
   // S15-02: the portal's sitemaps (read only).

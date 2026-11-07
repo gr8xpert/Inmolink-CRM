@@ -106,5 +106,16 @@
     "error": "No se ha podido completar. Inténtelo de nuevo.",
     "gone": "Esta selección ya no está disponible",
     "goneHint": "El enlace ha caducado o se ha sustituido. Pida uno nuevo a su agente."
+  },
+  "unsubscribe": {
+    "title": "Darse de baja de las alertas de propiedades",
+    "intro": "¿Quieres dejar de recibir por correo alertas de propiedades de {agency}?",
+    "introNeutral": "¿Quieres dejar de recibir por correo alertas de propiedades?",
+    "confirm": "Darme de baja",
+    "doneTitle": "Te has dado de baja",
+    "done": "No recibirás más alertas de propiedades por correo. Si cambias de opinión, díselo a tu agente.",
+    "gone": "Este enlace no es válido",
+    "goneHint": "El enlace de baja está incompleto o ya no es válido. Ponte en contacto con tu agente.",
+    "limited": "Demasiadas solicitudes desde esta conexión. Inténtalo de nuevo en un minuto."
   }
 }

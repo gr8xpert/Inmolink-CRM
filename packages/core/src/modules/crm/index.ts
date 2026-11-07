@@ -155,3 +155,18 @@ export {
   sweepTaskReminders,
   updateTask,
 } from './tasks';
+export {
+  applyUnsubscribe,
+  checkUnsubscribeLimits,
+  configureUnsubscribeLinks,
+  readUnsubscribeToken,
+  requestUnsubscribe,
+  UNSUBSCRIBE_LIMITS,
+  UNSUBSCRIBE_TOKEN,
+  type UnsubscribePageModel,
+  unsubscribeLinksConfigured,
+  unsubscribePage,
+  unsubscribePath,
+  unsubscribeToken,
+  unsubscribeUrl,
+} from './unsubscribe';

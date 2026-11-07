@@ -169,7 +169,7 @@ export const consentRecords = pgTable(
     /** `MARKETING` (newsletters, alerts) or `PROCESSING` (keeping and using the data). */
     purpose: text('purpose').notNull(),
     granted: boolean('granted').notNull(),
-    /** Where the choice was made: `DASHBOARD`, `WEBSITE`, `PORTAL`, `IMPORT`, `MERGE`. */
+    /** Where the choice was made: `DASHBOARD`, `WEBSITE`, `PORTAL`, `IMPORT`, `MERGE`, `UNSUBSCRIBE_LINK` (R2-02g: the client's one-click link in a marketing e-mail). */
     source: text('source').notNull(),
     /** The privacy / consent text version shown (null: not known — a member's entry, an import). */
     policyVersion: text('policy_version'),
@@ -183,7 +183,10 @@ export const consentRecords = pgTable(
     // a contact's history, newest first: where agency_id = ? and contact_id = ? order by recorded_at desc, id desc
     index('consent_records_contact_idx').on(t.agencyId, t.contactId, t.recordedAt, t.id),
     check('consent_records_purpose_ck', sql`${t.purpose} in ('MARKETING', 'PROCESSING')`),
-    check('consent_records_source_ck', sql`${t.source} in ('DASHBOARD', 'WEBSITE', 'PORTAL', 'IMPORT', 'MERGE')`),
+    check(
+      'consent_records_source_ck',
+      sql`${t.source} in ('DASHBOARD', 'WEBSITE', 'PORTAL', 'IMPORT', 'MERGE', 'UNSUBSCRIBE_LINK')`,
+    ),
     check(
       'consent_records_policy_version_ck',
       sql`${t.policyVersion} is null or ${t.policyVersion} ~ '^[A-Za-z0-9._-]{1,32}$'`,

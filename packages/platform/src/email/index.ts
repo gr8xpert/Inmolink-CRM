@@ -24,6 +24,12 @@ export interface EmailMessage {
    * is delivered once. Safe characters only, ≤ 256 chars. SMTP has no such thing — the key is ignored there.
    */
   idempotencyKey?: string;
+  /**
+   * R2-02g: a marketing e-mail's one-click unsubscribe URL (https only). Every driver sends it as
+   * `List-Unsubscribe: <url>` with `List-Unsubscribe-Post: List-Unsubscribe=One-Click` (RFC 8058; the Gmail / Yahoo
+   * bulk-sender rules): the mail client POSTs `List-Unsubscribe=One-Click` to the URL.
+   */
+  listUnsubscribe?: string;
 }
 
 export interface Mailer {
@@ -65,6 +71,27 @@ export function assertMessage(message: EmailMessage): void {
   if (message.replyTo !== undefined && (!EMAIL.test(message.replyTo) || message.replyTo.length > 254)) {
     throw new TypeError('email: invalid reply-to');
   }
+  if (message.listUnsubscribe !== undefined && !UNSUBSCRIBE_URL.test(message.listUnsubscribe)) {
+    throw new TypeError('email: invalid unsubscribe URL');
+  }
+}
+
+/** An https URL safe inside `<…>` in a header: no whitespace, angle brackets, commas or quotes; ≤ 2,000 chars. */
+const UNSUBSCRIBE_URL = /^https:\/\/[^\s<>,"'\\]{1,1992}$/;
+
+/** R2-02g: the RFC 8058 headers of a message with a one-click unsubscribe URL (none without one). */
+export function unsubscribeHeaders(message: Pick<EmailMessage, 'listUnsubscribe'>): Record<string, string> {
+  if (!message.listUnsubscribe) return {};
+  return {
+    'List-Unsubscribe': `<${message.listUnsubscribe}>`,
+    'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+  };
+}
+
+/** Every custom header a driver adds: the tag and the unsubscribe headers. */
+function customHeaders(message: EmailMessage): Record<string, string> | undefined {
+  const headers = { ...(message.tag ? { 'X-Inmolink-Tag': message.tag } : {}), ...unsubscribeHeaders(message) };
+  return Object.keys(headers).length > 0 ? headers : undefined;
 }
 
 /** The configured sender's address (`Name <addr>` or a bare address). */
@@ -90,7 +117,7 @@ export function createSmtpMailer(options: { from: string; smtpUrl: string }): Ma
           subject: message.subject,
           text: message.text,
           html: message.html,
-          headers: message.tag ? { 'X-Inmolink-Tag': message.tag } : undefined,
+          headers: customHeaders(message),
         });
         return { id: info.messageId };
       } catch (err) {
@@ -130,6 +157,7 @@ export function createResendMailer(options: {
           text: message.text,
           html: message.html,
           ...(message.tag ? { tags: [{ name: 'tag', value: message.tag.replaceAll('.', '_') }] } : {}),
+          ...(message.listUnsubscribe ? { headers: unsubscribeHeaders(message) } : {}),
         }),
         signal: AbortSignal.timeout(10_000),
       });

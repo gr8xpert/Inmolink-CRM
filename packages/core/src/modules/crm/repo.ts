@@ -1197,3 +1197,61 @@ export async function markFilesDeleted(tx: Tx, ids: readonly string[]): Promise<
     .set({ fileDeletedAt: sql`now()`, updatedAt: sql`now()` })
     .where(inArray(contactImports.id, [...ids]));
 }
+
+/**
+ * R2-02g: the contact an unsubscribe link names, locked — or, when it was merged, the survivor (a merge flattens chains:
+ * one hop). Null when neither is open.
+ */
+export async function lockUnsubscribeTarget(
+  tx: Tx,
+  agencyId: string,
+  contactId: string,
+): Promise<{ id: string; consentMarketing: boolean } | null> {
+  const [row] = await tx
+    .select({ deletedAt: contacts.deletedAt, mergedIntoId: contacts.mergedIntoId })
+    .from(contacts)
+    .where(and(eq(contacts.agencyId, agencyId), eq(contacts.id, contactId)))
+    .limit(1);
+  if (!row) return null;
+  const id = row.deletedAt === null ? contactId : row.mergedIntoId;
+  if (!id) return null;
+  const [open] = await tx
+    .select({ id: contacts.id, consentMarketing: contacts.consentMarketing })
+    .from(contacts)
+    .where(and(eq(contacts.agencyId, agencyId), eq(contacts.id, id), isNull(contacts.deletedAt)))
+    .for('update')
+    .limit(1);
+  return open ?? null;
+}
+
+/**
+ * R2-02g: marketing consent withdrawn (`at`: when the client asked); the new version, or null if it was not given —
+ * or was given again after `at`.
+ */
+export async function withdrawMarketingConsent(
+  tx: Tx,
+  agencyId: string,
+  contactId: string,
+  at: Date,
+): Promise<number | null> {
+  const [row] = await tx
+    .update(contacts)
+    .set({
+      consentMarketing: false,
+      consentMarketingAt: at,
+      version: sql`${contacts.version} + 1`,
+      updatedAt: sql`now()`,
+    })
+    .where(
+      and(
+        eq(contacts.agencyId, agencyId),
+        eq(contacts.id, contactId),
+        eq(contacts.consentMarketing, true),
+        isNull(contacts.deletedAt),
+        // a consent given after the client asked (the job ran late) is newer: it stays (code review)
+        sql`(${contacts.consentMarketingAt} is null or ${contacts.consentMarketingAt} <= ${at})`,
+      ),
+    )
+    .returning({ version: contacts.version });
+  return row?.version ?? null;
+}

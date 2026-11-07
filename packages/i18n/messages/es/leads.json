@@ -258,6 +258,8 @@
     "agentSubject": "Envía a {client} sus nuevas coincidencias por WhatsApp",
     "agentBody": "{count, plural, one {Un nuevo inmueble encaja con un perfil de búsqueda de {client}.} other {# nuevos inmuebles encajan con un perfil de búsqueda de {client}.}} Los hemos puesto en una selección para el cliente. Pulsa el botón en tu móvil para abrir WhatsApp con el mensaje listo para enviar.",
     "agentCta": "Enviar por WhatsApp",
-    "agentFooter": "Recibes esto porque {client} es tu cliente y su perfil está configurado para enviar automáticamente."
+    "agentFooter": "Recibes esto porque {client} es tu cliente y su perfil está configurado para enviar automáticamente.",
+    "unsubscribe": "Darse de baja de estas alertas",
+    "unsubscribeText": "Darse de baja con un clic: {url}"
   }
 }

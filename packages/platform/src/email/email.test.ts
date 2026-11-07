@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { closeEmail, configureEmail, createMemoryMailer, createResendMailer, mailer, senderOf } from './index';
+import {
+  closeEmail,
+  configureEmail,
+  createMemoryMailer,
+  createResendMailer,
+  mailer,
+  senderOf,
+  unsubscribeHeaders,
+} from './index';
 
 const message = { to: 'ana@example.com', subject: 'Hello', text: 'Hi', html: '<p>Hi</p>', tag: 'identity.test' };
 
@@ -63,6 +71,43 @@ describe('email adapter', () => {
     await expect(memory.send({ ...message, fromName: 'X" <evil@x.y>' })).rejects.toThrow(/sender name/);
     await expect(memory.send({ ...message, fromName: 'A\r\nBcc: x@y.z' })).rejects.toThrow(/sender name/);
     await expect(memory.send({ ...message, replyTo: 'a@b.c, d@e.f' })).rejects.toThrow(/reply-to/);
+  });
+});
+
+describe('one-click unsubscribe headers (R2-02g)', () => {
+  const url = 'https://sites.example/u/abc_DEF-123';
+
+  it('[R2-02g] the resend driver sends List-Unsubscribe and List-Unsubscribe-Post (RFC 8058); none without a URL', async () => {
+    const bodies: Record<string, unknown>[] = [];
+    const resend = createResendMailer({
+      from: 'Inmolink <no-reply@inmolink.test>',
+      resendApiKey: 're_test',
+      fetch: async (_url, init) => {
+        bodies.push(JSON.parse(String((init as RequestInit).body)));
+        return new Response(JSON.stringify({ id: 'em_u' }), { status: 200 });
+      },
+    });
+    await resend.send({ ...message, listUnsubscribe: url });
+    await resend.send(message);
+    expect(bodies[0]?.headers).toEqual({
+      'List-Unsubscribe': `<${url}>`,
+      'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+    });
+    expect(bodies[1]).not.toHaveProperty('headers');
+    expect(unsubscribeHeaders({})).toEqual({});
+  });
+
+  it('[R2-02g] refuses an unsubscribe URL that is not https or could break the header', async () => {
+    const memory = createMemoryMailer();
+    for (const bad of [
+      'http://sites.example/u/x',
+      'https://a.example/u/x>, <mailto:x@y.z',
+      'https://a.example/\r\nBcc: x',
+      'javascript:alert(1)',
+    ]) {
+      await expect(memory.send({ ...message, listUnsubscribe: bad })).rejects.toThrow(/unsubscribe URL/);
+    }
+    await expect(memory.send({ ...message, listUnsubscribe: url })).resolves.toBeDefined();
   });
 });
 

@@ -45,6 +45,9 @@ describe('embed CSP and framing headers (S7-F8)', () => {
     for (const path of ['/s/abcDEF123_-', '/s/abcDEF123_-/']) expect(re.test(path), path).toBe(false);
     // Anything else under `/s` (no selection route answers it) still may not be framed.
     for (const path of ['/s', '/s/a/b', '/sitemap.xml', '/search']) expect(re.test(path), path).toBe(true);
+    // R2-02g: the unsubscribe page sends the same headers of its own
+    for (const path of ['/u/abcDEF123_-', '/u/abcDEF123_-/']) expect(re.test(path), path).toBe(false);
+    for (const path of ['/u', '/u/a/b', '/usage']) expect(re.test(path), path).toBe(true);
     const rules = (await nextConfig.headers?.()) ?? [];
     const csp = rules.filter((r) => r.headers.some((h) => h.key.toLowerCase() === 'content-security-policy'));
     expect(csp.map((r) => r.source)).toEqual([NOT_EMBED_SOURCE]);

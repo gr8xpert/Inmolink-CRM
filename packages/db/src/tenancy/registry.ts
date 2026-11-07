@@ -376,7 +376,11 @@ export const tenantTables: Record<string, TenantTable> = {
     authAppend: { column: 'type', prefix: 'identity.' },
     // Website form intake (app_intake, S7-05) appends the lead's own event for the agency its transaction is pinned to.
     // S12-04: a client's view, like or enquiry on a selection page, appended with its interaction.
-    intakeAppend: { column: 'type', values: ['websites.lead.received', 'presentations.selection.interacted'] },
+    // R2-02g: a client's one-click unsubscribe request (the worker withdraws the consent).
+    intakeAppend: {
+      column: 'type',
+      values: ['websites.lead.received', 'presentations.selection.interacted', 'crm.contact.unsubscribeRequested'],
+    },
     staff: {
       // S13-02: a staff plan grant announces the agency's plan (`billing.plan.changed`). S13-03: a staff bulk operation
       // asks for its job (`admin.operation.requested`, a platform event). S13-05: a support agent's reply on a ticket

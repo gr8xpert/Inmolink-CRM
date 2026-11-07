@@ -71,6 +71,7 @@ export async function robotsResponse(): Promise<Response> {
     'Disallow: /api/',
     'Disallow: /embed/',
     'Disallow: /s/',
+    'Disallow: /u/',
     '',
     ...(sitemap === false ? [] : [`Sitemap: ${origin}/${websiteApi.PORTAL_SITEMAP_INDEX}`]),
     '',

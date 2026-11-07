@@ -78,7 +78,8 @@
       "WEBSITE": "Website form",
       "PORTAL": "Portal form",
       "IMPORT": "Contact import",
-      "MERGE": "Contact merge"
+      "MERGE": "Contact merge",
+      "UNSUBSCRIBE_LINK": "Unsubscribe link in an e-mail"
     },
     "byMember": "by a team member",
     "impersonated": "by support on a team member's behalf",

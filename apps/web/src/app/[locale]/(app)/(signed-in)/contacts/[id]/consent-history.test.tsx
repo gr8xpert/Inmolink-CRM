@@ -20,6 +20,7 @@ function labelsFor(locale: 'en' | 'es'): ConsentHistoryLabels {
       PORTAL: t('sources.PORTAL'),
       IMPORT: t('sources.IMPORT'),
       MERGE: t('sources.MERGE'),
+      UNSUBSCRIBE_LINK: t('sources.UNSUBSCRIBE_LINK'),
     },
     byMember: t('byMember'),
     impersonated: t('impersonated'),

@@ -135,6 +135,8 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     websiteApiJobs.notifyLeadAgencyFallback,
     // S10-02: website leads promoted to CRM leads (speed-to-lead: the inbox within seconds).
     crmJobs.promoteInboundLead,
+    // R2-02g: a client's one-click unsubscribe withdraws the marketing consent.
+    crmJobs.applyUnsubscribe,
     // S13-05: support ticket e-mails (staff reply → the member; new ticket / member reply → the support inbox).
     supportJobs.sendMessageEmail,
     // S10-08: the admins' alert when a data export is requested.

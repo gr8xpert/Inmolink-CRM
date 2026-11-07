@@ -21,6 +21,7 @@ import {
   unbuiltRollupAgencies,
 } from './report-rollups';
 import { forgetListingTasks, sendTaskReminder, sweepTaskReminders } from './tasks';
+import { applyUnsubscribe } from './unsubscribe';
 
 const IMPORT_ATTEMPTS = 3;
 
@@ -342,6 +343,21 @@ export const crmJobs = {
     timeoutMs: 5 * 60_000,
     async run(p) {
       return eraseContactData(p);
+    },
+  }),
+
+  // R2-02g: a one-click unsubscribe withdraws the marketing consent (one per request event; idempotent)
+  applyUnsubscribe: defineJob({
+    name: 'crm.applyUnsubscribe',
+    pool: 'email',
+    payload: z.object({ eventId: z.uuid(), agencyId: z.uuid(), contactId: z.uuid(), requestedAt: z.iso.datetime() }),
+    jobId: (p) => p.eventId,
+    group: (p) => p.agencyId,
+    attempts: 8,
+    backoff: { type: 'exponential', delay: 2_000 },
+    timeoutMs: 30_000,
+    async run(p) {
+      return applyUnsubscribe(p);
     },
   }),
 

@@ -4,7 +4,8 @@
  * and, when the client is reached on WhatsApp, the agent's e-mail with the `wa.me` deep link that opens the chat with
  * the message ready. Texts from `@inmolink/i18n` (namespace `leads`, `profileAlert.*`; EN and ES). Everything a
  * listing, the agency or a member supplied is escaped in the HTML part; colours only when they are plain hex values.
- * A marketing e-mail: it says why the client gets it and how to stop it (reply / tell the agent).
+ * A marketing e-mail: it says why the client gets it and how to stop it (reply / tell the agent) and carries the
+ * contact's one-click unsubscribe link (R2-02g: in the body and as `List-Unsubscribe` / `List-Unsubscribe-Post`).
  */
 import type { WebsiteDetail, WebsitePresenter } from '@inmolink/contracts';
 import { DEFAULT_UI_LOCALE, isUiLocale } from '@inmolink/i18n';
@@ -66,6 +67,8 @@ export interface AlertEmailInput {
   locale: string;
   /** The selection's page URL. */
   url: string;
+  /** R2-02g: the contact's one-click unsubscribe link (`crm.unsubscribeUrl`). */
+  unsubscribeUrl: string;
   presenter: WebsitePresenter;
   /** The page's items that can be shown, in order (white-labelled by the selection page). */
   items: readonly WebsiteDetail[];
@@ -98,6 +101,7 @@ export function renderProfileAlert(input: AlertEmailInput): EmailMessage {
   const url = httpsUrl(input.url) ?? input.url;
   const why = t('profileAlert.why', { agency: p.name });
   const stop = t('profileAlert.stop');
+  const unsubscribe = httpsUrl(input.unsubscribeUrl) ?? input.unsubscribeUrl;
 
   const text = [
     greeting,
@@ -116,6 +120,7 @@ export function renderProfileAlert(input: AlertEmailInput): EmailMessage {
     '',
     why,
     stop,
+    t('profileAlert.unsubscribeText', { url: unsubscribe }),
     '',
   ].join('\n');
 
@@ -141,7 +146,7 @@ export function renderProfileAlert(input: AlertEmailInput): EmailMessage {
     `<p>${escapeHtml(t('profileAlert.signature'))}<br>${escapeHtml(p.name)}</p>`,
     ...(contacts.length ? [`<p style="color:#444;font-size:13px">${contacts.map(escapeHtml).join('<br>')}</p>`] : []),
     ...(website ? [`<p><a href="${escapeHtml(website)}" style="color:${primary}">${escapeHtml(website)}</a></p>`] : []),
-    `<p style="color:#888;font-size:11px">${escapeHtml(why)}<br>${escapeHtml(stop)}</p>`,
+    `<p style="color:#888;font-size:11px">${escapeHtml(why)}<br>${escapeHtml(stop)}<br><a href="${escapeHtml(unsubscribe)}" style="color:#666">${escapeHtml(t('profileAlert.unsubscribe'))}</a></p>`,
     `</div></div>`,
   ].join('\n');
 
@@ -158,6 +163,8 @@ export function renderProfileAlert(input: AlertEmailInput): EmailMessage {
         ? { replyTo: input.replyTo }
         : {}),
     idempotencyKey: input.idempotencyKey,
+    // RFC 8058 one-click (https only; a local http origin keeps the body link)
+    ...(httpsUrl(input.unsubscribeUrl) ? { listUnsubscribe: unsubscribe } : {}),
   };
 }
 

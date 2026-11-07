@@ -1,3 +1,4 @@
+import type { ConsentSource } from '@inmolink/contracts';
 import type { Tx } from '@inmolink/db';
 import { consentRecords, dataExportJobs, retentionSettings } from '@inmolink/db/schema/compliance';
 import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
@@ -13,7 +14,7 @@ export interface ConsentInsert {
   contactId: string;
   purpose: 'MARKETING' | 'PROCESSING';
   granted: boolean;
-  source: 'DASHBOARD' | 'WEBSITE' | 'PORTAL' | 'IMPORT' | 'MERGE';
+  source: ConsentSource;
   policyVersion: string | null;
   actorUserId: string | null;
   impersonatedBy: string | null;
