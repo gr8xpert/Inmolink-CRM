@@ -221,6 +221,21 @@ export const CONCURRENT_INDEXES: readonly ConcurrentIndex[] = [
     table: 'tasks',
     definition: `ON "tasks" USING btree ("agency_id","id") WHERE "tasks"."deleted_at" is not null`,
   },
+  {
+    // R2-03c: a duplicate cluster's mates on the public fallback rows (the one-member-per-cluster probe). Its columns
+    // arrive in 0194, which builds it (pre-launch, before the 2M-listing import); from then on a rebuild runs concurrently
+    name: 'listing_search_docs_cluster_idx',
+    table: 'listing_search_docs',
+    definition: `ON "listing_search_docs" USING btree ("cluster_id","owner_agency_id","cluster_rank") WHERE "listing_search_docs"."cluster_id" is not null`,
+    declaredBy: '0194_r2_03c_cluster_outputs',
+  },
+  {
+    // R2-03c: a duplicate cluster's mates as a member's RLS shows them ("listed by N agencies"); built by 0194 as above
+    name: 'listing_read_models_cluster_idx',
+    table: 'listing_read_models',
+    definition: `ON "listing_read_models" USING btree ("cluster_id") WHERE "listing_read_models"."cluster_id" is not null`,
+    declaredBy: '0194_r2_03c_cluster_outputs',
+  },
 ];
 
 /** Whether the migration `tag` of `folder` is applied (the drizzle migrator's journal time is in its table). */

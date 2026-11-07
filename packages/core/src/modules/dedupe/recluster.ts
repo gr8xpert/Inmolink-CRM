@@ -11,8 +11,9 @@
  *    decisions among them, ranked by pin, first read model (`search.indexDocsFor`) and quality score
  *    (`properties.listingsQualityInputs`). Gone listings drop out — the canonical is re-picked.
  * 3. **Write** what changed: a new cluster reuses the id of the old one it shares most members with; dissolved clusters
- *    are deleted; the agencies' projections (`dedupe_listing_clusters`) follow; one `dedupe.cluster.changed` per
- *    formed, changed or dissolved cluster, in this transaction.
+ *    are deleted; the agencies' projections (`dedupe_listing_clusters`) and the public outputs' copy on the read models
+ *    (`search.applyClusterMembership`, R2-03c) follow; one `dedupe.cluster.changed` per formed, changed or dissolved
+ *    cluster, in this transaction.
  * 4. **Review queue** (`dedupe_reviews`): for the seeds and every listing whose cluster changed, each stored pair
  *    (best `REVIEW_PAIRS_PER_LISTING` a side) ≥ 0.7, undecided and not within one cluster gets a pending row for each
  *    agency involved (one when both listings are one agency's); pending rows whose pair is gone, decided or clustered
@@ -200,6 +201,21 @@ export async function reclusterIn(tx: Tx, seedIds: readonly string[]): Promise<R
         memberIds: w.members.map((x) => x.id),
       })),
     ),
+  );
+  // R2-03c: the public outputs' copy (read models, fallback rows) in this transaction: never a cluster half applied
+  const placed = new Map<string, { clusterId: string; rank: number }>();
+  for (const w of writes) {
+    w.members.forEach((m, rank) => {
+      placed.set(m.id, { clusterId: w.id, rank });
+    });
+  }
+  await search.applyClusterMembership(
+    tx,
+    touched.map((id) => ({
+      listingId: id,
+      clusterId: placed.get(id)?.clusterId ?? null,
+      rank: placed.get(id)?.rank ?? null,
+    })),
   );
   if (events.length > 0)
     await emit(

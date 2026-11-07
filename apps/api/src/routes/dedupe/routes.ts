@@ -3,6 +3,8 @@ import {
   DedupeDisputeDto,
   DedupeDisputePage,
   DedupeDisputeParams,
+  DedupeListedByQuery,
+  DedupeListedByResult,
   DedupeReviewMoveDto,
   DedupeReviewPage,
   DedupeReviewParams,
@@ -54,6 +56,23 @@ export async function dedupeRoutes(app: FastifyZod): Promise<void> {
       config: { rateLimit: READ_LIMITS },
     },
     (req) => app.withCtx(req, (ctx) => dedupe.listDuplicateReviews(ctx, req.query)),
+  );
+
+  // R2-03c: "listed by N agencies" beside a listing's detail and a page of search results
+  app.get(
+    '/v1/duplicates/listed-by',
+    {
+      schema: {
+        tags,
+        operationId: 'dedupe.listedBy',
+        summary: 'For listings in a duplicate cluster: every member the caller may see, with each agency’s terms',
+        querystring: DedupeListedByQuery,
+        response: { 200: DedupeListedByResult },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: READ_LIMITS },
+    },
+    (req) => app.withCtx(req, (ctx) => dedupe.listedBy(ctx, req.query)),
   );
 
   for (const [verb, decision, summary] of [

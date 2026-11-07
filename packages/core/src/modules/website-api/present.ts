@@ -46,6 +46,11 @@ export interface PresentedPublicDocs {
   rows: search.PublicDocRow[];
   /** Each shown document's detail by target id. */
   details: Map<string, WebsiteDetail>;
+  /**
+   * R2-03c: documents left out because another member of their duplicate cluster is shown (the agency's own first,
+   * then the canonical rank): a client never sees two members of one cluster.
+   */
+  duplicates: Set<string>;
 }
 
 /** The documents `ids` as `agencyId` presents them to a client (see the module comment). */
@@ -56,11 +61,14 @@ export async function presentPublicDocs(tx: Tx, input: PresentPublicDocsInput): 
   // Re-checked at every read (S12 review): an owner narrowing or withdrawing a listing takes it off at once.
   const others = docs.filter((r) => r.ownerAgencyId !== input.agencyId).map((r) => r.targetId);
   const shared = others.length > 0 ? await search.networkPresentable(tx, input.agencyId, others) : new Set<string>();
-  const rows = docs.filter((r) => r.ownerAgencyId === input.agencyId || shared.has(r.targetId));
+  const presentable = docs.filter((r) => r.ownerAgencyId === input.agencyId || shared.has(r.targetId));
+  // R2-03c: one member per duplicate cluster, among those the agency may present
+  const duplicates = search.oneMemberPerCluster(presentable, input.agencyId);
+  const rows = duplicates.size === 0 ? presentable : presentable.filter((r) => !duplicates.has(r.targetId));
   const scope = { agencyId: input.agencyId, referencePrefix: null, presenter };
   const { view } = await viewWith(tx, { scope }, input.locale, rows);
   const presented = presentDocs(view, rows, input.titles);
-  return { presenter: view.presenter, view: presented.view, rows, details: presented.details };
+  return { presenter: view.presenter, view: presented.view, rows, details: presented.details, duplicates };
 }
 
 /**

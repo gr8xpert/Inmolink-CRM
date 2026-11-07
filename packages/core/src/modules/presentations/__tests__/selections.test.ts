@@ -123,6 +123,15 @@ function scene() {
 }
 
 describe('selections (S12-04)', () => {
+  it('[R2-03] client-facing outputs never show two members of one cluster: selection client view', () => {
+    const { view, rows, selection } = scene();
+    // the agent added two members of one cluster: `presentPublicDocs` kept one, the other is left out of the page
+    const shownRows = rows.filter((r) => r.targetId !== TARGET);
+    const model = presentSelection({ selection, locale: 'en', view, rows: shownRows, duplicates: new Set([TARGET]) });
+    expect(model.items.map((i) => i.targetId)).toEqual([OWN_TARGET, GONE_TARGET]);
+    expect(model.items[0]?.detail).not.toBeNull();
+  });
+
   it('[S12-04] the page white-labels a network listing: no owner name, contact, reference or indirect mention; facts kept', () => {
     const { f, view, rows, selection } = scene();
     const model = presentSelection({ selection, locale: 'en', view, rows });

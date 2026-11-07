@@ -823,7 +823,8 @@ export async function portalSearch(input: PortalSearchInput): Promise<PortalSear
   if (found.resultsChanged) {
     return { ...empty, total: found.total, pageCount, ...counts, degraded: true, pageUnavailable: true };
   }
-  const items = found.ids.length === 0 ? [] : await withPublicRead((tx) => portalCards(tx, found.ids, locale));
+  const items =
+    found.ids.length === 0 ? [] : await withPublicRead((tx) => portalCards(tx, inventory, found.ids, locale));
   return {
     items,
     total: found.total,
@@ -836,8 +837,14 @@ export async function portalSearch(input: PortalSearchInput): Promise<PortalSear
 }
 
 /** The cards of these listings in the search's order (a listing whose read model went in between is left out). */
-async function portalCards(tx: Tx, ids: readonly string[], locale: ContentLocale): Promise<PortalCard[]> {
-  const rows = await search.publicDocs(tx, ids, 'portal', locale, fallbackOf(locale));
+async function portalCards(
+  tx: Tx,
+  inventory: search.PublicSearchSite,
+  ids: readonly string[],
+  locale: ContentLocale,
+): Promise<PortalCard[]> {
+  // R2-03c: one member per duplicate cluster, as the portal shows them
+  const rows = await search.publicSiteDocs(tx, inventory, ids, 'portal', locale, fallbackOf(locale));
   const byId = new Map(rows.map((r) => [r.targetId, r]));
   const ordered = ids.flatMap((id) => {
     const r = byId.get(id);

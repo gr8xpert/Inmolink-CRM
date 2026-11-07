@@ -5,9 +5,11 @@ import { getLocale, getMessages, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
 import { fetchAgencyAiFeatures, fetchListingEditor, sessionRef } from '@/server/api';
+import { fetchListedBy } from '@/server/dedupe-api';
 import { webConfig } from '@/server/env';
 import { loadCollaborationBlock } from '../../collaborations/load-rights';
 import { RegisterClientLink } from '../../collaborations/register-link';
+import { ListedByPanel } from '../../duplicates/listed-by';
 import { listingTaxonomy } from '../taxonomy';
 import { BookmarkButton } from './bookmark-button';
 import { ListingEditor } from './listing-editor';
@@ -40,12 +42,16 @@ export default async function ListingEditorPage(props: { params: Promise<{ id: s
   const locale = await getLocale();
   const session = await auth();
   if (!session?.user?.id) return localeRedirect({ href: '/login', locale });
-  const [res, ai] = await Promise.all([
+  const [res, ai, listedBy] = await Promise.all([
     fetchListingEditor(sessionRef(session.user), id),
     // S13-F17: the Studio panel only when the agency switched Listing Studio on.
     fetchAgencyAiFeatures(sessionRef(session.user)),
+    // R2-03c: "listed by N agencies" (nothing in Client Mode or for a listing in no cluster the caller may see)
+    fetchListedBy(sessionRef(session.user), [id]),
   ]);
   if (res === 'revoked') redirect('/session/expired');
+  const duplicates =
+    listedBy !== 'revoked' && listedBy.ok ? listedBy.data.items.find((i) => i.listingId === id) : undefined;
   const studioEnabled = ai !== 'revoked' && ai.ok && ai.data.features.LISTING_STUDIO;
   if (!res.listing.ok && res.listing.status === 404) notFound();
   const t = await getTranslations('listings');
@@ -84,6 +90,7 @@ export default async function ListingEditorPage(props: { params: Promise<{ id: s
         </p>
       ) : (
         <>
+          {duplicates ? <ListedByPanel item={duplicates} currentId={id} /> : null}
           <QualityPanel listingId={res.listing.data.id} initial={res.quality} messages={messages.listings} />
           <ListingEditor
             listing={res.listing.data}

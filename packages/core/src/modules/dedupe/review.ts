@@ -5,6 +5,9 @@ import {
   type DedupeDisputeKind,
   type DedupeDisputePage,
   type DedupeDisputeStatus,
+  DedupeListedByInput,
+  type DedupeListedByMember,
+  type DedupeListedByResult,
   type DedupeListingCard,
   type DedupePairSignals,
   type DedupeReviewDto,
@@ -27,6 +30,7 @@ import { type Ctx, memberUserId, type StaffCtx } from '../../context';
 import { decodeCursor, encodeCursor } from '../../pagination';
 import * as agencies from '../agencies';
 import * as compliance from '../compliance';
+import * as properties from '../properties';
 import * as search from '../search';
 import { dedupeEvents } from './events';
 import { assertCan, assertStaffCan } from './policy';
@@ -172,6 +176,101 @@ export async function listDuplicateClusters(ctx: Ctx, raw: ListDedupeClustersQue
     });
   }
   return { items: out, nextCursor };
+}
+
+/* ------------------------------------------------------------------ "listed by N agencies" (R2-03c) */
+
+/**
+ * `GET /v1/duplicates/listed-by` (R2-03c, PLAN §10 "agents see listed by N agencies with each agency's terms"): for
+ * each of these listings that shares a duplicate cluster with another listing the caller may see, every such member in
+ * canonical order with its terms — the caller's own (no agency or network commission: its own terms are on its
+ * listing), or another agency's as network search shows it (the directory name, the commission with the caller's
+ * share). The members come from the read models the caller's RLS shows and are kept only while the caller may offer
+ * them (`search.offerableListingCards`: ACTIVE, own or shared with it now, the owner listed); another agency's member
+ * without terms or a directory name under the caller's RLS is left out, as in network search. Members the caller may
+ * not see are never named or counted; a listing it may not see answers nothing. Four statements.
+ */
+export async function listedBy(ctx: Ctx, raw: DedupeListedByInput): Promise<DedupeListedByResult> {
+  assertCan(ctx, 'dedupe.read');
+  const q = DedupeListedByInput.parse({ listingIds: [...new Set(raw.listingIds)] });
+  const mates = await search.visibleClusterMates(ctx.tx, q.listingIds);
+  if (mates.length === 0) return { items: [] };
+  const cards = await cardsFor(
+    ctx,
+    mates.map((m) => m.targetId),
+  );
+  const offered = mates.filter((m) => cards.get(m.targetId)?.network === true).map((m) => m.targetId);
+  // other agencies' members only for an agency the network is open to (give-to-get, as network search: a locked one
+  // sees its own members only)
+  const open =
+    offered.length > 0 && search.can(ctx, 'search.network') && (await search.networkGate(ctx)).state !== 'LOCKED';
+  const network = open ? offered : [];
+  const terms = new Map(
+    (network.length > 0 ? await properties.networkListingTerms(ctx, network) : []).map((t) => [t.id, t]),
+  );
+  const names =
+    terms.size > 0
+      ? await agencies.networkAgencyNames(
+          ctx,
+          [...terms.values()].map((t) => t.agencyId),
+        )
+      : new Map<string, string>();
+  const byCluster = new Map<string, { rank: number; member: DedupeListedByMember; agencyId: string }[]>();
+  const clusterOf = new Map<string, string>();
+  for (const m of [...mates].sort((x, y) => x.rank - y.rank || (x.targetId < y.targetId ? -1 : 1))) {
+    const c = cards.get(m.targetId);
+    if (!c) continue;
+    const card = c.card as Card;
+    const t = c.network ? terms.get(m.targetId) : undefined;
+    const name = t ? names.get(t.agencyId) : undefined;
+    if (c.network && (!t || name === undefined)) continue;
+    const list = byCluster.get(m.clusterId) ?? [];
+    list.push({
+      rank: m.rank,
+      agencyId: t ? t.agencyId : ctx.tenant.agencyId,
+      member: {
+        listingId: m.targetId,
+        own: !c.network,
+        canonical: false,
+        reference: card.ref,
+        agency: t && name !== undefined ? { id: t.agencyId, name } : null,
+        price: card.price,
+        commission: t
+          ? search.networkCommission({
+              priceCents: t.priceCents,
+              priceOnRequest: t.priceOnRequest,
+              currency: t.currency,
+              commissionBp: t.commissionBp,
+              commissionFixedCents: t.commissionFixedCents,
+              commissionCurrency: t.currency,
+              splitBp: t.splitBp,
+              includesVat: t.commissionIncludesVat,
+            })
+          : null,
+      },
+    });
+    byCluster.set(m.clusterId, list);
+    clusterOf.set(m.targetId, m.clusterId);
+  }
+  const items: DedupeListedByResult['items'] = [];
+  for (const id of q.listingIds) {
+    const cluster = clusterOf.get(id);
+    const members = cluster ? (byCluster.get(cluster) ?? []) : [];
+    // a group the caller sees alone would tell that a listing it may not see exists
+    if (members.length < 2) continue;
+    // the member the caller's clients are shown: its own (best ranked) first, else the first visible in canonical order
+    const shown = Math.max(
+      0,
+      members.findIndex((m) => m.member.own),
+    );
+    for (const [i, m] of members.entries()) m.member.canonical = i === shown;
+    items.push({
+      listingId: id,
+      agencies: new Set(members.map((m) => m.agencyId)).size,
+      members: members.map((m) => m.member),
+    });
+  }
+  return { items };
 }
 
 /* ------------------------------------------------------------------ disputes (members) */

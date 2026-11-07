@@ -100,6 +100,8 @@ export {
   AGENCY_QUEUE_PAGE,
   agencyDevelopmentCodesPage,
   agencyPublicCodesPage,
+  // R2-03c: duplicate clusters onto the read models (dedupe worker) and agents' visible cluster mates
+  applyClusterMembership,
   countReadModelTargets,
   type DrainOptions,
   type DrainResult,
@@ -130,7 +132,9 @@ export {
   rebuildListingReadModels,
   rebuildReadModels,
   rebuildUnitReadModels,
+  syncClusterMembership,
   type TargetPosition,
+  visibleClusterMates,
   visibleTargets,
 } from './service';
 export {
@@ -141,6 +145,8 @@ export {
   unregisterSearchSubscriptions,
 } from './subscriptions';
 export {
+  // R2-03c: one member per duplicate cluster on every public output
+  clusterRuleOf,
   configureWebsiteSearch,
   developmentRefMatch,
   FALLBACK_COUNT_CAP,
@@ -172,6 +178,7 @@ export {
   developmentUnitsByCode,
   developmentUnitsPage,
   NETWORK_GATE_CACHE,
+  oneMemberPerCluster,
   PUBLIC_CHANGES_PRUNE_BATCH,
   PUBLIC_CHANGES_RETENTION_DAYS,
   PUBLIC_CHANGES_SINCE_MARGIN_SECONDS,
@@ -181,6 +188,7 @@ export {
   publicDetailByCode,
   publicDetailByRef,
   publicDocs,
+  publicSiteDocs,
   type SiteChange,
   siteChanges,
   siteInventoryFilter,

@@ -24,6 +24,7 @@ import {
   pgEnum,
   pgTable,
   primaryKey,
+  smallint,
   text,
   timestamp,
   uniqueIndex,
@@ -77,6 +78,14 @@ export const listingReadModels = pgTable(
      */
     preferredAgencyIds: uuid('preferred_agency_ids').array(),
     /**
+     * R2-03c (PLAN §10, §3 #13): the listing's duplicate cluster and its place in the canonical order (0 = canonical),
+     * null when it is in none. Written only by the dedupe worker's recluster pass and rescore
+     * (`search.applyClusterMembership`, in their transactions), never by a rebuild (an upsert leaves them as they
+     * are). Agents' "listed by N agencies" reads the cluster mates their RLS shows by it. Never inside the documents.
+     */
+    clusterId: uuid('cluster_id'),
+    clusterRank: smallint('cluster_rank'),
+    /**
      * Monotonic source version: the listing's `version`, or a unit's `version` + its development's `version`
      * (both only grow). An upsert never lowers it (PATTERNS §14).
      */
@@ -97,6 +106,9 @@ export const listingReadModels = pgTable(
     index('listing_read_models_agency_idx').on(t.agencyId, t.kind, t.targetId),
     // a development's change: the read models of its units (and listings) that may no longer have one
     index('listing_read_models_development_idx').on(t.developmentId).where(sql`${t.developmentId} is not null`),
+    // R2-03c: a cluster's mates as the caller's RLS shows them (`listedBy`): where cluster_id = any(?)
+    // (concurrent-indexes.ts)
+    index('listing_read_models_cluster_idx').on(t.clusterId).where(sql`${t.clusterId} is not null`),
     check('listing_read_models_version_ck', sql`${t.version} >= 1`),
     check(
       'listing_read_models_share_scope_ck',
@@ -261,6 +273,13 @@ export const listingSearchDocs = pgTable(
     shareScope: text('share_scope'),
     preferredAgencyIds: uuid('preferred_agency_ids').array(),
     networkHidden: boolean('network_hidden'),
+    /**
+     * R2-03c: the duplicate cluster and canonical rank, as on the read models (written with them by the dedupe worker).
+     * Every public output shows one member per cluster: the first, in rank order, that the site's inventory holds (own
+     * listings first on a site that mixes in network ones) — `repo.clusterShownSql`.
+     */
+    clusterId: uuid('cluster_id'),
+    clusterRank: smallint('cluster_rank'),
     /** Epoch seconds, as in the index document ("newest" sort and its keyset cursor). */
     publishedAt: bigint('published_at', { mode: 'number' }).notNull(),
     version: integer('version').notNull(),
@@ -307,6 +326,11 @@ export const listingSearchDocs = pgTable(
     index('listing_search_docs_development_ref_idx')
       .on(t.developmentId, t.ref, t.targetId)
       .where(sql`${t.developmentId} is not null`),
+    // R2-03c: a clustered document's mates (the "one member per cluster" probe, ≤ 12 rows a cluster); the owner second
+    // so that an own-only site skips other agencies' mates in the index (concurrent-indexes.ts)
+    index('listing_search_docs_cluster_idx')
+      .on(t.clusterId, t.ownerAgencyId, t.clusterRank)
+      .where(sql`${t.clusterId} is not null`),
   ],
 );
 

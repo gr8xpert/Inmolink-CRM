@@ -310,6 +310,17 @@ export interface MemberRow {
   via: 'AUTO' | 'CONFIRMED';
 }
 
+/** R2-03c: these listings' own cluster rows (the ones in a cluster). Primary key probes, one statement. */
+export async function membershipOf(
+  tx: Tx,
+  ids: readonly string[],
+): Promise<{ listingId: string; clusterId: string; rank: number }[]> {
+  if (ids.length === 0) return [];
+  const res = await tx.execute<{ listing_id: string; cluster_id: string; rank: number }>(sql`
+    select m.listing_id, m.cluster_id, m.rank from ${members} m where m.listing_id = any(${uuids(ids)})`);
+  return res.rows.map((r) => ({ listingId: r.listing_id, clusterId: r.cluster_id, rank: r.rank }));
+}
+
 /** Every member of the clusters these listings are in (PK, then the cluster index). One statement. */
 export async function clusterMatesOf(tx: Tx, ids: readonly string[]): Promise<MemberRow[]> {
   if (ids.length === 0) return [];

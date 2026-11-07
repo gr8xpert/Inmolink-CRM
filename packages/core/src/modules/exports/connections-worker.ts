@@ -4,8 +4,9 @@
  * API's surface); used by `feed.ts` and `push/engine.ts`, which only the worker-only entry (`./worker`) exposes.
  */
 import type { Tx } from '@inmolink/db';
+import * as dedupe from '../dedupe';
 import * as repo from './repo';
-import { ruleOf, type SelectionRule, selectionBatch } from './selection';
+import { ownDuplicatesIn, ruleOf, type SelectionRule, selectionBatch } from './selection';
 
 /** A connection as the generator (worker) needs it: what to send to which portal, and the version it read it at. */
 export interface WorkerConnection {
@@ -59,5 +60,13 @@ export async function selectConnectionListings(
   opts: { cursor?: string | null; limit?: number } = {},
 ): Promise<{ ids: string[]; nextCursor: string | null }> {
   const page = await selectionBatch(tx, connection.rule, opts.cursor ?? null, opts.limit);
-  return { ids: page.ids, nextCursor: page.next };
+  // R2-03c: never two members of one duplicate cluster to a portal (the best-ranked own member it selects goes)
+  const hidden =
+    page.ids.length > 0
+      ? await ownDuplicatesIn(tx, connection.rule, page.ids, await dedupe.clusterMembersOf(tx, page.ids))
+      : null;
+  return {
+    ids: hidden && hidden.size > 0 ? page.ids.filter((id) => !hidden.has(id)) : page.ids,
+    nextCursor: page.next,
+  };
 }

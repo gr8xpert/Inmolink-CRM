@@ -15,6 +15,8 @@ type Site = Pick<PublicSearchSite, 'ownerAgencyIds' | 'networkOf' | 'restrict' |
 export interface PublicFallbackSqlOptions {
   /** e.g. a plot band (S7-F11: the fallback compiles every filterable field of the index, `plotM2` included). */
   extra?: Filter;
+  /** R2-03c: with the site's one-member-per-cluster rule, as `searchPublicListings` runs it. */
+  cluster?: boolean;
 }
 
 /** The fallback's statement for a site's search. */
@@ -23,7 +25,7 @@ export function publicFallbackSql(
   input: PublicListingSearch,
   options: PublicFallbackSqlOptions = {},
 ): SQL | null {
-  const query = siteFallbackQuery(site, input, options.extra);
+  const query = siteFallbackQuery(site, input, options.extra, { cluster: options.cluster });
   return query ? repo.fallbackSearchSql(query) : null;
 }
 

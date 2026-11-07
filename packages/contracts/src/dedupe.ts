@@ -1,7 +1,7 @@
 /** dedupe DTOs (PATTERNS §9): Zod schemas and inferred types for params, bodies and responses. */
 import { z } from 'zod';
 import { PageQuery, pageOf } from './common';
-import { ListingCardDoc } from './search';
+import { ListingCardDoc, NetworkCommission, ReadModelPrice } from './search';
 
 /**
  * R2-03a: a duplicate candidate pair's signals, each 0–1 (null: not available for the pair), as stored with its
@@ -153,3 +153,56 @@ export const ResolveDedupeDisputeBody = z.strictObject({
   note: z.string().trim().min(1).max(1000),
 });
 export type ResolveDedupeDisputeBody = z.infer<typeof ResolveDedupeDisputeBody>;
+
+/* ------------------------------------------------------------------ R2-03c: "listed by N agencies" */
+
+/** Listings one `GET /v1/duplicates/listed-by` asks about at most (a page of results). */
+export const DEDUPE_LISTED_BY_MAX = 50;
+
+const UUID_LIST = z
+  .string()
+  .max(DEDUPE_LISTED_BY_MAX * 37)
+  .transform((v) => [...new Set(v.split(',').filter((x) => x.length > 0))])
+  .pipe(z.array(z.uuid()).min(1).max(DEDUPE_LISTED_BY_MAX));
+
+/** `GET /v1/duplicates/listed-by?listingIds=a,b`: the duplicates of these listings the caller may see. */
+export const DedupeListedByQuery = z.strictObject({ listingIds: UUID_LIST });
+export type DedupeListedByQuery = z.input<typeof DedupeListedByQuery>;
+
+/** The service's input: the listing ids (the query's parsed form). */
+export const DedupeListedByInput = z.strictObject({
+  listingIds: z.array(z.uuid()).min(1).max(DEDUPE_LISTED_BY_MAX),
+});
+export type DedupeListedByInput = z.input<typeof DedupeListedByInput>;
+
+/**
+ * One listing of a duplicate cluster as an agent sees it beside the others (PLAN §10 "agents see listed by N agencies
+ * with each agency's terms"): the caller's own (`own`: no agency, no network commission) or another agency's network
+ * listing it may see — the agency as the network directory names it and the commission as network search shows it.
+ * `canonical`: the first of the members the caller may see in canonical order (what its clients are shown).
+ */
+export const DedupeListedByMember = z.strictObject({
+  listingId: z.uuid(),
+  own: z.boolean(),
+  canonical: z.boolean(),
+  reference: z.string(),
+  agency: z.strictObject({ id: z.uuid(), name: z.string() }).nullable(),
+  price: ReadModelPrice,
+  commission: NetworkCommission.nullable(),
+});
+export type DedupeListedByMember = z.infer<typeof DedupeListedByMember>;
+
+/**
+ * A listing that is one of several the caller may see in one cluster: how many agencies list it (`agencies`, among the
+ * members shown) and every member with its terms, in canonical order. Listings with no other visible member are left
+ * out (a member the caller may not see is never named or counted).
+ */
+export const DedupeListedBy = z.strictObject({
+  listingId: z.uuid(),
+  agencies: z.number().int().min(1),
+  members: z.array(DedupeListedByMember).min(2),
+});
+export type DedupeListedBy = z.infer<typeof DedupeListedBy>;
+
+export const DedupeListedByResult = z.strictObject({ items: z.array(DedupeListedBy) });
+export type DedupeListedByResult = z.infer<typeof DedupeListedByResult>;

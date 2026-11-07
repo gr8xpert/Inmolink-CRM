@@ -21,7 +21,7 @@ import {
 import { newId } from '@inmolink/platform/ids';
 import { type FieldValue, type Filter, SearchError } from '@inmolink/platform/search';
 import { NIL_UUID } from '@inmolink/platform/tenancy';
-import { and, eq, getTableColumns, inArray, type SQL, sql } from 'drizzle-orm';
+import { and, eq, getTableColumns, inArray, or, type SQL, sql } from 'drizzle-orm';
 import { DETAIL_TEXT_PATHS } from '../../white-label';
 import type { BuiltDoc } from './build';
 import type { ListingIndexDoc } from './index-doc';
@@ -1088,6 +1088,15 @@ export async function upsertSearchDocs(tx: Tx, docs: readonly ListingIndexDoc[])
         publishedAt: d.publishedAt,
         version: d.version,
         sourceHash: d.sourceHash,
+        // R2-03c: a new row (a listing turning PUBLIC) takes the cluster its read models carry; an update keeps its own
+        ...(d.kind === 'LISTING'
+          ? {
+              clusterId: sql`(select r.cluster_id from ${listingReadModels} r
+                               where r.target_id = ${d.id}::uuid and r.cluster_id is not null limit 1)`,
+              clusterRank: sql`(select r.cluster_rank from ${listingReadModels} r
+                                 where r.target_id = ${d.id}::uuid and r.cluster_id is not null limit 1)`,
+            }
+          : {}),
       })),
     )
     .onConflictDoUpdate({
@@ -1373,6 +1382,109 @@ export function fallbackCondition(filter: Filter, opts: { rangesAsFilters?: bool
   }
 }
 
+/**
+ * R2-03c (PLAN §10, §3 #13): how a site shows duplicate clusters — one member per cluster, the first in canonical rank
+ * order (`cluster_rank`, 0 = canonical) that the site's inventory (`filter`, never the visitor's filters: the member a
+ * site shows is the same on every page, in its sitemap and its change feed) holds. `own`: a site that mixes its own
+ * listings with network ones shows its own member first (then rank among them); null or empty: rank alone (a site of
+ * its own listings, a network-wide site, the portal).
+ */
+export interface ClusterRule {
+  filter: Filter;
+  own: readonly string[] | null;
+}
+
+/**
+ * R2-03c: the condition "this document is the member of its cluster the site shows" on the row `outer` (a table name or
+ * alias of `listing_search_docs`): not clustered, or no better-placed mate of its cluster is in the site's inventory.
+ * The mates are an index probe on `listing_search_docs_cluster_idx` (≤ 12 rows a cluster); unclustered rows (almost
+ * all) stop at `cluster_id is null`. The inventory filter compiles against the mate (`o`): its columns are unqualified,
+ * so they resolve to the innermost `from`.
+ */
+export function clusterShownSql(rule: ClusterRule, outer: string): SQL {
+  const d = sql.raw(outer);
+  const own = rule.own && rule.own.length > 0 ? uuidArray([...new Set(rule.own)]) : null;
+  const better = own
+    ? sql`((o.owner_agency_id = any(${own})) > (${d}.owner_agency_id = any(${own}))
+          or ((o.owner_agency_id = any(${own})) = (${d}.owner_agency_id = any(${own}))
+              and o.cluster_rank < ${d}.cluster_rank))`
+    : sql`o.cluster_rank < ${d}.cluster_rank`;
+  return sql`(${d}.cluster_id is null or not exists (
+    select 1 from ${listingSearchDocs} o
+     where o.cluster_id = ${d}.cluster_id and o.target_id <> ${d}.target_id and ${better}
+       and ${fallbackCondition(rule.filter)}))`;
+}
+
+/** `where` and, with a rule, the cluster condition on the unaliased `listing_search_docs` row. */
+const withClusterRule = (where: SQL, rule: ClusterRule | undefined): SQL =>
+  rule ? sql`(${where} and ${clusterShownSql(rule, 'listing_search_docs')})` : where;
+
+/** A target's duplicate cluster as public paths read it (R2-03c). */
+export interface ClusterMembership {
+  listingId: string;
+  clusterId: string | null;
+  rank: number | null;
+}
+
+/**
+ * R2-03c: these listings' cluster and rank (null: in none) on their read models (every locale) and fallback rows — the
+ * dedupe worker's recluster pass and rescore, in their transactions, after the read-model builders of these targets
+ * (`lockTargets`: never interleaved with a rebuild). A row changes only when its membership did. Answers the PUBLIC
+ * targets (fallback rows) that changed: what websites show of them may have. Two statements.
+ */
+export async function setClusterMembership(tx: Tx, rows: readonly ClusterMembership[]): Promise<string[]> {
+  if (rows.length === 0) return [];
+  await lockTargets(
+    tx,
+    rows.map((r) => r.listingId),
+  );
+  const values = JSON.stringify(rows.map((r) => ({ id: r.listingId, c: r.clusterId, r: r.rank })));
+  const res = await tx.execute(sql`
+    with v as materialized (select id, c, r from jsonb_to_recordset(${values}::jsonb) as x(id uuid, c uuid, r smallint)),
+    m as (update ${listingReadModels} m set cluster_id = v.c, cluster_rank = v.r from v
+           where m.target_id = v.id and (m.cluster_id is distinct from v.c or m.cluster_rank is distinct from v.r)
+          returning m.target_id)
+    update ${listingSearchDocs} d set cluster_id = v.c, cluster_rank = v.r from v
+     where d.target_id = v.id and (d.cluster_id is distinct from v.c or d.cluster_rank is distinct from v.r)
+    returning d.target_id as "targetId"`);
+  return [...new Set((res.rows as { targetId: string }[]).map((r) => r.targetId))];
+}
+
+/**
+ * R2-03c: of these memberships, the listings whose read models or fallback rows hold another (no lock: a rescore checks
+ * first, then locks and re-reads only these — most batches hold no clustered listing that moved). One statement.
+ */
+export async function clusterDrift(tx: Tx, rows: readonly ClusterMembership[]): Promise<string[]> {
+  if (rows.length === 0) return [];
+  const values = JSON.stringify(rows.map((r) => ({ id: r.listingId, c: r.clusterId, r: r.rank })));
+  const res = await tx.execute(sql`
+    with v as materialized (select id, c, r from jsonb_to_recordset(${values}::jsonb) as x(id uuid, c uuid, r smallint))
+    select v.id as "listingId" from v
+     where exists (select 1 from ${listingReadModels} m where m.target_id = v.id
+                      and (m.cluster_id is distinct from v.c or m.cluster_rank is distinct from v.r))
+        or exists (select 1 from ${listingSearchDocs} d where d.target_id = v.id
+                      and (d.cluster_id is distinct from v.c or d.cluster_rank is distinct from v.r))`);
+  return (res.rows as { listingId: string }[]).map((r) => r.listingId);
+}
+
+/**
+ * R2-03c: the clusters of these listings' read models and every member of those clusters the caller's RLS shows (its
+ * own listings, other agencies' network listings it may read) — agents' "listed by N agencies". One statement.
+ */
+export async function visibleClusterMates(
+  tx: Tx,
+  ids: readonly string[],
+): Promise<{ targetId: string; clusterId: string; rank: number }[]> {
+  if (ids.length === 0) return [];
+  const res = await tx.execute(sql`
+    select distinct m.target_id as "targetId", m.cluster_id as "clusterId", m.cluster_rank as rank
+      from ${listingReadModels} m
+     where m.cluster_id in (select x.cluster_id from ${listingReadModels} x
+                             where x.target_id = any(${uuidArray([...new Set(ids)])}) and x.cluster_id is not null)
+       and m.kind = 'LISTING'`);
+  return res.rows as { targetId: string; clusterId: string; rank: number }[];
+}
+
 export interface FallbackPosition {
   /** 0: rows with a sort value; 1: rows without one (they come last). */
   phase: 0 | 1;
@@ -1390,6 +1502,8 @@ export interface FallbackQuery {
   after?: FallbackPosition;
   /** `total` is exact up to this many rows. */
   countCap: number;
+  /** R2-03c: one member per duplicate cluster, as this site shows them (`clusterShownSql`). */
+  cluster?: ClusterRule;
 }
 
 /**
@@ -1448,7 +1562,7 @@ export function fallbackSearchSql(q: FallbackQuery): SQL {
   const col = sql.raw(sort.column);
   const dir = sql.raw(q.sort.dir);
   const cmp = sql.raw(q.sort.dir === 'asc' ? '>' : '<');
-  const where = fallbackCondition(q.filter);
+  const where = withClusterRule(fallbackCondition(q.filter), q.cluster);
   const take = q.limit + 1;
   const branches: SQL[] = [];
   if (!q.after || q.after.phase === 0) {
@@ -1488,7 +1602,9 @@ export function fallbackSearchSql(q: FallbackQuery): SQL {
   // rows) ANDed to a city's 8k won by total cost on a fresh index and cost 16 ms up front (26 ms on CI against 9 ms):
   // a near tie that flipped with the index's size. A location matches thousands of rows at most per city and `m`
   // stops at the cap; the index-ordered branches below keep the ranges as index conditions (a band sorted by price).
-  const matchWhere = hasLocation(q.filter) ? fallbackCondition(q.filter, { rangesAsFilters: true }) : where;
+  const matchWhere = hasLocation(q.filter)
+    ? withClusterRule(fallbackCondition(q.filter, { rangesAsFilters: true }), q.cluster)
+    : where;
   return sql`
     with m as materialized (
       select target_id, ${col}::float8 as k from ${listingSearchDocs} where ${matchWhere} limit ${q.countCap + 1}),
@@ -1624,9 +1740,14 @@ export interface PublicRowBefore {
   networkHidden: boolean;
 }
 
-/** These targets' fallback rows (PUBLIC targets as of their last refresh), for the change log. PK probes. */
+/**
+ * These targets' fallback rows (PUBLIC targets as of their last refresh), for the change log. PK probes. R2-03c: with
+ * the rows of their duplicate clusters' mates too — whether a site shows a member depends on its mates, so a change of
+ * one is a change of what sites show of the others (`listing_search_docs_cluster_idx`; unclustered targets add none).
+ */
 export async function publicRowsOf(tx: Tx, ids: readonly string[]): Promise<PublicRowBefore[]> {
   if (ids.length === 0) return [];
+  const unique = [...new Set(ids)];
   return tx
     .select({
       targetId: listingSearchDocs.targetId,
@@ -1641,7 +1762,13 @@ export async function publicRowsOf(tx: Tx, ids: readonly string[]): Promise<Publ
       networkHidden: sql<boolean>`coalesce(${listingSearchDocs.networkHidden}, false)`,
     })
     .from(listingSearchDocs)
-    .where(inArray(listingSearchDocs.targetId, [...new Set(ids)]));
+    .where(
+      or(
+        inArray(listingSearchDocs.targetId, unique),
+        sql`${listingSearchDocs.clusterId} in (select c.cluster_id from ${listingSearchDocs} c
+              where c.target_id = any(${uuidArray(unique)}) and c.cluster_id is not null)`,
+      ),
+    );
 }
 
 /** A position in the change log: after the row `(tx, seq)` (`tx` an xid8 as text). */
@@ -1752,11 +1879,16 @@ export async function publicChangesStart(tx: Tx, since: Date, marginSeconds: num
 }
 
 /** Of these targets, those the site's filter matches now. One statement by primary key. */
-export async function matchingTargets(tx: Tx, filter: Filter, ids: readonly string[]): Promise<Set<string>> {
+export async function matchingTargets(
+  tx: Tx,
+  filter: Filter,
+  ids: readonly string[],
+  cluster?: ClusterRule,
+): Promise<Set<string>> {
   if (ids.length === 0) return new Set();
   const res = await tx.execute(sql`
     select target_id as "targetId" from ${listingSearchDocs}
-     where target_id = any(${uuidArray([...new Set(ids)])}) and ${fallbackCondition(filter)}`);
+     where target_id = any(${uuidArray([...new Set(ids)])}) and ${withClusterRule(fallbackCondition(filter), cluster)}`);
   return new Set((res.rows as { targetId: string }[]).map((r) => r.targetId));
 }
 
@@ -1789,6 +1921,9 @@ export interface PublicDocRow {
   updatedAt: Date;
   /** The document's locale (`publicDocs` only, S7-07): the best one may not be the one asked for. */
   locale?: string;
+  /** R2-03c (`publicDocs` only): the duplicate cluster and canonical rank; null when in none. */
+  clusterId?: string | null;
+  clusterRank?: number | null;
 }
 
 /**
@@ -1823,17 +1958,21 @@ export async function publicDocs(
   part: 'card' | 'detail' | 'portal',
   locale: string,
   fallback: string,
+  cluster?: ClusterRule,
 ): Promise<PublicDocRow[]> {
   if (ids.length === 0) return [];
+  // R2-03c: the fallback row by primary key (its cluster); with a site's rule, a member it does not show is absent
   const res = await tx.execute(sql`
     select m.target_id as "targetId", m.kind, m.agency_id as "ownerAgencyId", ${docPart(part)} as doc,
            m.updated_at as "updatedAt", c.code as "publicCode", dc.code as "developmentCode",
-           dg.ref as "developmentOwnRef", m.locale
+           dg.ref as "developmentOwnRef", m.locale, d.cluster_id as "clusterId", d.cluster_rank as "clusterRank"
       from unnest(${uuidArray([...new Set(ids)])}) as t(id)
       join ${listingReadModels} m on m.target_id = t.id and m.locale = ${bestLocale(sql`t.id`, locale, fallback)}
+      left join ${listingSearchDocs} d on d.target_id = t.id
       left join ${listingPublicCodes} c on c.target_id = t.id
       left join ${listingPublicCodes} dc on dc.target_id = m.development_id
-      left join ${listingSearchDevelopments} dg on dg.development_id = m.development_id`);
+      left join ${listingSearchDevelopments} dg on dg.development_id = m.development_id
+     ${cluster ? sql`where ${clusterShownSql(cluster, 'd')}` : sql``}`);
   return docRows(res.rows);
 }
 
@@ -1894,10 +2033,12 @@ export async function sitemapPage(
      * listing URL is made of (kind, property type, place).
      */
     part?: 'card' | 'none' | 'sitemap' | 'portal';
+    /** R2-03c: one member per duplicate cluster, as the site shows them. */
+    cluster?: ClusterRule;
   },
 ): Promise<PublicDocRow[]> {
   const after = q.after ? sql`and public_code > ${q.after}` : sql``;
-  const where = fallbackCondition(q.filter);
+  const where = withClusterRule(fallbackCondition(q.filter), q.cluster);
   const take = q.limit + 1;
   const branches: SQL[] = [];
   if (q.own.length > 0) {
@@ -1940,7 +2081,7 @@ export async function sitemapPage(
  */
 export async function portalSitemapWalk(
   tx: Tx,
-  q: { filter: Filter; after?: string; limit: number; locale: string; fallback: string },
+  q: { filter: Filter; after?: string; limit: number; locale: string; fallback: string; cluster?: ClusterRule },
 ): Promise<{ rows: PublicDocRow[]; last: string | null; more: boolean }> {
   const after = q.after ? sql`and public_code > ${q.after}` : sql``;
   const res = await tx.execute<{
@@ -1953,7 +2094,7 @@ export async function portalSitemapWalk(
   }>(sql`
     with s as (
       select target_id, public_code, owner_agency_id from ${listingSearchDocs}
-       where ${fallbackCondition(q.filter)} and public_code is not null ${after}
+       where ${withClusterRule(fallbackCondition(q.filter), q.cluster)} and public_code is not null ${after}
        order by public_code limit ${q.limit + 1})
     select s.target_id as "targetId", s.public_code as "publicCode", s.owner_agency_id as "ownerAgencyId", m.kind,
            case when m.target_id is null then null

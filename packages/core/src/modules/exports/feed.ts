@@ -43,13 +43,14 @@ import {
   writeKyeroStart,
 } from '../../feed-xml';
 import * as agencies from '../agencies';
+import * as dedupe from '../dedupe';
 import * as search from '../search';
 import { type WorkerConnection, workerConnections } from './connections-worker';
 import { PortalFeedError } from './feed-error';
 import { PORTAL_PREFERRED_LOCALE, type PortalProfile, portalWriterEnabled, profileOf } from './profiles';
 import { isPushChannel } from './push/registry';
 import * as repo from './repo';
-import { groupSelectionPages, type SelectionPage, type SelectionRule } from './selection';
+import { groupSelectionPages, ownDuplicatesIn, type SelectionPage, type SelectionRule } from './selection';
 import { validateItem } from './validate';
 
 /** Listings per batch (one grouped selection page per rule, then one document statement, one issue write). */
@@ -357,7 +358,20 @@ export async function writePlannedFeeds(
       const upTo = pages.map((p, i) =>
         bound === null || (p.nextCursor === null && kept[i]?.length === p.ids.length) ? null : bound,
       );
-      const union = [...new Set(kept.flat())].sort();
+      const selected = [...new Set(kept.flat())].sort();
+      // R2-03c: never two members of one duplicate cluster in a portal's feed (both the agency's own, confirmed as
+      // one): per connection, the best-ranked member it selects goes; the others' documents are not even read
+      const members = selected.length > 0 ? await dedupe.clusterMembersOf(tx, selected) : [];
+      const hiddenOf: Set<string>[] = [];
+      for (const [i, lane] of open.entries()) {
+        hiddenOf.push(
+          members.length > 0
+            ? await ownDuplicatesIn(tx, lane.planned.connection.rule, kept[i] ?? [], members)
+            : new Set<string>(),
+        );
+      }
+      const shown = new Set(kept.flatMap((k, i) => k.filter((id) => !hiddenOf[i]?.has(id))));
+      const union = hiddenOf.some((h) => h.size > 0) ? selected.filter((id) => shown.has(id)) : selected;
       const docs = union.length > 0 ? await search.ownListingDetails(tx, agencyId, union, locales) : [];
       const built = buildItems(union, docs, { locales, baseLocale, mediaBase, presenter });
       const items = new Map(built.items.map((x) => [x.id, x.item]));
@@ -369,6 +383,7 @@ export async function writePlannedFeeds(
         const failures: { propertyId: string; errors: PortalIssue[] }[] = [];
         const ready: FeedItem[] = [];
         for (const id of kept[i] ?? []) {
+          if (hiddenOf[i]?.has(id)) continue;
           const item = items.get(id);
           if (!item || missing.has(id)) {
             failures.push({ propertyId: id, errors: [{ code: 'NO_DOCUMENT' }] });

@@ -71,7 +71,7 @@ export async function selectionPage(token: string, lang?: string): Promise<Selec
     // with ALL or this agency preferred, not hidden from the network) and both agencies are listed (S12 review: an
     // unverified or suspended agency presents no network listing) — an owner narrowing or withdrawing it takes it off
     // every selection at once, whatever the selection's expiry.
-    const { view, rows, details } = await websiteApi.presentPublicDocs(tx, {
+    const { view, rows, details, duplicates } = await websiteApi.presentPublicDocs(tx, {
       agencyId: sel.agencyId,
       ids: sel.items.map((i) => i.targetId),
       locale,
@@ -79,7 +79,7 @@ export async function selectionPage(token: string, lang?: string): Promise<Selec
       fallbackName: sel.title,
       titles: titlesOf(sel.items),
     });
-    return presentSelection({ selection: sel, locale, view, rows, details });
+    return presentSelection({ selection: sel, locale, view, rows, details, duplicates });
   });
 }
 
@@ -102,22 +102,30 @@ export function presentSelection(input: {
   view: websites.SiteView;
   rows: readonly SelectionDocRow[];
   details?: ReadonlyMap<string, WebsiteDetail>;
+  /**
+   * R2-03c: items left out because another member of their duplicate cluster is shown (`presentPublicDocs`): an agent
+   * who added two members of one cluster shows the client one. Absent: none.
+   */
+  duplicates?: ReadonlySet<string>;
 }): SelectionPageModel {
   const { selection: sel, view, rows } = input;
   const details = input.details ?? websiteApi.presentDocs(view, rows, titlesOf(sel.items)).details;
   const byTarget = new Map(rows.map((r) => [r.targetId, r]));
-  const items = sel.items.map((i): SelectionPageItem => {
-    const r = byTarget.get(i.targetId);
-    const detail = r ? (details.get(i.targetId) ?? null) : null;
-    if (!r || !detail)
-      return { targetId: i.targetId, position: i.position, note: i.note ? plainText(i.note) : null, detail: null };
-    return {
-      targetId: i.targetId,
-      position: i.position,
-      note: i.note ? noteOf(view, r, i.note) : null,
-      detail,
-    };
-  });
+  const duplicates = input.duplicates ?? new Set<string>();
+  const items = sel.items
+    .filter((i) => !duplicates.has(i.targetId))
+    .map((i): SelectionPageItem => {
+      const r = byTarget.get(i.targetId);
+      const detail = r ? (details.get(i.targetId) ?? null) : null;
+      if (!r || !detail)
+        return { targetId: i.targetId, position: i.position, note: i.note ? plainText(i.note) : null, detail: null };
+      return {
+        targetId: i.targetId,
+        position: i.position,
+        note: i.note ? noteOf(view, r, i.note) : null,
+        detail,
+      };
+    });
   return {
     id: sel.id,
     agencyId: sel.agencyId,

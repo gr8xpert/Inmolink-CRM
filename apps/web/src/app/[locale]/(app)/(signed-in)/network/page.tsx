@@ -1,14 +1,21 @@
-import type { NetworkCommission, NetworkSearchItem } from '@inmolink/contracts';
+import {
+  DEDUPE_LISTED_BY_MAX,
+  type DedupeListedBy,
+  type NetworkCommission,
+  type NetworkSearchItem,
+} from '@inmolink/contracts';
 import { buttonVariants, EmptyState, Input, Label } from '@inmolink/ui';
 import { redirect } from 'next/navigation';
 import { getFormatter, getLocale, getMessages, getTranslations } from 'next-intl/server';
 import { auth } from '@/auth';
 import { Link, redirect as localeRedirect } from '@/i18n/navigation';
 import { fetchNetworkPage, sessionRef } from '@/server/api';
+import { fetchListedBy } from '@/server/dedupe-api';
 import { webConfig } from '@/server/env';
 import { loadShell } from '@/server/shell';
 import { RegisterClientLink } from '../collaborations/register-link';
 import { collaborationBlock } from '../collaborations/rights';
+import { ListedByPanel } from '../duplicates/listed-by';
 import { BookmarkButton } from '../listings/[id]/bookmark-button';
 import { listingTaxonomy } from '../listings/taxonomy';
 import { MapView } from './map-view';
@@ -79,6 +86,18 @@ export default async function NetworkPage(props: { searchParams: Promise<Record<
   const link = (change: Partial<NetworkState>) => `/network?${networkSearch(state, { cursor: undefined, ...change })}`;
 
   const result = res.result;
+  // R2-03c: "listed by N agencies" on the results that share a duplicate cluster with others the caller may see
+  const listingIds =
+    result.ok && result.data.status === 'OK'
+      ? result.data.items.filter((i) => i.kind === 'LISTING').map((i) => i.id)
+      : [];
+  const listed =
+    listingIds.length > 0
+      ? await fetchListedBy(sessionRef(session.user), listingIds.slice(0, DEDUPE_LISTED_BY_MAX))
+      : null;
+  const listedBy = new Map(
+    listed && listed !== 'revoked' && listed.ok ? listed.data.items.map((x) => [x.listingId, x] as const) : [],
+  );
   const error = !result.ok
     ? (() => {
         const code = result.error?.code;
@@ -289,6 +308,9 @@ export default async function NetworkPage(props: { searchParams: Promise<Record<
                         <p className="shrink-0 font-semibold">{priceOf(i)}</p>
                       </div>
                       <p className="text-sm">{[placeOf(i), ...factsOf(i)].filter(Boolean).join(' · ')}</p>
+                      {listedBy.has(i.id) ? (
+                        <ListedByPanel item={listedBy.get(i.id) as DedupeListedBy} currentId={i.id} compact />
+                      ) : null}
                       <div className="rounded-md bg-muted p-2 text-sm">
                         {commissionText(i.commission).map((line, n) => (
                           <p key={line} className={n === 1 ? 'font-semibold' : undefined}>

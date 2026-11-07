@@ -5,6 +5,7 @@ import { clock } from '@inmolink/platform/clock';
 import { mailer } from '@inmolink/platform/email';
 import { newId } from '@inmolink/platform/ids';
 import * as crm from '../crm';
+import * as dedupe from '../dedupe';
 import * as identity from '../identity';
 import * as presentations from '../presentations';
 import * as search from '../search';
@@ -143,6 +144,44 @@ function clientLocale(language: string | null): string {
 }
 
 type Reach = NonNullable<Awaited<ReturnType<typeof crm.lockContactReach>>>;
+
+/**
+ * R2-03c: duplicate clusters among a delivery's matches (`dedupe.clusterMembersOf`, worker-only). `mates(id)`: the
+ * listing and every member of its cluster (a cluster counts as sent when any member was). `oneOf(rows)`: the rows, at
+ * most one per cluster — the agency's own member first, then the canonical rank, then the match order — so a client is
+ * never sent two members of one cluster.
+ */
+export function clustersOf(
+  members: readonly { listingId: string; clusterId: string; ownerAgencyId: string; rank: number }[],
+  agencyId: string,
+) {
+  const byListing = new Map(members.map((m) => [m.listingId, m]));
+  const byCluster = new Map<string, string[]>();
+  for (const m of members) byCluster.set(m.clusterId, [...(byCluster.get(m.clusterId) ?? []), m.listingId]);
+  const mates = (id: string): string[] => {
+    const c = byListing.get(id)?.clusterId;
+    return c ? [...new Set([id, ...(byCluster.get(c) ?? [])])] : [id];
+  };
+  const oneOf = <R extends { listingId: string }>(rows: readonly R[]): R[] => {
+    const best = new Map<string, { row: R; own: boolean; rank: number }>();
+    const order: (R | string)[] = [];
+    for (const row of rows) {
+      const m = byListing.get(row.listingId);
+      if (!m) {
+        order.push(row);
+        continue;
+      }
+      const me = { row, own: m.ownerAgencyId === agencyId, rank: m.rank };
+      const cur = best.get(m.clusterId);
+      if (!cur) {
+        best.set(m.clusterId, me);
+        order.push(m.clusterId);
+      } else if (me.own !== cur.own ? me.own : me.rank < cur.rank) best.set(m.clusterId, me);
+    }
+    return order.map((x) => (typeof x === 'string' ? (best.get(x) as { row: R }).row : x));
+  };
+  return { mates, oneOf };
+}
 
 /** May the client be sent an alert: marketing consent given, not do-not-contact. */
 export const mayAlert = (c: Pick<Reach, 'consentMarketing' | 'doNotContact'>): boolean =>
@@ -339,17 +378,27 @@ export async function deliverProfile(
     const channel = channelOf(contact);
     if (!channel) return { outcome: 'NO_CHANNEL' as const, expired };
     if (rows.length === 0) return { outcome: 'NONE' as const, expired };
-    const listingIds = rows.map((r) => r.listingId);
+    // R2-03c: a duplicate cluster is one property — "already sent" if any member was, and one member a delivery
+    const { mates, oneOf } = clustersOf(
+      await dedupe.clusterMembersOf(
+        tx,
+        rows.map((r) => r.listingId),
+      ),
+      agencyId,
+    );
+    const listingIds = [...new Set(rows.flatMap((r) => mates(r.listingId)))];
     const sent = await repo.sentListingsOfContact(tx, agencyId, profile.contactId, listingIds);
     const selected = await presentations.contactSelectionTargets(tx, agencyId, profile.contactId, listingIds);
-    const dup = rows.filter((r) => sent.has(r.listingId) || selected.has(r.listingId));
+    const had = (id: string) => mates(id).some((m) => sent.has(m) || selected.has(m));
+    const fresh = oneOf(rows.filter((r) => !had(r.listingId)));
+    const keep = new Set(fresh.map((r) => r.id));
+    const dup = rows.filter((r) => !keep.has(r.id));
     const duplicates = await repo.markMatchesSent(
       tx,
       agencyId,
       dup.map((r) => r.id),
       null,
     );
-    const fresh = rows.filter((r) => !sent.has(r.listingId) && !selected.has(r.listingId));
     if (fresh.length === 0) return { outcome: 'NONE' as const, expired, duplicates };
     const counts = await repo.lockedDeliveryCounts(tx, {
       agencyId,

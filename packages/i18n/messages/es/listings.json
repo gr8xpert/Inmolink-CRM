@@ -490,6 +490,19 @@
   },
   "duplicates": {
     "link": "Duplicados",
+    "listedBy": {
+      "title": "Publicado por {count, plural, one {# agencia} other {# agencias}}",
+      "label": "El mismo inmueble publicado por otras agencias",
+      "yours": "Tu anuncio",
+      "agency": "{name}",
+      "canonical": "El que ven los clientes",
+      "priceOnRequest": "Precio a consultar",
+      "commissionPct": "Comisión {total} · reparto {split}",
+      "commissionFixed": "Comisión {amount} · reparto {split}",
+      "splitUnknown": "sin definir",
+      "earn": "Ganas {amount}",
+      "noCommission": "Sin condiciones de comisión"
+    },
     "title": "Anuncios duplicados",
     "intro": "Anuncios que parecen el mismo inmueble. Los pares casi seguros se agrupan automáticamente y tus clientes ven uno solo; revisa aquí los probables.",
     "views": {

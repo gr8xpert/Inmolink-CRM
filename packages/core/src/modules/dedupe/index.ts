@@ -29,6 +29,8 @@ export {
   listDuplicateClusters,
   listDuplicateDisputes,
   listDuplicateReviews,
+  // R2-03c: agents' "listed by N agencies"
+  listedBy,
   listStaffDuplicateDisputes,
   openDuplicateDispute,
   resolveDuplicateDispute,
@@ -50,6 +52,8 @@ export {
   BACKFILL_WINDOW,
   backfillWindow,
   COMMON_KEY_LISTINGS,
+  // R2-03c: worker form, for matching's delivery
+  clusterMembersOf,
   MAX_CANDIDATES,
   MAX_PAIRS_PER_LISTING,
   type RescoreResult,

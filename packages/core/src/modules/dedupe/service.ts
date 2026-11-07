@@ -313,6 +313,16 @@ export async function rescoreListings(
     const { live: mine, changed, dropped } = await refreshSignatures(tx, ids);
     const todo = options.force ? mine : mine.filter((s) => changed.has(s.listingId));
     const scored = await score(tx, todo);
+    // R2-03c: the public outputs' copy of these listings' clusters, re-applied where a read model or fallback row
+    // written since lacks it (a listing turning PUBLIC, a new locale); read again under the targets' locks
+    await search.syncClusterMembership(tx, ids, async (of) => {
+      const placed = new Map((await repo.membershipOf(tx, of)).map((m) => [m.listingId, m]));
+      return of.map((id) => ({
+        listingId: id,
+        clusterId: placed.get(id)?.clusterId ?? null,
+        rank: placed.get(id)?.rank ?? null,
+      }));
+    });
     // R2-03b: the clusters around these listings are re-formed (`dedupe.recluster`) when anything here moved
     if (changed.size > 0 || dropped > 0 || scored.stored > 0 || scored.deleted > 0) {
       await emit(tx, dedupeEvents.pairsChanged({ listingIds: ids }));
@@ -354,6 +364,19 @@ export async function sweepWindow(
     dropped += (await rescoreListings(ids.slice(i, i + RESCORE_BATCH))).dropped;
   }
   return { next: ids.length < limit ? null : (ids.at(-1) ?? null), listings: ids.length, dropped };
+}
+
+/**
+ * R2-03c (worker form, PATTERNS §12): every member of the clusters these listings are in — cluster, rank and owner —
+ * in the caller's `withSystem` transaction (matching's AUTO_SEND delivery: never two members of one cluster to a
+ * client, a cluster "already sent" across its members). Never a request path: members may be listings the caller's
+ * agency may not see. One statement.
+ */
+export function clusterMembersOf(
+  tx: Tx,
+  ids: readonly string[],
+): Promise<{ listingId: string; clusterId: string; ownerAgencyId: string; rank: number }[]> {
+  return repo.clusterMatesOf(tx, [...new Set(ids)]);
 }
 
 /**

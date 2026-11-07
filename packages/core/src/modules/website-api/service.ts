@@ -255,12 +255,14 @@ export async function searchListings(
     limit: q.limit,
     cursor: from?.inner,
   };
-  const found = await search.searchPublicListings(site.inventory, input);
+  const inventory = site.inventory;
+  const found = await search.searchPublicListings(inventory, input);
   const cards =
     found.ids.length === 0
       ? []
       : await withPublicRead(async (tx) => {
-          const rows = await search.publicDocs(tx, found.ids, 'card', lang, site.scope.defaultLocale);
+          // R2-03c: members of duplicate clusters the site does not show are left out
+          const rows = await search.publicSiteDocs(tx, inventory, found.ids, 'card', lang, site.scope.defaultLocale);
           const byId = new Map(rows.map((r) => [r.targetId, r]));
           // The engine's order; a target whose read model went in between is left out.
           const ordered = found.ids.flatMap((id) => byId.get(id) ?? []);

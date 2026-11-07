@@ -3,6 +3,7 @@ import {
   DedupeDisputeDto,
   DedupeDisputePage,
   type DedupeDisputeStatus,
+  DedupeListedByResult,
   DedupeReviewMoveDto,
   DedupeReviewPage,
   type DedupeReviewStatus,
@@ -69,4 +70,19 @@ export function resolveDuplicateDispute(
     method: 'POST',
     body,
   });
+}
+
+/**
+ * R2-03c: for these listings (a detail page, a page of results), the duplicates the caller may see with each agency's
+ * terms. At most `DEDUPE_LISTED_BY_MAX` ids (the caller passes a page).
+ */
+export function fetchListedBy(
+  session: SessionRef,
+  listingIds: readonly string[],
+): Promise<ApiResult<DedupeListedByResult>> {
+  return apiRequest(
+    session,
+    `/v1/duplicates/listed-by?${qs({ listingIds: [...new Set(listingIds)].join(',') })}`,
+    DedupeListedByResult,
+  );
 }

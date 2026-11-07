@@ -230,3 +230,74 @@ export const ruleOf = (c: repo.ConnectionRow): SelectionRule => ({
   mode: c.selectionMode,
   tag: c.selectionTag,
 });
+
+/** A duplicate cluster's member as the export worker reads it (`dedupe.clusterMembersOf`). */
+export interface ClusterMember {
+  listingId: string;
+  clusterId: string;
+  ownerAgencyId: string;
+  rank: number;
+}
+
+/**
+ * R2-03c: of an agency's feed listings, the ones another of its own listings stands for — a member of a duplicate
+ * cluster whose cluster holds a better-ranked member of the same agency that is selected too (`selected`; a feed holds
+ * the agency's own listings only, so two members of one cluster in it are both its own). Pure.
+ */
+export function ownDuplicates(
+  members: readonly ClusterMember[],
+  agencyId: string,
+  selected: (listingId: string) => boolean = () => true,
+): Set<string> {
+  const best = new Map<string, number>();
+  for (const m of members) {
+    if (m.ownerAgencyId !== agencyId || !selected(m.listingId)) continue;
+    best.set(m.clusterId, Math.min(best.get(m.clusterId) ?? m.rank, m.rank));
+  }
+  return new Set(
+    members
+      .filter((m) => m.ownerAgencyId === agencyId && m.rank > (best.get(m.clusterId) ?? m.rank))
+      .map((m) => m.listingId),
+  );
+}
+
+/**
+ * Of these listing ids (not in the page at hand), the ones this connection's rule selects: exportable, and not
+ * EXCLUDEd (ALL_PUBLIC) or INCLUDEd (MANUAL; TAGGED: its INCLUDEs only — a tag is not checked per id, so a tagged mate
+ * outside the page counts as not selected and both members may go). Two statements.
+ */
+export async function selectedAmong(tx: Tx, rule: SelectionRule, ids: readonly string[]): Promise<Set<string>> {
+  if (ids.length === 0) return new Set();
+  const eligible = new Set(await properties.exportableListingIds(tx, rule.agencyId, ids));
+  if (eligible.size === 0) return eligible;
+  const choices = await repo.overridesOf(tx, rule.connectionId, [...eligible]);
+  const of = (action: string) => new Set(choices.filter((o) => o.action === action).map((o) => o.propertyId));
+  const chosen = rule.mode === 'ALL_PUBLIC' ? of('EXCLUDE') : of('INCLUDE');
+  return new Set([...eligible].filter((id) => (rule.mode === 'ALL_PUBLIC' ? !chosen.has(id) : chosen.has(id))));
+}
+
+/**
+ * R2-03c: of a page of a connection's selection (`ids`), the members of a duplicate cluster to leave out — a
+ * better-ranked own member is in the page or selected beyond it (`selectedAmong`, read only when the agency has two
+ * members of one cluster: almost never). So a portal gets one member of a cluster, never none.
+ */
+export async function ownDuplicatesIn(
+  tx: Tx,
+  rule: SelectionRule,
+  ids: readonly string[],
+  members: readonly ClusterMember[],
+): Promise<Set<string>> {
+  const own = members.filter((m) => m.ownerAgencyId === rule.agencyId);
+  const perCluster = new Map<string, number>();
+  for (const m of own) perCluster.set(m.clusterId, (perCluster.get(m.clusterId) ?? 0) + 1);
+  if (![...perCluster.values()].some((n) => n > 1)) return new Set();
+  const page = new Set(ids);
+  const outside = own.filter((m) => !page.has(m.listingId) && (perCluster.get(m.clusterId) ?? 0) > 1);
+  const beyond = await selectedAmong(
+    tx,
+    rule,
+    outside.map((m) => m.listingId),
+  );
+  const hidden = ownDuplicates(members, rule.agencyId, (id) => page.has(id) || beyond.has(id));
+  return new Set(ids.filter((id) => hidden.has(id)));
+}

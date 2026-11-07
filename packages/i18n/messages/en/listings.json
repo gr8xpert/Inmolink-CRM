@@ -490,6 +490,19 @@
   },
   "duplicates": {
     "link": "Duplicates",
+    "listedBy": {
+      "title": "Listed by {count, plural, one {# agency} other {# agencies}}",
+      "label": "The same property listed by other agencies",
+      "yours": "Your listing",
+      "agency": "{name}",
+      "canonical": "Shown to clients",
+      "priceOnRequest": "Price on request",
+      "commissionPct": "Commission {total} · split {split}",
+      "commissionFixed": "Commission {amount} · split {split}",
+      "splitUnknown": "not set",
+      "earn": "You earn {amount}",
+      "noCommission": "No commission terms set"
+    },
     "title": "Duplicate listings",
     "intro": "Listings that look like the same property. Pairs that are almost certainly the same are grouped automatically and your clients see one of them; check the likely ones here.",
     "views": {

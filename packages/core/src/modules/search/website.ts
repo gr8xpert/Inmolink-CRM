@@ -17,6 +17,7 @@
  * (infra/monitoring/rules/search.yml). Public path: reads as `app_public`, never inside a caller's transaction.
  */
 import {
+  PUBLIC_SEARCH_STATUSES,
   PublicCode,
   PublicListingSearch,
   type PublicListingSearchResult,
@@ -250,6 +251,29 @@ const PublicSearchSite = z
   .refine((s) => (s.ownerAgencyIds === null ? !s.networkOf : s.ownerAgencyIds.length > 0 || !!s.networkOf), {
     message: 'a site shows a network-wide inventory, or its owners and/or its network',
   });
+
+/** Every status a site shows a page for (search defaults to fewer): membership for detail, sitemap and changes. */
+const SHOWN = { locale: 'en', statuses: [...PUBLIC_SEARCH_STATUSES] } satisfies PublicListingSearch;
+
+/** The site's whole inventory as one filter (every shown status, no visitor filter). */
+/** The fields of a site its inventory depends on. */
+type InventorySite = Pick<
+  PublicSearchSite,
+  'ownerAgencyIds' | 'networkOf' | 'restrict' | 'networkRefPrefix' | 'excludeOwnerAgencyIds'
+>;
+
+export function siteInventoryFilter(site: InventorySite): Filter {
+  return publicSearchFilter(site, PublicListingSearch.parse(SHOWN));
+}
+
+/**
+ * R2-03c (PLAN §10, §3 #13): how this site shows duplicate clusters — one member per cluster, the first in canonical
+ * order its whole inventory holds; on a site that mixes its own listings with network ones, its own member first
+ * (`repo.ClusterRule`). The same member on every search page, list, sitemap and change feed of the site.
+ */
+export function clusterRuleOf(site: InventorySite): repo.ClusterRule {
+  return { filter: siteInventoryFilter(site), own: whiteLabelled(site) ? site.ownerAgencyIds : null };
+}
 
 /** Engine cursor: an offset · fallback cursor: the last row's position (keyset). Both carry the sort. */
 type CursorState = { s: PublicSearchSort; o: number } | { s: PublicSearchSort; p: 0 | 1; v: number | null; i: string };
@@ -714,10 +738,13 @@ function fallbackQuery(
   q: Parsed,
   filter: Filter,
   cursor: CursorState | undefined,
+  cluster?: repo.ClusterRule,
 ): repo.FallbackQuery | null {
   const byRef = q.text === undefined ? undefined : refFilter(site, q.text);
   if (byRef === null) return null;
   return {
+    // R2-03c: one member per duplicate cluster (the engine's pages drop the others at hydration, `publicSiteDocs`)
+    ...(cluster ? { cluster } : {}),
     filter: byRef ? { op: 'and', filters: [filter, byRef] } : filter,
     sort: SORTS[q.sort],
     limit: q.limit,
@@ -749,10 +776,18 @@ export function siteFallbackQuery(
   site: Pick<PublicSearchSite, 'ownerAgencyIds' | 'networkOf' | 'restrict' | 'networkRefPrefix'>,
   input: PublicListingSearch,
   extra?: Filter,
+  options: { cluster?: boolean } = {},
 ): repo.FallbackQuery | null {
   const q = PublicListingSearch.parse(input);
   const filter = publicSearchFilter(site, q);
-  return fallbackQuery(site, q, extra ? { op: 'and', filters: [filter, extra] } : filter, decode(q.cursor, q.sort));
+  const cluster = options.cluster ? clusterRuleOf(site) : undefined;
+  return fallbackQuery(
+    site,
+    q,
+    extra ? { op: 'and', filters: [filter, extra] } : filter,
+    decode(q.cursor, q.sort),
+    cluster,
+  );
 }
 
 /** The engine's answer, or a timeout error after `ms` (`SEARCH_ENGINE_TIMEOUT_MS`, whatever the adapter does). */
@@ -788,7 +823,7 @@ async function fallbackPage(
   // the engine's offsets mean nothing in the fallback's order, and an SQL OFFSET would scan up to 10,000 rows per
   // request while the fallback carries all traffic (S6-F2).
   const restarted = cursor !== undefined && 'o' in cursor;
-  const query = fallbackQuery(site, q, filter, cursor);
+  const query = fallbackQuery(site, q, filter, cursor, clusterRuleOf(site));
   const page = query
     ? await withSiteRead(site, (tx) => repo.fallbackSearch(tx, query))
     : { ids: [], total: 0, next: null };

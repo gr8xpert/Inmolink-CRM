@@ -252,7 +252,8 @@ async function logPublicChanges(
   const after = new Map<string, BuiltDoc>();
   for (const d of docs) if (d.public && !after.has(d.targetId)) after.set(d.targetId, d);
   const rows: repo.PublicChangeRow[] = [];
-  for (const id of new Set(changed)) {
+  // R2-03c: `before` holds the changed targets' duplicate-cluster mates too (whether a site shows one depends on them)
+  for (const id of new Set([...changed, ...before.keys()])) {
     const was = before.get(id);
     const now = after.get(id);
     if (!was && !now) continue;
@@ -854,6 +855,49 @@ export function networkPresentable(tx: Tx, presentingAgencyId: string, ids: read
  */
 export function visibleTargets(tx: Tx, ids: readonly string[]): Promise<string[]> {
   return repo.visibleTargetIds(tx, [...new Set(ids)]);
+}
+
+/**
+ * R2-03c (worker, the dedupe recluster pass and rescore — PATTERNS §12): these listings' duplicate cluster and rank
+ * (null: in none) onto their read models and fallback rows, in the caller's (`withSystem`) transaction — the
+ * transaction that changed the clusters, so public outputs never see a cluster half applied. The PUBLIC targets whose
+ * membership changed go to the website change log and out as `search.publicDocs.changed` (edge cache purge, partner
+ * feeds), like any change of what sites show. Answers how many PUBLIC targets changed.
+ */
+export async function applyClusterMembership(tx: Tx, rows: readonly repo.ClusterMembership[]): Promise<number> {
+  const changed = await repo.setClusterMembership(tx, rows);
+  if (changed.length > 0) await logPublicChanges(tx, changed, []);
+  return changed.length;
+}
+
+/**
+ * R2-03c (worker, the dedupe rescore): re-applies these listings' cluster membership where their read models or
+ * fallback rows lost it (a row rebuilt or inserted since: a new locale, a listing turning PUBLIC). `load` reads the
+ * dedupe module's membership; it is read again after the targets' locks (`lockTargets`, the lock the recluster pass
+ * writes under), so a recluster committing meanwhile is never overwritten with what it replaced. No drift (almost
+ * every batch): one statement, no lock.
+ */
+export async function syncClusterMembership(
+  tx: Tx,
+  ids: readonly string[],
+  load: (ids: readonly string[]) => Promise<repo.ClusterMembership[]>,
+): Promise<number> {
+  const drift = await repo.clusterDrift(tx, await load(ids));
+  if (drift.length === 0) return 0;
+  await repo.lockTargets(tx, drift);
+  return applyClusterMembership(tx, await load(drift));
+}
+
+/**
+ * R2-03c: of these listings' duplicate clusters, every member the caller's RLS shows (read models: its own listings and
+ * other agencies' network listings it may read), with cluster and rank. For `dedupe.listedBy`, which keeps the ones
+ * the caller may still offer (`offerableListingCards`). One statement.
+ */
+export function visibleClusterMates(
+  tx: Tx,
+  ids: readonly string[],
+): Promise<{ targetId: string; clusterId: string; rank: number }[]> {
+  return repo.visibleClusterMates(tx, ids);
 }
 
 /**

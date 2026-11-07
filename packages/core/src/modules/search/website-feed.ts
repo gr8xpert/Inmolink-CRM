@@ -5,7 +5,6 @@
  * server-side `PublicSearchSite` (the site's policy), never the visitor's. White-labelling is the websites
  * serializer's: these rows still carry the owner (a filter and the serializer's input, never shown).
  */
-import { PUBLIC_SEARCH_STATUSES, PublicListingSearch } from '@inmolink/contracts';
 import type { Tx } from '@inmolink/db';
 import { withPublicRead, withSystem } from '@inmolink/db';
 import { cache, cacheKey } from '@inmolink/platform/cache';
@@ -15,24 +14,20 @@ import { metrics } from '@opentelemetry/api';
 import { attributeFilters } from './filters';
 import { giveToGetSettings } from './network';
 import * as repo from './repo';
-import { developmentRefMatch, type PublicSearchSite, publicSearchFilter, refFilter } from './website';
+import { clusterRuleOf, developmentRefMatch, type PublicSearchSite, refFilter, siteInventoryFilter } from './website';
 
 export type { ChangeLogRow, DevelopmentRow, DevelopmentUnitsPage, PublicDocRow } from './repo';
+export { siteInventoryFilter } from './website';
 
 /** Change-log rows are kept this long; an older cursor or `since` must start again from the sitemap. */
 export const PUBLIC_CHANGES_RETENTION_DAYS = 30;
 /** Rows one prune run deletes per statement (database rules: batches ≤ 5,000). */
 export const PUBLIC_CHANGES_PRUNE_BATCH = 5_000;
 
-/** Every status a site shows a page for (search defaults to fewer): membership for detail, sitemap and changes. */
-const SHOWN = { locale: 'en', statuses: [...PUBLIC_SEARCH_STATUSES] } satisfies PublicListingSearch;
-
-/** The site's whole inventory as one filter (every shown status, no visitor filter). */
-export function siteInventoryFilter(site: PublicSearchSite): Filter {
-  return publicSearchFilter(site, PublicListingSearch.parse(SHOWN));
-}
-
-/** Public documents of these targets in the best locale, with owner and public code (search hydration). */
+/**
+ * Public documents of these targets in the best locale, with owner, public code and duplicate cluster (hydration of
+ * selections and PDFs: they pick one member per cluster themselves, `oneMemberPerCluster`).
+ */
 export function publicDocs(
   tx: Tx,
   ids: readonly string[],
@@ -41,6 +36,50 @@ export function publicDocs(
   fallback: string,
 ): Promise<repo.PublicDocRow[]> {
   return repo.publicDocs(tx, ids, part, locale, fallback);
+}
+
+/**
+ * Website search hydration (R2-03c): `publicDocs` of a page of this site's search, without the members of duplicate
+ * clusters the site does not show (`clusterRuleOf`: the engine's pages hold every member; the fallback's hold one
+ * already). Same statement: the cluster probe runs only for clustered documents.
+ */
+export function publicSiteDocs(
+  tx: Tx,
+  site: PublicSearchSite,
+  ids: readonly string[],
+  part: 'card' | 'detail' | 'portal',
+  locale: string,
+  fallback: string,
+): Promise<repo.PublicDocRow[]> {
+  return repo.publicDocs(tx, ids, part, locale, fallback, clusterRuleOf(site));
+}
+
+/**
+ * R2-03c: of these documents (one client-facing list: a selection, a portfolio), the ones to leave out so that no two
+ * members of one duplicate cluster show — per cluster the presenting agency's own member first, then the canonical
+ * rank. Pure.
+ */
+export function oneMemberPerCluster(
+  rows: readonly Pick<repo.PublicDocRow, 'targetId' | 'ownerAgencyId' | 'clusterId' | 'clusterRank'>[],
+  presenterAgencyId: string,
+): Set<string> {
+  const best = new Map<string, { id: string; own: boolean; rank: number }>();
+  const hidden = new Set<string>();
+  for (const r of rows) {
+    if (!r.clusterId) continue;
+    const me = { id: r.targetId, own: r.ownerAgencyId === presenterAgencyId, rank: r.clusterRank ?? 0 };
+    const cur = best.get(r.clusterId);
+    if (!cur) {
+      best.set(r.clusterId, me);
+      continue;
+    }
+    const better = me.own !== cur.own ? me.own : me.rank < cur.rank;
+    if (better) {
+      hidden.add(cur.id);
+      best.set(r.clusterId, me);
+    } else if (me.id !== cur.id) hidden.add(me.id);
+  }
+  return hidden;
 }
 
 /**
@@ -92,6 +131,8 @@ export function sitemapPage(
     filter: siteInventoryFilter(site),
     own: site.ownerAgencyIds ?? [],
     network: site.ownerAgencyIds === null || site.networkOf !== undefined,
+    // R2-03c: one member per duplicate cluster (sitemaps, the site's XML feed)
+    cluster: clusterRuleOf(site),
     ...q,
   });
 }
@@ -112,7 +153,12 @@ export async function portalSitemapPage(
 ): Promise<{ rows: repo.PublicDocRow[]; next: string | null }> {
   const everyOwner: PublicSearchSite = { ...site, ownerAgencyIds: null, excludeOwnerAgencyIds: undefined };
   await repo.preferOrderedWalk(tx);
-  const walked = await repo.portalSitemapWalk(tx, { filter: siteInventoryFilter(everyOwner), ...q });
+  // R2-03c: one member per duplicate cluster, as the portal (its listed owners) shows them
+  const walked = await repo.portalSitemapWalk(tx, {
+    filter: siteInventoryFilter(everyOwner),
+    cluster: clusterRuleOf(site),
+    ...q,
+  });
   const show = site.ownerAgencyIds ? new Set(site.ownerAgencyIds) : null;
   const hide = new Set(site.excludeOwnerAgencyIds ?? []);
   const rows = walked.rows.filter((r) => (show ? show.has(r.ownerAgencyId) : !hide.has(r.ownerAgencyId)));
@@ -265,10 +311,12 @@ export async function siteChanges(
   const page = await repo.publicChangesPage(tx, { after, audience: q.audience, limit: q.limit });
   // Alert `WebsiteChangesHeld`: a long transaction holds every site's feed back (it loses nothing).
   held.record(page.heldSeconds);
+  // R2-03c: a member of a duplicate cluster the site does not show is not present (the site drops it)
   const present = await repo.matchingTargets(
     tx,
     siteInventoryFilter(site),
     page.rows.map((r) => r.targetId),
+    clusterRuleOf(site),
   );
   const last = page.rows[page.rows.length - 1];
   return {
