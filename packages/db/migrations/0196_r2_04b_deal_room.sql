@@ -29,7 +29,7 @@ ALTER TABLE "tasks" ADD COLUMN "deal_id" uuid;--> statement-breakpoint
 ALTER TABLE "deal_documents" ADD CONSTRAINT "deal_documents_deal_fk" FOREIGN KEY ("agency_id","deal_id") REFERENCES "public"."deals"("agency_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "deal_documents_deal_idx" ON "deal_documents" USING btree ("agency_id","deal_id","created_at","id");--> statement-breakpoint
 CREATE INDEX "deal_documents_storage_key_idx" ON "deal_documents" USING btree ("storage_key") WHERE "deal_documents"."removed_at" is null;--> statement-breakpoint
-CREATE INDEX "tasks_deal_idx" ON "tasks" USING btree ("agency_id","deal_id","status","due_sort_ms","id") WHERE "tasks"."deal_id" is not null and "tasks"."deleted_at" is null;--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "tasks_deal_idx" ON "tasks" USING btree ("agency_id","deal_id","status","due_sort_ms","id") WHERE "tasks"."deal_id" is not null and "tasks"."deleted_at" is null;--> statement-breakpoint
 ALTER TABLE "chat_threads" ADD CONSTRAINT "chat_threads_kind_ck" CHECK ("chat_threads"."kind" in ('DIRECT', 'VIEWING', 'NETWORK', 'DEAL'));--> statement-breakpoint
 ALTER TABLE "chat_threads" ADD CONSTRAINT "chat_threads_peer_ck" CHECK (("chat_threads"."kind" in ('VIEWING', 'NETWORK', 'DEAL')) = ("chat_threads"."peer_agency_id" is not null)
         and ("chat_threads"."peer_agency_id" is null or "chat_threads"."peer_agency_id" <> "chat_threads"."agency_id"));--> statement-breakpoint
