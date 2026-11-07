@@ -64,6 +64,8 @@ export async function formForSigning(tx: Tx, agencyId: string, formId: string) {
       locale: forms.locale,
       label: forms.label,
       dealId: forms.dealId,
+      /** R2-05c: the agency's side of a collaboration agreement (`OWNER` / `INTRODUCER`; the merge's snapshot). */
+      party: sql<string | null>`${forms.data}->>'party'`,
     })
     .from(forms)
     .where(and(eq(forms.agencyId, agencyId), eq(forms.id, formId)));
@@ -484,6 +486,8 @@ export async function formOfRequest(tx: Tx, formId: string) {
       locale: forms.locale,
       label: forms.label,
       sha256: forms.sha256,
+      /** R2-05c: the agency's side of a collaboration agreement (the audit page masks the other agency's addresses). */
+      party: sql<string | null>`${forms.data}->>'party'`,
     })
     .from(forms)
     .where(eq(forms.id, formId));
@@ -540,6 +544,23 @@ export function subjectSignatures(
     )
     .orderBy(asc(signers.id))
     .limit(limit);
+}
+
+/** R2-05c: how many signing requests the deal's agreements had since `since` (the re-send cap). */
+export async function dealRequestsSince(tx: Tx, agencyId: string, dealId: string, since: Date): Promise<number> {
+  const [r] = await tx
+    .select({ n: sql<number>`count(*)::int` })
+    .from(forms)
+    .innerJoin(requests, and(eq(requests.agencyId, forms.agencyId), eq(requests.formId, forms.id)))
+    .where(
+      and(
+        eq(forms.agencyId, agencyId),
+        eq(forms.dealId, dealId),
+        eq(forms.template, 'COLLABORATION_AGREEMENT'),
+        gt(requests.createdAt, since),
+      ),
+    );
+  return r?.n ?? 0;
 }
 
 /**

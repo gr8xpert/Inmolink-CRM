@@ -58,6 +58,8 @@ export const ESIGN_FLAG = 'documents.esign';
 
 /** The signature blocks the agency itself signs (never the client's: the SUBJECT export leaves them out). */
 export const AGENCY_SIGNER_ROLES: readonly string[] = ['agency', 'ownerAgency', 'introducerAgency'];
+/** R2-05c: signing requests a deal's collaboration agreements take per 24 hours (each one mails the other agency). */
+export const DEAL_SIGNATURE_REQUESTS_PER_DAY = 5;
 
 /** Requests listed per form (newest first): a form is signed once, so a few superseded ones at most. */
 const REQUESTS_PER_FORM = 20;
@@ -83,9 +85,33 @@ export async function assertCanRequestSignatures(ctx: Ctx): Promise<void> {
 const statusOf = (r: repo.RequestRow, now = clock.nowMs()): SignatureRequestStatus =>
   r.status === 'OPEN' && r.expiresAt.getTime() <= now ? 'EXPIRED' : (r.status as SignatureRequestStatus);
 
+/** `jane.doe@agency.es` → `j***@agency.es`: another agency's member is named, its login address is not shown. */
+export function maskEmail(email: string): string {
+  const at = email.lastIndexOf('@');
+  if (at < 1) return '***';
+  return `${email.slice(0, 1)}***${email.slice(at)}`;
+}
+
+const OWN_ROLE: Readonly<Record<string, string>> = { OWNER: 'ownerAgency', INTRODUCER: 'introducerAgency' };
+
+/**
+ * R2-05c: the signer roles whose addresses the requesting agency does not see — on a collaboration agreement, the other
+ * agency's block (the form's `party` is the agency's own side; unknown: both agency blocks). The real address stays in
+ * the row, for the worker's mails only; the audit page shows the masked address and its SHA-256.
+ */
+function hiddenRolesOf(form: { template: string; party: string | null } | null): ReadonlySet<string> {
+  // no form (cannot happen: requests go with their form) — fail closed
+  if (!form) return new Set(AGENCY_SIGNER_ROLES);
+  if (form.template !== 'COLLABORATION_AGREEMENT') return NO_ROLES;
+  const own = form.party ? OWN_ROLE[form.party] : undefined;
+  return new Set(FORM_SIGNERS.COLLABORATION_AGREEMENT.filter((r) => r !== own));
+}
+const NO_ROLES: ReadonlySet<string> = new Set();
+
 function toDto(
   r: repo.RequestRow,
   signers: readonly repo.SignerRow[],
+  hidden: ReadonlySet<string>,
   link?: { url: string; expiresAt: Date },
 ): SignatureRequestDto {
   return {
@@ -111,7 +137,7 @@ function toDto(
         position: s.position,
         role: s.role,
         name: s.name,
-        email: s.email,
+        email: hidden.has(s.role) ? maskEmail(s.email) : s.email,
         locale: s.locale,
         invitedAt: iso(s.invitedAt),
         signedAt: iso(s.signedAt),
@@ -191,7 +217,9 @@ export async function createSignatureRequest(
     { lock: true },
   );
   if (prior) {
-    return { request: toDto(prior.row, await repo.signersOf(ctx.tx, agencyId, [prior.row.id])), replayed: true };
+    const priorForm = await repo.formForSigning(ctx.tx, agencyId, prior.row.formId);
+    const priorSigners = await repo.signersOf(ctx.tx, agencyId, [prior.row.id]);
+    return { request: toDto(prior.row, priorSigners, hiddenRolesOf(priorForm)), replayed: true };
   }
   // R2-05c: a deal's agreement, then one request at a time per form (the signed check and the insert)
   if (opts.deal) await lockDealAgreement(ctx, opts.deal.dealId);
@@ -204,6 +232,14 @@ export async function createSignatureRequest(
   // R2-05c: another agreement of the deal out for signature or signed (a request for this one replaces its own)
   if (opts.deal && (await repo.dealAgreementInSignature(ctx.tx, agencyId, opts.deal.dealId, formId))) {
     throw new AppError('AGREEMENT_IN_SIGNATURE');
+  }
+  // R2-05c: each re-send supersedes the last and mails the other agency again — a few a day per deal, no more
+  if (
+    opts.deal &&
+    (await repo.dealRequestsSince(ctx.tx, agencyId, opts.deal.dealId, new Date(clock.nowMs() - 86_400_000))) >=
+      DEAL_SIGNATURE_REQUESTS_PER_DAY
+  ) {
+    throw new AppError('RATE_LIMITED', { reason: 'deal_agreement_resends' });
   }
   const defaultLocale = uiLocale(form.locale);
   for (const s of input.signers) {
@@ -244,7 +280,7 @@ export async function createSignatureRequest(
     signatureKind: null,
     signedIp: null,
   }));
-  return { request: toDto(row, rows), replayed: false };
+  return { request: toDto(row, rows, hiddenRolesOf(form)), replayed: false };
 }
 
 /** `GET /v1/documents/forms/:id/signature-requests`: the form's requests, newest first, with their signers. */
@@ -252,14 +288,16 @@ export async function listSignatureRequests(ctx: Ctx, formId: string): Promise<S
   assertCan(ctx, 'documents.forms.read');
   await assertEsignEnabled(ctx);
   const agencyId = ctx.tenant.agencyId;
-  if (!(await repo.formForSigning(ctx.tx, agencyId, formId))) throw new AppError('FORM_DOCUMENT_NOT_FOUND');
+  const form = await repo.formForSigning(ctx.tx, agencyId, formId);
+  if (!form) throw new AppError('FORM_DOCUMENT_NOT_FOUND');
+  const hidden = hiddenRolesOf(form);
   const rows = await repo.requestsOfForm(ctx.tx, agencyId, formId, REQUESTS_PER_FORM);
   const signers = await repo.signersOf(
     ctx.tx,
     agencyId,
     rows.map((r) => r.id),
   );
-  return { items: rows.map((r) => toDto(r, signers)) };
+  return { items: rows.map((r) => toDto(r, signers, hidden)) };
 }
 
 async function requestOrThrow(ctx: Ctx, id: string): Promise<repo.RequestRow> {
@@ -274,15 +312,16 @@ export async function getSignatureRequest(ctx: Ctx, id: string): Promise<Signatu
   await assertEsignEnabled(ctx);
   const row = await requestOrThrow(ctx, id);
   const signers = await repo.signersOf(ctx.tx, ctx.tenant.agencyId, [row.id]);
+  const hidden = hiddenRolesOf(await repo.formForSigning(ctx.tx, ctx.tenant.agencyId, row.formId));
   // staff impersonating the member see the request, never a link to the signed PDF (as forms, R2-05a)
-  if (row.status !== 'COMPLETED' || impersonatorOf(ctx)) return toDto(row, signers);
+  if (row.status !== 'COMPLETED' || impersonatorOf(ctx)) return toDto(row, signers, hidden);
   const expiresAt = new Date(clock.nowMs() + DOCUMENT_LINK_SECONDS * 1_000);
   const url = await storage().signedGetUrl('private', signedFormKey(row.agencyId, row.formId, row.id), {
     expiresInSeconds: DOCUMENT_LINK_SECONDS,
     downloadName: `signed-${row.formId}.pdf`,
     responseContentType: 'application/pdf',
   });
-  return toDto(row, signers, { url, expiresAt });
+  return toDto(row, signers, hidden, { url, expiresAt });
 }
 
 /**
@@ -479,7 +518,15 @@ export async function sealSignatureRequest(
   }
   const lang = uiLocale(form.locale);
   const t = translator(lang, 'documents');
-  const signers: AuditSigner[] = work.trail.map((s) => ({ ...s, role: roleLabel(t, s.role) }));
+  // R2-05c: the other agency's addresses masked, with their SHA-256 as the evidence of the code's channel
+  const hidden = hiddenRolesOf(form);
+  const signers: AuditSigner[] = work.trail.map((s) => ({
+    ...s,
+    role: roleLabel(t, s.role),
+    email: hidden.has(s.role)
+      ? `${maskEmail(s.email)} · SHA-256 ${sha256Hex(new TextEncoder().encode(s.email.trim().toLowerCase()))}`
+      : s.email,
+  }));
   const html = auditTrailHtml({
     t,
     lang,

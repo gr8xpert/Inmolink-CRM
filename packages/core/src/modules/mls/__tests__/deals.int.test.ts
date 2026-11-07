@@ -871,11 +871,26 @@ describe('[R2-05c] the deal’s collaboration agreement signers', () => {
       expect(await refusal(ask(c.userId))).toBe('SIGNERS_INVALID:party_member');
       expect(await refusal(ask(a.userId))).toBe('SIGNERS_INVALID:party_member');
       const { request } = await ask(b.userId);
-      // names and addresses are the database's
-      expect(request.signers.map((s) => [s.role, s.email])).toEqual([
+      // names and addresses are the database's; the requester never reads the other agency's address back — not in
+      // the request it made, the form's list or the request itself (the row keeps it, for the worker's mails)
+      const shown = [
         ['introducerAgency', a.email],
-        ['ownerAgency', b.email],
-      ]);
+        ['ownerAgency', mls.maskEmail(b.email)],
+      ];
+      expect(request.signers.map((s) => [s.role, s.email])).toEqual(shown);
+      const listed = await as(a, (ctx) => documents.listSignatureRequests(ctx, form.id));
+      expect(listed.items[0]?.signers.map((s) => [s.role, s.email])).toEqual(shown);
+      const got = await as(a, (ctx) => documents.getSignatureRequest(ctx, request.id));
+      expect(got.signers.map((s) => s.email)).not.toContain(b.email);
+      const stored = await system(
+        async (tx) =>
+          (
+            await tx.execute(
+              sql`select email from signature_signers where request_id = ${request.id} order by position`,
+            )
+          ).rows,
+      );
+      expect(stored.map((r) => (r as { email: string }).email)).toEqual([a.email, b.email]);
       // the generic forms endpoint does not take a collaboration agreement (only from its deal)
       expect(
         await refusal(

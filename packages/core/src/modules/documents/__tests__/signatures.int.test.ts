@@ -321,7 +321,8 @@ describe('[R2-05b] signing requests', () => {
     // the deal's form as R2-05a stores it (made from the deal room): a READY collaboration agreement
     await system((tx) =>
       tx.execute(
-        sql`update form_documents set template = 'COLLABORATION_AGREEMENT', deal_id = ${dealId} where id = ${form.id}`,
+        sql`update form_documents set template = 'COLLABORATION_AGREEMENT', deal_id = ${dealId},
+              data = jsonb_set(data, '{party}', '"INTRODUCER"') where id = ${form.id}`,
       ),
     );
     const owner = `owner-${RUN}@example.com`;
@@ -340,6 +341,32 @@ describe('[R2-05b] signing requests', () => {
     expect(await refusal(askDeal(stranger))).toBe('SIGNERS_INVALID');
     const { request } = await askDeal(both);
     expect(request.signers.map((s) => s.role)).toEqual(['ownerAgency', 'introducerAgency']);
+    // R2-05c: the requester (the introducer here) never reads the other agency's address back
+    expect(request.signers.map((s) => s.email)).toEqual([documents.maskEmail(owner), intro.toUpperCase()]);
+    // R2-05c: each re-send supersedes the last and mails the other agency again: 5 a day per deal
+    let last = request.id;
+    for (let i = 1; i < documents.DEAL_SIGNATURE_REQUESTS_PER_DAY; i++) last = (await askDeal(both)).request.id;
+    expect(await refusal(askDeal(both))).toBe('RATE_LIMITED');
+    // R2-05c: the sealed PDF's audit page shows the other agency's address masked, with its SHA-256
+    const signed = await as(a, (ctx) => documents.getSignatureRequest(ctx, last));
+    await documents.inviteSigners({ agencyId: a.agencyId, requestId: last });
+    for (const signer of signed.signers) {
+      expect(await documents.requestSigningCode(tokenOf(signer.id), FACTS)).toMatchObject({ outcome: 'SENT' });
+      const typed = { kind: 'TYPED' as const, name: signer.name, consent: true, documentSha256: form.sha256 };
+      const outcome = await documents.submitSignature(
+        tokenOf(signer.id),
+        { ...typed, code: await codeFor(signer.id) },
+        FACTS,
+      );
+      expect(outcome).toEqual({ outcome: 'SIGNED' });
+      expect(await applyFor(signer.id)).toBe('applied');
+    }
+    expect((await documents.sealSignatureRequest({ agencyId: a.agencyId, requestId: last })).sealed).toBe(true);
+    const audit = pdfFake.documents.at(-1) as string;
+    expect(audit).not.toContain(owner);
+    expect(audit).toContain(documents.maskEmail(owner));
+    expect(audit).toContain(createHash('sha256').update(owner).digest('hex'));
+    expect(audit).toContain(intro.toUpperCase());
   });
 });
 

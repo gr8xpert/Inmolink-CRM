@@ -61,12 +61,8 @@ const ROLE_OF: Record<'OWNER' | 'INTRODUCER', DealSignerRole> = {
   INTRODUCER: 'introducerAgency',
 };
 
-/** `jane.doe@agency.es` → `j***@agency.es`: the other agency's members are named, their login addresses are not shown. */
-export function maskEmail(email: string): string {
-  const at = email.lastIndexOf('@');
-  if (at < 1) return '***';
-  return `${email.slice(0, 1)}***${email.slice(at)}`;
-}
+/** The other agency's addresses, masked (one rule with the signing requests' DTOs). */
+export const maskEmail = documents.maskEmail;
 
 const otherParty = (p: 'OWNER' | 'INTRODUCER') => (p === 'OWNER' ? 'INTRODUCER' : 'OWNER');
 
