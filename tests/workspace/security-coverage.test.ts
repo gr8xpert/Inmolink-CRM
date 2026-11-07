@@ -38,6 +38,10 @@ const HANDLER_LIMITS: Readonly<Record<string, { how: string; evidence: [file: st
     how: 'R2-04c: session required; per-user upload slots, then the api upload route (its own rules)',
     evidence: ['apps/web/src/app/api/deals/[id]/documents/route.ts', 'upload-slots'],
   },
+  'apps/web/src/app/api/forms/[id]/verify/route.ts': {
+    how: 'R2-05c: session required; per-user upload slots, then the api verify route (its own rules)',
+    evidence: ['apps/web/src/app/api/forms/[id]/verify/route.ts', 'upload-slots'],
+  },
   'apps/web/src/app/api/developments/[id]/documents/route.ts': {
     how: 'session required; per-user upload slots, then the api upload route (its own rules)',
     evidence: ['apps/web/src/app/api/developments/[id]/documents/route.ts', 'upload-slots'],

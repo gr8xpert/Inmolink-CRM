@@ -153,4 +153,49 @@ describe('[R2-05a] forms over HTTP', () => {
       403,
     );
   });
+
+  it('[R2-05c] the deal room signer routes: the body is schema-checked (422), a deal the agency is no party to is 404', async () => {
+    // e-signature on for a (the signer routes need both flags; then what a stranger deal answers is the deal)
+    const ESIGN = 'documents.esign';
+    await adminQuery(
+      `insert into feature_flags (key, enabled, description) values ($1, false, '') on conflict (key) do nothing`,
+      [ESIGN],
+    );
+    await adminQuery(
+      `update feature_flags set enabled_for = array_remove(enabled_for, $2::uuid) || array[$2::uuid] where key = $1`,
+      [ESIGN, a.agencyId],
+    );
+    invalidateFlags();
+    try {
+      const signers = await app.inject({
+        method: 'GET',
+        url: `/v1/mls/deals/${newId()}/signers`,
+        headers: await bearer(a),
+      });
+      expect(signers.statusCode).toBe(404);
+      expect(signers.json().error.code).toBe('DEAL_NOT_FOUND');
+      const bad = await app.inject({
+        method: 'POST',
+        url: `/v1/mls/deals/${newId()}/signature-requests`,
+        headers: await bearer(a),
+        payload: { ownUserId: newId(), counterpartUserId: newId() },
+      });
+      // the form id is required
+      expect(bad.statusCode).toBe(422);
+      const stranger = await app.inject({
+        method: 'POST',
+        url: `/v1/mls/deals/${newId()}/signature-requests`,
+        headers: { ...(await bearer(a)), 'idempotency-key': `k-${newId()}` },
+        payload: { formId: newId(), ownUserId: newId(), counterpartUserId: newId() },
+      });
+      expect(stranger.statusCode).toBe(404);
+      expect(stranger.json().error.code).toBe('DEAL_NOT_FOUND');
+    } finally {
+      await adminQuery(`update feature_flags set enabled_for = array_remove(enabled_for, $2::uuid) where key = $1`, [
+        ESIGN,
+        a.agencyId,
+      ]);
+      invalidateFlags();
+    }
+  });
 });

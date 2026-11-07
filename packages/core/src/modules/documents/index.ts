@@ -65,7 +65,9 @@ export { signedFormKey } from './signature-keys';
 export {
   AGENCY_SIGNER_ROLES,
   applySignatureEvent,
+  assertCanRequestSignatures,
   createSignatureRequest,
+  type DealSigners,
   ESIGN_FLAG,
   getSignatureRequest,
   inviteSigners,

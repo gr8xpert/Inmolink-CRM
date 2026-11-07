@@ -9,7 +9,7 @@
  * replaced (and `FORM_TEMPLATE_VERSION` bumped). Prices, deposits, offers and commission are the data's, formatted —
  * never typed into a clause.
  */
-import type { FormTemplate } from '@inmolink/contracts';
+import { FORM_SIGNER_ROLES, type FormTemplate } from '@inmolink/contracts';
 import type { Translate } from '@inmolink/i18n/server';
 import { escapeHtml } from '../../email-text';
 import type { FormAgency, FormClient, FormCommission, FormData, FormProperty } from './forms-data';
@@ -25,13 +25,7 @@ export const FORM_CLAUSES: Readonly<Record<FormTemplate, number>> = {
 };
 
 /** Who signs each template, in order (`forms.signers.*`); R2-05b signs these blocks (`data-signer`). */
-export const FORM_SIGNERS: Readonly<Record<FormTemplate, readonly string[]>> = {
-  LISTING_AGREEMENT: ['seller', 'agency'],
-  RESERVATION: ['buyer', 'agency'],
-  VIEWING_SHEET: ['buyer', 'agency'],
-  OFFER: ['buyer', 'agency'],
-  COLLABORATION_AGREEMENT: ['ownerAgency', 'introducerAgency'],
-};
+export const FORM_SIGNERS = FORM_SIGNER_ROLES;
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
 const color = (c: string | null, fallback: string) => (c && HEX.test(c) ? c : fallback);

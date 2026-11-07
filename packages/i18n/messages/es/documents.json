@@ -265,5 +265,217 @@
       "allSignedAt": "Todas las firmas completadas",
       "note": "Horas en UTC. El SHA-256 de este archivo firmado se registra con la solicitud de firma y se envía a cada firmante; cualquier cambio en el archivo lo cambia."
     }
+  },
+  "dashboard": {
+    "title": "Documentos",
+    "intro": "Hojas de encargo, reservas, hojas de visita, ofertas y acuerdos de colaboración, combinados con los datos de tu agencia y generados en PDF. Los firmantes firman el SHA-256 de cada PDF.",
+    "placeholder": "Cláusulas provisionales — no usar con clientes. Los textos legales de todos los documentos están pendientes de revisión jurídica.",
+    "placeholderShort": "Provisional — no para clientes",
+    "back": "Todos los documentos",
+    "new": "Generar un documento",
+    "empty": "Aún no hay documentos.",
+    "more": "Más documentos",
+    "actingReadOnly": "Estás actuando como este miembro: los documentos son de solo lectura y no se pueden descargar ni enviar.",
+    "templates": {
+      "LISTING_AGREEMENT": "Hoja de encargo",
+      "RESERVATION": "Reserva",
+      "VIEWING_SHEET": "Hoja de visita",
+      "OFFER": "Oferta",
+      "COLLABORATION_AGREEMENT": "Acuerdo de colaboración"
+    },
+    "statuses": {
+      "PENDING": "Generando",
+      "READY": "Listo",
+      "FAILED": "Error"
+    },
+    "transactions": {
+      "SALE": "Venta",
+      "RENT_LONG_TERM": "Alquiler larga temporada",
+      "RENT_SHORT_TERM": "Alquiler vacacional"
+    },
+    "languages": {
+      "en": "Inglés",
+      "es": "Español"
+    },
+    "roles": {
+      "seller": "Vendedor",
+      "buyer": "Comprador",
+      "agency": "Agencia",
+      "ownerAgency": "Agencia captadora",
+      "introducerAgency": "Agencia colaboradora"
+    },
+    "filters": {
+      "template": "Plantilla",
+      "all": "Todas las plantillas",
+      "apply": "Filtrar",
+      "clear": "Quitar filtros",
+      "scoped": {
+        "contact": "Documentos de un contacto.",
+        "listing": "Documentos de un inmueble.",
+        "deal": "Documentos de una operación."
+      }
+    },
+    "create": {
+      "title": "Generar un documento",
+      "template": "Plantilla",
+      "choose": "Elige el documento que quieres generar.",
+      "collaborationFromDeal": "El acuerdo de colaboración se genera desde la sala de la operación.",
+      "about": {
+        "LISTING_AGREEMENT": "El encargo del vendedor para uno de tus inmuebles: en exclusiva o no, y su duración. El precio y la comisión vienen del inmueble.",
+        "RESERVATION": "Un comprador reserva uno de tus inmuebles con una señal. El precio acordado es, por defecto, el del inmueble.",
+        "VIEWING_SHEET": "Los inmuebles que un comprador visitó en un día, para que los firme.",
+        "OFFER": "La oferta de un comprador por uno de tus inmuebles, válida hasta una fecha, con sus condiciones."
+      },
+      "seller": "Vendedor",
+      "buyer": "Comprador",
+      "contactUnknown": "El contacto elegido",
+      "changeContact": "Elegir otro contacto",
+      "listing": "Inmueble",
+      "listingHint": "Los inmuebles más recientes de tu agencia.",
+      "chooseListing": "Elige un inmueble",
+      "listings": "Inmuebles visitados",
+      "noListings": "Tu agencia aún no tiene inmuebles.",
+      "listingsHint": "Hasta {max} inmuebles.",
+      "exclusive": "Encargo en exclusiva",
+      "termMonths": "Duración (meses)",
+      "price": "Precio acordado (opcional)",
+      "priceHint": "Déjalo vacío para usar el precio del inmueble.",
+      "deposit": "Señal",
+      "amountHint": "En la moneda del inmueble, p. ej. 250000 o 250000,50.",
+      "holdDays": "Días retirado del mercado",
+      "visitedOn": "Fecha de la visita",
+      "offer": "Oferta",
+      "validUntil": "Válida hasta",
+      "conditions": "Condiciones del comprador (opcional)",
+      "conditionsHint": "Texto simple, tal como las expresa el comprador.",
+      "language": "Idioma del documento",
+      "submit": "Generar el PDF",
+      "currency": "Moneda"
+    },
+    "detail": {
+      "document": "Documento",
+      "status": "Estado",
+      "language": "Idioma",
+      "version": "Versión de la plantilla",
+      "created": "Creado",
+      "rendered": "Generado",
+      "size": "Tamaño",
+      "hash": "SHA-256",
+      "pending": "Se está generando el PDF: recarga la página en un momento.",
+      "failed": "No se pudo generar el PDF: genera el documento de nuevo.",
+      "download": "Descargar PDF",
+      "openDeal": "Abrir la sala de la operación"
+    },
+    "sign": {
+      "title": "Firmas",
+      "intro": "Los firmantes reciben un enlace por correo, confirman con un código de un solo uso y firman; el PDF firmado añade una página de registro (firmantes, horas, direcciones IP y el SHA-256 del documento).",
+      "none": "Aún no se ha enviado a firmar.",
+      "fromDeal": "El acuerdo de colaboración se envía a firmar desde la sala de la operación, con los firmantes de ambas agencias.",
+      "readyOnly": "Se puede enviar a firmar cuando el PDF esté listo.",
+      "send": "Enviar a firmar",
+      "supersedes": "Una nueva solicitud sustituye a la abierta: sus firmantes ya no podrán firmar.",
+      "submit": "Enviar a firmar",
+      "confirm": "¿Enviar los enlaces de firma a estas personas?",
+      "signers": "Firmantes",
+      "rowsHint": "Deja una fila vacía para omitirla.",
+      "name": "Firmante {n} — nombre",
+      "email": "Correo electrónico",
+      "role": "Firma como",
+      "language": "Idioma",
+      "languageDefault": "El del documento",
+      "ordered": "Firmar uno tras otro, en este orden",
+      "expiresInDays": "Días que los enlaces siguen abiertos",
+      "message": "Mensaje para los firmantes (opcional)"
+    },
+    "requests": {
+      "statuses": {
+        "OPEN": "Pendiente de firmas",
+        "SIGNED": "Firmado por todos — sellando",
+        "COMPLETED": "Firmado",
+        "CANCELLED": "Sustituida",
+        "FAILED": "Error",
+        "EXPIRED": "Caducada"
+      },
+      "created": "enviada {date}",
+      "completed": "completada {date}",
+      "cancelled": "sustituida {date}",
+      "expires": "abierta hasta {date}",
+      "ordered": "en orden",
+      "signedAt": "firmó {date} ({how}, desde {ip})",
+      "drawn": "dibujada",
+      "typed": "nombre escrito",
+      "invited": "invitado {date}",
+      "notInvited": "esperando su turno",
+      "documentHash": "SHA-256 del documento",
+      "signedHash": "SHA-256 del PDF firmado",
+      "downloadSigned": "Descargar el PDF firmado"
+    },
+    "verify": {
+      "title": "Verificar un PDF",
+      "intro": "Comprueba un archivo con la solicitud de firma de este documento: no se guarda nada.",
+      "file": "PDF (máx. {max} MB)",
+      "submit": "Verificar",
+      "results": {
+        "SIGNED": "Es el PDF firmado, byte a byte.",
+        "ORIGINAL": "Es el original que firmaron los firmantes (sin la página de registro).",
+        "NONE": "Este archivo no coincide ni con el PDF firmado ni con el original."
+      }
+    },
+    "done": {
+      "created": "Se está generando el documento.",
+      "sent": "Los enlaces de firma están en camino."
+    },
+    "errors": {
+      "generic": "Algo ha fallado. Inténtalo de nuevo.",
+      "load": "No se pudieron cargar los documentos.",
+      "VALIDATION_FAILED": "Faltan campos o no son válidos.",
+      "FORBIDDEN": "No puedes hacer esto.",
+      "RATE_LIMITED": "Demasiados intentos: espera un momento y vuelve a intentarlo.",
+      "PAYLOAD_TOO_LARGE": "El archivo es demasiado grande.",
+      "FORMS_NOT_ENABLED": "La biblioteca de documentos aún no está disponible para tu agencia.",
+      "ESIGN_NOT_ENABLED": "La firma electrónica aún no está disponible para tu agencia.",
+      "FORM_DOCUMENT_NOT_FOUND": "No se encontró el documento.",
+      "FORM_DATA_INCOMPLETE": "Faltan datos de tu agencia o del cliente para este documento.",
+      "FORM_NOT_READY": "El PDF aún no está listo.",
+      "FORM_ALREADY_SIGNED": "Este documento ya está firmado.",
+      "SIGNERS_INVALID": "Los firmantes no encajan con este documento.",
+      "SIGNATURE_REQUEST_NOT_FOUND": "No se encontró la solicitud de firma.",
+      "DEAL_NOT_FOUND": "No se encontró la operación.",
+      "DEAL_STATE": "No es posible en la fase actual de la operación.",
+      "CONTACT_NOT_FOUND": "No se encontró el contacto.",
+      "LISTING_NOT_FOUND": "No se encontró el inmueble (los documentos son para tus propios inmuebles).",
+      "IDEMPOTENCY_KEY_REUSED": "Este formulario ya se envió: recarga la página.",
+      "signers": {
+        "role": "Un firmante firma con un papel que este documento no tiene.",
+        "party": "Cada parte del acuerdo necesita un firmante.",
+        "duplicate": "La misma dirección de correo aparece dos veces.",
+        "deal": "El acuerdo de colaboración se envía a firmar desde la sala de la operación.",
+        "party_member": "El firmante de cada agencia debe ser uno de sus miembros en la operación o de sus administradores."
+      },
+      "AGREEMENT_IN_SIGNATURE": "Ya hay un acuerdo de esta operación pendiente de firma o firmado. Espera a que caduque o envía una nueva solicitud para ese mismo acuerdo."
+    },
+    "section": {
+      "title": "Documentos",
+      "all": {
+        "contact": "Todos los documentos de este contacto",
+        "listing": "Todos los documentos de este inmueble"
+      }
+    },
+    "deal": {
+      "title": "Acuerdo de colaboración",
+      "intro": "Generado a partir de la operación tal como está registrada — ambas agencias, el precio, las condiciones y el reparto de la comisión — y firmado por ambas agencias.",
+      "none": "Aún no hay acuerdo de colaboración.",
+      "otherAgency": "La otra agencia",
+      "generate": "Generar el acuerdo",
+      "regenerate": "Generarlo de nuevo",
+      "regenerateConfirm": "¿Generar un nuevo acuerdo a partir de la operación tal como está ahora? El actual no se envía.",
+      "send": "Enviar a firmar a ambas agencias",
+      "sendIntro": "Un firmante por tu agencia y otro por {agency}: el miembro de cada agencia en la operación o uno de sus administradores.",
+      "ownSigner": "Firma por tu agencia",
+      "counterpartSigner": "Firma por {agency}",
+      "dealMember": "en la operación",
+      "admin": "administrador",
+      "noSigners": "Una de las agencias no tiene ningún miembro activo para firmar: pídele que revise su equipo."
+    }
   }
 }

@@ -33,7 +33,7 @@ import { pdf } from '@inmolink/platform/pdf';
 import { RetryableError, UnrecoverableError } from '@inmolink/platform/queue';
 import { storage } from '@inmolink/platform/storage';
 import { type Ctx, memberUserId } from '../../context';
-import { idempotencyOf, keyReusedOn, replayOf } from '../../idempotency';
+import { advisoryLock, idempotencyOf, keyReusedOn, replayOf } from '../../idempotency';
 import { impersonatorOf } from '../../impersonation';
 import { decodeCursor, toPage } from '../../pagination';
 import * as agencies from '../agencies';
@@ -42,11 +42,19 @@ import * as properties from '../properties';
 import * as search from '../search';
 import { DOCUMENT_LINK_SECONDS, DOCUMENT_MAX_BYTES } from './config';
 import { documentsEvents } from './events';
-import { FORM_TEMPLATE_VERSION, type FormAgency, type FormClient, FormData, type FormProperty } from './forms-data';
+import {
+  FORM_PLACEHOLDER_UNTIL_VERSION,
+  FORM_TEMPLATE_VERSION,
+  type FormAgency,
+  type FormClient,
+  FormData,
+  type FormProperty,
+} from './forms-data';
 import * as repo from './forms-repo';
 import { formHtml } from './forms-templates';
 import { assertCan } from './policy';
 import { signedObjectKeys } from './signature-keys';
+import * as signaturesRepo from './signatures-repo';
 import { docFormat } from './templates';
 
 /** The feature flag the forms library ships dark behind (STATUS Decisions R2-05a). */
@@ -324,6 +332,14 @@ export interface CollaborationDeal {
 }
 
 /**
+ * One collaboration agreement change of a deal at a time per agency (R2-05c): making an agreement and sending one for
+ * signature take this lock before they check that none of the deal's is out for signature.
+ */
+export async function lockDealAgreement(ctx: Ctx, dealId: string): Promise<void> {
+  await advisoryLock(ctx.tx, `documents.deal-agreement:${ctx.tenant.agencyId}:${dealId}`);
+}
+
+/**
  * The collaboration agreement of a deal (`POST /v1/mls/deals/:id/collaboration-agreement`, through
  * `mls.createDealCollaborationAgreement`): both agencies, the property, the price and the commission split exactly as
  * the deal's terms snapshot and the database's commission columns say. In the caller's transaction.
@@ -349,6 +365,11 @@ export async function createCollaborationAgreement(
     { lock: true },
   );
   if (prior) return { form: toDto(prior.row), replayed: true };
+  // R2-05c: no second agreement while one of the deal's is out for signature or signed (two could end up signed)
+  await lockDealAgreement(ctx, deal.id);
+  if (await signaturesRepo.dealAgreementInSignature(ctx.tx, agencyId, deal.id, null)) {
+    throw new AppError('AGREEMENT_IN_SIGNATURE');
+  }
   const locale = localeOf(ctx, body.locale);
   const agency = await agencyData(ctx);
   const counterpart = deal.counterpartName ?? incomplete('deal.counterpart');
@@ -393,6 +414,7 @@ function toDto(r: repo.FormRow, link?: { url: string; expiresAt: Date }): FormDo
     createdByUserId: r.createdByUserId,
     createdAt: r.createdAt.toISOString(),
     renderedAt: r.renderedAt?.toISOString() ?? null,
+    placeholder: r.templateVersion <= FORM_PLACEHOLDER_UNTIL_VERSION,
     url: link?.url ?? null,
     urlExpiresAt: link?.expiresAt.toISOString() ?? null,
   };

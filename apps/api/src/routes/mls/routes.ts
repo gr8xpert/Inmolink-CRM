@@ -4,6 +4,7 @@ import {
   CreateCollaborationAgreementBody,
   CreateContactHeaders,
   CreateDealBody,
+  CreateDealSignatureRequestBody,
   CreateRegistrationBody,
   CreateTaskBody,
   CreateViewingRequestBody,
@@ -18,6 +19,7 @@ import {
   DealDto,
   DealPage,
   DealParams,
+  DealSignersDto,
   FallThroughDealBody,
   FormDocumentDto,
   ListDealsQuery,
@@ -31,6 +33,7 @@ import {
   RescheduleViewingBody,
   ResolveDealDisputeBody,
   SetDealPriceBody,
+  SignatureRequestDto,
   StaffDealDisputeDto,
   StaffDealDisputeList,
   StaffDealDisputePage,
@@ -50,7 +53,7 @@ import { AppError } from '@inmolink/platform/errors';
 import type { RateLimitRule } from '@inmolink/platform/rate-limit';
 import type { FastifyZod } from '@inmolink/platform/server';
 import { z } from 'zod';
-import { DOCUMENT_RENDER_LIMITS } from '../documents/routes';
+import { DOCUMENT_RENDER_LIMITS, SIGNATURE_REQUEST_LIMITS } from '../documents/routes';
 import { takeUploadSlot } from '../media/routes';
 
 const READ_LIMITS: readonly RateLimitRule[] = [
@@ -550,6 +553,50 @@ export async function mlsRoutes(app: FastifyZod): Promise<void> {
         mls.createDealCollaborationAgreement(ctx, req.params.id, req.body, idempotencyKey ? { idempotencyKey } : {}),
       );
       return reply.code(result.replayed ? 200 : 201).send(result.form);
+    },
+  );
+
+  // R2-05c: who may sign the deal's collaboration agreement for each party, and the deal's signature request (the
+  // agencies' signers checked against them).
+  app.get(
+    '/v1/mls/deals/:id/signers',
+    {
+      schema: {
+        tags,
+        operationId: 'mls.getDealSigners',
+        summary:
+          'Who may sign the deal’s collaboration agreement for each party: the party’s deal member (who asked for the viewing; the listing’s agent) and its admins — name and e-mail',
+        params: DealParams,
+        response: { 200: DealSignersDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: READ_LIMITS },
+    },
+    async (req) => app.withCtx(req, (ctx) => mls.dealSigners(ctx, req.params.id)),
+  );
+
+  app.post(
+    '/v1/mls/deals/:id/signature-requests',
+    {
+      schema: {
+        tags,
+        operationId: 'mls.createDealSignatureRequest',
+        summary:
+          'Ask both parties to sign the deal’s collaboration agreement (201): each agency’s signer must be one of GET …/signers. With an Idempotency-Key, a retry within 24 h answers the first request (200)',
+        params: DealParams,
+        headers: CreateContactHeaders,
+        body: CreateDealSignatureRequestBody,
+        response: { 201: SignatureRequestDto, 200: SignatureRequestDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: SIGNATURE_REQUEST_LIMITS },
+    },
+    async (req, reply) => {
+      const idempotencyKey = req.headers['idempotency-key'];
+      const result = await app.withCtx(req, (ctx) =>
+        mls.createDealSignatureRequest(ctx, req.params.id, req.body, idempotencyKey ? { idempotencyKey } : {}),
+      );
+      return reply.code(result.replayed ? 200 : 201).send(result.request);
     },
   );
 

@@ -169,8 +169,8 @@ describe('RLS generator', () => {
     // S9-03 adds the portal feed token lookup (app_public), S10-06 the
     // calendar feed token lookup (app_public), S11-F7 the calendar feed fingerprint (app_public), S13-F17 the AI toggles
     // lookup (app_public), S13-F1 the selection token lookup (app_public), S15-03 the agency profile lookup (app_public),
-    // S15-F10 the member profile and agency team lookups (app_public), R2-05b the signing page's signer (app_public).
-    expect(out.match(/security definer/gi)).toHaveLength(11);
+    // S15-F10 the member profile and agency team lookups (app_public), R2-05b the signing page's signer (app_public), R2-05c the deal's signers (app_user).
+    expect(out.match(/security definer/gi)).toHaveLength(12);
     expect(out).toContain(
       'create or replace function app_partition_maintenance() returns void language plpgsql security definer',
     );
@@ -186,6 +186,17 @@ describe('RLS generator', () => {
     const fn = /create function signing_signer[^;]*;/.exec(out)?.[0] ?? '';
     expect(fn).toContain('where s.id = s_id and s.agency_id = a_id');
     expect(fn).not.toMatch(/f\.data(?! -> 'agency' ->> 'name')|signature_png|user_agent|created_by_user_id/);
+  });
+
+  it('[R2-05c] the deal room reads both parties’ signers through a definer only app_user executes', () => {
+    expect(out).toContain('grant execute on function deal_signers(uuid) to app_user;');
+    expect(out).not.toMatch(/deal_signers\(uuid\) to [^;]*app_(?:public|system|auth|staff|media|intake)/);
+    expect(out).toContain('alter function deal_signers(uuid) owner to app_owner;');
+    const fn = /create function deal_signers[^;]*;/.exec(out)?.[0] ?? '';
+    // scoped to the caller's own copy of the deal and a peer copy that names it back
+    expect(fn).toContain("current_setting('app.agency_id', true)");
+    expect(fn).toContain('s.peer_agency_id = o.agency_id');
+    expect(fn).not.toMatch(/password|phone|u\.locale|totp/);
   });
 
   it('[S7-F11] no app role can execute the S7-F4 commission lookup: dropped, not a helper, never created or granted', () => {

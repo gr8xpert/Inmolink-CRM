@@ -7,6 +7,7 @@ import { fetchTaxonomy, sessionRef } from '@/server/api';
 import { fetchContactConsents } from '@/server/compliance-api';
 import { fetchContact, fetchContactNotes } from '@/server/contacts-api';
 import { fetchClientProfiles } from '@/server/matching-api';
+import { FormsSection } from '../../forms/forms-section';
 import { listingTaxonomy } from '../../listings/taxonomy';
 import { addNoteAction } from '../actions';
 import { ContactFinder } from '../contact-finder';
@@ -192,6 +193,9 @@ export default async function ContactPage({
       >
         {t('matchQueue.link')}
       </Link>
+
+      {/* R2-05c: the contact's forms (hidden while the forms library is off) */}
+      <FormsSection session={ref} scope={{ contactId: c.id }} />
 
       <section aria-labelledby="notes" className="flex flex-col gap-2">
         <h2 id="notes" className="text-base font-semibold">

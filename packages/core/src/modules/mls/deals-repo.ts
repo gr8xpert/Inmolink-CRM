@@ -231,3 +231,23 @@ export async function copiesOf(tx: Tx, id: string): Promise<DealCopy[]> {
     .limit(2);
   return rows.map((r) => ({ ...r, party: r.party as Party }));
 }
+
+/** One candidate signer of a deal's collaboration agreement (`deal_signers()`, R2-05c). */
+export interface DealSignerRow {
+  party: Party;
+  user_id: string;
+  name: string;
+  email: string;
+  deal_member: boolean;
+}
+
+/**
+ * R2-05c: each party's deal member and admins (name, login e-mail) through the SECURITY DEFINER `deal_signers()` — the
+ * only way a party reads the other agency's members. None unless the caller's agency holds a copy of the deal.
+ */
+export async function dealSigners(tx: Tx, id: string): Promise<DealSignerRow[]> {
+  const res = await tx.execute(
+    sql`select party, user_id, name, email, deal_member from public.deal_signers(${id}::uuid)`,
+  );
+  return (res as unknown as { rows: DealSignerRow[] }).rows;
+}

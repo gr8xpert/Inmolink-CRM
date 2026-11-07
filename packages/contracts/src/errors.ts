@@ -458,6 +458,11 @@ export const ErrorCodes = {
   FORM_ALREADY_SIGNED: 409,
   /** The signers do not fit the form (`details.reason`: a role the template has not, a party missing, a repeat). */
   SIGNERS_INVALID: 422,
+  /**
+   * R2-05c: the deal's collaboration agreement is out for signature or signed — no other agreement of the deal is made
+   * or sent until that request is over (expired or replaced).
+   */
+  AGREEMENT_IN_SIGNATURE: 409,
 } as const;
 
 export type ErrorCode = keyof typeof ErrorCodes;

@@ -63,6 +63,7 @@ export async function formForSigning(tx: Tx, agencyId: string, formId: string) {
       template: forms.template,
       locale: forms.locale,
       label: forms.label,
+      dealId: forms.dealId,
     })
     .from(forms)
     .where(and(eq(forms.agencyId, agencyId), eq(forms.id, formId)));
@@ -539,4 +540,32 @@ export function subjectSignatures(
     )
     .orderBy(asc(signers.id))
     .limit(limit);
+}
+
+/**
+ * R2-05c: whether a collaboration agreement of the deal (other than `exceptFormId`) is out for signature (OPEN, not
+ * expired) or signed — then no other agreement of the deal is made or sent. The deal's forms by `form_documents_deal_idx`,
+ * their requests by form.
+ */
+export async function dealAgreementInSignature(
+  tx: Tx,
+  agencyId: string,
+  dealId: string,
+  exceptFormId: string | null,
+): Promise<boolean> {
+  const [r] = await tx
+    .select({ id: requests.id })
+    .from(forms)
+    .innerJoin(requests, and(eq(requests.agencyId, forms.agencyId), eq(requests.formId, forms.id)))
+    .where(
+      and(
+        eq(forms.agencyId, agencyId),
+        eq(forms.dealId, dealId),
+        eq(forms.template, 'COLLABORATION_AGREEMENT'),
+        exceptFormId ? ne(forms.id, exceptFormId) : undefined,
+        sql`(${requests.status} in ('SIGNED', 'COMPLETED') or (${requests.status} = 'OPEN' and ${requests.expiresAt} > now()))`,
+      ),
+    )
+    .limit(1);
+  return r !== undefined;
 }

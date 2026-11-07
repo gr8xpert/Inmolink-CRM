@@ -26,6 +26,7 @@ import {
 } from '../actions';
 import { CommissionBreakdown, type Formatters, Handshake, StageTimeline, targetText } from '../deal-parts';
 import { advanceTargets, isUuid, noticeOf } from '../query';
+import { CollaborationAgreement } from './collaboration-agreement';
 
 const SECTION = 'flex flex-col gap-3 rounded-md border p-4';
 const FIELD = 'h-9 rounded-md border bg-background px-2';
@@ -36,7 +37,7 @@ const CLOSED = new Set<DealDto['stage']>(['COMPLETION', 'FELL_THROUGH']);
  * One deal's room (R2-04c, PLAN §3 #10, §7 M10): the stage timeline, the price and the commission from the terms
  * snapshot, the completion handshake, and the moves the API takes from this member now (`allowedActions`); the deal's
  * documents (both parties'), the agency's own tasks about it, its chat thread with the other party, and the agency's
- * disputes for staff mediation. Plain forms to server actions; the only client JS is the shared submit button and the
+ * disputes for staff mediation; the collaboration agreement and its signatures (R2-05c). Plain forms to server actions; the only client JS is the shared submit button and the
  * file opener. Every rule is the API's.
  */
 export default async function DealPage({
@@ -303,6 +304,8 @@ export default async function DealPage({
           </form>
         ) : null}
       </section>
+
+      <CollaborationAgreement session={ref} deal={deal} locale={locale} acting={acting} query={q} />
 
       <section aria-labelledby="h-tasks" className={SECTION}>
         <h2 id="h-tasks" className="text-base font-semibold">

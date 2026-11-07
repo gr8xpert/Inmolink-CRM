@@ -3,6 +3,8 @@ import { closeDb, withSystem, withTenant } from '@inmolink/db';
 import { createStaffUser, loadStackEnv, setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
 import { createKeyring, generateKey } from '@inmolink/platform/crypto';
 import { isAppError } from '@inmolink/platform/errors';
+import { configureESign } from '@inmolink/platform/esign';
+import { fakeESign } from '@inmolink/platform/esign/testing';
 import { invalidateFlags, setFlag, setFlagOverride } from '@inmolink/platform/flags';
 import { newId } from '@inmolink/platform/ids';
 import { closeRateLimit, configureRateLimit } from '@inmolink/platform/rate-limit';
@@ -814,6 +816,103 @@ describe('[R2-05a] the deal’s collaboration agreement', () => {
       await withSystem('mls.deals.test', async (tx) => {
         await tx.execute(sql`delete from form_documents where agency_id = ${a.agencyId}`);
         await setFlagOverride(tx, documents.FORMS_FLAG, a.agencyId, null);
+      });
+      invalidateFlags();
+    }
+  });
+});
+
+describe('[R2-05c] the deal’s collaboration agreement signers', () => {
+  it('[R2-05c] each party’s deal members are the only signers the deal’s signature request takes; strangers read none', async () => {
+    await withSystem('mls.deals.test', async (tx) => {
+      for (const f of [documents.FORMS_FLAG, documents.ESIGN_FLAG]) {
+        await setFlag(tx, f, { enabled: false });
+        // c (a stranger to the deal) has the flags on too: what it is refused is the deal
+        for (const m of [a, c]) await setFlagOverride(tx, f, m.agencyId, true);
+      }
+    });
+    invalidateFlags();
+    configureESign(fakeESign());
+    try {
+      const vr = await viewing(pctListing);
+      const { deal } = await as(a, (ctx) => mls.openDeal(ctx, { viewingRequestId: vr, price: eur(41_000_000) }));
+      // the introducer's member who asked for the viewing; the owner's listing agent (each its founder here)
+      const signers = await as(a, (ctx) => mls.dealSigners(ctx, deal.id));
+      expect(signers.ownRole).toBe('introducerAgency');
+      expect(signers.own[0]).toMatchObject({ userId: a.userId, email: a.email, dealMember: true });
+      // the other agency's member is named, its login address masked
+      expect(signers.counterpart[0]).toMatchObject({
+        userId: b.userId,
+        email: mls.maskEmail(b.email),
+        dealMember: true,
+      });
+      expect(signers.counterpart[0]?.email).toMatch(/^.\*\*\*@example\.com$/);
+      expect(signers.counterpart.map((s) => s.userId)).not.toContain(a.userId);
+      // a stranger reads nothing: neither through the service nor the definer itself
+      expect(await refusal(as(c, (ctx) => mls.dealSigners(ctx, deal.id)))).toBe('DEAL_NOT_FOUND');
+      const direct = await as(
+        c,
+        async (ctx) => (await ctx.tx.execute(sql`select * from deal_signers(${deal.id}::uuid)`)).rows,
+      );
+      expect(direct).toEqual([]);
+      // b's flags are off
+      expect(await refusal(as(b, (ctx) => mls.dealSigners(ctx, deal.id)))).toBe('FORMS_NOT_ENABLED');
+
+      const { form } = await as(a, (ctx) => mls.createDealCollaborationAgreement(ctx, deal.id, { locale: 'en' }));
+      await system((tx) =>
+        tx.execute(sql`update form_documents set status = 'READY', sha256 = ${'a'.repeat(64)}, size_bytes = 1000,
+                         rendered_at = now() where id = ${form.id}`),
+      );
+      const ask = (counterpartUserId: string, formId = form.id) =>
+        as(a, (ctx) =>
+          mls.createDealSignatureRequest(ctx, deal.id, { formId, ownUserId: a.userId, counterpartUserId }),
+        );
+      // the requester cannot name a stranger as the other agency's signatory, nor its own agency's member there
+      expect(await refusal(ask(c.userId))).toBe('SIGNERS_INVALID:party_member');
+      expect(await refusal(ask(a.userId))).toBe('SIGNERS_INVALID:party_member');
+      const { request } = await ask(b.userId);
+      // names and addresses are the database's
+      expect(request.signers.map((s) => [s.role, s.email])).toEqual([
+        ['introducerAgency', a.email],
+        ['ownerAgency', b.email],
+      ]);
+      // the generic forms endpoint does not take a collaboration agreement (only from its deal)
+      expect(
+        await refusal(
+          as(a, (ctx) =>
+            documents.createSignatureRequest(ctx, form.id, {
+              signers: [
+                { name: 'Intro', email: a.email, role: 'introducerAgency' },
+                { name: 'Owner', email: b.email, role: 'ownerAgency' },
+              ],
+            }),
+          ),
+        ),
+      ).toBe('SIGNERS_INVALID:deal');
+      // while one agreement is out for signature, no other is made or sent (two could end up signed)
+      expect(await refusal(as(a, (ctx) => mls.createDealCollaborationAgreement(ctx, deal.id, {})))).toBe(
+        'AGREEMENT_IN_SIGNATURE',
+      );
+      const second = newId();
+      await system((tx) =>
+        tx.execute(sql`insert into form_documents (id, agency_id, template, locale, template_version, status, label,
+                         deal_id, data, sha256, size_bytes, rendered_at, created_by_user_id)
+                       select ${second}, agency_id, template, locale, template_version, 'READY', label, deal_id, data,
+                              ${'b'.repeat(64)}, 1000, now(), created_by_user_id
+                         from form_documents where id = ${form.id}`),
+      );
+      expect(await refusal(ask(b.userId, second))).toBe('AGREEMENT_IN_SIGNATURE');
+      // a new request for the same agreement replaces the open one
+      expect((await ask(b.userId)).request.id).not.toBe(request.id);
+      // fallen through: the signers are no longer offered
+      await as(a, (ctx) => mls.fallThroughDeal(ctx, deal.id, { reason: 'Buyer withdrew' }));
+      expect(await refusal(as(a, (ctx) => mls.dealSigners(ctx, deal.id)))).toBe('DEAL_STATE');
+    } finally {
+      await withSystem('mls.deals.test', async (tx) => {
+        await tx.execute(sql`delete from form_documents where agency_id = ${a.agencyId}`);
+        for (const f of [documents.FORMS_FLAG, documents.ESIGN_FLAG]) {
+          for (const m of [a, c]) await setFlagOverride(tx, f, m.agencyId, null);
+        }
       });
       invalidateFlags();
     }

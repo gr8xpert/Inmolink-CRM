@@ -71,6 +71,10 @@ const PAGES: Array<[string, () => Promise<{ default: unknown }>, unknown]> = [
     () => import('./collaborations/viewings/[id]/terms/page'),
     { params: Promise.resolve({ id: 'x' }) },
   ],
+  // R2-05c: the forms library (the API refuses forms in Client Mode).
+  ['forms', () => import('./forms/page'), search],
+  ['forms/new', () => import('./forms/new/page'), search],
+  ['forms/[id]', () => import('./forms/[id]/page'), { params: Promise.resolve({ id: 'x' }), ...search }],
 ];
 
 describe('Client Mode on pages the API closes', () => {

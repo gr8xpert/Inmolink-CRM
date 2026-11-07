@@ -265,5 +265,217 @@
       "allSignedAt": "All signatures completed",
       "note": "Times are in UTC. The SHA-256 of this signed file is recorded with the signing request and sent to every signer; any change to the file changes it."
     }
+  },
+  "dashboard": {
+    "title": "Forms",
+    "intro": "Listing agreements, reservations, viewing sheets, offers and collaboration agreements, merged from your agency's data and rendered as PDF. Each PDF's SHA-256 is what signers sign.",
+    "placeholder": "Placeholder clauses — not for use with clients. The legal texts of every form are pending lawyer review.",
+    "placeholderShort": "Placeholder — not for clients",
+    "back": "All forms",
+    "new": "Generate a form",
+    "empty": "No forms yet.",
+    "more": "More forms",
+    "actingReadOnly": "You are acting as this member: forms are read-only and cannot be downloaded or sent.",
+    "templates": {
+      "LISTING_AGREEMENT": "Listing agreement",
+      "RESERVATION": "Reservation",
+      "VIEWING_SHEET": "Viewing sheet",
+      "OFFER": "Offer",
+      "COLLABORATION_AGREEMENT": "Collaboration agreement"
+    },
+    "statuses": {
+      "PENDING": "Rendering",
+      "READY": "Ready",
+      "FAILED": "Failed"
+    },
+    "transactions": {
+      "SALE": "Sale",
+      "RENT_LONG_TERM": "Long-term rental",
+      "RENT_SHORT_TERM": "Short-term rental"
+    },
+    "languages": {
+      "en": "English",
+      "es": "Spanish"
+    },
+    "roles": {
+      "seller": "Seller",
+      "buyer": "Buyer",
+      "agency": "Agency",
+      "ownerAgency": "Listing agency",
+      "introducerAgency": "Collaborating agency"
+    },
+    "filters": {
+      "template": "Template",
+      "all": "All templates",
+      "apply": "Filter",
+      "clear": "Clear filters",
+      "scoped": {
+        "contact": "Showing one contact's forms.",
+        "listing": "Showing one listing's forms.",
+        "deal": "Showing one deal's forms."
+      }
+    },
+    "create": {
+      "title": "Generate a form",
+      "template": "Template",
+      "choose": "Choose the form to generate.",
+      "collaborationFromDeal": "A collaboration agreement is generated from its deal room.",
+      "about": {
+        "LISTING_AGREEMENT": "The seller's mandate for one of your listings: exclusive or not, and how long it runs. Price and commission come from the listing.",
+        "RESERVATION": "A buyer reserves one of your listings with a deposit. The agreed price defaults to the listing's.",
+        "VIEWING_SHEET": "The properties a buyer visited on one day, for them to sign.",
+        "OFFER": "A buyer's offer for one of your listings, valid until a date, with their conditions."
+      },
+      "seller": "Seller",
+      "buyer": "Buyer",
+      "contactUnknown": "The chosen contact",
+      "changeContact": "Choose another contact",
+      "listing": "Property",
+      "listingHint": "Your agency's newest listings.",
+      "chooseListing": "Choose a listing",
+      "listings": "Properties visited",
+      "noListings": "Your agency has no listings yet.",
+      "listingsHint": "Up to {max} properties.",
+      "exclusive": "Exclusive mandate",
+      "termMonths": "Term (months)",
+      "price": "Agreed price (optional)",
+      "priceHint": "Leave empty to use the listing's price.",
+      "deposit": "Deposit",
+      "amountHint": "In the listing's currency, e.g. 250000 or 250000,50.",
+      "holdDays": "Days held off the market",
+      "visitedOn": "Visit date",
+      "offer": "Offer",
+      "validUntil": "Valid until",
+      "conditions": "Buyer's conditions (optional)",
+      "conditionsHint": "Plain text, as the buyer states them.",
+      "language": "Document language",
+      "submit": "Generate the PDF",
+      "currency": "Currency"
+    },
+    "detail": {
+      "document": "Document",
+      "status": "Status",
+      "language": "Language",
+      "version": "Template version",
+      "created": "Created",
+      "rendered": "Rendered",
+      "size": "Size",
+      "hash": "SHA-256",
+      "pending": "The PDF is being rendered: reload the page in a moment.",
+      "failed": "The PDF could not be rendered: generate the form again.",
+      "download": "Download PDF",
+      "openDeal": "Open the deal room"
+    },
+    "sign": {
+      "title": "Signatures",
+      "intro": "Signers get an e-mailed link, confirm with a one-time code and sign; the signed PDF adds an audit-trail page (signers, times, IP addresses, the document's SHA-256).",
+      "none": "Not sent for signature yet.",
+      "fromDeal": "A collaboration agreement is sent for signature from its deal room, with both agencies' signers.",
+      "readyOnly": "It can be sent for signature once the PDF is ready.",
+      "send": "Send for signature",
+      "supersedes": "A new request replaces the open one: its signers can no longer sign.",
+      "submit": "Send for signature",
+      "confirm": "Send signing links to these people?",
+      "signers": "Signers",
+      "rowsHint": "Leave a row empty to skip it.",
+      "name": "Signer {n} — name",
+      "email": "E-mail",
+      "role": "Signs as",
+      "language": "Language",
+      "languageDefault": "The document's",
+      "ordered": "Sign one after another, in this order",
+      "expiresInDays": "Days the links stay open",
+      "message": "Message to the signers (optional)"
+    },
+    "requests": {
+      "statuses": {
+        "OPEN": "Waiting for signatures",
+        "SIGNED": "Signed by everyone — sealing",
+        "COMPLETED": "Signed",
+        "CANCELLED": "Replaced",
+        "FAILED": "Failed",
+        "EXPIRED": "Expired"
+      },
+      "created": "sent {date}",
+      "completed": "completed {date}",
+      "cancelled": "replaced {date}",
+      "expires": "open until {date}",
+      "ordered": "in order",
+      "signedAt": "signed {date} ({how}, from {ip})",
+      "drawn": "drawn",
+      "typed": "typed name",
+      "invited": "invited {date}",
+      "notInvited": "waiting for their turn",
+      "documentHash": "Document SHA-256",
+      "signedHash": "Signed PDF SHA-256",
+      "downloadSigned": "Download the signed PDF"
+    },
+    "verify": {
+      "title": "Verify a PDF",
+      "intro": "Check a file against this form's signing request: nothing is stored.",
+      "file": "PDF (max {max} MB)",
+      "submit": "Verify",
+      "results": {
+        "SIGNED": "This is the signed PDF, byte for byte.",
+        "ORIGINAL": "This is the original the signers signed (without the audit trail).",
+        "NONE": "This file matches neither the signed PDF nor the original."
+      }
+    },
+    "done": {
+      "created": "The form is being rendered.",
+      "sent": "The signing links are on their way."
+    },
+    "errors": {
+      "generic": "Something went wrong. Please try again.",
+      "load": "The forms could not be loaded.",
+      "VALIDATION_FAILED": "Some fields are missing or invalid.",
+      "FORBIDDEN": "You may not do this.",
+      "RATE_LIMITED": "Too many attempts: wait a moment and try again.",
+      "PAYLOAD_TOO_LARGE": "The file is too large.",
+      "FORMS_NOT_ENABLED": "The forms library is not available for your agency yet.",
+      "ESIGN_NOT_ENABLED": "E-signature is not available for your agency yet.",
+      "FORM_DOCUMENT_NOT_FOUND": "The form was not found.",
+      "FORM_DATA_INCOMPLETE": "Your agency's or the client's data is incomplete for this form.",
+      "FORM_NOT_READY": "The PDF is not ready yet.",
+      "FORM_ALREADY_SIGNED": "This form has already been signed.",
+      "SIGNERS_INVALID": "The signers do not fit this form.",
+      "SIGNATURE_REQUEST_NOT_FOUND": "The signing request was not found.",
+      "DEAL_NOT_FOUND": "The deal was not found.",
+      "DEAL_STATE": "Not possible at the deal's current stage.",
+      "CONTACT_NOT_FOUND": "The contact was not found.",
+      "LISTING_NOT_FOUND": "The listing was not found (forms are made for your own listings).",
+      "IDEMPOTENCY_KEY_REUSED": "This form was already sent: reload the page.",
+      "signers": {
+        "role": "A signer signs as a role this form does not have.",
+        "party": "Each party of the agreement needs a signer.",
+        "duplicate": "The same e-mail address appears twice.",
+        "deal": "A collaboration agreement is sent for signature from its deal room.",
+        "party_member": "Each agency's signer must be one of its deal members or admins."
+      },
+      "AGREEMENT_IN_SIGNATURE": "An agreement of this deal is already out for signature or signed. Wait until it expires, or send a new request for that same agreement."
+    },
+    "section": {
+      "title": "Forms",
+      "all": {
+        "contact": "All forms of this contact",
+        "listing": "All forms of this listing"
+      }
+    },
+    "deal": {
+      "title": "Collaboration agreement",
+      "intro": "Generated from the deal as recorded — both agencies, the price, the terms and the commission split — then signed by both agencies.",
+      "none": "No collaboration agreement yet.",
+      "otherAgency": "The other agency",
+      "generate": "Generate the agreement",
+      "regenerate": "Generate it again",
+      "regenerateConfirm": "Generate a new agreement from the deal as it is now? The current one is not sent.",
+      "send": "Send for signature to both agencies",
+      "sendIntro": "One signer for your agency and one for {agency}: each agency's deal member or one of its admins.",
+      "ownSigner": "Signs for your agency",
+      "counterpartSigner": "Signs for {agency}",
+      "dealMember": "on the deal",
+      "admin": "admin",
+      "noSigners": "One of the agencies has no active member to sign: ask them to check their team."
+    }
   }
 }

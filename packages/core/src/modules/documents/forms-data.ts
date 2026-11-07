@@ -10,6 +10,8 @@ import { z } from 'zod';
  * Bump `FORM_TEMPLATE_VERSION` with any change to the layout or the clause texts; `v` versions this shape.
  */
 export const FORM_TEMPLATE_VERSION = 1;
+/** The last template version whose clause texts are placeholders pending lawyer review (H17; R2-05c shows it). */
+export const FORM_PLACEHOLDER_UNTIL_VERSION = 1;
 
 const Text = (max: number) => z.string().max(max);
 const Money = z.object({ amountCents: z.number().int().nonnegative(), currency: z.string().length(3) });

@@ -72,8 +72,19 @@ export const FORM_TEMPLATES = [
 export const FormTemplate = z.enum(FORM_TEMPLATES);
 export type FormTemplate = z.infer<typeof FormTemplate>;
 
+/** Who signs each template, in order (the document's signature blocks; R2-05b, the dashboard's signer roles R2-05c). */
+export const FORM_SIGNER_ROLES: Readonly<Record<FormTemplate, readonly string[]>> = {
+  LISTING_AGREEMENT: ['seller', 'agency'],
+  RESERVATION: ['buyer', 'agency'],
+  VIEWING_SHEET: ['buyer', 'agency'],
+  OFFER: ['buyer', 'agency'],
+  COLLABORATION_AGREEMENT: ['ownerAgency', 'introducerAgency'],
+};
+
 /** Properties one viewing sheet lists at most. */
 export const VIEWING_SHEET_LISTINGS_MAX = 20;
+/** The currency of a generated form's amounts when no listing names one (the agencies' market: Spain). */
+export const FORM_DEFAULT_CURRENCY = 'EUR';
 /** The largest amount a form takes (a price, a deposit, an offer): 1,000,000,000.00 in cents. */
 export const FORM_AMOUNT_MAX_CENTS = 100_000_000_000;
 
@@ -182,6 +193,11 @@ export const FormDocumentDto = z.strictObject({
   createdByUserId: z.uuid(),
   createdAt: z.iso.datetime(),
   renderedAt: z.iso.datetime().nullable(),
+  /**
+   * The clause texts are placeholders pending lawyer review (R2-05a, H17): the document carries a "not for use with
+   * clients" banner and the dashboard says so.
+   */
+  placeholder: z.boolean(),
   /** A short signed download link (`GET /v1/documents/forms/:id` once `READY`); null in lists and otherwise. */
   url: z.string().nullable(),
   urlExpiresAt: z.iso.datetime().nullable(),
@@ -196,6 +212,8 @@ export type FormDocumentPage = z.infer<typeof FormDocumentPage>;
 export const SIGNATURE_SIGNERS_MAX = 10;
 /** How long a signing request stays open at most (days). */
 export const SIGNATURE_EXPIRY_DAYS_MAX = 60;
+/** How long a signing request stays open unless the member says otherwise (days). */
+export const SIGNATURE_EXPIRY_DAYS_DEFAULT = 14;
 
 export const SignatureSignerInput = z.strictObject({
   name: z.string().trim().min(1).max(200),
@@ -217,7 +235,7 @@ export type SignatureSignerInput = z.infer<typeof SignatureSignerInput>;
 export const CreateSignatureRequestBody = z.strictObject({
   signers: z.array(SignatureSignerInput).min(1).max(SIGNATURE_SIGNERS_MAX),
   ordered: z.boolean().default(false),
-  expiresInDays: z.number().int().min(1).max(SIGNATURE_EXPIRY_DAYS_MAX).default(14),
+  expiresInDays: z.number().int().min(1).max(SIGNATURE_EXPIRY_DAYS_MAX).default(SIGNATURE_EXPIRY_DAYS_DEFAULT),
   message: z.string().trim().min(1).max(1000).optional(),
 });
 export type CreateSignatureRequestBody = z.input<typeof CreateSignatureRequestBody>;
@@ -273,6 +291,9 @@ export type SignatureRequestDto = z.infer<typeof SignatureRequestDto>;
 export const SignatureRequestList = z.strictObject({ items: z.array(SignatureRequestDto) });
 export type SignatureRequestList = z.infer<typeof SignatureRequestList>;
 
+/** The largest PDF `POST …/verify` checks (25 MB). */
+export const SIGNED_PDF_VERIFY_MAX_BYTES = 25 * 1024 * 1024;
+
 /**
  * `POST /v1/documents/signature-requests/:id/verify` (raw PDF body): whether the file is the signed PDF (`SIGNED`) or
  * the original the signers signed (`ORIGINAL`) — byte for byte, by SHA-256 — or neither (`NONE`).
@@ -285,3 +306,50 @@ export const VerifySignedPdfResult = z.strictObject({
   signedSha256: z.string().nullable(),
 });
 export type VerifySignedPdfResult = z.infer<typeof VerifySignedPdfResult>;
+
+// ── R2-05c, the deal room's collaboration agreement signers ────────────────────────────────────────────
+
+/** A signer role of the collaboration agreement: the party's signature block. */
+export const DealSignerRole = z.enum(['ownerAgency', 'introducerAgency']);
+export type DealSignerRole = z.infer<typeof DealSignerRole>;
+
+export const DealSignerCandidate = z.strictObject({
+  /** Who signs: the deal's signature request names its two signers by these. */
+  userId: z.uuid(),
+  name: z.string(),
+  /**
+   * The member's e-mail: in full for the caller's own agency; masked (`j***@agency.es`) for the other agency's — the
+   * request takes the signer by `userId` and the server fills in the address, so a party never reads the other
+   * agency's login addresses.
+   */
+  email: z.string(),
+  /** The deal's member on that side (who asked for the viewing; the listing's agent); else one of its admins. */
+  dealMember: z.boolean(),
+});
+export type DealSignerCandidate = z.infer<typeof DealSignerCandidate>;
+
+/**
+ * `GET /v1/mls/deals/:id/signers`: who may sign the deal's collaboration agreement for each party — the party's deal
+ * member and its admins. The deal room offers them as the two signers; the deal's signature request accepts only these.
+ */
+export const DealSignersDto = z.strictObject({
+  ownRole: DealSignerRole,
+  own: z.array(DealSignerCandidate),
+  counterpart: z.array(DealSignerCandidate),
+});
+export type DealSignersDto = z.infer<typeof DealSignersDto>;
+
+/**
+ * `POST /v1/mls/deals/:id/signature-requests`: ask both parties to sign the deal's collaboration agreement (`formId`):
+ * one signer per agency, each one of `GET …/signers` by `userId` (names and addresses are the server's). Order,
+ * expiry and message as `POST /v1/documents/forms/:id/signature-requests`. Accepts `Idempotency-Key`.
+ */
+export const CreateDealSignatureRequestBody = z.strictObject({
+  formId: z.uuid(),
+  ownUserId: z.uuid(),
+  counterpartUserId: z.uuid(),
+  ordered: z.boolean().default(false),
+  expiresInDays: z.number().int().min(1).max(SIGNATURE_EXPIRY_DAYS_MAX).default(SIGNATURE_EXPIRY_DAYS_DEFAULT),
+  message: z.string().trim().min(1).max(1000).optional(),
+});
+export type CreateDealSignatureRequestBody = z.input<typeof CreateDealSignatureRequestBody>;

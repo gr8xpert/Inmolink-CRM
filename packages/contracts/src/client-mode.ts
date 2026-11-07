@@ -96,6 +96,8 @@ export const CLIENT_MODE_REVIEWED_FIELDS: Readonly<Record<string, string>> = {
   introducerAcceptedAt: 'a timestamp of an MLS viewing (MLS routes are refused in Client Mode)',
   ownerConfirmedAt: 'a timestamp of an MLS deal handshake (R2-04a; MLS routes are refused in Client Mode)',
   introducerConfirmedAt: 'a timestamp of an MLS deal handshake (R2-04a; MLS routes are refused in Client Mode)',
+  counterpart:
+    "the other agency's collaboration agreement signers (R2-05c `GET /v1/mls/deals/:id/signers`): needs mls.deals.write and documents.forms.sign, both refused in Client Mode",
   canSetCommission: 'a boolean permission flag, always false for Client Mode tokens (S17-F5); no commission value',
   resolutionNote:
     'the staff note on a duplicate dispute (R2-03b): dedupe routes are refused in Client Mode, and the note is written for the disputing agency',

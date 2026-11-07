@@ -43,7 +43,7 @@ import { impersonatorOf } from '../../impersonation';
 import * as identity from '../identity';
 import { DOCUMENT_LINK_SECONDS, DOCUMENT_MAX_BYTES } from './config';
 import { documentsEvents } from './events';
-import { FORMS_FLAG, formDocumentKey } from './forms';
+import { FORMS_FLAG, formDocumentKey, lockDealAgreement } from './forms';
 import { FormData } from './forms-data';
 import { FORM_SIGNERS } from './forms-templates';
 import { assertCan } from './policy';
@@ -69,6 +69,15 @@ const uiLocale = (l: string) => (isUiLocale(l) ? l : DEFAULT_UI_LOCALE);
 async function assertEsignEnabled(ctx: Ctx): Promise<void> {
   if (!(await flag(ctx, FORMS_FLAG))) throw new AppError('FORMS_NOT_ENABLED');
   if (!(await flag(ctx, ESIGN_FLAG))) throw new AppError('ESIGN_NOT_ENABLED');
+}
+
+/**
+ * R2-05c: the caller may ask for signatures (`documents.forms.sign`: no Client Mode, never impersonated) and both flags
+ * are on — what `mls.dealSigners` checks before it reads the other agency's signers.
+ */
+export async function assertCanRequestSignatures(ctx: Ctx): Promise<void> {
+  assertCan(ctx, 'documents.forms.sign');
+  await assertEsignEnabled(ctx);
 }
 
 const statusOf = (r: repo.RequestRow, now = clock.nowMs()): SignatureRequestStatus =>
@@ -120,14 +129,40 @@ const invalid = (reason: string, extra: Record<string, unknown> = {}): never => 
   throw new AppError('SIGNERS_INVALID', { reason, ...extra });
 };
 
-/** The signers fit the form: roles of its template, every party of a collaboration agreement, no address twice. */
-function checkSigners(template: string, signers: CreateSignatureRequestBody['signers']): void {
+/**
+ * Who may sign a deal's collaboration agreement for each party (R2-05c): the addresses `mls.dealSigners` read through
+ * the `deal_signers()` definer — each party's deal member and admins. Passed by `mls.createDealSignatureRequest` only.
+ */
+export interface DealSigners {
+  dealId: string;
+  /** Signer role (`ownerAgency`, `introducerAgency`) → the e-mail addresses accepted for it. */
+  allowed: Readonly<Record<string, readonly string[]>>;
+}
+
+const emailKey = (e: string) => e.trim().toLowerCase();
+
+/**
+ * The signers fit the form: roles of its template, every party of a collaboration agreement, no address twice. A
+ * collaboration agreement is signed only from its deal (`deal`): each agency's signer is one of that party's deal
+ * members or admins (R2-05c — the requester cannot name a stranger as the other agency's signatory).
+ */
+function checkSigners(
+  form: { template: string; dealId: string | null },
+  signers: CreateSignatureRequestBody['signers'],
+  deal: DealSigners | undefined,
+): void {
+  const { template } = form;
   const roles = FORM_SIGNERS[template as keyof typeof FORM_SIGNERS] ?? [];
   for (const s of signers) if (!roles.includes(s.role)) invalid('role', { role: s.role });
   if (template === 'COLLABORATION_AGREEMENT') {
+    if (!deal || form.dealId !== deal.dealId) invalid('deal');
     for (const role of roles) if (!signers.some((s) => s.role === role)) invalid('party', { role });
+    for (const s of signers) {
+      const allowed = (deal?.allowed[s.role] ?? []).map(emailKey);
+      if (!allowed.includes(emailKey(s.email))) invalid('party_member', { role: s.role });
+    }
   }
-  const emails = signers.map((s) => s.email.trim().toLowerCase());
+  const emails = signers.map((s) => emailKey(s.email));
   if (new Set(emails).size !== emails.length) invalid('duplicate');
 }
 
@@ -139,7 +174,7 @@ export async function createSignatureRequest(
   ctx: Ctx,
   formId: string,
   body: CreateSignatureRequestBody,
-  opts: { idempotencyKey?: string } = {},
+  opts: { idempotencyKey?: string; deal?: DealSigners } = {},
 ): Promise<{ request: SignatureRequestDto; replayed: boolean }> {
   assertCan(ctx, 'documents.forms.sign');
   await assertEsignEnabled(ctx);
@@ -158,13 +193,18 @@ export async function createSignatureRequest(
   if (prior) {
     return { request: toDto(prior.row, await repo.signersOf(ctx.tx, agencyId, [prior.row.id])), replayed: true };
   }
-  // one request at a time per form (the signed check and the insert)
+  // R2-05c: a deal's agreement, then one request at a time per form (the signed check and the insert)
+  if (opts.deal) await lockDealAgreement(ctx, opts.deal.dealId);
   await advisoryLock(ctx.tx, `documents.sign-form:${formId}`);
   const form = await repo.formForSigning(ctx.tx, agencyId, formId);
   if (!form) throw new AppError('FORM_DOCUMENT_NOT_FOUND');
   if (form.status !== 'READY' || !form.sha256) throw new AppError('FORM_NOT_READY');
   if (await repo.formSigned(ctx.tx, agencyId, formId)) throw new AppError('FORM_ALREADY_SIGNED');
-  checkSigners(form.template, input.signers);
+  checkSigners(form, input.signers, opts.deal);
+  // R2-05c: another agreement of the deal out for signature or signed (a request for this one replaces its own)
+  if (opts.deal && (await repo.dealAgreementInSignature(ctx.tx, agencyId, opts.deal.dealId, formId))) {
+    throw new AppError('AGREEMENT_IN_SIGNATURE');
+  }
   const defaultLocale = uiLocale(form.locale);
   for (const s of input.signers) {
     if (s.locale !== undefined && !isUiLocale(s.locale)) throw new AppError('VALIDATION_FAILED', { field: 'locale' });

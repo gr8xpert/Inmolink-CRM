@@ -118,9 +118,10 @@ async function codeFor(signerId: string): Promise<string> {
   expect(await documents.sendSigningCode({ agencyId: a.agencyId, signerId, otpId: otp?.id as string })).toBe(true);
   const sent = mail.sent.at(-1);
   // the code is in the body only (security review: never in a subject a lock screen shows)
-  expect(sent?.subject).not.toMatch(/\d{6}/);
   const code = /\b(\d{6})\b/.exec(sent?.text ?? '')?.[1];
   expect(code).toMatch(/^\d{6}$/);
+  // (the subject names the contact, whose random test name may hold digits: the code itself never appears there)
+  expect(sent?.subject).not.toMatch(new RegExp(`\\b${code}\\b`));
   return code as string;
 }
 
@@ -316,14 +317,28 @@ describe('[R2-05b] signing requests', () => {
 
   it('[R2-05b] a collaboration agreement needs a signer for each deal party', async () => {
     const form = await readyForm();
+    const dealId = newId();
     // the deal's form as R2-05a stores it (made from the deal room): a READY collaboration agreement
     await system((tx) =>
-      tx.execute(sql`update form_documents set template = 'COLLABORATION_AGREEMENT' where id = ${form.id}`),
+      tx.execute(
+        sql`update form_documents set template = 'COLLABORATION_AGREEMENT', deal_id = ${dealId} where id = ${form.id}`,
+      ),
     );
-    const one = [{ name: 'Owner Rep', email: `owner-${RUN}@example.com`, role: 'ownerAgency' }];
-    expect(await refusal(ask(form.id, { signers: one }))).toBe('SIGNERS_INVALID');
-    const both = [...one, { name: 'Intro Rep', email: `intro-${RUN}@example.com`, role: 'introducerAgency' }];
-    const { request } = await ask(form.id, { signers: both });
+    const owner = `owner-${RUN}@example.com`;
+    const intro = `intro-${RUN}@example.com`;
+    const deal = { dealId, allowed: { ownerAgency: [owner], introducerAgency: [intro] } };
+    const askDeal = (signers: unknown[], d: documents.DealSigners | null = deal) =>
+      as(a, (ctx) => documents.createSignatureRequest(ctx, form.id, { signers } as never, d ? { deal: d } : {}));
+    const one = [{ name: 'Owner Rep', email: owner, role: 'ownerAgency' }];
+    expect(await refusal(askDeal(one))).toBe('SIGNERS_INVALID');
+    const both = [...one, { name: 'Intro Rep', email: intro.toUpperCase(), role: 'introducerAgency' }];
+    // R2-05c: only from its deal (mls.createDealSignatureRequest), never the forms endpoint or another deal
+    expect(await refusal(askDeal(both, null))).toBe('SIGNERS_INVALID');
+    expect(await refusal(askDeal(both, { ...deal, dealId: newId() }))).toBe('SIGNERS_INVALID');
+    // R2-05c: the other agency's signer must be one of its deal members or admins
+    const stranger = [...one, { name: 'Stranger', email: `stranger-${RUN}@example.com`, role: 'introducerAgency' }];
+    expect(await refusal(askDeal(stranger))).toBe('SIGNERS_INVALID');
+    const { request } = await askDeal(both);
     expect(request.signers.map((s) => s.role)).toEqual(['ownerAgency', 'introducerAgency']);
   });
 });

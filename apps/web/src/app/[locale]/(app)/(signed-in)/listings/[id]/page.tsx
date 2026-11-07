@@ -10,6 +10,7 @@ import { webConfig } from '@/server/env';
 import { loadCollaborationBlock } from '../../collaborations/load-rights';
 import { RegisterClientLink } from '../../collaborations/register-link';
 import { ListedByPanel } from '../../duplicates/listed-by';
+import { FormsSection } from '../../forms/forms-section';
 import { listingTaxonomy } from '../taxonomy';
 import { BookmarkButton } from './bookmark-button';
 import { ListingEditor } from './listing-editor';
@@ -137,6 +138,10 @@ export default async function ListingEditorPage(props: { params: Promise<{ id: s
           readOnly={res.listing.data.deletedAt !== null}
           messages={messages.listings}
         />
+      ) : null}
+      {/* R2-05c: forms are made from the agency's own live listings only (hidden while the forms library is off). */}
+      {res.listing.ok && res.listing.data.private !== null && res.listing.data.deletedAt === null ? (
+        <FormsSection session={sessionRef(session.user)} scope={{ listingId: res.listing.data.id }} />
       ) : null}
     </div>
   );

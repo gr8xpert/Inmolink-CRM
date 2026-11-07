@@ -1365,7 +1365,8 @@
                             "SIGNATURE_REQUEST_NOT_FOUND",
                             "FORM_NOT_READY",
                             "FORM_ALREADY_SIGNED",
-                            "SIGNERS_INVALID"
+                            "SIGNERS_INVALID",
+                            "AGREEMENT_IN_SIGNATURE"
                           ],
                           "type": "string"
                         },
@@ -3650,7 +3651,8 @@
                             "SIGNATURE_REQUEST_NOT_FOUND",
                             "FORM_NOT_READY",
                             "FORM_ALREADY_SIGNED",
-                            "SIGNERS_INVALID"
+                            "SIGNERS_INVALID",
+                            "AGREEMENT_IN_SIGNATURE"
                           ],
                           "type": "string"
                         },

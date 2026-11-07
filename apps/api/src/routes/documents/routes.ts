@@ -10,6 +10,7 @@ import {
   ListFormDocumentsQuery,
   PdfDocumentDto,
   PdfDocumentParams,
+  SIGNED_PDF_VERIFY_MAX_BYTES,
   SignatureRequestDto,
   SignatureRequestList,
   SignatureRequestParams,
@@ -227,7 +228,7 @@ export async function documentsRoutes(app: FastifyZod): Promise<void> {
 }
 
 /** R2-05b: the largest PDF checked against a request (the forms library's documents are far smaller). */
-const VERIFY_MAX_BYTES = 25 * 1024 * 1024;
+const VERIFY_MAX_BYTES = SIGNED_PDF_VERIFY_MAX_BYTES;
 
 /**
  * R2-05b: the verification, in its own plugin: its body is the raw PDF (only this route of the module accepts one).

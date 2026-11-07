@@ -219,7 +219,49 @@ create function signing_signer(a_id uuid, s_id uuid)
           join public.form_documents f on f.id = r.form_id and f.agency_id = r.agency_id
           join public.agencies g on g.agency_id = s.agency_id and g.status <> 'SUSPENDED'
          where s.id = s_id and s.agency_id = a_id $$;
-revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), website_network_open(uuid, integer, integer), agency_ai_features(uuid), portal_feed_by_token(text), calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer), calendar_feed_tag(text), selection_by_token(text[]), agency_public_profile(uuid, text[]), member_public_profile(uuid), agency_public_members(uuid), signing_signer(uuid, uuid) from public;
+drop function if exists deal_signers(uuid);
+create function deal_signers(d_id uuid)
+  returns table(party text, user_id uuid, name text, email text, deal_member boolean)
+  language sql stable security definer set search_path = pg_catalog, pg_temp
+  as $$ with me as (select nullif(current_setting('app.agency_id', true), '')::uuid as agency_id),
+          own as (select c.agency_id, c.peer_agency_id from public.deals c join me on c.agency_id = me.agency_id
+                   where c.id = d_id),
+          sides as (select s.agency_id, s.party, s.target_kind, s.target_id, s.viewing_request_id
+                      from public.deals s join own o
+                        on s.agency_id = o.agency_id
+                        or (s.agency_id = o.peer_agency_id and s.peer_agency_id = o.agency_id)
+                      join public.agencies g on g.agency_id = s.agency_id and g.status <> 'SUSPENDED'
+                     where s.id = d_id),
+          firsts as (select s.agency_id, s.party,
+                            case when s.party = 'INTRODUCER'
+                                 then (select v.requested_by_user_id from public.viewing_requests v
+                                        where v.id = s.viewing_request_id and v.agency_id = s.agency_id)
+                                 when s.target_kind = 'LISTING'
+                                 then (select p.owner_user_id from public.properties p
+                                        where p.id = s.target_id and p.agency_id = s.agency_id and p.deleted_at is null)
+                            end as first_user
+                       from sides s),
+          candidates as (
+            select f.party, m.user_id, true as deal_member, m.created_at
+              from firsts f
+              join public.agency_members m on m.agency_id = f.agency_id and m.user_id = f.first_user
+               and m.deactivated_at is null and m.role in ('AGENCY_ADMIN', 'DEVELOPER_ADMIN', 'AGENT', 'DEVELOPER_AGENT')
+            union all
+            select f.party, a.user_id, false, a.created_at
+              from firsts f
+              cross join lateral (select m.user_id, m.created_at from public.agency_members m
+                                   where m.agency_id = f.agency_id and m.deactivated_at is null
+                                     and m.role in ('AGENCY_ADMIN', 'DEVELOPER_ADMIN')
+                                   order by m.created_at, m.user_id
+                                   limit 10) a)
+        select x.party, x.user_id, x.name, x.email, x.deal_member
+          from (select distinct on (c.party, c.user_id) c.party, c.user_id, u.name, u.email, c.deal_member, c.created_at
+                  from candidates c
+                  join public.users u on u.id = c.user_id and u.status = 'ACTIVE'
+                 order by c.party, c.user_id, c.deal_member desc) x
+         order by x.party, x.deal_member desc, x.created_at, x.user_id $$;
+revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), website_network_open(uuid, integer, integer), agency_ai_features(uuid), portal_feed_by_token(text), calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer), calendar_feed_tag(text), selection_by_token(text[]), agency_public_profile(uuid, text[]), member_public_profile(uuid), agency_public_members(uuid), signing_signer(uuid, uuid), deal_signers(uuid) from public;
+grant execute on function deal_signers(uuid) to app_user;
 grant execute on function signing_signer(uuid, uuid) to app_public, app_intake;
 grant execute on function member_public_profile(uuid), agency_public_members(uuid) to app_public;
 grant execute on function agency_public_profile(uuid, text[]) to app_public;
@@ -238,6 +280,7 @@ alter function agency_public_profile(uuid, text[]) owner to app_owner;
 alter function member_public_profile(uuid) owner to app_owner;
 alter function agency_public_members(uuid) owner to app_owner;
 alter function signing_signer(uuid, uuid) owner to app_owner;
+alter function deal_signers(uuid) owner to app_owner;
 grant execute on function app_agency(), app_user_id() to app_user, app_system, app_public, app_auth, app_staff;
 grant execute on function app_impersonated_by() to app_user;
 grant execute on function app_agency() to app_intake;

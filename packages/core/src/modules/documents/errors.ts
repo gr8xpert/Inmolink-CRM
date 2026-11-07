@@ -12,4 +12,5 @@ export const documentsErrors = [
   'FORM_NOT_READY',
   'FORM_ALREADY_SIGNED',
   'SIGNERS_INVALID',
+  'AGREEMENT_IN_SIGNATURE',
 ] as const satisfies readonly ErrorCode[];
