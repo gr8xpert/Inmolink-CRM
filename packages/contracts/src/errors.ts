@@ -448,6 +448,16 @@ export const ErrorCodes = {
   FORM_DOCUMENT_NOT_FOUND: 404,
   /** The data a form is merged from is missing (`details.missing`: e.g. the listing's price or commission). */
   FORM_DATA_INCOMPLETE: 422,
+  // R2-05b: simple electronic signature.
+  /** E-signature is off for this agency (feature flag `documents.esign`). */
+  ESIGN_NOT_ENABLED: 403,
+  SIGNATURE_REQUEST_NOT_FOUND: 404,
+  /** The form is not rendered yet (or failed): only a READY form's stored PDF can be signed. */
+  FORM_NOT_READY: 409,
+  /** Everyone signed this form already (a request is SIGNED or COMPLETED): a new version is a new form. */
+  FORM_ALREADY_SIGNED: 409,
+  /** The signers do not fit the form (`details.reason`: a role the template has not, a party missing, a repeat). */
+  SIGNERS_INVALID: 422,
 } as const;
 
 export type ErrorCode = keyof typeof ErrorCodes;

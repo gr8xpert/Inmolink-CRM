@@ -1,5 +1,6 @@
 import { configureDb, loadStackEnv } from '@inmolink/core';
 import * as crm from '@inmolink/core/modules/crm';
+import * as documents from '@inmolink/core/modules/documents';
 import * as presentations from '@inmolink/core/modules/presentations';
 import * as search from '@inmolink/core/modules/search';
 import * as websiteApi from '@inmolink/core/modules/website-api';
@@ -104,6 +105,11 @@ export const publicEnv = {
   /** The feeds bucket only (no fallback to another bucket: the token reads this one, S15-02 review). */
   S3_BUCKET_FEEDS: siteFeedStorageEnv.S3_BUCKET_FEEDS,
   /**
+   * R2-05b: the private bucket, read only for the signing page's documents (`form-documents/…`: a 5-minute signed link
+   * to the form to sign, or the signed PDF). Unset: those links answer 503 (the page still signs).
+   */
+  S3_BUCKET_PRIVATE: z.string().min(1).optional(),
+  /**
    * S15-02, tests only: Turnstile's siteverify endpoint (the e2e stack's stub). Refused in production: there, tokens are
    * always checked by Cloudflare.
    */
@@ -143,7 +149,7 @@ export function loadPublicConfig(env: Record<string, string | undefined> = proce
   return config;
 }
 
-/** The feeds bucket's storage settings, or null when not configured. */
+/** The feeds bucket's storage settings (R2-05b: and the private bucket's, when set), or null when not configured. */
 function storageOf(config: PublicConfig) {
   const bucket = config.S3_BUCKET_FEEDS;
   if (!config.S3_ENDPOINT || !config.S3_REGION || !config.S3_ACCESS_KEY_ID || !config.S3_SECRET_ACCESS_KEY || !bucket) {
@@ -156,7 +162,7 @@ function storageOf(config: PublicConfig) {
       S3_ACCESS_KEY_ID: config.S3_ACCESS_KEY_ID,
       S3_SECRET_ACCESS_KEY: config.S3_SECRET_ACCESS_KEY,
     },
-    { feeds: bucket },
+    { feeds: bucket, ...(config.S3_BUCKET_PRIVATE ? { private: config.S3_BUCKET_PRIVATE } : {}) },
   );
 }
 
@@ -193,6 +199,20 @@ async function setup(): Promise<PublicConfig> {
   presentations.configurePresentations({
     tokenKey: config.HMAC_KEY,
     publicBaseUrl: config.PUBLIC_URL ?? LOCAL_PUBLIC_URL,
+  });
+  // R2-05b: signing links and codes are checked with the key the worker made them with (HMAC_KEY); a code request
+  // solves Turnstile on this host (required in production: without the secret, codes are refused).
+  documents.configureSigning({
+    tokenKey: config.HMAC_KEY,
+    publicBaseUrl: config.PUBLIC_URL ?? LOCAL_PUBLIC_URL,
+    turnstile: config.TURNSTILE_SECRET_KEY
+      ? createTurnstileVerifier({
+          secretKey: config.TURNSTILE_SECRET_KEY,
+          logger,
+          ...(config.TURNSTILE_VERIFY_URL ? { endpoint: config.TURNSTILE_VERIFY_URL } : {}),
+        })
+      : null,
+    requireTurnstile: config.NODE_ENV === 'production',
   });
   // R2-02g: unsubscribe links are checked with the key the worker signed them with (HMAC_KEY).
   crm.configureUnsubscribeLinks({ tokenKey: config.HMAC_KEY, publicBaseUrl: config.PUBLIC_URL ?? LOCAL_PUBLIC_URL });

@@ -379,7 +379,14 @@ export const tenantTables: Record<string, TenantTable> = {
     // R2-02g: a client's one-click unsubscribe request (the worker withdraws the consent).
     intakeAppend: {
       column: 'type',
-      values: ['websites.lead.received', 'presentations.selection.interacted', 'crm.contact.unsubscribeRequested'],
+      values: [
+        'websites.lead.received',
+        'presentations.selection.interacted',
+        'crm.contact.unsubscribeRequested',
+        // R2-05b: a signer asked for a one-time code (the worker e-mails it) and signed (the worker applies it).
+        'documents.signature.codeRequested',
+        'documents.signature.signed',
+      ],
     },
     staff: {
       // S13-02: a staff plan grant announces the agency's plan (`billing.plan.changed`). S13-03: a staff bulk operation
@@ -1512,6 +1519,8 @@ export const tenantTables: Record<string, TenantTable> = {
     },
     userNoUpdate: true,
     userNoDelete: true,
+    // R2-05b: the public signing page reads a signer's form label and template through `signing_signer()`.
+    definerRead: true,
     base: {
       template: 'OFFER',
       locale: 'en',
@@ -1520,6 +1529,51 @@ export const tenantTables: Record<string, TenantTable> = {
       label: 'iso',
       data: '{}',
     },
+  },
+  // R2-05b: signing requests over a READY form's SHA-256. A member asks as themself (OPEN, nothing signed, sealed or
+  // cancelled); only the worker (app_system) advances one (all signed, the signed PDF's hash, superseded) and only
+  // erasure removes it (the form's cascade). The public signing page reads a signer's request through the SECURITY
+  // DEFINER `signing_signer()` (owner app_owner, `definerRead`) — never a scan, never another signer's.
+  signature_requests: {
+    kind: 'STRICT',
+    memberWrite: {
+      insert:
+        "created_by_user_id = app_user_id() and status = 'OPEN' and all_signed_at is null and signed_sha256 is null and signed_size_bytes is null and completed_at is null and cancelled_at is null",
+      own: { created_by_user_id: SAMPLE_USER },
+    },
+    userNoUpdate: true,
+    userNoDelete: true,
+    definerRead: true,
+    base: {
+      provider: 'builtin',
+      status: 'OPEN',
+      document_sha256: 'a'.repeat(64),
+    },
+  },
+  // R2-05b: a request's signers — inserted with their request by the member, advanced by the worker alone (invited,
+  // signed from the signer's own SIGNED event); read by the signing page through `signing_signer()`.
+  // `signature_signers_guard` (security review): a request path inserts signers only into its agency's OPEN request,
+  // nothing invited or signed yet.
+  signature_signers: {
+    kind: 'STRICT',
+    userAppendRead: true,
+    triggers: ['signature_signers_guard'],
+    definerRead: true,
+    base: { position: 1, role: 'buyer', name: 'Iso Signer', email: 'iso@example.test', locale: 'en' },
+  },
+  // R2-05b: what a signer did on the signing page — appended by the public pages as `app_intake` (pinned to the
+  // signer's agency; they read back only ids, kinds and times, never the signature, IP or user agent), never changed
+  // (`userReadOnly`: members read the audit trail, no request plants or rewrites it). `signing_signer()` reads whether
+  // the signer signed.
+  signature_events: {
+    kind: 'STRICT',
+    userReadOnly: true,
+    intake: { selectColumns: ['id', 'signer_id', 'kind', 'otp_id', 'otp_expires_at', 'created_at'] },
+    definerRead: true,
+    // `signature_events_guard` (security review): the database stamps every appended event's time (the code limits
+    // count by it) and caps a code's expiry at 10 minutes.
+    triggers: ['signature_events_guard'],
+    base: { kind: 'OTP_SENT', otp_expires_at: '2030-01-01T00:00:00Z' },
   },
   // R2-04c: a party's dispute of a deal (its own row, on its own copy of the deal) — a member opens one (OPEN, as
   // themself), never changes or removes it; staff read every agency's and resolve them (data ops and super admins:

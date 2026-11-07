@@ -78,6 +78,11 @@ try {
     // R2-02g: every alert carries the client's one-click unsubscribe link (none is sent without one).
     crm.configureUnsubscribeLinks({ tokenKey: config.HMAC_KEY, publicBaseUrl: config.PUBLIC_PAGES_URL ?? null });
   }
+  // R2-05b: signing links (invitations and completion mails: email pool) and their codes, made with HMAC_KEY like the
+  // public signing page that checks them.
+  if ((config.WORKER_POOLS.includes('email') || config.WORKER_POOLS.includes('pdf')) && config.HMAC_KEY) {
+    documents.configureSigning({ tokenKey: config.HMAC_KEY, publicBaseUrl: config.PUBLIC_PAGES_URL ?? null });
+  }
   // S12-05: the pdf pool — listings presented like the website API (media CDN, white-label), rendered by Chrome whose
   // pages may load only the media CDN's assets.
   if (config.WORKER_POOLS.includes('pdf')) {

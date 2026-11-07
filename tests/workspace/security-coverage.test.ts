@@ -114,6 +114,22 @@ const HANDLER_LIMITS: Readonly<Record<string, { how: string; evidence: [file: st
     how: 'per-IP and per-link unsubscribe limits (crm.checkUnsubscribeLimits, R2-02g)',
     evidence: ['apps/public/src/unsubscribe/handlers.ts', 'checkUnsubscribeLimits(rateLimiter()'],
   },
+  'apps/public/src/app/sign/[token]/route.ts': {
+    how: 'R2-05b: per-IP page views; per-link and per-IP code requests and signatures (documents.checkSigningLimits)',
+    evidence: ['apps/public/src/signing/handlers.ts', 'checkSigningLimits(rateLimiter()'],
+  },
+  'apps/public/src/app/sign/[token]/document/route.ts': {
+    how: 'R2-05b: per-IP view limits before the signed link (documents.checkSigningLimits)',
+    evidence: ['apps/public/src/signing/handlers.ts', "action: 'view', token"],
+  },
+  'apps/public/src/app/sign/[token]/signed/route.ts': {
+    how: 'R2-05b: per-IP view limits before the signed link (documents.checkSigningLimits)',
+    evidence: ['apps/public/src/signing/handlers.ts', "action: 'view', token"],
+  },
+  'apps/public/src/app/sign-assets/[file]/route.ts': {
+    how: 'exempt: one constant script, immutable and CDN-cached; any other name a 404',
+    evidence: ['apps/public/src/app/sign-assets/[file]/route.ts', 'immutable'],
+  },
   'apps/public/src/app/sitemap.xml/route.ts': {
     how: 'exempt: one stored file, CDN-cached an hour (SITEMAP_CACHE)',
     evidence: ['apps/public/src/portal/sitemaps.ts', 'SITEMAP_CACHE'],

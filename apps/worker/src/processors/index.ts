@@ -131,6 +131,10 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     dataExportJobs.runDataExport,
   ],
   email: [
+    // R2-05b: signing invitations, one-time codes and "signed by everyone" mails.
+    documentsJobs.inviteSigners,
+    documentsJobs.sendSigningCode,
+    documentsJobs.notifySignatureCompleted,
     identityJobs.sendAuthEmail,
     identityJobs.sendInviteEmail,
     identityJobs.sendTwoFactorNotice,
@@ -245,6 +249,8 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     // R2-05a: an erased contact's forms are deleted (PDFs, then rows).
     documentsJobs.eraseContactForms,
     documentsJobs.repointContactForms,
+    // R2-05b: a signer's signature applied (order, code, hash re-checked).
+    documentsJobs.applySignature,
     // S11-01: a contact merge moves the agency's client registrations to the survivor.
     mlsJobs.repointRegistrations,
     // R2-02a: a contact merge moves its client profiles to the survivor; an erasure deletes them with their vectors.
@@ -316,7 +322,12 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     socialJobs.backfillMetaUsers,
   ],
   // S12-05: brochures and portfolios, and accepted viewing terms (Chrome through @inmolink/platform/pdf).
-  pdf: [documentsJobs.renderListings, documentsJobs.renderViewingTerms, documentsJobs.renderForm],
+  pdf: [
+    documentsJobs.renderListings,
+    documentsJobs.renderViewingTerms,
+    documentsJobs.renderForm,
+    documentsJobs.sealSignature,
+  ],
 };
 
 /** Digests in flight per process (each one a database claim and one e-mail): the SMTP relay sets the pace, not slots. */

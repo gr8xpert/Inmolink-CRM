@@ -17,7 +17,7 @@ import * as gdprRepo from './gdpr-repo';
  * S16-F5: every category the privacy notice lists (`SUBJECT_EXPORT_CATEGORIES`) — besides the contact, notes, leads,
  * tasks, activities and consents, the website enquiries their leads came from, the calendar events they attend, their
  * seller prospects, the selections made for them (and what they did on them), their client registrations and viewing
- * requests (R2-02a: and their search profiles; R2-05a: the forms made for them) — and every table is paged (`crm.SUBJECT_PAGE_MAX` rows per read), so nothing stops at 1,000 rows.
+ * requests (R2-02a: and their search profiles; R2-05a: the forms made for them; R2-05b: their signatures on them) — and every table is paged (`crm.SUBJECT_PAGE_MAX` rows per read), so nothing stops at 1,000 rows.
  */
 
 export type SubjectTableName =
@@ -34,6 +34,7 @@ export type SubjectTableName =
   | 'registrations'
   | 'viewings'
   | 'forms'
+  | 'signatures'
   | 'activities'
   | 'consents';
 
@@ -300,6 +301,49 @@ export function subjectTables(agencyId: string, contactId: string): SubjectTable
         );
         for await (const f of all) {
           yield [f.id, f.template, f.locale, f.status, f.label, f.listingId, f.sha256, f.createdAt, f.renderedAt];
+        }
+      },
+    },
+    {
+      // R2-05b: the client-side signatures on those forms (never the agency's own signers) — who, the address the code
+      // went to, when, how, from which IP and browser
+      name: 'signatures',
+      header: [
+        'id',
+        'request_id',
+        'form_id',
+        'role',
+        'name',
+        'email',
+        'invited_at',
+        'signed_at',
+        'signature_kind',
+        'ip',
+        'user_agent',
+      ],
+      async *rows() {
+        const all = paged(
+          (after: string | null) =>
+            as((tx) =>
+              documents.subjectSignatures(tx, agencyId, contactId, documents.AGENCY_SIGNER_ROLES, after, PAGE),
+            ),
+          (s) => s.id,
+          PAGE,
+        );
+        for await (const s of all) {
+          yield [
+            s.id,
+            s.requestId,
+            s.formId,
+            s.role,
+            s.name,
+            s.email,
+            s.invitedAt,
+            s.signedAt,
+            s.signatureKind,
+            s.ip,
+            s.userAgent,
+          ];
         }
       },
     },

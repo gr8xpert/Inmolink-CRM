@@ -39,6 +39,48 @@ export function registerDocumentsSubscriptions(): void {
         }),
       { name: 'documents.contact.erased' },
     ),
+    // R2-05b, e-signature: the tenant is the event's (RLS-checked); each job checks the row is that agency's.
+    subscribe(
+      documentsEvents.signatureRequested,
+      (payload, meta) =>
+        documentsJobs.inviteSigners.enqueue({
+          eventId: meta.eventId,
+          agencyId: meta.agencyId,
+          requestId: payload.requestId,
+        }),
+      { name: 'documents.signature.invite' },
+    ),
+    subscribe(
+      documentsEvents.signatureCodeRequested,
+      (payload, meta) =>
+        documentsJobs.sendSigningCode.enqueue({
+          agencyId: meta.agencyId,
+          signerId: payload.signerId,
+          otpId: payload.otpId,
+        }),
+      { name: 'documents.signature.code' },
+    ),
+    subscribe(
+      documentsEvents.signatureSigned,
+      (payload, meta) =>
+        documentsJobs.applySignature.enqueue({
+          agencyId: meta.agencyId,
+          signerId: payload.signerId,
+          eventId: payload.eventId,
+        }),
+      { name: 'documents.signature.apply' },
+    ),
+    subscribe(
+      documentsEvents.signatureAllSigned,
+      (payload, meta) => documentsJobs.sealSignature.enqueue({ agencyId: meta.agencyId, requestId: payload.requestId }),
+      { name: 'documents.signature.seal' },
+    ),
+    subscribe(
+      documentsEvents.signatureCompleted,
+      (payload, meta) =>
+        documentsJobs.notifySignatureCompleted.enqueue({ agencyId: meta.agencyId, requestId: payload.requestId }),
+      { name: 'documents.signature.notify' },
+    ),
   ];
 }
 

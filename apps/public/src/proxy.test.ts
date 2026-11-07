@@ -64,6 +64,14 @@ describe('public locale routing', () => {
     for (const url of ['/u/abcDEF123_-', '/u/abcDEF123_-?l=es', '/s/abcDEF123_-']) expect(runs(url), url).toBe(false);
     expect(runs('/useful-page')).toBe(true);
   });
+
+  it('[R2-05b] the signing link (`/sign/<token>`, its files and script) bypasses the proxy', () => {
+    const runs = (url: string) => unstable_doesMiddlewareMatch({ config, url });
+    for (const url of ['/sign/abcDEF123_-', '/sign/abcDEF123_-?l=es', '/sign/abc/document', '/sign-assets/sign.x']) {
+      expect(runs(url), url).toBe(false);
+    }
+    expect(runs('/signature-homes')).toBe(true);
+  });
 });
 
 const SITE = '01900000-0000-7000-8000-0000000000aa';

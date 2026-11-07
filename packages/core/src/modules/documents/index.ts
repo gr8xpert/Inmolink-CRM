@@ -60,6 +60,55 @@ export {
   requestPortfolio,
   startDocument,
 } from './service';
+// R2-05b: simple electronic signature (member API, the worker's steps, the public signing page's core).
+export { signedFormKey } from './signature-keys';
+export {
+  AGENCY_SIGNER_ROLES,
+  applySignatureEvent,
+  createSignatureRequest,
+  ESIGN_FLAG,
+  getSignatureRequest,
+  inviteSigners,
+  listSignatureRequests,
+  notifySignatureCompleted,
+  sealSignatureRequest,
+  sendSigningCode,
+  verifyAgainst,
+  verifySignedPdf,
+} from './signatures';
+export { auditTrailHtml } from './signatures-audit';
+export { subjectSignatures } from './signatures-repo';
+export {
+  checkSigningLimits,
+  drawnSignature,
+  requestSigningCode,
+  SIGNED_FILE_DAYS,
+  SIGNING_CODE_TTL_SECONDS,
+  SIGNING_CODES_PER_DAY,
+  SIGNING_FAILURES_PER_DAY,
+  SIGNING_GUESSES_PER_CODE,
+  SIGNING_LIMITS,
+  SIGNING_TURNSTILE_ACTION,
+  type SignatureInput,
+  type SigningPageModel,
+  type SigningState,
+  signedName,
+  signingFileUrl,
+  signingPage,
+  submitSignature,
+} from './signing-public';
+export {
+  configureSigning,
+  maskedEmail,
+  readSigningToken,
+  SIGNING_TOKEN,
+  signingCode,
+  signingCodeMatches,
+  signingLinksConfigured,
+  signingPath,
+  signingToken,
+  signingUrl,
+} from './signing-token';
 export { registerDocumentsSubscriptions, unregisterDocumentsSubscriptions } from './subscriptions';
 export {
   brochureHtml,

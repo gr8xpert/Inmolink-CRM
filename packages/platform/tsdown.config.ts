@@ -26,6 +26,7 @@ export default defineConfig({
     'search/index': 'src/search/index.ts',
     'server/index': 'src/server/index.ts',
     'pdf/index': 'src/pdf/index.ts',
+    'esign/index': 'src/esign/index.ts',
     'storage/index': 'src/storage/index.ts',
     'telemetry/index': 'src/telemetry/index.ts',
     'telemetry/register': 'src/telemetry/register.ts',

@@ -169,14 +169,23 @@ describe('RLS generator', () => {
     // S9-03 adds the portal feed token lookup (app_public), S10-06 the
     // calendar feed token lookup (app_public), S11-F7 the calendar feed fingerprint (app_public), S13-F17 the AI toggles
     // lookup (app_public), S13-F1 the selection token lookup (app_public), S15-03 the agency profile lookup (app_public),
-    // S15-F10 the member profile and agency team lookups (app_public).
-    expect(out.match(/security definer/gi)).toHaveLength(10);
+    // S15-F10 the member profile and agency team lookups (app_public), R2-05b the signing page's signer (app_public).
+    expect(out.match(/security definer/gi)).toHaveLength(11);
     expect(out).toContain(
       'create or replace function app_partition_maintenance() returns void language plpgsql security definer',
     );
     expect(out).toContain('set search_path = pg_catalog, pg_temp');
     expect(out).toContain('grant execute on function app_partition_maintenance() to app_system;');
     expect(out).not.toMatch(/app_partition_maintenance\(\) to [^;]*app_(?:user|public|auth|staff)/);
+  });
+
+  it('[R2-05b] the signing page reads one signer through a definer only app_public and app_intake execute', () => {
+    expect(out).toContain('grant execute on function signing_signer(uuid, uuid) to app_public, app_intake;');
+    expect(out).not.toMatch(/signing_signer\(uuid, uuid\) to [^;]*app_(?:user|system|auth|staff|media)/);
+    expect(out).toContain('alter function signing_signer(uuid, uuid) owner to app_owner;');
+    const fn = /create function signing_signer[^;]*;/.exec(out)?.[0] ?? '';
+    expect(fn).toContain('where s.id = s_id and s.agency_id = a_id');
+    expect(fn).not.toMatch(/f\.data(?! -> 'agency' ->> 'name')|signature_png|user_agent|created_by_user_id/);
   });
 
   it('[S7-F11] no app role can execute the S7-F4 commission lookup: dropped, not a helper, never created or granted', () => {

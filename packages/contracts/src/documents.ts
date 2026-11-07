@@ -189,3 +189,99 @@ export const FormDocumentDto = z.strictObject({
 export type FormDocumentDto = z.infer<typeof FormDocumentDto>;
 export const FormDocumentPage = pageOf(FormDocumentDto);
 export type FormDocumentPage = z.infer<typeof FormDocumentPage>;
+
+// ── R2-05b, simple electronic signature ──────────────────────────────────────────────────────────────
+
+/** People asked to sign one form at most. */
+export const SIGNATURE_SIGNERS_MAX = 10;
+/** How long a signing request stays open at most (days). */
+export const SIGNATURE_EXPIRY_DAYS_MAX = 60;
+
+export const SignatureSignerInput = z.strictObject({
+  name: z.string().trim().min(1).max(200),
+  email: z.email().max(254),
+  /** The signature block they sign (the form template's signer roles, e.g. `buyer` and `agency`). */
+  role: z.string().regex(/^[a-zA-Z]{1,32}$/),
+  /** Their e-mails' and signing page's language (EN or ES); default: the form's. */
+  locale: z
+    .string()
+    .regex(/^[a-z]{2}$/)
+    .optional(),
+});
+export type SignatureSignerInput = z.infer<typeof SignatureSignerInput>;
+
+/**
+ * `POST /v1/documents/forms/:id/signature-requests`: ask these people to sign a READY form (its SHA-256 as stored).
+ * `ordered`: they sign one after another, in the order given. A new request replaces the form's open one.
+ */
+export const CreateSignatureRequestBody = z.strictObject({
+  signers: z.array(SignatureSignerInput).min(1).max(SIGNATURE_SIGNERS_MAX),
+  ordered: z.boolean().default(false),
+  expiresInDays: z.number().int().min(1).max(SIGNATURE_EXPIRY_DAYS_MAX).default(14),
+  message: z.string().trim().min(1).max(1000).optional(),
+});
+export type CreateSignatureRequestBody = z.input<typeof CreateSignatureRequestBody>;
+
+export const SignatureRequestParams = z.strictObject({ id: z.uuid() });
+export type SignatureRequestParams = z.infer<typeof SignatureRequestParams>;
+
+/** `EXPIRED`: still open past its expiry (nobody can sign any more). */
+export const SignatureRequestStatus = z.enum(['OPEN', 'SIGNED', 'COMPLETED', 'CANCELLED', 'FAILED', 'EXPIRED']);
+export type SignatureRequestStatus = z.infer<typeof SignatureRequestStatus>;
+
+export const SignatureSignerDto = z.strictObject({
+  id: z.uuid(),
+  position: z.number().int(),
+  role: z.string(),
+  name: z.string(),
+  email: z.string(),
+  locale: z.string(),
+  invitedAt: z.iso.datetime().nullable(),
+  signedAt: z.iso.datetime().nullable(),
+  /** How they signed: `TYPED` (their name) or `DRAWN`; null until signed. */
+  signatureKind: z.enum(['TYPED', 'DRAWN']).nullable(),
+  /** The address they signed from (the audit trail's), once signed. */
+  signedIp: z.string().nullable(),
+});
+export type SignatureSignerDto = z.infer<typeof SignatureSignerDto>;
+
+export const SignatureRequestDto = z.strictObject({
+  id: z.uuid(),
+  formId: z.uuid(),
+  provider: z.string(),
+  status: SignatureRequestStatus,
+  ordered: z.boolean(),
+  /** SHA-256 of the form's PDF the signers signed. */
+  documentSha256: z.string(),
+  /** SHA-256 of the signed PDF (original + audit trail), once `COMPLETED`. */
+  signedSha256: z.string().nullable(),
+  signedSizeBytes: z.number().int().nullable(),
+  message: z.string().nullable(),
+  expiresAt: z.iso.datetime(),
+  createdByUserId: z.uuid(),
+  createdAt: z.iso.datetime(),
+  allSignedAt: z.iso.datetime().nullable(),
+  completedAt: z.iso.datetime().nullable(),
+  cancelledAt: z.iso.datetime().nullable(),
+  signers: z.array(SignatureSignerDto),
+  /** A short signed download link of the signed PDF (`GET …/signature-requests/:id` once `COMPLETED`); else null. */
+  url: z.string().nullable(),
+  urlExpiresAt: z.iso.datetime().nullable(),
+});
+export type SignatureRequestDto = z.infer<typeof SignatureRequestDto>;
+
+export const SignatureRequestList = z.strictObject({ items: z.array(SignatureRequestDto) });
+export type SignatureRequestList = z.infer<typeof SignatureRequestList>;
+
+/**
+ * `POST /v1/documents/signature-requests/:id/verify` (raw PDF body): whether the file is the signed PDF (`SIGNED`) or
+ * the original the signers signed (`ORIGINAL`) — byte for byte, by SHA-256 — or neither (`NONE`).
+ */
+export const VerifySignedPdfResult = z.strictObject({
+  requestId: z.uuid(),
+  match: z.enum(['SIGNED', 'ORIGINAL', 'NONE']),
+  sha256: z.string(),
+  documentSha256: z.string(),
+  signedSha256: z.string().nullable(),
+});
+export type VerifySignedPdfResult = z.infer<typeof VerifySignedPdfResult>;

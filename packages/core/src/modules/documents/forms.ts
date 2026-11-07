@@ -46,6 +46,7 @@ import { FORM_TEMPLATE_VERSION, type FormAgency, type FormClient, FormData, type
 import * as repo from './forms-repo';
 import { formHtml } from './forms-templates';
 import { assertCan } from './policy';
+import { signedObjectKeys } from './signature-keys';
 import { docFormat } from './templates';
 
 /** The feature flag the forms library ships dark behind (STATUS Decisions R2-05a). */
@@ -514,20 +515,23 @@ export function repointContactForms(p: { agencyId: string; survivorId: string; m
 const ERASE_BATCH = 500;
 const DELETES_AT_ONCE = 16;
 
-/** The PDFs of these forms (a missing object deletes fine), 16 at a time. */
-async function deleteObjects(agencyId: string, ids: readonly string[]): Promise<void> {
-  for (let i = 0; i < ids.length; i += DELETES_AT_ONCE) {
-    await Promise.all(
-      ids.slice(i, i + DELETES_AT_ONCE).map((id) => storage().delete('private', formDocumentKey(agencyId, id))),
-    );
+/**
+ * The PDFs of these forms and their signed PDFs (`signed`: keys read before the rows went — R2-05b), 16 at a time (a
+ * missing object deletes fine).
+ */
+async function deleteObjects(agencyId: string, ids: readonly string[], signed: readonly string[]): Promise<void> {
+  const keys = [...ids.map((id) => formDocumentKey(agencyId, id)), ...signed];
+  for (let i = 0; i < keys.length; i += DELETES_AT_ONCE) {
+    await Promise.all(keys.slice(i, i + DELETES_AT_ONCE).map((key) => storage().delete('private', key)));
   }
 }
 
 /**
  * GDPR (`crm.contact.erased`, and the agency erasure's contacts): the forms made for these contacts are deleted — the
  * PDFs first, then the rows, then the PDFs again (a retry finds what a failed delete left; a render racing the
- * erasure deletes what it stored once it finds the row gone). Unsigned forms are drafts of the agency's
- * paperwork, not evidence (R2-05b decides what a signed one keeps). Idempotent.
+ * erasure deletes what it stored once it finds the row gone). R2-05b: signed forms too — their signing requests,
+ * signers' names, e-mails, IPs and signatures (the cascade) and the signed PDFs (STATUS Decisions R2-05b: no
+ * evidence-retention exception until the lawyer's input, H17). Idempotent.
  */
 export async function eraseContactForms(p: { agencyId: string; contactIds: readonly string[] }): Promise<number> {
   let total = 0;
@@ -538,10 +542,11 @@ export async function eraseContactForms(p: { agencyId: string; contactIds: reado
       )
     ).map((r) => r.id);
     if (ids.length === 0) return total;
-    await deleteObjects(p.agencyId, ids);
+    const signed = await signedObjectKeys(p.agencyId, ids);
+    await deleteObjects(p.agencyId, ids, signed);
     total += await withSystem('documents.forms.contactErased', (tx) => repo.deleteForms(tx, p.agencyId, ids));
     // again: a render that stored its PDF between the first delete and the rows' (its own check covers later ones)
-    await deleteObjects(p.agencyId, ids);
+    await deleteObjects(p.agencyId, ids, signed);
     if (ids.length < ERASE_BATCH) return total;
   }
 }
@@ -553,8 +558,9 @@ export async function eraseAgencyForms(agencyId: string): Promise<{ rows: number
   const ids = (
     await withSystem('documents.forms.agencyErased', (tx) => repo.formIdsOfAgency(tx, agencyId, ERASE_BATCH))
   ).map((r) => r.id);
-  await deleteObjects(agencyId, ids);
+  const signed = await signedObjectKeys(agencyId, ids);
+  await deleteObjects(agencyId, ids, signed);
   const rows = await withSystem('documents.forms.agencyErased', (tx) => repo.deleteForms(tx, agencyId, ids));
-  await deleteObjects(agencyId, ids);
+  await deleteObjects(agencyId, ids, signed);
   return { rows, more: ids.length === ERASE_BATCH };
 }

@@ -58,4 +58,18 @@ describe('documents policy', () => {
     expect(can(partner, 'documents.forms.create')).toBe(false);
     expect(can(partner, 'documents.create')).toBe(true);
   });
+
+  it('[R2-05b] asking for signatures: members who work clients, never in Client Mode, never impersonating', () => {
+    expect(can(admin, 'documents.forms.sign')).toBe(true);
+    expect(can({ ...admin, clientMode: true }, 'documents.forms.sign')).toBe(false);
+    const impersonated = ctxAs({
+      kind: 'user',
+      userId: '01900000-0000-7000-8000-0000000000ab',
+      role: 'AGENCY_ADMIN',
+      impersonatedBy: '01900000-0000-7000-8000-0000000000ff',
+    });
+    expect(can(impersonated, 'documents.forms.sign')).toBe(false);
+    const partner = ctxAs({ kind: 'user', userId: '01900000-0000-7000-8000-0000000000ac', role: 'PARTNER' });
+    expect(can(partner, 'documents.forms.sign')).toBe(false);
+  });
 });

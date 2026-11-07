@@ -43,6 +43,7 @@ export const HELPER_FUNCTIONS = [
   'agency_public_profile',
   'member_public_profile',
   'agency_public_members',
+  'signing_signer',
 ] as const;
 
 /**
@@ -780,7 +781,47 @@ end $$;`,
                         where d.agency_id = a_id and d.listed)
          order by p.display_name, p.id
          limit 100 $$;`,
-    `revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), website_network_open(uuid, integer, integer), agency_ai_features(uuid), portal_feed_by_token(text), calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer), calendar_feed_tag(text), selection_by_token(text[]), agency_public_profile(uuid, text[]), member_public_profile(uuid), agency_public_members(uuid) from public;`,
+    // R2-05b: the public signing page (`/sign/<token>`, app_public — which reads none of the signing tables). For the
+    // signer a verified signing token names (agency and signer ids, HMAC-checked by the caller): that signer's name,
+    // e-mail, role, position and language, whether they signed (applied, or their SIGNED event appended), their
+    // request's state, order, expiry, the hash signed and the signed PDF's, whether an earlier signer of an ordered
+    // request still has to sign, whether a later request for the form supersedes it, the database's now() (every time
+    // check uses it), and the form's label, template, language and agency name as merged — nothing else (never the
+    // form's other data, the other signers' details or who asked). A SIGNED event counts as signed only while the
+    // request is OPEN (applied signatures set signed_at). app_intake runs it too: the page re-checks under its lock. No row for another agency's signer or a SUSPENDED agency. Primary-key
+    // probes of signature_signers, signature_requests, form_documents and agencies; the signer's SIGNED event by its
+    // unique index; earlier signers by the request's (request, position) index (at most 10). Owned by app_owner (their
+    // `definer_read` policies).
+    `drop function if exists signing_signer(uuid, uuid);`,
+    `create function signing_signer(a_id uuid, s_id uuid)
+  returns table(signer_id uuid, agency_id uuid, request_id uuid, form_id uuid, name text, email text, role text,
+                "position" integer, locale text, signed boolean, signed_at timestamptz, request_status text,
+                ordered boolean, waiting boolean, expires_at timestamptz, completed_at timestamptz,
+                document_sha256 text, signed_sha256 text, form_label text, form_template text, form_locale text,
+                agency_name text, superseded boolean, db_now timestamptz)
+  language sql stable security definer set search_path = pg_catalog, pg_temp
+  as $$ select s.id, s.agency_id, r.id, r.form_id, s.name, s.email, s.role, s.position, s.locale,
+               (s.signed_at is not null
+                or (r.status = 'OPEN' and exists (select 1 from public.signature_events e
+                                                   where e.signer_id = s.id and e.agency_id = s.agency_id
+                                                     and e.kind = 'SIGNED'))),
+               s.signed_at, r.status, r.ordered,
+               (r.ordered and exists (select 1 from public.signature_signers p
+                                       where p.request_id = r.id and p.agency_id = s.agency_id
+                                         and p.position < s.position and p.signed_at is null)),
+               r.expires_at, r.completed_at, r.document_sha256, r.signed_sha256, f.label, f.template, f.locale,
+               f.data -> 'agency' ->> 'name',
+               exists (select 1 from public.signature_requests o
+                        where o.agency_id = r.agency_id and o.form_id = r.form_id
+                          and (o.created_at, o.id) > (r.created_at, r.id)),
+               now()
+          from public.signature_signers s
+          join public.signature_requests r on r.id = s.request_id and r.agency_id = s.agency_id
+          join public.form_documents f on f.id = r.form_id and f.agency_id = r.agency_id
+          join public.agencies g on g.agency_id = s.agency_id and g.status <> 'SUSPENDED'
+         where s.id = s_id and s.agency_id = a_id $$;`,
+    `revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), website_network_open(uuid, integer, integer), agency_ai_features(uuid), portal_feed_by_token(text), calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer), calendar_feed_tag(text), selection_by_token(text[]), agency_public_profile(uuid, text[]), member_public_profile(uuid), agency_public_members(uuid), signing_signer(uuid, uuid) from public;`,
+    `grant execute on function signing_signer(uuid, uuid) to app_public, app_intake;`,
     `grant execute on function member_public_profile(uuid), agency_public_members(uuid) to app_public;`,
     `grant execute on function agency_public_profile(uuid, text[]) to app_public;`,
     `grant execute on function calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer) to app_public;`,
@@ -806,6 +847,9 @@ end $$;`,
     // `definer_read` policies.
     `alter function member_public_profile(uuid) owner to app_owner;`,
     `alter function agency_public_members(uuid) owner to app_owner;`,
+    // R2-05b: reads signature_signers, signature_requests, signature_events, form_documents and agencies through their
+    // `definer_read` policies.
+    `alter function signing_signer(uuid, uuid) owner to app_owner;`,
     `grant execute on function app_agency(), app_user_id() to app_user, app_system, app_public, app_auth, app_staff;`,
     `grant execute on function app_impersonated_by() to app_user;`,
     `grant execute on function app_agency() to app_intake;`,

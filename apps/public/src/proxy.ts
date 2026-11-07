@@ -307,11 +307,12 @@ export default createProxy(async (siteId, forwardedFor) =>
 export const config = {
   matcher: [
     // Everything except route handlers (`/api`, `/healthz`, S12-04: a selection's `/s/<token>` — no locale prefix, its
-    // own headers; R2-02g: an unsubscribe link's `/u/<token>`), Next internals, files with an extension (so slugs
+    // own headers; R2-02g: an unsubscribe link's `/u/<token>`; R2-05b: a signing link's `/sign/<token>` and its
+    // script `/sign-assets/<file>`), Next internals, files with an extension (so slugs
     // never contain a dot) and the embeds (matched below, dots included).
-    '/((?!(?:api|healthz|embed|s|u)(?:/|$)|_next|_vercel|.*\\..*).*)',
+    '/((?!(?:api|healthz|embed|s|u|sign|sign-assets)(?:/|$)|_next|_vercel|.*\\..*).*)',
     // S15-02: old inmolink.es pages with an extension (`/index.php?page_id=…`, `/contacto.html`): legacy redirects.
-    '/((?!(?:api|healthz|embed|s|u|sitemaps|_next|_vercel)(?:/|$)).*\\.(?:php|html?|aspx?))',
+    '/((?!(?:api|healthz|embed|s|u|sign|sign-assets|sitemaps|_next|_vercel)(?:/|$)).*\\.(?:php|html?|aspx?))',
     // Every embed path: none may render without the gate.
     '/embed/:path*',
     '/embed',

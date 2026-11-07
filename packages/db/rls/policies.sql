@@ -191,7 +191,36 @@ create function agency_public_members(a_id uuid)
                         where d.agency_id = a_id and d.listed)
          order by p.display_name, p.id
          limit 100 $$;
-revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), website_network_open(uuid, integer, integer), agency_ai_features(uuid), portal_feed_by_token(text), calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer), calendar_feed_tag(text), selection_by_token(text[]), agency_public_profile(uuid, text[]), member_public_profile(uuid), agency_public_members(uuid) from public;
+drop function if exists signing_signer(uuid, uuid);
+create function signing_signer(a_id uuid, s_id uuid)
+  returns table(signer_id uuid, agency_id uuid, request_id uuid, form_id uuid, name text, email text, role text,
+                "position" integer, locale text, signed boolean, signed_at timestamptz, request_status text,
+                ordered boolean, waiting boolean, expires_at timestamptz, completed_at timestamptz,
+                document_sha256 text, signed_sha256 text, form_label text, form_template text, form_locale text,
+                agency_name text, superseded boolean, db_now timestamptz)
+  language sql stable security definer set search_path = pg_catalog, pg_temp
+  as $$ select s.id, s.agency_id, r.id, r.form_id, s.name, s.email, s.role, s.position, s.locale,
+               (s.signed_at is not null
+                or (r.status = 'OPEN' and exists (select 1 from public.signature_events e
+                                                   where e.signer_id = s.id and e.agency_id = s.agency_id
+                                                     and e.kind = 'SIGNED'))),
+               s.signed_at, r.status, r.ordered,
+               (r.ordered and exists (select 1 from public.signature_signers p
+                                       where p.request_id = r.id and p.agency_id = s.agency_id
+                                         and p.position < s.position and p.signed_at is null)),
+               r.expires_at, r.completed_at, r.document_sha256, r.signed_sha256, f.label, f.template, f.locale,
+               f.data -> 'agency' ->> 'name',
+               exists (select 1 from public.signature_requests o
+                        where o.agency_id = r.agency_id and o.form_id = r.form_id
+                          and (o.created_at, o.id) > (r.created_at, r.id)),
+               now()
+          from public.signature_signers s
+          join public.signature_requests r on r.id = s.request_id and r.agency_id = s.agency_id
+          join public.form_documents f on f.id = r.form_id and f.agency_id = r.agency_id
+          join public.agencies g on g.agency_id = s.agency_id and g.status <> 'SUSPENDED'
+         where s.id = s_id and s.agency_id = a_id $$;
+revoke all on function app_agency(), app_user_id(), app_impersonated_by(), app_is_staff(), app_agency_verified(), app_preferring_agencies(), app_partition_maintenance(), website_network_open(uuid, integer, integer), agency_ai_features(uuid), portal_feed_by_token(text), calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer), calendar_feed_tag(text), selection_by_token(text[]), agency_public_profile(uuid, text[]), member_public_profile(uuid), agency_public_members(uuid), signing_signer(uuid, uuid) from public;
+grant execute on function signing_signer(uuid, uuid) to app_public, app_intake;
 grant execute on function member_public_profile(uuid), agency_public_members(uuid) to app_public;
 grant execute on function agency_public_profile(uuid, text[]) to app_public;
 grant execute on function calendar_feed_by_token(text, timestamptz, timestamptz, timestamptz, integer) to app_public;
@@ -208,6 +237,7 @@ alter function selection_by_token(text[]) owner to app_owner;
 alter function agency_public_profile(uuid, text[]) owner to app_owner;
 alter function member_public_profile(uuid) owner to app_owner;
 alter function agency_public_members(uuid) owner to app_owner;
+alter function signing_signer(uuid, uuid) owner to app_owner;
 grant execute on function app_agency(), app_user_id() to app_user, app_system, app_public, app_auth, app_staff;
 grant execute on function app_impersonated_by() to app_user;
 grant execute on function app_agency() to app_intake;
@@ -219,7 +249,7 @@ do $$
 declare p record;
 begin
   for p in select tablename, policyname from pg_policies
-            where schemaname = 'public' and tablename = any (array['activities', 'agencies', 'agency_directory', 'agency_invites', 'agency_members', 'agency_portal_connections', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'ai_feedback', 'ai_jobs', 'ai_usage_monthly', 'api_keys', 'audit_logs', 'auth_tokens', 'billing_catalog_items', 'billing_customers', 'billing_invoices', 'billing_plan_grants', 'billing_price_locks', 'billing_prices', 'billing_stripe_events', 'billing_subscriptions', 'bookmark_folders', 'calendar_event_attendees', 'calendar_events', 'calendar_feeds', 'chat_messages', 'chat_participants', 'chat_threads', 'client_profile_affinities', 'client_profile_deliveries', 'client_profile_embeddings', 'client_profile_feedback', 'client_profile_matches', 'client_profiles', 'client_registration_fingerprints', 'client_registration_receipts', 'client_registrations', 'consent_records', 'contact_emails', 'contact_facets', 'contact_imports', 'contact_notes', 'contact_phones', 'contacts', 'crm_response_rollups', 'crm_stage_counts', 'crm_stage_move_rollups', 'data_export_jobs', 'deal_disputes', 'deal_documents', 'deals', 'dedupe_canonical_pins', 'dedupe_cluster_members', 'dedupe_clusters', 'dedupe_disputes', 'dedupe_listing_clusters', 'dedupe_listing_signatures', 'dedupe_pair_decisions', 'dedupe_pair_scores', 'dedupe_reviews', 'development_access', 'development_documents', 'development_phases', 'development_translations', 'developments', 'feature_aliases', 'feature_flags', 'feature_group_translations', 'feature_groups', 'feature_translations', 'features', 'feed_connections', 'feed_image_queue', 'feed_image_sources', 'feed_item_errors', 'feed_mapping_profiles', 'feed_runs', 'feed_sheet_releases', 'feed_source_hashes', 'form_documents', 'job_checkpoints', 'lead_introductions', 'lead_routing_settings', 'lead_stage_history', 'leads', 'legacy_id_maps', 'legacy_url_redirects', 'listing_bookmarks', 'listing_bulk_actions', 'listing_documents', 'listing_embeddings', 'listing_overrides', 'listing_public_changes', 'listing_public_codes', 'listing_read_models', 'listing_search_commissions', 'listing_search_developments', 'listing_search_docs', 'listing_studio_batches', 'listing_studio_usage', 'listing_views', 'location_aliases', 'location_group_members', 'location_group_translations', 'location_groups', 'location_translations', 'locations', 'matching_listing_facts', 'matching_listing_states', 'media_objects', 'member_public_profiles', 'migration_batches', 'migration_cutovers', 'migration_validation_reports', 'network_post_authors', 'network_posts', 'network_subscription_terms', 'network_subscriptions', 'notification_preferences', 'notifications', 'onboarding_steps', 'outbox_events', 'pipeline_stages', 'portal_channels', 'portal_connection_issues', 'portal_connection_properties', 'portal_feed_runs', 'portal_listing_sync', 'preferred_agencies', 'preferred_agency_notes', 'price_lists', 'prompt_versions', 'properties', 'property_features', 'property_import_seen', 'property_import_staging', 'property_media', 'property_price_histories', 'property_privates', 'property_status_histories', 'property_tags', 'property_translations', 'property_type_aliases', 'property_type_group_translations', 'property_type_groups', 'property_type_translations', 'property_types', 'quality_queue', 'read_model_queue', 'retention_settings', 'saved_search_alerts', 'saved_searches', 'search_index_queue', 'selection_interactions', 'selection_items', 'selections', 'seller_prospects', 'social_accounts', 'social_posts', 'staff_impersonations', 'staff_operations', 'staff_users', 'support_ticket_attachments', 'support_ticket_messages', 'support_ticket_notes', 'support_tickets', 'tasks', 'taxonomy_unmatched', 'unit_price_histories', 'unit_status_histories', 'units', 'user_mfa', 'user_recovery_codes', 'users', 'viewing_request_receipts', 'viewing_requests', 'website_feeds', 'website_leads', 'website_sites', 'white_label_batches'])
+            where schemaname = 'public' and tablename = any (array['activities', 'agencies', 'agency_directory', 'agency_invites', 'agency_members', 'agency_portal_connections', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'ai_feedback', 'ai_jobs', 'ai_usage_monthly', 'api_keys', 'audit_logs', 'auth_tokens', 'billing_catalog_items', 'billing_customers', 'billing_invoices', 'billing_plan_grants', 'billing_price_locks', 'billing_prices', 'billing_stripe_events', 'billing_subscriptions', 'bookmark_folders', 'calendar_event_attendees', 'calendar_events', 'calendar_feeds', 'chat_messages', 'chat_participants', 'chat_threads', 'client_profile_affinities', 'client_profile_deliveries', 'client_profile_embeddings', 'client_profile_feedback', 'client_profile_matches', 'client_profiles', 'client_registration_fingerprints', 'client_registration_receipts', 'client_registrations', 'consent_records', 'contact_emails', 'contact_facets', 'contact_imports', 'contact_notes', 'contact_phones', 'contacts', 'crm_response_rollups', 'crm_stage_counts', 'crm_stage_move_rollups', 'data_export_jobs', 'deal_disputes', 'deal_documents', 'deals', 'dedupe_canonical_pins', 'dedupe_cluster_members', 'dedupe_clusters', 'dedupe_disputes', 'dedupe_listing_clusters', 'dedupe_listing_signatures', 'dedupe_pair_decisions', 'dedupe_pair_scores', 'dedupe_reviews', 'development_access', 'development_documents', 'development_phases', 'development_translations', 'developments', 'feature_aliases', 'feature_flags', 'feature_group_translations', 'feature_groups', 'feature_translations', 'features', 'feed_connections', 'feed_image_queue', 'feed_image_sources', 'feed_item_errors', 'feed_mapping_profiles', 'feed_runs', 'feed_sheet_releases', 'feed_source_hashes', 'form_documents', 'job_checkpoints', 'lead_introductions', 'lead_routing_settings', 'lead_stage_history', 'leads', 'legacy_id_maps', 'legacy_url_redirects', 'listing_bookmarks', 'listing_bulk_actions', 'listing_documents', 'listing_embeddings', 'listing_overrides', 'listing_public_changes', 'listing_public_codes', 'listing_read_models', 'listing_search_commissions', 'listing_search_developments', 'listing_search_docs', 'listing_studio_batches', 'listing_studio_usage', 'listing_views', 'location_aliases', 'location_group_members', 'location_group_translations', 'location_groups', 'location_translations', 'locations', 'matching_listing_facts', 'matching_listing_states', 'media_objects', 'member_public_profiles', 'migration_batches', 'migration_cutovers', 'migration_validation_reports', 'network_post_authors', 'network_posts', 'network_subscription_terms', 'network_subscriptions', 'notification_preferences', 'notifications', 'onboarding_steps', 'outbox_events', 'pipeline_stages', 'portal_channels', 'portal_connection_issues', 'portal_connection_properties', 'portal_feed_runs', 'portal_listing_sync', 'preferred_agencies', 'preferred_agency_notes', 'price_lists', 'prompt_versions', 'properties', 'property_features', 'property_import_seen', 'property_import_staging', 'property_media', 'property_price_histories', 'property_privates', 'property_status_histories', 'property_tags', 'property_translations', 'property_type_aliases', 'property_type_group_translations', 'property_type_groups', 'property_type_translations', 'property_types', 'quality_queue', 'read_model_queue', 'retention_settings', 'saved_search_alerts', 'saved_searches', 'search_index_queue', 'selection_interactions', 'selection_items', 'selections', 'seller_prospects', 'signature_events', 'signature_requests', 'signature_signers', 'social_accounts', 'social_posts', 'staff_impersonations', 'staff_operations', 'staff_users', 'support_ticket_attachments', 'support_ticket_messages', 'support_ticket_notes', 'support_tickets', 'tasks', 'taxonomy_unmatched', 'unit_price_histories', 'unit_status_histories', 'units', 'user_mfa', 'user_recovery_codes', 'users', 'viewing_request_receipts', 'viewing_requests', 'website_feeds', 'website_leads', 'website_sites', 'white_label_batches'])
   loop
     execute format('drop policy %I on public.%I', p.policyname, p.tablename);
   end loop;
@@ -1306,6 +1336,7 @@ create policy own_select on public."form_documents" for select to app_user
 revoke all on table public."form_documents" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert on table public."form_documents" to app_user;
 grant select, insert, update, delete on table public."form_documents" to app_system;
+create policy definer_read on public."form_documents" for select to app_owner using (true);
 
 -- job_checkpoints: GLOBAL
 alter table public."job_checkpoints" enable row level security;
@@ -1779,7 +1810,7 @@ revoke all on table public."outbox_events" from public, app_user, app_system, ap
 grant insert on table public."outbox_events" to app_user;
 grant select, insert, update, delete on table public."outbox_events" to app_system;
 create policy intake_append on public."outbox_events" for insert to app_intake
-  with check (agency_id = app_agency() and "type" in ('websites.lead.received', 'presentations.selection.interacted', 'crm.contact.unsubscribeRequested'));
+  with check (agency_id = app_agency() and "type" in ('websites.lead.received', 'presentations.selection.interacted', 'crm.contact.unsubscribeRequested', 'documents.signature.codeRequested', 'documents.signature.signed'));
 grant insert on table public."outbox_events" to app_intake;
 create policy auth_append on public."outbox_events" for insert to app_auth
   with check (agency_id = '00000000-0000-0000-0000-000000000000'::uuid and starts_with("type", 'identity.'));
@@ -2152,6 +2183,44 @@ begin
   execute format('grant update (%s) on table public."seller_prospects" to app_user', cols);
 end $$;
 grant select, insert, update, delete on table public."seller_prospects" to app_system;
+
+-- signature_events: STRICT
+alter table public."signature_events" enable row level security;
+alter table public."signature_events" force row level security;
+create policy own_rows on public."signature_events" for select to app_user
+  using (agency_id = app_agency());
+revoke all on table public."signature_events" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
+grant select on table public."signature_events" to app_user;
+grant select, insert, update, delete on table public."signature_events" to app_system;
+create policy intake_insert on public."signature_events" for insert to app_intake
+  with check (agency_id = app_agency());
+create policy intake_select on public."signature_events" for select to app_intake
+  using (agency_id = app_agency());
+grant insert on table public."signature_events" to app_intake;
+grant select ("id", "signer_id", "kind", "otp_id", "otp_expires_at", "created_at") on table public."signature_events" to app_intake;
+create policy definer_read on public."signature_events" for select to app_owner using (true);
+
+-- signature_requests: STRICT
+alter table public."signature_requests" enable row level security;
+alter table public."signature_requests" force row level security;
+create policy own_insert on public."signature_requests" for insert to app_user
+  with check (agency_id = app_agency() and (created_by_user_id = app_user_id() and status = 'OPEN' and all_signed_at is null and signed_sha256 is null and signed_size_bytes is null and completed_at is null and cancelled_at is null));
+create policy own_select on public."signature_requests" for select to app_user
+  using (agency_id = app_agency());
+revoke all on table public."signature_requests" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
+grant select, insert on table public."signature_requests" to app_user;
+grant select, insert, update, delete on table public."signature_requests" to app_system;
+create policy definer_read on public."signature_requests" for select to app_owner using (true);
+
+-- signature_signers: STRICT
+alter table public."signature_signers" enable row level security;
+alter table public."signature_signers" force row level security;
+create policy own_rows on public."signature_signers" to app_user
+  using (agency_id = app_agency()) with check (agency_id = app_agency());
+revoke all on table public."signature_signers" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
+grant select, insert on table public."signature_signers" to app_user;
+grant select, insert, update, delete on table public."signature_signers" to app_system;
+create policy definer_read on public."signature_signers" for select to app_owner using (true);
 
 -- social_accounts: STRICT
 alter table public."social_accounts" enable row level security;

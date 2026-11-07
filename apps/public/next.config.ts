@@ -14,9 +14,10 @@ import {
  * also covers route handlers and anything it skips. The embeds' own `frame-ancestors` comes from the proxy.
  * S16-F8: a selection page (`/s/<token>`, S12-04) sends its own, stricter headers (`selections/handlers.ts`: DENY,
  * `frame-ancestors 'none'` and a `script-src`) — a rule here would replace its CSP with this one, which has none.
- * R2-02g: so does the unsubscribe page (`/u/<token>`, the same headers).
+ * R2-02g: so does the unsubscribe page (`/u/<token>`, the same headers). R2-05b: and the signing page
+ * (`/sign/<token>`, its `/document` and `/signed` redirects).
  */
-export const NOT_EMBED_SOURCE = '/:path((?!embed/|embed$|s/[^/]+/?$|u/[^/]+/?$).*)';
+export const NOT_EMBED_SOURCE = '/:path((?!embed/|embed$|s/[^/]+/?$|u/[^/]+/?$|sign/[^/]+(?:/document|/signed)?/?$).*)';
 export const FRAME_DENY_HEADERS = [
   { key: 'X-Frame-Options', value: 'DENY' },
   // S17-F1: platform's plain-ESM `web-security` (unbuilt, so `next typegen` can load it before the packages build).

@@ -130,6 +130,14 @@
     "./pdf/testing": {
       "@inmolink/source": "./src/pdf/testing.ts"
     },
+    "./esign": {
+      "@inmolink/source": "./src/esign/index.ts",
+      "types": "./dist/esign/index.d.ts",
+      "default": "./dist/esign/index.js"
+    },
+    "./esign/testing": {
+      "@inmolink/source": "./src/esign/testing.ts"
+    },
     "./storage": {
       "@inmolink/source": "./src/storage/index.ts",
       "types": "./dist/storage/index.d.ts",
@@ -209,6 +217,7 @@
     "ioredis": "6.0.0",
     "jose": "6.2.12",
     "nodemailer": "10.1.7",
+    "pdf-lib": "1.17.1",
     "pg": "8.23.1",
     "pino": "10.4.0",
     "puppeteer-core": "25.13.0",

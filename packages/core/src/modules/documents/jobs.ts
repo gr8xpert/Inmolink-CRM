@@ -12,6 +12,14 @@ import { DOCUMENT_RENDERS_PER_AGENCY, documentsSettings } from './config';
 import { eraseContactForms, failFormDocument, renderFormDocument, repointContactForms } from './forms';
 import { ListingsDocumentPayload, ViewingTermsPayload } from './payloads';
 import { renderListingsDocument, renderViewingTermsDocument } from './render';
+import {
+  applySignatureEvent,
+  failSignatureSeal,
+  inviteSigners,
+  notifySignatureCompleted,
+  sealSignatureRequest,
+  sendSigningCode,
+} from './signatures';
 
 const RENDER_CAPS = {
   concurrencyPerGroup: DOCUMENT_RENDERS_PER_AGENCY,
@@ -97,6 +105,89 @@ export const documentsJobs = {
     async run(p) {
       const contactIds = await crm.erasedContactIds({ agencyId: p.agencyId, contactIds: [p.contactId] });
       return { deleted: await eraseContactForms({ agencyId: p.agencyId, contactIds }) };
+    },
+  }),
+
+  // ── R2-05b, e-signature ─────────────────────────────────────────────────────────────────────────────
+
+  /** Supersedes the form's earlier open requests, invites the signers whose turn it is (job id = the event). */
+  inviteSigners: defineJob({
+    name: 'documents.inviteSigners',
+    pool: 'email',
+    payload: z.object({ eventId: z.uuid(), agencyId: z.uuid(), requestId: z.uuid() }),
+    jobId: (p) => `sign-invite:${p.eventId}`,
+    group: (p) => p.agencyId,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 5_000 },
+    timeoutMs: 60_000,
+    async run(p) {
+      return inviteSigners(p);
+    },
+  }),
+
+  /** E-mails a one-time code while its row lives (job id = the code's row). */
+  sendSigningCode: defineJob({
+    name: 'documents.sendSigningCode',
+    pool: 'email',
+    payload: z.object({ agencyId: z.uuid(), signerId: z.uuid(), otpId: z.uuid() }),
+    jobId: (p) => `sign-code:${p.otpId}`,
+    group: (p) => p.agencyId,
+    attempts: 3,
+    backoff: { type: 'exponential', delay: 2_000 },
+    timeoutMs: 30_000,
+    async run(p) {
+      return { sent: await sendSigningCode(p) };
+    },
+  }),
+
+  /** Applies a signature from the signer's SIGNED page action (job id = that action). */
+  applySignature: defineJob({
+    name: 'documents.applySignature',
+    pool: 'maintenance',
+    payload: z.object({ agencyId: z.uuid(), signerId: z.uuid(), eventId: z.uuid() }),
+    jobId: (p) => `sign-apply:${p.eventId}`,
+    group: (p) => p.agencyId,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 5_000 },
+    timeoutMs: 60_000,
+    async run(p) {
+      return { result: await applySignatureEvent(p) };
+    },
+  }),
+
+  /**
+   * Seals the signed PDF (original + audit trail) once everyone signed (job id = the request). A seal that fails for
+   * good (last attempt, or permanent: the original changed, a PDF the provider cannot read) leaves the request FAILED.
+   */
+  sealSignature: defineJob({
+    name: 'documents.sealSignature',
+    pool: 'pdf',
+    payload: z.object({ agencyId: z.uuid(), requestId: z.uuid() }),
+    jobId: (p) => `sign-seal:${p.requestId}`,
+    group: (p) => p.agencyId,
+    ...RENDER_CAPS,
+    async run(p, ctx) {
+      try {
+        return await sealSignatureRequest(p, { signal: ctx.signal });
+      } catch (err) {
+        if (isPermanent(err) || ctx.attempt >= RENDER_CAPS.attempts) await failSignatureSeal(p.requestId);
+        throw err;
+      }
+    },
+  }),
+
+  /** Tells the signers and the requester (the signed PDF's link and hash; job id = the request). */
+  notifySignatureCompleted: defineJob({
+    name: 'documents.notifySignatureCompleted',
+    pool: 'email',
+    payload: z.object({ agencyId: z.uuid(), requestId: z.uuid() }),
+    jobId: (p) => `sign-done:${p.requestId}`,
+    group: (p) => p.agencyId,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 5_000 },
+    timeoutMs: 60_000,
+    async run(p) {
+      return { sent: await notifySignatureCompleted(p) };
     },
   }),
 };

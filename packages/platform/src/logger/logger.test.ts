@@ -189,6 +189,15 @@ describe('logger', () => {
     expect(redactPathsInText('"/v1/types?api_key=abc"')).toBe(`"/v1/types?api_key=${REDACTED}"`);
   });
 
+  it('[R2-05b] signing and unsubscribe link tokens in a path or a quoted URL are redacted, the rest kept', () => {
+    expect(redactPath('/sign/AbC123_-/document?l=es')).toBe(`/sign/${REDACTED}/document?l=es`);
+    expect(redactPath('/u/AbC123_-?l=en')).toBe(`/u/${REDACTED}?l=en`);
+    expect(redactPathsInText('GET https://sites.test/sign/AbC123_-/signed failed')).toBe(
+      `GET https://sites.test/sign/${REDACTED}/signed failed`,
+    );
+    expect(redactPath('/menu/signature-homes')).toBe('/menu/signature-homes');
+  });
+
   it('[S9-01] a portal feed token in a path or a quoted URL is redacted, the rest kept', () => {
     const token = 'p'.repeat(43);
     expect(stripQuery(`/v2/portal-feeds/${token}/kyero.xml?x=1`)).toBe(`/v2/portal-feeds/${REDACTED}/kyero.xml`);

@@ -8,13 +8,15 @@ import { deniedByImpersonation, type ImpersonationRules } from '../../impersonat
  * them — in Client Mode too (an agent hands the client a brochure from the screen they are showing).
  *
  * R2-05a, forms: listing and collaboration agreements state the commission, so Client Mode opens no form. A form binds
- * the agency's client or partner to terms: staff impersonating a member may read forms, never make one.
+ * the agency's client or partner to terms: staff impersonating a member may read forms, never make one. R2-05b: asking
+ * for signatures (`documents.forms.sign`) is the same members' — never in Client Mode, never by staff impersonating.
  */
 export const DOCUMENTS_ACTIONS = [
   'documents.create',
   'documents.read',
   'documents.forms.create',
   'documents.forms.read',
+  'documents.forms.sign',
 ] as const;
 export type DocumentsAction = (typeof DOCUMENTS_ACTIONS)[number];
 
@@ -29,6 +31,7 @@ export const DOCUMENTS_IMPERSONATION: ImpersonationRules<DocumentsAction> = {
   'documents.read': 'allowed',
   'documents.forms.create': 'forbidden',
   'documents.forms.read': 'allowed',
+  'documents.forms.sign': 'forbidden',
 };
 
 /** Members who work clients (a `PARTNER` membership does not): forms hold client data and commission. */
@@ -45,6 +48,7 @@ export function can(ctx: Ctx, action: DocumentsAction, resource?: { agencyId: st
       return sameAgency;
     case 'documents.forms.create':
     case 'documents.forms.read':
+    case 'documents.forms.sign':
       return sameAgency && MEMBER_ROLES.has(ctx.actor.role);
   }
 }
