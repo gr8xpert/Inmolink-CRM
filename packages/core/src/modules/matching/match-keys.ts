@@ -53,25 +53,37 @@ export function listingMatchKeys(l: {
   return keys.sort();
 }
 
+/** Place tiers below the country: region, city, area at most (`locations_depth_ck`). */
+export const EVENT_KEY_TIERS = 3;
+
 /**
- * The keys a changed listing probes profiles with (the event direction): `listingMatchKeys` at its places below the
- * country (region, city, area — the first of `locationIds` is its country) and never `*`. Broad profiles (anywhere, or a
- * whole country) would be most of all profiles for every listing; the profile → listings direction (their change, the
- * nightly sweep) matches them instead.
+ * The keys a changed listing probes profiles with (the event direction), per place: `listingMatchKeys` at its places
+ * below the country (region, city, area — the first of `locationIds` is its country), never `*`. Broad profiles
+ * (anywhere, or a whole country) would be most of all profiles for every listing; the profile → listings direction
+ * (their change, the nightly sweep) matches them instead.
+ *
+ * R2-02f: the most specific place first (area, city, region), always `EVENT_KEY_TIERS` arrays (empty where the listing
+ * has no such place). The event probe reads the tiers in this order and stops at its cap: in a dense market the
+ * profiles that named the listing's area fill it before those of its whole city or region are read.
  */
-export function listingEventKeys(l: {
+export function listingEventKeyTiers(l: {
   ownerAgencyId: string;
   transactionType: string;
   locationIds: readonly string[];
   network: boolean;
-}): string[] {
-  const places = [...new Set(l.locationIds.slice(1))];
-  const keys: string[] = [];
-  for (const tx of [l.transactionType, ANY_KEY]) {
-    for (const loc of places) {
-      keys.push(`a:${l.ownerAgencyId}:${tx}:${loc}`);
-      if (l.network) keys.push(`n:${tx}:${loc}`);
+}): string[][] {
+  const places = [...new Set(l.locationIds.slice(1))].reverse().slice(0, EVENT_KEY_TIERS);
+  const tiers: string[][] = [];
+  for (let i = 0; i < EVENT_KEY_TIERS; i++) {
+    const loc = places[i];
+    const keys: string[] = [];
+    if (loc !== undefined) {
+      for (const tx of [l.transactionType, ANY_KEY]) {
+        keys.push(`a:${l.ownerAgencyId}:${tx}:${loc}`);
+        if (l.network) keys.push(`n:${tx}:${loc}`);
+      }
     }
+    tiers.push(keys.sort());
   }
-  return keys.sort();
+  return tiers;
 }

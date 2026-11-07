@@ -5,8 +5,8 @@ import * as agencies from '../agencies';
 import * as search from '../search';
 import * as taxonomy from '../taxonomy';
 import { type AffinitySummary, boostOf } from './boost';
-import { explainMatch, MATCH_MIN_TOTAL, passesHardFilters, scoreMatch } from './explain';
-import { listingEventKeys, listingMatchKeys, profileProbeKeys } from './match-keys';
+import { explainMatch, MATCH_MIN_TOTAL, type MatchExplanation, passesHardFilters, scoreMatch } from './explain';
+import { listingEventKeyTiers, listingMatchKeys, profileProbeKeys } from './match-keys';
 import * as repo from './repo';
 import { networkOpenAmong, sharedWith } from './service';
 
@@ -54,6 +54,13 @@ export interface EngineResult {
 const NONE: EngineResult = { candidates: 0, matched: 0, agencies: [], queued: [] };
 
 /**
+ * R2-02f: the match transactions are never JIT-compiled. Their candidate statements are index-driven and short, but
+ * their estimated cost (a lateral over a recordset, a GIN probe of a dense key) passes `jit_above_cost`, and compiling
+ * one cost ≈ 550 ms of a 1,060 ms statement at 1M profiles (S7-F6's reason for `app_public`).
+ */
+const NO_JIT = { jit: false } as const;
+
+/**
  * Scores and explains the candidates (the learned boost from each profile's affinity summary, none: 0); keeps those
  * over the threshold, `MATCH_TOP_N` a profile, as new rows.
  */
@@ -61,10 +68,23 @@ export function decideMatches(
   candidates: readonly repo.MatchCandidateRow[],
   options: { topN?: number; affinities?: ReadonlyMap<string, AffinitySummary> } = {},
 ): repo.NewMatch[] {
+  return decide(
+    candidates.map((c) => ({ ...c, hard: explainMatch(c.profile, c.listing) })),
+    options,
+  );
+}
+
+/** A candidate with its hard-filter explanation (computed once a candidate, R2-02f). */
+type Explained = repo.MatchCandidateRow & { hard: MatchExplanation };
+
+function decide(
+  candidates: readonly Explained[],
+  options: { topN?: number; affinities?: ReadonlyMap<string, AffinitySummary> },
+): repo.NewMatch[] {
   const topN = options.topN ?? MATCH_TOP_N;
   const byProfile = new Map<string, Map<string, repo.NewMatch>>();
   for (const c of candidates) {
-    const hard = explainMatch(c.profile, c.listing);
+    const hard = c.hard;
     if (!passesHardFilters(hard)) continue;
     const boost = boostOf(options.affinities?.get(c.profile.id), c.listing);
     const explanation = boost.reason ? { ...hard, boost: boost.reason } : hard;
@@ -119,12 +139,14 @@ async function write(
   options: { recheck?: boolean } = {},
 ): Promise<EngineResult> {
   // R2-02c: the affinity summaries of the profiles with a candidate past the hard filters (one statement a batch)
-  const passing = candidates.filter((c) => passesHardFilters(explainMatch(c.profile, c.listing)));
+  const passing = candidates
+    .map((c) => ({ ...c, hard: explainMatch(c.profile, c.listing) }))
+    .filter((c) => passesHardFilters(c.hard));
   const affinities = await repo.affinitiesOf(
     tx,
     passing.map((c) => c.profile.id),
   );
-  const decided = decideMatches(passing, { affinities });
+  const decided = decide(passing, { affinities });
   const rows = options.recheck ? await stillShared(tx, decided) : decided;
   const written = await repo.insertMatches(tx, rows);
   return {
@@ -174,9 +196,9 @@ async function refreshFacts(tx: Tx, ids: readonly string[]): Promise<search.List
 /**
  * `matching.matchListingsToProfiles` (worker): one `search.listings.changed` event's listings (≤ 100, one agency) —
  * their facts refreshed (a transaction of its own: the facts' row locks are not held while matching), then matched
- * against every agency's active profiles that may see them, over the listing's places below the country
- * (`listingEventKeys`: broad profiles — anywhere, or a whole country — are left to the sweep). Statements: read models
- * (+ commission), facts (2); owners listed, vectors, a candidate statement per `LISTING_PROBE_CHUNK` listings,
+ * against every agency's active profiles that may see them, over the listing's places below the country, the most
+ * specific first (`listingEventKeyTiers`: broad profiles — anywhere, or a whole country — are left to the sweep).
+ * Statements: read models (+ commission), facts (2); owners listed, vectors, a candidate statement per `LISTING_PROBE_CHUNK` listings,
  * standings of the profiles' agencies (≤ 3), the profiles' affinity summaries (R2-02c), the inserts.
  */
 export async function matchListingsToProfiles(input: {
@@ -188,30 +210,36 @@ export async function matchListingsToProfiles(input: {
     refreshFacts(tx, ids),
   );
   if (docs.length === 0) return NONE;
-  return withSystem(`matching.matchListingsToProfiles: agency ${input.agencyId}`, async (tx) => {
-    const listed = await agencies.listedAgencyNamesOf(tx, [...new Set(docs.map((d) => d.ownerAgencyId))]);
-    const vectors = await search.listingVectors(
-      tx,
-      docs.map((d) => d.id),
-    );
-    const probes: repo.ListingMatchProbe[] = docs.flatMap((d) => {
-      const { matchKeys: _stored, ...facts } = factsOf(d);
-      const network = listed.has(d.ownerAgencyId) && !d.networkHidden;
-      const keys = listingEventKeys({ ...d, network });
-      const v = vectors.get(d.id);
-      return keys.length === 0 ? [] : [{ ...facts, keys, network, vector: v?.vector ?? null, model: v?.model ?? null }];
-    });
-    const candidates = await repo.listingToProfiles(tx, probes);
-    // another agency's profile only while that agency takes part in the network (listed, give-to-get not LOCKED)
-    const open = await networkOpenAmong(
-      tx,
-      candidates.filter((c) => c.profile.agencyId !== c.listing.agencyId).map((c) => c.profile.agencyId),
-    );
-    return write(
-      tx,
-      candidates.filter((c) => c.profile.agencyId === c.listing.agencyId || open.has(c.profile.agencyId)),
-    );
-  });
+  return withSystem(
+    `matching.matchListingsToProfiles: agency ${input.agencyId}`,
+    async (tx) => {
+      const listed = await agencies.listedAgencyNamesOf(tx, [...new Set(docs.map((d) => d.ownerAgencyId))]);
+      const vectors = await search.listingVectors(
+        tx,
+        docs.map((d) => d.id),
+      );
+      const probes: repo.ListingMatchProbe[] = docs.flatMap((d) => {
+        const { matchKeys: _stored, ...facts } = factsOf(d);
+        const network = listed.has(d.ownerAgencyId) && !d.networkHidden;
+        const tiers = listingEventKeyTiers({ ...d, network });
+        const v = vectors.get(d.id);
+        return tiers.every((t) => t.length === 0)
+          ? []
+          : [{ ...facts, tiers, network, vector: v?.vector ?? null, model: v?.model ?? null }];
+      });
+      const candidates = await repo.listingToProfiles(tx, probes);
+      // another agency's profile only while that agency takes part in the network (listed, give-to-get not LOCKED)
+      const open = await networkOpenAmong(
+        tx,
+        candidates.filter((c) => c.profile.agencyId !== c.listing.agencyId).map((c) => c.profile.agencyId),
+      );
+      return write(
+        tx,
+        candidates.filter((c) => c.profile.agencyId === c.listing.agencyId || open.has(c.profile.agencyId)),
+      );
+    },
+    NO_JIT,
+  );
 }
 
 /** A broad profile: no place, or only countries (roots: no ancestor). */
@@ -223,7 +251,7 @@ const isBroad = (p: repo.MatchProfileRow, ancestors: Map<string, Set<string>>) =
  * or a sweep window: `since`, only facts written since then) against the live listings they may see —
  * `LISTINGS_PER_PROFILE` newest candidates each; broad profiles read the `BROAD_WINDOW` most recently written facts.
  * One transaction; statements: profiles, the agency's standing (≤ 3), the places' levels, a candidate statement per
- * `PROFILE_PROBE_CHUNK` profiles of each kind, owners listed, profile vectors, one similarity statement (none while
+ * narrow profile (R2-02f: planned for its own criteria) and per `PROFILE_PROBE_CHUNK` broad ones, owners listed, profile vectors, one similarity statement (none while
  * embeddings are off), the affinity summaries (R2-02c), the survivors' sharing re-check (≤ 3), the inserts.
  */
 export async function matchProfilesToListings(
@@ -231,43 +259,50 @@ export async function matchProfilesToListings(
   options: { since?: Date | null } = {},
 ): Promise<EngineResult> {
   const ids = [...new Set(input.profileIds)];
-  return withSystem(`matching.matchProfilesToListings: agency ${input.agencyId}`, async (tx) => {
-    const profiles = await repo.activeMatchProfiles(tx, input.agencyId, ids);
-    if (profiles.length === 0) return NONE;
-    const open = (await networkOpenAmong(tx, [input.agencyId])).has(input.agencyId);
-    const ancestors = await taxonomy.locationAncestors(tx, [...new Set(profiles.flatMap((p) => p.locationIds))]);
-    const probes = profiles.map((p) => ({ ...p, keys: profileProbeKeys(p, open) }));
-    const broad = probes.filter((p) => isBroad(p, ancestors));
-    const narrow = probes.filter((p) => !isBroad(p, ancestors));
-    const raw = [
-      ...(await repo.profileToListings(tx, narrow, { since: options.since ?? null })),
-      ...(await repo.profileToListings(tx, broad, { broad: true })),
-    ];
-    // another agency's listing only while its owner is listed (network search's rule; re-checked on the survivors)
-    const owners = [...new Set(raw.map((c) => c.listing.agencyId).filter((a) => a !== input.agencyId))];
-    const listed = await agencies.listedAgencyNamesOf(tx, owners);
-    const candidates = raw.filter((c) => c.listing.agencyId === input.agencyId || listed.has(c.listing.agencyId));
+  return withSystem(
+    `matching.matchProfilesToListings: agency ${input.agencyId}`,
+    async (tx) => {
+      const profiles = await repo.activeMatchProfiles(tx, input.agencyId, ids);
+      if (profiles.length === 0) return NONE;
+      const open = (await networkOpenAmong(tx, [input.agencyId])).has(input.agencyId);
+      const ancestors = await taxonomy.locationAncestors(tx, [...new Set(profiles.flatMap((p) => p.locationIds))]);
+      const probes = profiles.map((p) => ({ ...p, keys: profileProbeKeys(p, open) }));
+      const broad = probes.filter((p) => isBroad(p, ancestors));
+      const narrow = probes.filter((p) => !isBroad(p, ancestors));
+      const raw = [
+        ...(await repo.profileToListings(tx, narrow, { since: options.since ?? null })),
+        ...(await repo.profileToListings(tx, broad, { broad: true })),
+      ];
+      // another agency's listing only while its owner is listed (network search's rule; re-checked on the survivors)
+      const owners = [...new Set(raw.map((c) => c.listing.agencyId).filter((a) => a !== input.agencyId))];
+      const listed = await agencies.listedAgencyNamesOf(tx, owners);
+      const candidates = raw.filter((c) => c.listing.agencyId === input.agencyId || listed.has(c.listing.agencyId));
 
-    const vectors = await repo.profileVectors(
-      tx,
-      profiles.map((p) => p.id),
-    );
-    const byProfile = new Map<string, string[]>();
-    for (const c of candidates)
-      byProfile.set(c.profile.id, [...(byProfile.get(c.profile.id) ?? []), c.listing.listingId]);
-    const sims = await search.listingSimilarities(
-      tx,
-      [...byProfile].flatMap(([id, listingIds]) => {
-        const v = vectors.get(id);
-        return v ? [{ key: id, vector: v.vector, model: v.model, ids: listingIds }] : [];
-      }),
-    );
-    const scored = candidates.map((c) => ({
-      ...c,
-      similarity: sims.get(`${c.profile.id}:${c.listing.listingId}`) ?? null,
-    }));
-    return write(tx, scored, { recheck: true });
-  });
+      const vectors = await repo.profileVectors(
+        tx,
+        profiles.map((p) => p.id),
+      );
+      const byProfile = new Map<string, string[]>();
+      for (const c of candidates) {
+        const mine = byProfile.get(c.profile.id);
+        if (mine) mine.push(c.listing.listingId);
+        else byProfile.set(c.profile.id, [c.listing.listingId]);
+      }
+      const sims = await search.listingSimilarities(
+        tx,
+        [...byProfile].flatMap(([id, listingIds]) => {
+          const v = vectors.get(id);
+          return v ? [{ key: id, vector: v.vector, model: v.model, ids: listingIds }] : [];
+        }),
+      );
+      const scored = candidates.map((c) => ({
+        ...c,
+        similarity: sims.get(`${c.profile.id}:${c.listing.listingId}`) ?? null,
+      }));
+      return write(tx, scored, { recheck: true });
+    },
+    NO_JIT,
+  );
 }
 
 /** The nightly sweep reads facts written this long before it (twice its period: a late or missed run is covered). */

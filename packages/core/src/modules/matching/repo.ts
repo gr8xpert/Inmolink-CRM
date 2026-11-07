@@ -1005,13 +1005,18 @@ const hardFilters = sql.raw(`
         or cardinality(array(select unnest(p.feature_ids) except select unnest(l.feature_ids)))
            <= cardinality(p.feature_ids) / 4)`);
 
-const profileCols = sql.raw(`p.id, p.agency_id, p.mode, p.version, p.transaction_type, p.property_type_ids,
-       p.location_ids, p.feature_ids, p.price_min_cents, p.price_max_cents, p.beds_min, p.baths_min, p.area_min_m2,
-       p.area_max_m2`);
+/**
+ * Arrays come back as their text (`{…}`, split by `arr`): uuid elements never need quoting, and the driver's generic
+ * array parser was the storm's largest client-side cost (R2-02f: ≈ 1.8 s of 14 s for 52k candidates).
+ */
+const profileCols = sql.raw(`p.id, p.agency_id, p.mode, p.version, p.transaction_type,
+       p.property_type_ids::text as property_type_ids, p.location_ids::text as location_ids,
+       p.feature_ids::text as feature_ids, p.price_min_cents, p.price_max_cents, p.beds_min, p.baths_min,
+       p.area_min_m2, p.area_max_m2`);
 
 const listingCols = sql.raw(`l.listing_id as l_id, l.agency_id as l_agency_id, l.version as l_version,
        l.transaction_type as l_transaction_type, l.property_type_id as l_property_type_id,
-       l.location_ids as l_location_ids, l.feature_ids as l_feature_ids, l.price_cents as l_price_cents,
+       l.location_ids::text as l_location_ids, l.feature_ids::text as l_feature_ids, l.price_cents as l_price_cents,
        l.beds as l_beds, l.baths as l_baths, l.area_m2 as l_area_m2`);
 
 type RawProfile = {
@@ -1070,30 +1075,48 @@ function toProfile(r: RawProfile): MatchProfileRow {
   };
 }
 
-function toCandidate(r: RawCandidate): MatchCandidateRow {
+type RawListing = Pick<
+  RawCandidate,
+  | 'l_id'
+  | 'l_agency_id'
+  | 'l_version'
+  | 'l_transaction_type'
+  | 'l_property_type_id'
+  | 'l_location_ids'
+  | 'l_feature_ids'
+  | 'l_price_cents'
+  | 'l_beds'
+  | 'l_baths'
+  | 'l_area_m2'
+>;
+
+function toListing(r: RawListing): MatchListingRow {
   return {
-    profile: toProfile(r),
-    listing: {
-      listingId: r.l_id,
-      agencyId: r.l_agency_id,
-      version: r.l_version,
-      transactionType: r.l_transaction_type,
-      propertyTypeId: r.l_property_type_id,
-      locationIds: arr(r.l_location_ids),
-      featureIds: arr(r.l_feature_ids),
-      priceCents: num(r.l_price_cents),
-      beds: r.l_beds,
-      baths: r.l_baths,
-      areaM2: num(r.l_area_m2),
-    },
-    similarity: num(r.similarity),
+    listingId: r.l_id,
+    agencyId: r.l_agency_id,
+    version: r.l_version,
+    transactionType: r.l_transaction_type,
+    propertyTypeId: r.l_property_type_id,
+    locationIds: arr(r.l_location_ids),
+    featureIds: arr(r.l_feature_ids),
+    priceCents: num(r.l_price_cents),
+    beds: r.l_beds,
+    baths: r.l_baths,
+    areaM2: num(r.l_area_m2),
   };
+}
+
+function toCandidate(r: RawCandidate): MatchCandidateRow {
+  return { profile: toProfile(r), listing: toListing(r), similarity: num(r.similarity) };
 }
 
 /** A changed listing as the listing → profiles query probes it. */
 export interface ListingMatchProbe extends Omit<ListingFactsRow, 'matchKeys'> {
-  /** `listingMatchKeys`, with `network` = on the network, not hidden, its owner listed. */
-  keys: string[];
+  /**
+   * `listingEventKeyTiers` (R2-02f): its event keys per place, the most specific first — with `network` = on the
+   * network, not hidden, its owner listed.
+   */
+  tiers: string[][];
   network: boolean;
   /** Its vector (halfvec text, read from the database) and model, when embedded. */
   vector: string | null;
@@ -1102,8 +1125,26 @@ export interface ListingMatchProbe extends Omit<ListingFactsRow, 'matchKeys'> {
 
 /** Listings probed per statement. */
 export const LISTING_PROBE_CHUNK = 5;
-/** Profiles read per listing at most, per event (≤ 100 × 500 candidates a job; the nightly sweep finds any beyond). */
-export const PROFILES_PER_LISTING = 500;
+/**
+ * Profiles read per listing at most, per event (≤ 100 × 200 candidates a job; the nightly sweep finds any beyond).
+ * R2-02f: 200, was 500 — in a dense market every listing fills the cap, and the storm's cost (candidate reads, match
+ * inserts) is linear in it: 10k changes at 500 needed ≈ 1,900 database core-seconds against 1M profiles.
+ */
+export const PROFILES_PER_LISTING = 200;
+
+/**
+ * Profiles a listing examines per place tier at most (R2-02f): the hard filters run on heap rows, and a listing few
+ * profiles want (a rare type, a price outside most budgets) would otherwise read every profile of its area, city and
+ * region — 138k rows, 82k buffers, 228 ms for 21 candidates at 1M profiles. Bounded, a listing reads ≤ 3 × this many
+ * unmatched rows (a later change of the listing reads on past the profiles it matched before); a profile it did not
+ * reach gets the listing from its own direction (the nightly sweep reads every active profile against the facts written
+ * in the last two days, its newest candidates first — what a narrow profile wants is found there).
+ */
+export const PROFILES_EXAMINED_PER_TIER = 4_000;
+
+const rawProfileCols = sql.raw(`q.id, q.agency_id, q.mode, q.version, q.transaction_type, q.property_type_ids,
+       q.location_ids, q.feature_ids, q.price_min_cents, q.price_max_cents, q.beds_min, q.baths_min, q.area_min_m2,
+       q.area_max_m2`);
 
 /**
  * The listing → profiles direction (R2-02b, one `search.listings.changed` batch): the active profiles (any agency)
@@ -1111,14 +1152,32 @@ export const PROFILES_PER_LISTING = 500;
  * hard filters, may see it (its own agency's, or on the network and shared with that agency: scope ALL or preferred)
  * and have no match with it yet (`client_profile_matches_pair_uq`); at most `perListing` a listing. With the profile's
  * vector's similarity to the listing's (same model), else null. Exported for the plan tests.
+ *
+ * R2-02f: the keys are read a place at a time, the most specific first (area, then city, then region; a profile of an
+ * earlier tier is not read again), and the `limit` stops the append: in a dense market (1M profiles, most of them on
+ * one coast) a listing's area fills the cap and its city's and region's GIN entries (≈ 140k for the busiest city) are
+ * never read; each tier examines at most `PROFILES_EXAMINED_PER_TIER` profiles. A sparse market reads every tier.
  */
 export function listingToProfilesQuery(probes: readonly ListingMatchProbe[], perListing: number): SQL {
+  // a tier's profiles never matched with the listing, the first `PROFILES_EXAMINED_PER_TIER` its GIN entries give (the
+  // limit stops the heap scan; the matched ones do not count, so a later change of the listing reads further on)
+  const tier = (keys: SQL, fresh: SQL) => sql`(
+          select ${rawProfileCols} from ${clientProfiles} q
+           where q.match_keys && ${keys} and q.mode <> 'OFF' and ${fresh}
+             and not exists (select 1 from ${clientProfileMatches} m
+                              where m.profile_id = q.id and m.listing_id = l.listing_id)
+           limit ${PROFILES_EXAMINED_PER_TIER})`;
+  // a profile `p` of a tier that may get listing `l`: hard filters, visibility
+  const eligible = sql`${hardFilters}
+           and (p.agency_id = l.agency_id or (l.network and (l.share_all or p.agency_id = any(l.preferred))))`;
   const json = JSON.stringify(
     probes.map((p) => ({
       listing_id: p.listingId,
       agency_id: p.agencyId,
       version: p.version,
-      keys: p.keys,
+      k1: p.tiers[0] ?? [],
+      k2: p.tiers[1] ?? [],
+      k3: p.tiers[2] ?? [],
       transaction_type: p.transactionType,
       property_type_id: p.propertyTypeId,
       location_ids: p.locationIds,
@@ -1135,23 +1194,24 @@ export function listingToProfilesQuery(probes: readonly ListingMatchProbe[], per
     })),
   );
   return sql`
-    select c.*, ${listingCols},
+    select c.*, l.listing_id as l_id,
            case when l.vec is null then null
                 else (select 1 - (e.embedding <=> l.vec::halfvec) from ${clientProfileEmbeddings} e
                        where e.profile_id = c.id and e.model = l.model) end as similarity
-      from jsonb_to_recordset(${json}::jsonb) as l(listing_id uuid, agency_id uuid, version int, keys text[],
-             transaction_type text, property_type_id uuid, location_ids uuid[], feature_ids uuid[], price_cents bigint,
+      from jsonb_to_recordset(${json}::jsonb) as l(listing_id uuid, agency_id uuid, version int, k1 text[],
+             k2 text[], k3 text[], transaction_type text, property_type_id uuid, location_ids uuid[], feature_ids uuid[], price_cents bigint,
              beds int, baths int, area_m2 numeric, network boolean, share_all boolean, preferred uuid[], vec text,
              model text)
       cross join lateral (
-        select ${profileCols}
-          from ${clientProfiles} p
-         where p.match_keys && l.keys and p.mode <> 'OFF'
-           and ${hardFilters}
-           and (p.agency_id = l.agency_id or (l.network and (l.share_all or p.agency_id = any(l.preferred))))
-           and not exists (select 1 from ${clientProfileMatches} m
-                            where m.profile_id = p.id and m.listing_id = l.listing_id)
-         limit ${perListing}) c`;
+        select * from (
+          (select ${profileCols} from ${tier(sql`l.k1`, sql`true`)} p where ${eligible})
+          union all
+          (select ${profileCols} from ${tier(sql`l.k2`, sql`not (q.match_keys && l.k1)`)} p where ${eligible})
+          union all
+          (select ${profileCols}
+             from ${tier(sql`l.k3`, sql`not (q.match_keys && l.k1) and not (q.match_keys && l.k2)`)} p where ${eligible})
+        ) t
+        limit ${perListing}) c`;
 }
 
 export async function listingToProfiles(
@@ -1160,10 +1220,32 @@ export async function listingToProfiles(
   options: { chunk?: number; perListing?: number } = {},
 ): Promise<MatchCandidateRow[]> {
   const chunk = options.chunk ?? LISTING_PROBE_CHUNK;
+  // the listing side is the probe's own (R2-02f): only its id comes back, not its columns once per profile
+  const listings = new Map<string, MatchListingRow>(
+    probes.map((p) => [
+      p.listingId,
+      {
+        listingId: p.listingId,
+        agencyId: p.agencyId,
+        version: p.version,
+        transactionType: p.transactionType,
+        propertyTypeId: p.propertyTypeId,
+        locationIds: p.locationIds,
+        featureIds: p.featureIds,
+        priceCents: p.priceCents,
+        beds: p.beds,
+        baths: p.baths,
+        areaM2: p.areaM2,
+      },
+    ]),
+  );
   const all: MatchCandidateRow[] = [];
   for (let i = 0; i < probes.length; i += chunk) {
     const q = listingToProfilesQuery(probes.slice(i, i + chunk), options.perListing ?? PROFILES_PER_LISTING);
-    all.push(...(await tx.execute<RawCandidate>(q)).rows.map(toCandidate));
+    for (const r of (await tx.execute<RawProfile & { l_id: string; similarity: string | number | null }>(q)).rows) {
+      const listing = listings.get(r.l_id);
+      if (listing) all.push({ profile: toProfile(r), listing, similarity: num(r.similarity) });
+    }
   }
   return all;
 }
@@ -1181,8 +1263,8 @@ export interface ProfileMatchProbe extends MatchProfileRow {
  */
 export const BROAD_WINDOW = 2_000;
 
-/** Profiles probed per statement. */
-export const PROFILE_PROBE_CHUNK = 20;
+/** Broad profiles probed per statement (R2-02f: 5, was 20 — ≈ 3.4 ms a profile over the shared window). */
+export const PROFILE_PROBE_CHUNK = 5;
 /** Listings read per profile and run at most (the newest first). */
 export const LISTINGS_PER_PROFILE = 200;
 
@@ -1245,15 +1327,66 @@ export function profileToListingsQuery(
          limit ${perProfile}) c`;
 }
 
+/**
+ * R2-02f: one narrow profile → listings, as a statement of its own with the profile's criteria as values, so the planner
+ * plans it for that profile (a custom plan: `match_keys` element statistics, the filters folded) — a dense key (a
+ * region, a busy city: most of the stock) walks `matching_listing_facts_pkey` backward, newest first, and stops at
+ * `perProfile`; a sparse one (an area, a small town) takes the GIN entries and sorts the few it finds. The shared
+ * lateral of `profileToListingsQuery` has one generic plan for every profile of a chunk: at 1M profiles and 200k facts
+ * a region-level profile read 140k GIN entries and 40k heap pages to sort them (442 ms; 49 ms at R2-02b's uniform
+ * 2,000 cities). The same filters as `hardFilters`, written over values. Exported for the plan probes.
+ */
+export function narrowProfileToListingsQuery(
+  p: ProfileMatchProbe,
+  perProfile: number,
+  options: { since?: Date | null } = {},
+): SQL {
+  const opt = (v: number | null, type: 'bigint' | 'int' | 'numeric') =>
+    v === null ? sql`null` : sql`${v}::${sql.raw(type)}`;
+  const since = options.since ? sql`and l.updated_at >= ${options.since.toISOString()}::timestamptz` : sql``;
+  const must = p.featureIds.length;
+  return sql`
+    select ${listingCols}
+      from ${matchingListingFacts} l
+     where l.match_keys && ${texts(p.keys)} ${since}
+       and (${p.transactionType}::text is null or l.transaction_type = ${p.transactionType}::text)
+       and (${p.propertyTypeIds.length === 0} or l.property_type_id = any(${uuids(p.propertyTypeIds)}))
+       and (${opt(p.priceMinCents, 'bigint')} is null or l.price_cents >= ${opt(p.priceMinCents, 'bigint')})
+       and (${opt(p.priceMaxCents, 'bigint')} is null or l.price_cents * 10 <= ${opt(p.priceMaxCents, 'bigint')} * 11)
+       and (${opt(p.bedsMin, 'int')} is null or l.beds >= ${opt(p.bedsMin, 'int')})
+       and (${opt(p.bathsMin, 'int')} is null or l.baths >= ${opt(p.bathsMin, 'int')})
+       and (${opt(p.areaMinM2, 'numeric')} is null or l.area_m2 >= ${opt(p.areaMinM2, 'numeric')})
+       and (${opt(p.areaMaxM2, 'numeric')} is null or l.area_m2 <= ${opt(p.areaMaxM2, 'numeric')})
+       and (${must === 0}
+            or cardinality(array(select unnest(${uuids(p.featureIds)}) except select unnest(l.feature_ids)))
+               <= ${Math.floor(must / 4)}::int)
+       and (l.agency_id = ${p.agencyId}::uuid or l.share_scope = 'ALL' or ${p.agencyId}::uuid = any(l.preferred_agency_ids))
+       and not exists (select 1 from ${clientProfileMatches} m
+                        where m.profile_id = ${p.id}::uuid and m.listing_id = l.listing_id)
+     order by l.listing_id desc
+     limit ${perProfile}`;
+}
+
 export async function profileToListings(
   tx: Tx,
   probes: readonly ProfileMatchProbe[],
   options: { chunk?: number; perProfile?: number; broad?: boolean; since?: Date | null } = {},
 ): Promise<MatchCandidateRow[]> {
-  const chunk = options.chunk ?? PROFILE_PROBE_CHUNK;
+  const perProfile = options.perProfile ?? LISTINGS_PER_PROFILE;
   const all: MatchCandidateRow[] = [];
+  if (!options.broad) {
+    // a statement a profile (≤ `CLIENT_PROFILE_EVENT_IDS` an event, `MATCH_SWEEP_WINDOW` a sweep window): see above
+    for (const p of probes) {
+      if (p.keys.length === 0) continue;
+      const { keys: _keys, ...profile } = p;
+      const rows = await tx.execute<RawListing>(narrowProfileToListingsQuery(p, perProfile, options));
+      for (const r of rows.rows) all.push({ profile, listing: toListing(r), similarity: null });
+    }
+    return all;
+  }
+  const chunk = options.chunk ?? PROFILE_PROBE_CHUNK;
   for (let i = 0; i < probes.length; i += chunk) {
-    const q = profileToListingsQuery(probes.slice(i, i + chunk), options.perProfile ?? LISTINGS_PER_PROFILE, options);
+    const q = profileToListingsQuery(probes.slice(i, i + chunk), perProfile, options);
     all.push(...(await tx.execute<RawCandidate>(q)).rows.map(toCandidate));
   }
   return all;

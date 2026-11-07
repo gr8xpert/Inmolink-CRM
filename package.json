@@ -67,6 +67,7 @@
     "perf:load:tokens": "tsx --conditions=@inmolink/source scripts/perf/load-tokens.ts",
     "perf:realtime:publish": "tsx --conditions=@inmolink/source scripts/perf/realtime-publisher.ts",
     "perf:storm": "tsx --conditions=@inmolink/source scripts/perf/storm.ts",
+    "perf:matching-storm": "tsx --conditions=@inmolink/source scripts/perf/matching-storm.ts",
     "perf:soak:sample": "tsx --conditions=@inmolink/source scripts/perf/soak-sampler.ts",
     "perf:bundle": "tsx scripts/perf/bundle.ts",
     "perf:lighthouse": "tsx --conditions=@inmolink/source scripts/perf/lighthouse.ts",

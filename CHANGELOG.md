@@ -6,6 +6,7 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 ## [Unreleased]
 
 ### Changed
+- Matching keeps up with a storm (R2-02f): 10k listing changes against 1M client profiles in about 6 minutes on a 2-core database (was about an hour); new `pnpm perf:matching-storm` probe and a dense-market plan test. No new dependency.
 - Client profiles set to AUTO_SEND now send their matches (R2-02e): INSTANT a few minutes after the first match, DAILY / WEEKLY at 09:00 agency time, as one branded selection by e-mail in the client's language or as a WhatsApp link e-mailed to the agent; a listing never goes twice, only with marketing consent and within per-agency / per-contact daily caps. Migration 0190 (`client_profile_deliveries`); the email pool needs `PUBLIC_PAGES_URL`. No new dependency.
 - Agents register clients and request and answer viewings from the dashboard (S17-F56): register from network rows and detail pages, viewing actions on /collaborations decided by the API, terms page with PDF link. A give-to-get locked agency starts no new registration or viewing request; `GET /v1/network/gate`.
 - The give-to-get exemption is granted by a super admin only (S17-F57); support keeps verification.

@@ -109,6 +109,33 @@ of 8080), then `pnpm perf:storm matching --staging`. `pnpm perf:storm cleanup [-
 run left (and puts seeded connections it left on back: their seeded URL from the run's journal, then off). `cleanup` also restores price journals left by an interrupted matching storm;
 `cleanup --listings` soft-deletes the imported `STORM-*` listings (purged after the 30-day restore window).
 
+## Client-profile matching storm (R2-02f)
+
+The R2-02 acceptance (10k listing changes vs 1M client profiles in < 10 min) measures the match engine itself, not the
+outbox path above: `scripts/perf/matching-storm.ts` seeds a synthetic Costa del Sol market in set-based SQL and calls
+`matching.matchListingsToProfiles` — the `matching.matchListingsToProfiles` job's entry point — once per
+`search.listings.changed` event (the owner's changed listings, ≤ 100 an event). Synthetic ids start with `57024f`.
+
+```
+pnpm perf:matching-storm seed [--test|--staging] [--agencies 5000] [--profiles 1000000] [--facts 200000] [--changes 10000] [--past-matches 500000]
+pnpm perf:matching-storm plans [--test|--staging]                          # EXPLAIN (ANALYZE, BUFFERS) of the hot statements
+pnpm perf:matching-storm run [--test|--staging] [--changes 10000] [--concurrency 4] [--out storm.json]
+pnpm perf:matching-storm reset [--test|--staging]                          # drops the run's matches: run again
+pnpm perf:matching-storm cleanup [--test|--staging]                        # removes everything the seed wrote
+```
+
+- The seed needs `DATABASE_URL_ADMIN` for its closing `VACUUM (ANALYZE)` (the app roles hold no MAINTAIN); without it,
+  vacuum the matching tables by hand before measuring.
+- Run `plans` twice: the first run reads from disk. The `run` report gives wall time, per-event p50 / p95 / max, ms per
+  listing, matches written and the INSTANT deliveries that would be queued (counted, never enqueued: nothing is sent).
+  `run` prints PASS / FAIL against the 10-minute budget (extrapolated linearly when fewer than 10k changes run) and
+  exits 1 on FAIL. `reset` drops the run's matches but leaves the facts and read models it refreshed (version 2, new
+  `updated_at`), so a second run on the same seed is close to, not identical with, the first; reseed for a clean number.
+- **Staging (H3):** the seed is ≈ 2.5 GB (1M profiles, 200k facts, 500k past matches) and takes ≈ 6 min; run it off
+  hours, with `NODE_ENV=production DEPLOY_ENV=staging` and the staging database URLs, `--concurrency` = the matching
+  pool's slots one worker runs (10), then `cleanup --staging`. The vector part (semantic score) needs real embeddings
+  for profiles and listings — until H3 the engine scores without vectors (neutral 0.5), as the local run does.
+
 ## Realtime
 
 `tests/load/realtime.js` speaks Socket.io v4 / Engine.IO v4 over a plain WebSocket (`tests/load/lib/realtime-mix.ts`):

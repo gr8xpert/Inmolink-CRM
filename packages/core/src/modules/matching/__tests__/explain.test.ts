@@ -8,7 +8,13 @@ import {
   passesHardFilters,
   scoreMatch,
 } from '../explain';
-import { listingEventKeys, listingMatchKeys, profileMatchKeys, profileProbeKeys } from '../match-keys';
+import {
+  EVENT_KEY_TIERS,
+  listingEventKeyTiers,
+  listingMatchKeys,
+  profileMatchKeys,
+  profileProbeKeys,
+} from '../match-keys';
 
 /** Match explanations (R2-02b): fixtures for each satisfied / unsatisfied criterion, the tolerances and the scores. */
 
@@ -160,16 +166,34 @@ describe('match explanations (R2-02b)', () => {
     // anywhere, any transaction
     expect(hit(profileMatchKeys({ agencyId: 'C', transactionType: null, locationIds: [] }), rent)).toBe(true);
     // a changed listing probes only its places below the country, never `*`: broad profiles are swept instead
-    const event = listingEventKeys({
+    const event = listingEventKeyTiers({
       ownerAgencyId: 'B',
       transactionType: 'SALE',
       locationIds: [COUNTRY, CITY],
       network: true,
-    });
+    }).flat();
     expect(hit(profileMatchKeys(p), event)).toBe(true);
     expect(hit(profileMatchKeys({ agencyId: 'C', transactionType: null, locationIds: [] }), event)).toBe(false);
     expect(hit(profileMatchKeys({ agencyId: 'C', transactionType: 'SALE', locationIds: [COUNTRY] }), event)).toBe(
       false,
     );
+  });
+
+  it('[R2-02f] a changed listing probes its places a tier at a time, the most specific first', () => {
+    const l = { ownerAgencyId: 'B', transactionType: 'SALE', locationIds: ['C', 'R', 'T', 'A'], network: true };
+    const tiers = listingEventKeyTiers(l);
+    expect(tiers).toHaveLength(EVENT_KEY_TIERS);
+    expect(tiers[0]).toEqual(['a:B:*:A', 'a:B:SALE:A', 'n:*:A', 'n:SALE:A']);
+    expect(tiers[1]).toEqual(['a:B:*:T', 'a:B:SALE:T', 'n:*:T', 'n:SALE:T']);
+    expect(tiers[2]).toEqual(['a:B:*:R', 'a:B:SALE:R', 'n:*:R', 'n:SALE:R']);
+    // never the country, never `*`
+    expect(tiers.flat().some((k) => k.endsWith(':C') || k.endsWith(':*'))).toBe(false);
+    // off the network: own keys only; no area: the city leads and the last tier is empty
+    expect(listingEventKeyTiers({ ...l, locationIds: ['C', 'R', 'T'], network: false })).toEqual([
+      ['a:B:*:T', 'a:B:SALE:T'],
+      ['a:B:*:R', 'a:B:SALE:R'],
+      [],
+    ]);
+    expect(listingEventKeyTiers({ ...l, locationIds: ['C'] })).toEqual([[], [], []]);
   });
 });
