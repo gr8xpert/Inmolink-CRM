@@ -327,6 +327,8 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     documentsJobs.renderViewingTerms,
     documentsJobs.renderForm,
     documentsJobs.sealSignature,
+    // R2-06: a batch of window cards, one file.
+    presentationsJobs.renderWindowCards,
   ],
 };
 

@@ -14,6 +14,7 @@ export {
   DOCUMENT_RENDERS_PER_AGENCY,
   DOCUMENT_TEMPLATE_VERSION,
   documentKey,
+  documentsSettings,
   viewingTermsKey,
 } from './config';
 export { documentsErrors } from './errors';
@@ -116,11 +117,16 @@ export {
 } from './signing-token';
 export { registerDocumentsSubscriptions, unregisterDocumentsSubscriptions } from './subscriptions';
 export {
+  badges as docBadges,
   brochureHtml,
+  color as docColor,
+  contactLine as docContactLine,
   type DocFormat,
   docFormat,
   type ListingsDocInput,
   portfolioHtml,
+  priceText as docPriceText,
+  src as docImageSrc,
   type ViewingTermsDocInput,
   viewingTermsHtml,
 } from './templates';

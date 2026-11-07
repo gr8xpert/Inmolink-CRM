@@ -1,6 +1,6 @@
 'use client';
 
-import type { ListingBulkDto, ListingColumn, ListingFilter } from '@inmolink/contracts';
+import { type ListingBulkDto, type ListingColumn, type ListingFilter, WINDOW_CARDS_MAX } from '@inmolink/contracts';
 import {
   LISTING_STATUSES,
   LISTING_STUDIO_BULK_MAX,
@@ -233,6 +233,25 @@ export function ListingsTable(props: ListingsTableProps) {
             data-testid="bulk-selection"
           >
             {t('bulk.selection.run')}
+          </Button>
+        )}
+        {selectionReady ? (
+          <Link
+            href={{ pathname: '/window-cards/new', query: { listingIds: [...selected].join(',') } }}
+            className={buttonVariants({ variant: 'outline' })}
+            data-testid="bulk-window-cards"
+          >
+            {t('bulk.windowCards.run')}
+          </Link>
+        ) : (
+          <Button
+            type="button"
+            variant="outline"
+            disabled
+            title={t('bulk.windowCards.hint', { max: String(WINDOW_CARDS_MAX) })}
+            data-testid="bulk-window-cards"
+          >
+            {t('bulk.windowCards.run')}
           </Button>
         )}
         {!allMatching ? (

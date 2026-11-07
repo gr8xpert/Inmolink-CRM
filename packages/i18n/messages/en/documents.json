@@ -1,4 +1,11 @@
 {
+  "windowCard": {
+    "scan": "Scan for photos, details and the live price",
+    "bedrooms": "Beds",
+    "bathrooms": "Baths",
+    "area": "Built",
+    "plot": "Plot"
+  },
   "listing": {
     "reference": "Ref. {ref}",
     "price": "Price",

@@ -68,5 +68,31 @@
     "VALIDATION_FAILED": "Check the title, the language and the folder or listing ids.",
     "VERSION_CONFLICT": "Someone changed this selection. Reload the page and try again.",
     "RATE_LIMITED": "Too many requests. Wait a moment."
+  },
+  "windowCards": {
+    "title": "Window cards",
+    "intro": "Printable cards with your branding and a QR code to each property's live page. One file for the whole batch.",
+    "count": "{count} properties",
+    "none": "Pick properties in the listings table first.",
+    "template": "Template",
+    "layouts": { "classic": "Classic", "split": "Split", "gallery": "Gallery", "bold": "Bold" },
+    "sizes": { "A4": "A4", "A3": "A3" },
+    "orientations": { "PORTRAIT": "portrait", "LANDSCAPE": "landscape" },
+    "format": "Format",
+    "formats": { "PDF": "PDF (print)", "HTML": "HTML" },
+    "locale": "Cards' language",
+    "submit": "Make the cards",
+    "working": "Making the cards...",
+    "ready": "Your cards are ready.",
+    "download": "Download",
+    "failed": "The cards could not be made. Try again.",
+    "back": "Back to listings",
+    "errors": {
+      "generic": "Something went wrong. Try again.",
+      "DOCUMENT_LISTINGS_INVALID": "None of these properties can be shown publicly.",
+      "VALIDATION_FAILED": "Check the template and the properties.",
+      "RATE_LIMITED": "Too many requests. Wait a moment.",
+      "PLAN_REQUIRED": "Window cards are part of a paid plan."
+    }
   }
 }

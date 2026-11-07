@@ -1,8 +1,10 @@
 import {
   CreateSelectionBody,
+  CreateWindowCardsBody,
   ListSelectionInteractionsQuery,
   ListSelectionsQuery,
   PdfDocumentDto,
+  PdfDocumentParams,
   SelectionCreatedDto,
   SelectionDto,
   SelectionInteractionPage,
@@ -124,6 +126,42 @@ export async function presentationsRoutes(app: FastifyZod): Promise<void> {
     async (req, reply) => {
       return reply.code(202).send(await presentations.selectionPdf((fn) => app.withCtx(req, fn), req.params.id));
     },
+  );
+
+  // R2-06: window cards — a batch of listings, one template, ONE file (rendered by the pdf pool).
+  app.post(
+    '/v1/window-cards',
+    {
+      schema: {
+        tags: ['presentations'],
+        operationId: 'presentations.createWindowCards',
+        summary:
+          "Window cards (A4/A3, portrait/landscape) for up to 50 listings as one PDF or HTML file, each with a QR code to the listing's live page (202; poll the cards)",
+        body: CreateWindowCardsBody,
+        response: { 202: PdfDocumentDto },
+      },
+      onRequest: [app.requireSession],
+      // The documents' render budget (per IP, user and agency), shared with the documents routes.
+      config: { rateLimit: DOCUMENT_RENDER_LIMITS },
+    },
+    async (req, reply) =>
+      reply.code(202).send(await presentations.requestWindowCards((fn) => app.withCtx(req, fn), req.body)),
+  );
+
+  app.get(
+    '/v1/window-cards/:documentId',
+    {
+      schema: {
+        tags: ['presentations'],
+        operationId: 'presentations.getWindowCards',
+        summary: "A window-cards batch's state, with a short signed download link once it is ready",
+        params: PdfDocumentParams,
+        response: { 200: PdfDocumentDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: READ_LIMITS },
+    },
+    async (req) => presentations.getWindowCards((fn) => app.withCtx(req, fn), req.params.documentId),
   );
 
   app.post(

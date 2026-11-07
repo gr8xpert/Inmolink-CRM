@@ -68,5 +68,31 @@
     "VALIDATION_FAILED": "Revisa el título, el idioma y la carpeta o los identificadores.",
     "VERSION_CONFLICT": "Alguien ha cambiado esta selección. Recarga la página e inténtalo de nuevo.",
     "RATE_LIMITED": "Demasiadas peticiones. Espera un momento."
+  },
+  "windowCards": {
+    "title": "Carteles de escaparate",
+    "intro": "Carteles imprimibles con tu marca y un código QR a la página en vivo de cada inmueble. Un solo archivo para todo el lote.",
+    "count": "{count} inmuebles",
+    "none": "Elige antes inmuebles en la tabla de anuncios.",
+    "template": "Plantilla",
+    "layouts": { "classic": "Clásica", "split": "Dividida", "gallery": "Galería", "bold": "Destacada" },
+    "sizes": { "A4": "A4", "A3": "A3" },
+    "orientations": { "PORTRAIT": "vertical", "LANDSCAPE": "horizontal" },
+    "format": "Formato",
+    "formats": { "PDF": "PDF (imprimir)", "HTML": "HTML" },
+    "locale": "Idioma de los carteles",
+    "submit": "Crear los carteles",
+    "working": "Creando los carteles...",
+    "ready": "Tus carteles están listos.",
+    "download": "Descargar",
+    "failed": "No se pudieron crear los carteles. Inténtalo de nuevo.",
+    "back": "Volver a los anuncios",
+    "errors": {
+      "generic": "Algo ha fallado. Inténtalo de nuevo.",
+      "DOCUMENT_LISTINGS_INVALID": "Ninguno de estos inmuebles se puede mostrar públicamente.",
+      "VALIDATION_FAILED": "Revisa la plantilla y los inmuebles.",
+      "RATE_LIMITED": "Demasiadas peticiones. Espera un momento.",
+      "PLAN_REQUIRED": "Los carteles forman parte de un plan de pago."
+    }
   }
 }

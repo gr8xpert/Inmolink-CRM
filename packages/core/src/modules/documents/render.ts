@@ -44,11 +44,12 @@ export async function loadDocumentListings(input: { agencyId: string; listingIds
       fallbackLocale: FALLBACK_CONTENT_LOCALE,
       fallbackName: '',
     });
-    const items = input.listingIds.flatMap((id) => {
+    const entries = input.listingIds.flatMap((id) => {
       const detail = details.get(id);
-      return detail ? [detail] : [];
+      return detail ? [{ id, detail }] : [];
     });
-    return { presenter, items };
+    // `entries` keep the requested (real) id: a network listing's presented `detail.id` is scoped to the site.
+    return { presenter, items: entries.map((e) => e.detail), entries };
   });
 }
 

@@ -54,6 +54,7 @@
     "drizzle-orm": "0.45.4",
     "libheif-js": "1.23.2",
     "libphonenumber-js": "1.12.10",
+    "qrcode": "1.5.4",
     "sharp": "0.35.5",
     "zod": "4.6.7"
   },
@@ -61,6 +62,7 @@
     "@biomejs/biome": "2.5.15",
     "@inmolink/config": "workspace:*",
     "@types/node": "24.19.2",
+    "@types/qrcode": "1.5.5",
     "tsdown": "0.23.0",
     "typescript": "6.0.3",
     "vitest": "5.0.3",

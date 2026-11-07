@@ -363,6 +363,10 @@
       "ADD_TAG": "Tag"
     },
     "stillRunning": "Still working ({processed} of {total}). Reload the page later to see the result.",
+    "windowCards": {
+      "run": "Window cards",
+      "hint": "Pick 1 to {max} listings (not \"all matching\") to make printable window cards with a QR code."
+    },
     "selection": {
       "run": "Create selection",
       "hint": "Pick 1 to {max} listings (not \"all matching\") to share them with a client as a selection."

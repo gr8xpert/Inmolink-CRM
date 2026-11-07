@@ -33,6 +33,14 @@ export const selectionTokenHash = (token: string): string => hmacSha256(configur
 export const selectionTokenHashCandidates = (token: string): string[] =>
   hmacSha256Candidates(configured().tokenKey, TOKEN_PURPOSE, token);
 
+/**
+ * R2-06: the token of a listing's window-card page — derived, not random, so printing the same listing again lands on
+ * the same page (earlier cards keep working, the selections list does not grow with every print run). A keyed MAC of
+ * the agency and the listing: not guessable without `HMAC_KEY`, 32 bytes base64url like any selection token.
+ */
+export const windowCardToken = (agencyId: string, targetId: string): string =>
+  hmacSha256(configured().tokenKey, 'presentations.window-card-token', `${agencyId}:${targetId}`);
+
 export const publicBaseUrl = (): string | null => configured().publicBaseUrl;
 
 /** Where a selection's page is served on the public pages host. */

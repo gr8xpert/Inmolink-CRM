@@ -1,8 +1,10 @@
 import { defineJob } from '@inmolink/platform/queue';
 import { z } from 'zod';
 import * as crm from '../crm';
+import { DOCUMENT_RENDERS_PER_AGENCY, documentsSettings } from '../documents';
 import { eraseContactSelections } from './erasure';
 import { pruneSelectionInteractions } from './retention';
+import { renderWindowCards, WINDOW_CARDS_JOB, WindowCardsPayload } from './window-cards';
 
 /**
  * presentations worker jobs (PATTERNS §12).
@@ -13,6 +15,28 @@ import { pruneSelectionInteractions } from './retention';
  *   their retention (`retention.ts`).
  */
 export const presentationsJobs = {
+  /**
+   * R2-06: a batch of window cards, ONE file (job id = the request's content hash). Shares the `pdf` pool's fair share
+   * with the documents' renders (`documents.render` cap group: at most `DOCUMENT_RENDERS_PER_AGENCY` of one agency at
+   * once, and the worker's browser page pool). Idempotent: a stored file is not rendered again.
+   */
+  renderWindowCards: defineJob({
+    name: WINDOW_CARDS_JOB,
+    pool: 'pdf',
+    payload: WindowCardsPayload,
+    jobId: (p) => p.documentId,
+    group: (p) => p.agencyId,
+    concurrencyPerGroup: DOCUMENT_RENDERS_PER_AGENCY,
+    perProcessConcurrency: () => documentsSettings().renderConcurrency,
+    capGroup: 'documents.render',
+    attempts: 3,
+    backoff: { type: 'exponential', delay: 5_000 },
+    timeoutMs: 180_000,
+    async run(p, ctx) {
+      return renderWindowCards(p, { signal: ctx.signal });
+    },
+  }),
+
   eraseContactSelections: defineJob({
     name: 'presentations.eraseContactSelections',
     pool: 'maintenance',

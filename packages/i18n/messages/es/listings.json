@@ -363,6 +363,10 @@
       "ADD_TAG": "Etiqueta"
     },
     "stillRunning": "Sigue en curso ({processed} de {total}). Recarga la página más tarde para ver el resultado.",
+    "windowCards": {
+      "run": "Carteles de escaparate",
+      "hint": "Elige de 1 a {max} inmuebles (no \"todos los que coinciden\") para crear carteles imprimibles con código QR."
+    },
     "selection": {
       "run": "Crear selección",
       "hint": "Elige de 1 a {max} inmuebles (no \"todos los que coinciden\") para compartirlos con un cliente como selección."

@@ -7,12 +7,14 @@ export {
   selectionLinksConfigured,
   selectionUrl,
 } from './alerts';
+// R2-06: window cards.
 export {
   configurePresentations,
   type PresentationsConfig,
   SELECTION_TOKEN,
   selectionPath,
   selectionTokenHash,
+  windowCardToken,
 } from './config';
 export {
   eraseAgencySelections,
@@ -64,4 +66,19 @@ export {
   selectionTimelineActivity,
   unregisterPresentationsSubscriptions,
 } from './subscriptions';
+export {
+  renderWindowCards,
+  WINDOW_CARDS_TEMPLATE_VERSION,
+  WindowCardsPayload,
+  windowCardsBatchHtml,
+  windowCardsIdOf,
+  windowCardsKey,
+} from './window-cards';
+export {
+  getWindowCards,
+  prepareWindowCards,
+  requestWindowCards,
+  startWindowCards,
+} from './window-cards-service';
+export { windowCardsHtml, windowCardTemplate } from './window-cards-templates';
 // Never export repo or schema.

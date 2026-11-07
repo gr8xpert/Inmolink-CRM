@@ -355,3 +355,44 @@ export async function relinkSelection(
     .returning({ id: selections.id });
   return rows.length > 0;
 }
+
+/**
+ * R2-06: a window card's live pages, one selection per listing (worker, `withSystem`). Printing a listing again finds
+ * its page by its derived token and gives it no expiry and puts its one item back to the listing (a page the agent revoked stays revoked). Two statements; answers the selection id per token hash.
+ */
+export async function upsertWindowCardSelections(
+  tx: Tx,
+  rows: readonly { selection: SelectionInsert; item: Omit<ItemInsert, 'selectionId'> }[],
+): Promise<Map<string, string>> {
+  if (rows.length === 0) return new Map();
+  const saved = await tx
+    .insert(selections)
+    .values(rows.map((r) => r.selection))
+    .onConflictDoUpdate({
+      target: selections.tokenHash,
+      set: {
+        title: sql`excluded.title`,
+        locale: sql`excluded.locale`,
+        expiresAt: sql`null`,
+        version: sql`${selections.version} + 1`,
+        updatedAt: sql`now()`,
+      },
+      // another agency's row can never share a token (the agency is in the MAC); belt and braces
+      setWhere: sql`${selections.agencyId} = excluded.agency_id`,
+    })
+    .returning({ id: selections.id, tokenHash: selections.tokenHash });
+  const idByHash = new Map(saved.map((s) => [s.tokenHash, s.id]));
+  const items = rows.flatMap((r) => {
+    const selectionId = idByHash.get(r.selection.tokenHash);
+    return selectionId ? [{ ...r.item, selectionId }] : [];
+  });
+  if (items.length > 0)
+    await tx
+      .insert(selectionItems)
+      .values(items)
+      .onConflictDoUpdate({
+        target: [selectionItems.selectionId, selectionItems.position],
+        set: { targetId: sql`excluded.target_id`, titleOverride: sql`null`, note: sql`null` },
+      });
+  return idByHash;
+}

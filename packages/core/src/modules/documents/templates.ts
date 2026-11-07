@@ -41,7 +41,7 @@ export function docFormat(locale: string, timeZone = 'Europe/Madrid'): DocFormat
 const HEX = /^#[0-9a-fA-F]{6}$/;
 const DEFAULT_PRIMARY = '#1f3a5f';
 const DEFAULT_ACCENT = '#c8a45d';
-const color = (c: string | null, fallback: string) => (c && HEX.test(c) ? c : fallback);
+export const color = (c: string | null, fallback: string) => (c && HEX.test(c) ? c : fallback);
 const e = (s: string | number | null | undefined) => escapeHtml(String(s ?? ''));
 
 /** Characters of a description on a portfolio page (a brochure shows it whole). */
@@ -89,7 +89,7 @@ table.terms td { padding: 2.2mm 2mm; border-bottom: .3mm solid #e1e5ea; font-wei
 `;
 }
 
-function contactLine(p: WebsitePresenter): string {
+export function contactLine(p: WebsitePresenter): string {
   return [p.phone, p.email, p.website]
     .filter((x): x is string => !!x)
     .map(e)
@@ -112,7 +112,7 @@ function doc(title: string, lang: string, presenter: WebsitePresenter, body: str
  * An image URL, only when it is an absolute http(s) URL (the CDN's); anything else shows nothing. The renderer refuses
  * every origin but the allowed asset origins anyway.
  */
-function src(image: WebsiteImage | null | undefined, size: 'large' | 'medium' | 'small'): string | null {
+export function src(image: WebsiteImage | null | undefined, size: 'large' | 'medium' | 'small'): string | null {
   const url = image?.urls[size] ?? image?.urls.medium ?? image?.urls.large ?? null;
   return url && /^https?:\/\//.test(url) ? url : null;
 }
@@ -120,7 +120,7 @@ function src(image: WebsiteImage | null | undefined, size: 'large' | 'medium' | 
 const img = (url: string | null, cls: string) =>
   url ? `<img class="${cls}" src="${e(url)}" alt="">` : `<div class="${cls}"></div>`;
 
-function priceText(d: WebsiteDetail, t: Translate, f: DocFormat): string {
+export function priceText(d: WebsiteDetail, t: Translate, f: DocFormat): string {
   const p = d.price;
   if (p.onRequest || p.amountCents === null) return t('listing.priceOnRequest');
   const amount = f.money(p.amountCents, p.currency);
@@ -131,7 +131,7 @@ function priceText(d: WebsiteDetail, t: Translate, f: DocFormat): string {
   return amount;
 }
 
-function badges(d: WebsiteDetail, t: Translate): string {
+export function badges(d: WebsiteDetail, t: Translate): string {
   const out: string[] = [];
   if (d.kind === 'LISTING') out.push(t(`listing.transaction.${d.transactionType}`));
   if (d.status !== 'ACTIVE' && d.status !== 'AVAILABLE') {

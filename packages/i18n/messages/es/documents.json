@@ -1,4 +1,11 @@
 {
+  "windowCard": {
+    "scan": "Escanea para ver fotos, detalles y el precio actualizado",
+    "bedrooms": "Dorm.",
+    "bathrooms": "Baños",
+    "area": "Construido",
+    "plot": "Parcela"
+  },
   "listing": {
     "reference": "Ref. {ref}",
     "price": "Precio",

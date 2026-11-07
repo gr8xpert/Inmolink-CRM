@@ -54,3 +54,4 @@ export * from './values';
 export * from './verification';
 export * from './website-leads';
 export * from './websites';
+export * from './window-cards'; // R2-06

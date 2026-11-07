@@ -522,6 +522,9 @@ importers:
       libphonenumber-js:
         specifier: 1.12.10
         version: 1.12.10
+      qrcode:
+        specifier: 1.5.4
+        version: 1.5.4
       sharp:
         specifier: 0.35.5
         version: 0.35.5(@types/node@24.19.2)
@@ -538,6 +541,9 @@ importers:
       '@types/node':
         specifier: 24.19.2
         version: 24.19.2
+      '@types/qrcode':
+        specifier: 1.5.5
+        version: 1.5.5
       tsdown:
         specifier: 0.23.0
         version: 0.23.0(tsx@4.23.15)(typescript@6.0.3)
