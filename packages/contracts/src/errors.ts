@@ -333,6 +333,8 @@ export const ErrorCodes = {
    * the viewing request has another live deal).
    */
   DEAL_STATE: 409,
+  /** R2-04b: no such document on the caller's side of the deal (or it was removed and no longer opens). */
+  DEAL_DOCUMENT_NOT_FOUND: 404,
   // chat (S11-03)
   /** No thread with this id that the caller takes part in (none, another agency's, or one they are not in). */
   CHAT_THREAD_NOT_FOUND: 404,

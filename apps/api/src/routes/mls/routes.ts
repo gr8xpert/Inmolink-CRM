@@ -4,7 +4,13 @@ import {
   CreateContactHeaders,
   CreateDealBody,
   CreateRegistrationBody,
+  CreateTaskBody,
   CreateViewingRequestBody,
+  DEAL_DOCUMENT_MAX_BYTES,
+  DealDocumentDto,
+  DealDocumentList,
+  DealDocumentParams,
+  DealDocumentUrlDto,
   DealDto,
   DealPage,
   DealParams,
@@ -19,6 +25,9 @@ import {
   RescheduleViewingBody,
   SetDealPriceBody,
   StaffDealDto,
+  TaskDto,
+  UploadDealDocumentHeaders,
+  UploadDealDocumentQuery,
   ViewingOutcomeBody,
   ViewingRequestDto,
   ViewingRequestPage,
@@ -26,8 +35,11 @@ import {
   ViewingTermsDocumentDto,
 } from '@inmolink/contracts';
 import * as mls from '@inmolink/core/modules/mls';
+import { AppError } from '@inmolink/platform/errors';
 import type { RateLimitRule } from '@inmolink/platform/rate-limit';
 import type { FastifyZod } from '@inmolink/platform/server';
+import { z } from 'zod';
+import { takeUploadSlot } from '../media/routes';
 
 const READ_LIMITS: readonly RateLimitRule[] = [
   { name: 'mls.read.ip', scope: 'ip', limit: 600, windowSeconds: 60 },
@@ -420,6 +432,91 @@ export async function mlsRoutes(app: FastifyZod): Promise<void> {
     (req) => app.withCtx(req, (ctx) => mls.fallThroughDeal(ctx, req.params.id, req.body)),
   );
 
+  // ── R2-04b, the deal room: documents and tasks (the thread: `POST /v1/chat/deal-threads`) ─────────
+
+  app.get(
+    '/v1/mls/deals/:id/documents',
+    {
+      schema: {
+        tags,
+        operationId: 'mls.listDealDocuments',
+        summary: 'A deal’s documents (both parties’ uploads; removed ones listed as removed), oldest first',
+        params: DealParams,
+        response: { 200: DealDocumentList },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: READ_LIMITS },
+    },
+    (req) => app.withCtx(req, (ctx) => mls.listDealDocuments(ctx, req.params.id)),
+  );
+
+  app.get(
+    '/v1/mls/deals/:id/documents/:documentId/url',
+    {
+      schema: {
+        tags,
+        operationId: 'mls.openDealDocument',
+        summary: 'A short signed download URL (5 min) of a deal document; audited',
+        params: DealDocumentParams,
+        response: { 200: DealDocumentUrlDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: READ_LIMITS },
+    },
+    (req) =>
+      app.withCtx(req, (ctx) =>
+        mls.openDealDocument(ctx, { dealId: req.params.id, documentId: req.params.documentId }),
+      ),
+  );
+
+  app.delete(
+    '/v1/mls/deals/:id/documents/:documentId',
+    {
+      schema: {
+        tags,
+        operationId: 'mls.removeDealDocument',
+        summary: 'Remove a document the caller’s agency uploaded to an open deal (it stays listed as removed)',
+        response: { 204: z.null() },
+        params: DealDocumentParams,
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: WRITE_LIMITS },
+    },
+    async (req, reply) => {
+      await app.withCtx(req, (ctx) =>
+        mls.removeDealDocument(ctx, { dealId: req.params.id, documentId: req.params.documentId }),
+      );
+      return reply.status(204).send(null);
+    },
+  );
+
+  app.post(
+    '/v1/mls/deals/:id/tasks',
+    {
+      schema: {
+        tags,
+        operationId: 'mls.createDealTask',
+        summary:
+          'Create the agency’s own task about a deal (201; private to the agency) — listed by GET /v1/crm/tasks?dealId=. With an Idempotency-Key, a retry within 24 h answers the first task (200)',
+        params: DealParams,
+        headers: CreateContactHeaders,
+        body: CreateTaskBody,
+        response: { 201: TaskDto, 200: TaskDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: WRITE_LIMITS },
+    },
+    async (req, reply) => {
+      const idempotencyKey = req.headers['idempotency-key'];
+      const result = await app.withCtx(req, (ctx) =>
+        mls.createDealTask(ctx, req.params.id, req.body, idempotencyKey ? { idempotencyKey } : {}),
+      );
+      return reply.code(result.replayed ? 200 : 201).send(result.task);
+    },
+  );
+
+  await app.register(dealDocumentUploadRoute);
+
   // ── Staff: mediation ───────────────────────────────────────────────────────────────────────────
 
   app.get(
@@ -454,5 +551,46 @@ export async function mlsRoutes(app: FastifyZod): Promise<void> {
       config: { rateLimit: STAFF_LIMITS },
     },
     (req) => app.withStaffCtx(req, 'mls.mediateDeal', (ctx) => mls.mediateDeal(ctx, req.params.id, req.body)),
+  );
+}
+
+/**
+ * R2-04b: the deal document upload, in its own plugin: its body is the raw file (only this route accepts binary bodies,
+ * up to 20 MB). The declared type only routes the body here; the service checks the real type by magic bytes.
+ */
+async function dealDocumentUploadRoute(upload: FastifyZod): Promise<void> {
+  upload.addContentTypeParser(
+    ['application/pdf', 'application/octet-stream'],
+    { parseAs: 'buffer', bodyLimit: DEAL_DOCUMENT_MAX_BYTES },
+    (_req, body, done) => done(null, body),
+  );
+
+  upload.post(
+    '/v1/mls/deals/:id/documents',
+    {
+      schema: {
+        tags,
+        operationId: 'mls.uploadDealDocument',
+        summary: 'Upload one document to an open deal (raw PDF body, max 20 MB); both parties read it',
+        params: DealParams,
+        querystring: UploadDealDocumentQuery,
+        headers: UploadDealDocumentHeaders,
+        response: { 201: DealDocumentDto },
+      },
+      bodyLimit: DEAL_DOCUMENT_MAX_BYTES,
+      onRequest: [upload.requireSession, takeUploadSlot],
+      config: { rateLimit: WRITE_LIMITS },
+    },
+    async (req, reply) => {
+      if (!Buffer.isBuffer(req.body)) throw new AppError('UNSUPPORTED_MEDIA_TYPE');
+      const body = new Uint8Array(req.body.buffer, req.body.byteOffset, req.body.byteLength);
+      const doc = await mls.uploadDealDocument(upload.ctxRunner(req), {
+        dealId: req.params.id,
+        fileName: req.headers['x-file-name'],
+        kind: req.query.kind,
+        body,
+      });
+      return reply.status(201).send(doc);
+    },
   );
 }

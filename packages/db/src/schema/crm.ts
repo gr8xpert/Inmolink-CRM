@@ -800,6 +800,8 @@ export const tasks = pgTable(
     leadId: uuid('lead_id'),
     /** A listing of the agency (no FK: properties' table). */
     listingId: uuid('listing_id'),
+    /** R2-04b: a deal of the agency (its own copy; no FK: mls' table). Private to the agency — never the other party's. */
+    dealId: uuid('deal_id'),
     completedAt: timestamp('completed_at', { withTimezone: true }),
     completedByUserId: uuid('completed_by_user_id'),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
@@ -829,6 +831,10 @@ export const tasks = pgTable(
     index('tasks_listing_idx')
       .on(t.agencyId, t.listingId, t.status, t.dueSortMs, t.id)
       .where(sql`${t.listingId} is not null and ${t.deletedAt} is null`),
+    // R2-04b: a deal's tasks (same keyset; CONCURRENT_INDEXES)
+    index('tasks_deal_idx')
+      .on(t.agencyId, t.dealId, t.status, t.dueSortMs, t.id)
+      .where(sql`${t.dealId} is not null and ${t.deletedAt} is null`),
     // S17-F3, agency erasure's text sweep: the deleted tasks, where agency_id = ? and id > ? order by id (keyset;
     // the live ones walk tasks_agency_idx; CONCURRENT_INDEXES)
     index('tasks_agency_deleted_idx').on(t.agencyId, t.id).where(sql`${t.deletedAt} is not null`),

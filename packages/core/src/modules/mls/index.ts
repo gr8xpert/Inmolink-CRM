@@ -3,12 +3,25 @@
 export { onRehashPendingAlert } from './alerts';
 export {
   CLOSED_VIEWING_STATUSES,
+  type DealChatContext,
+  dealChatContext,
+  dealCounterpart,
   type ViewingChatContext,
   viewingChatContext,
   viewingCounterpart,
 } from './chat-context';
 export { applyBp, type CommissionAmounts, type CommissionTerms, commissionOf } from './commission';
 export { configureMls, type MlsConfig, REGISTRATION_CLAIM_DAYS, VIEWING_REQUEST_EXPIRY_DAYS } from './config';
+export {
+  DEAL_DOCUMENTS_PREFIX,
+  dealDocumentKey,
+  listDealDocuments,
+  openDealDocument,
+  removeDealDocument,
+  uploadDealDocument,
+} from './deal-documents';
+export { dealLink, notifyDealChange } from './deal-notices';
+export { createDealTask } from './deal-tasks';
 export {
   advanceDeal,
   confirmDeal,
@@ -21,7 +34,12 @@ export {
   setDealPrice,
   withdrawDealConfirmation,
 } from './deals';
-export { ERASED_CLIENT, eraseAgencyRegistrations, eraseContactRegistrations } from './erasure';
+export {
+  ERASED_CLIENT,
+  eraseAgencyDealDocuments,
+  eraseAgencyRegistrations,
+  eraseContactRegistrations,
+} from './erasure';
 export { mlsErrors } from './errors';
 export { mlsEvents } from './events';
 export {

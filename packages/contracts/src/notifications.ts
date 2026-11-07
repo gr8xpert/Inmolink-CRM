@@ -38,6 +38,8 @@ export const NOTIFICATION_TYPES = [
   'BILLING_PLAN_FREE',
   // S14-06: the agency was cut over to v2 (legacy migration / Path B) — to its admins, once per cutover.
   'MIGRATION_CUT_OVER',
+  // R2-04b: a deal the agency is party to changed (the other side or staff moved it) — to the deal's members.
+  'DEAL_UPDATED',
 ] as const;
 export const NotificationType = z.enum(NOTIFICATION_TYPES);
 export type NotificationType = z.infer<typeof NotificationType>;

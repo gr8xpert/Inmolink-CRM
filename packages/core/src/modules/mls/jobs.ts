@@ -2,6 +2,8 @@ import { clock } from '@inmolink/platform/clock';
 import { defineJob } from '@inmolink/platform/queue';
 import { z } from 'zod';
 import * as crm from '../crm';
+import { deleteDealDocumentObject, sweepOrphanDealDocuments } from './deal-document-hygiene';
+import { notifyDealChange } from './deal-notices';
 import { eraseContactRegistrations } from './erasure';
 import { mlsEvents } from './events';
 import { pruneExpiredRegistrations } from './gdpr';
@@ -38,6 +40,11 @@ const HOUR_MS = 3_600_000;
  *   expiry become `EXPIRED`, batches of 500, one `mls.viewing.changed` each. Idempotent.
  * - `mls.notifyViewing` (pool `maintenance`, one per `mls.viewing.changed`, job ID = the event's id, group = the event's
  *   agency): the other side's members are notified (both sides on expiry). Idempotent (`sourceKey`).
+ * - `mls.notifyDeal` (pool `maintenance`, one per `mls.deal.changed`, job ID = the event's id, R2-04b): the other party's
+ *   members (the event's own agency's after a staff mediation) are notified, once the deal is re-read and the event's
+ *   agency proved one of its parties (`deal-notices.ts`). Idempotent (`sourceKey`).
+ * - `mls.deleteDealDocumentObject` (pool `maintenance`, one per `mls.dealDocument.removed`, R2-04b) and
+ *   `mls.sweepOrphanDealDocuments` (pool `maintenance`, hourly): the deal documents' objects (`deal-document-hygiene.ts`).
  */
 export const mlsJobs = {
   eraseContactRegistrations: defineJob({
@@ -184,6 +191,58 @@ export const mlsJobs = {
     timeoutMs: 10 * 60_000,
     async run() {
       return pruneExpiredFingerprints();
+    },
+  }),
+
+  notifyDeal: defineJob({
+    name: 'mls.notifyDeal',
+    pool: 'maintenance',
+    payload: z.object({
+      eventId: z.uuid(),
+      agencyId: z.uuid(),
+      createdMs: z.number().int(),
+      change: mlsEvents.dealChanged.schema,
+    }),
+    jobId: (p) => `deal-notify:${p.eventId}`,
+    group: (p) => p.agencyId,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 5_000 },
+    timeoutMs: 60_000,
+    async run(p) {
+      return notifyDealChange(p.change, { eventId: p.eventId, agencyId: p.agencyId, createdAt: new Date(p.createdMs) });
+    },
+  }),
+
+  deleteDealDocumentObject: defineJob({
+    name: 'mls.deleteDealDocumentObject',
+    pool: 'maintenance',
+    payload: z.object({ eventId: z.uuid(), agencyId: z.uuid(), dealId: z.uuid(), documentId: z.uuid() }),
+    jobId: (p) => `deal-document-delete:${p.eventId}`,
+    group: (p) => p.agencyId,
+    attempts: 8,
+    backoff: { type: 'exponential', delay: 5_000 },
+    timeoutMs: 60_000,
+    async run(p) {
+      return deleteDealDocumentObject(p);
+    },
+  }),
+
+  sweepOrphanDealDocuments: defineJob({
+    name: 'mls.sweepOrphanDealDocuments',
+    pool: 'maintenance',
+    payload: z
+      .object({
+        pageSize: z.number().int().min(1).max(1_000).optional(),
+        maxPages: z.number().int().min(1).max(200).optional(),
+      })
+      .strict(),
+    every: HOUR_MS,
+    attempts: 3,
+    timeoutMs: 10 * 60_000,
+    async run(p, { log, signal }) {
+      const out = await sweepOrphanDealDocuments(p, signal);
+      if (out.deleted > 0) log.info(out, 'orphan deal documents swept');
+      return out;
     },
   }),
 };

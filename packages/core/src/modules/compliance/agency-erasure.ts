@@ -33,7 +33,9 @@ import { auditSystem } from './service';
  * 6. `selections`. 7. `listings` — S16-F5: every live listing soft-deleted with its `properties.listing.deleted`
  * (network, websites, read models and the index drop it). 8. `listingPurge` — the soft-deleted listings purged for
  * good (children cascade, photos recounted), then the agency's `documents/` objects. 9. `chat` — the agency's message
- * copies, then its threads and participants (S16-F5: deleted, not only untitled). 10. `savedSearches`.
+ * copies, then its threads and participants (S16-F5: deleted, not only untitled). 9b. `dealDocuments` (R2-04b) — the
+ * member and file names of its uploads to deals, on both parties' copies (the rows and PDFs stay as the deal's
+ * evidence). 10. `savedSearches`.
  * 11. `notifications` — every notification and preference. 12. `contactImports` — files and the
  * `crm/contact-imports/<agency>/` prefix. 13. `exports` — every data export. 14. `memberProfiles` (S15-F10) — the
  * members' published portal profiles (names, phones, e-mails they published), then their photo uploads
@@ -54,6 +56,7 @@ export const AGENCY_ERASURE_PHASES = [
   'listings',
   'listingPurge',
   'chat',
+  'dealDocuments',
   'savedSearches',
   'notifications',
   'contactImports',
@@ -130,6 +133,8 @@ async function runPhase(
     }
     case 'chat':
       return chat.eraseAgencyChat({ agencyId });
+    case 'dealDocuments':
+      return mls.eraseAgencyDealDocuments({ agencyId });
     case 'savedSearches':
       return matching.deleteAgencySavedSearches({ agencyId });
     case 'notifications':

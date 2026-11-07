@@ -112,3 +112,29 @@ export async function eraseAgencyRegistrations(p: {
     return { registrations: n, last: ids.length === BATCH ? (ids[ids.length - 1] ?? null) : null };
   });
 }
+
+/**
+ * Agency erasure, the deal-room side (R2-04b review): a batch of the agency's own uploads to deals loses what names
+ * people — the uploading member's name and the file name (it may carry a client's, e.g. "Arras - <name>.pdf"; it
+ * becomes `<kind>.pdf`) — on both parties' copies. The rows and the PDFs stay: they are the deal's evidence, shared
+ * with the other party (STATUS Decisions, R2-04b). Worker-only (`app_system`). `more`: call again. Idempotent.
+ */
+export async function eraseAgencyDealDocuments(p: { agencyId: string }): Promise<{ rows: number; more: boolean }> {
+  return withSystem('mls.eraseAgencyDealDocuments', async (tx) => {
+    const res = await tx.execute(sql`
+      with b as (
+        select dd.id, dd.deal_id from deal_documents dd
+         where dd.agency_id = ${p.agencyId} and dd.uploader_agency_id = ${p.agencyId}
+           and (dd.uploader_name <> '' or dd.file_name <> lower(dd.kind) || '.pdf')
+         order by dd.id limit ${BATCH}),
+      c as (
+        select b.id, ${p.agencyId}::uuid as agency_id from b
+        union all
+        select b.id, d.peer_agency_id from b join deals d on d.agency_id = ${p.agencyId} and d.id = b.deal_id)
+      update deal_documents dd set uploader_name = '', file_name = lower(dd.kind) || '.pdf'
+        from c where dd.agency_id = c.agency_id and dd.id = c.id
+      returning dd.agency_id = ${p.agencyId}::uuid as own`);
+    const own = res.rows.filter((r) => (r as { own: boolean }).own).length;
+    return { rows: res.rows.length, more: own === BATCH };
+  });
+}

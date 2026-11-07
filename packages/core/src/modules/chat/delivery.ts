@@ -143,31 +143,63 @@ export async function seatViewingThread(p: { agencyId: string; threadId: string 
   return withSystem(`chat.seatViewingThread: ${p.threadId}`, async (tx) => {
     const v = await mls.viewingChatContext(tx, p.threadId);
     if (!v || (p.agencyId !== v.introducerAgencyId && p.agencyId !== v.ownerAgencyId)) return { seated: 0 };
-    const sides = [
-      { agencyId: v.introducerAgencyId, userIds: v.introducerUserIds },
-      { agencyId: v.ownerAgencyId, userIds: v.ownerUserIds },
-    ];
-    const copies = await repo.threadCopies(
-      tx,
-      p.threadId,
-      sides.map((s) => s.agencyId),
-    );
-    let seatedCount = 0;
-    for (const side of sides) {
-      if (!copies.some((c) => c.agencyId === side.agencyId && c.kind === 'VIEWING')) continue;
-      const at = (await repo.threadLastMessageAt(tx, side.agencyId, p.threadId)) ?? new Date();
-      seatedCount += await repo.insertParticipants(tx, side.agencyId, p.threadId, side.userIds, at);
-    }
-    if (v.subject && copies.length > 0) {
-      await repo.setSubject(
-        tx,
-        p.threadId,
-        copies.map((c) => c.agencyId),
-        v.subject.slice(0, 120),
-      );
-    }
-    return { seated: seatedCount };
+    return seatSides(tx, p.threadId, 'VIEWING', v);
   });
+}
+
+/**
+ * `chat.seatDealThread` (R2-04b; one per `chat.dealThread.opened`): both copies of a deal's thread get their side's
+ * default members (the member who asked for the viewing; the listing's agent; else the admins — as the deal's
+ * notifications) and the listing's reference as subject. Idempotent. The event's agency must be a party to the deal
+ * (RLS-checked when it was written; re-checked against the deal's copies here).
+ */
+export async function seatDealThread(p: { agencyId: string; threadId: string }): Promise<{ seated: number }> {
+  return withSystem(`chat.seatDealThread: ${p.threadId}`, async (tx) => {
+    const d = await mls.dealChatContext(tx, p.threadId);
+    if (!d || (p.agencyId !== d.introducerAgencyId && p.agencyId !== d.ownerAgencyId)) return { seated: 0 };
+    return seatSides(tx, p.threadId, 'DEAL', d);
+  });
+}
+
+/** Seats each side's members on its copy of a two-agency thread of `kind` (copies of another kind are left alone). */
+async function seatSides(
+  tx: Tx,
+  threadId: string,
+  kind: 'VIEWING' | 'DEAL',
+  c: {
+    introducerAgencyId: string;
+    ownerAgencyId: string;
+    introducerUserIds: string[];
+    ownerUserIds: string[];
+    subject: string | null;
+  },
+): Promise<{ seated: number }> {
+  const sides = [
+    { agencyId: c.introducerAgencyId, userIds: c.introducerUserIds },
+    { agencyId: c.ownerAgencyId, userIds: c.ownerUserIds },
+  ];
+  const copies = (
+    await repo.threadCopies(
+      tx,
+      threadId,
+      sides.map((s) => s.agencyId),
+    )
+  ).filter((copy) => copy.kind === kind);
+  let seatedCount = 0;
+  for (const side of sides) {
+    if (!copies.some((copy) => copy.agencyId === side.agencyId)) continue;
+    const at = (await repo.threadLastMessageAt(tx, side.agencyId, threadId)) ?? new Date();
+    seatedCount += await repo.insertParticipants(tx, side.agencyId, threadId, side.userIds, at);
+  }
+  if (c.subject && copies.length > 0) {
+    await repo.setSubject(
+      tx,
+      threadId,
+      copies.map((copy) => copy.agencyId),
+      c.subject.slice(0, 120),
+    );
+  }
+  return { seated: seatedCount };
 }
 
 /**

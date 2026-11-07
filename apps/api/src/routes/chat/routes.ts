@@ -7,6 +7,7 @@ import {
   ListChatMessagesQuery,
   ListChatThreadsQuery,
   MarkChatReadDto,
+  OpenDealThreadBody,
   OpenViewingThreadBody,
   SendChatMessageBody,
   SendChatMessageDto,
@@ -89,6 +90,23 @@ export async function chatRoutes(app: FastifyZod): Promise<void> {
       config: { rateLimit: CREATE_LIMITS },
     },
     (req) => app.withCtx(req, (ctx) => chat.openViewingThread(ctx, req.body)),
+  );
+
+  app.post(
+    '/v1/chat/deal-threads',
+    {
+      schema: {
+        tags,
+        operationId: 'chat.openDealThread',
+        summary:
+          'Open (or join) the thread of a deal the caller’s agency is party to, with the other party; nothing of the client is shared',
+        body: OpenDealThreadBody,
+        response: { 200: ChatThreadDetailDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: CREATE_LIMITS },
+    },
+    (req) => app.withCtx(req, (ctx) => chat.openDealThread(ctx, req.body)),
   );
 
   app.get(

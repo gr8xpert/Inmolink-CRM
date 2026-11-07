@@ -10,6 +10,7 @@ import {
   type ListChatMessagesQuery,
   type ListChatThreadsQuery,
   type MarkChatReadDto,
+  OpenDealThreadBody,
   OpenViewingThreadBody,
   SendChatMessageBody,
   type SendChatMessageDto,
@@ -72,6 +73,7 @@ function toThreadDto(r: repo.ThreadRow, l: ThreadLookups, readerAgencyId: string
     id: r.id,
     kind: r.kind as ChatThreadKind,
     viewingRequestId: r.kind === 'VIEWING' ? r.id : null,
+    dealId: r.kind === 'DEAL' ? r.id : null,
     networkPostId: r.networkPostId,
     peerAgency: r.peerAgencyId ? { id: r.peerAgencyId, name: names.get(r.peerAgencyId) ?? null } : null,
     title: r.title,
@@ -264,6 +266,36 @@ export async function openViewingThread(ctx: Ctx, raw: OpenViewingThreadBody): P
   }
 }
 
+/**
+ * `POST /v1/chat/deal-threads` (R2-04b): the thread of a deal the caller's agency is party to (`mls.deals.read`), opened
+ * by whichever party comes first — the other party's copy is appended in the same statement (`chat_threads_mirror`
+ * checks the deal is between exactly these two agencies) and the worker seats both sides' default members
+ * (`chat.seatDealThread`). The caller joins it. A deal's thread stays open whatever the deal's stage (talking about a
+ * completed or fallen-through deal changes nothing of it). Never anything of the client: the subject is the listing's
+ * reference. ≤ 8 statements.
+ */
+export async function openDealThread(ctx: Ctx, raw: OpenDealThreadBody): Promise<ChatThreadDetailDto> {
+  assertCan(ctx, 'chat.write');
+  const body = OpenDealThreadBody.parse(raw);
+  const deal = await mls.dealCounterpart(ctx, body.dealId);
+  const agencyId = ctx.tenant.agencyId;
+  const created = await repo.insertDealThread(ctx.tx, {
+    agencyId,
+    id: deal.id,
+    peerAgencyId: deal.counterpartAgencyId,
+  });
+  if (created) await emit(ctx.tx, chatEvents.dealThreadOpened({ threadId: deal.id }));
+  await repo.joinThread(ctx.tx, agencyId, deal.id, memberUserId(ctx), CHAT_LIMITS.participants);
+  try {
+    return await getThread(ctx, deal.id);
+  } catch (err) {
+    // not joined: the agency's side is full
+    if (err instanceof AppError && err.code === 'CHAT_THREAD_NOT_FOUND') {
+      throw new AppError('CHAT_PARTICIPANTS_INVALID', { reason: 'full' });
+    }
+    throw err;
+  }
+}
 /**
  * S11-05, for the network module's reply to a board post (`network.replyToPost`, which checked the post is an open one
  * of `posterAgencyId` the caller may read, not its own): the caller's agency's `NETWORK` thread with the post's agency —

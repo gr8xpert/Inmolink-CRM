@@ -8,7 +8,7 @@
  * S11-05: `NETWORK` threads — a reply to a network board post, between the post's agency and the replying agency
  * (`replyInNetworkThread`, called by the network module); S12-F12: they close with their post (`closeNetworkThreadsForWorker`).
  */
-export { closeViewingThread, deliverMessage, pushRead, seatViewingThread } from './delivery';
+export { closeViewingThread, deliverMessage, pushRead, seatDealThread, seatViewingThread } from './delivery';
 export { eraseAgencyChat } from './erasure';
 export { chatErrors } from './errors';
 export { chatEvents } from './events';
@@ -24,6 +24,7 @@ export {
   listMessages,
   listThreads,
   markThreadRead,
+  openDealThread,
   openViewingThread,
   replyInNetworkThread,
   sendMessage,

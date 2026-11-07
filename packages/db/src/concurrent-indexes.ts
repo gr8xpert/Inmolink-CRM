@@ -236,6 +236,14 @@ export const CONCURRENT_INDEXES: readonly ConcurrentIndex[] = [
     definition: `ON "listing_read_models" USING btree ("cluster_id") WHERE "listing_read_models"."cluster_id" is not null`,
     declaredBy: '0194_r2_03c_cluster_outputs',
   },
+  {
+    // R2-04b: a deal's tasks (the deal room's task list). Its column arrives in 0196, which builds it (every row's
+    // `deal_id` is null then: an empty partial index); from then on a rebuild runs concurrently
+    name: 'tasks_deal_idx',
+    table: 'tasks',
+    definition: `ON "tasks" USING btree ("agency_id","deal_id","status","due_sort_ms","id") WHERE "tasks"."deal_id" is not null and "tasks"."deleted_at" is null`,
+    declaredBy: '0196_r2_04b_deal_room',
+  },
 ];
 
 /** Whether the migration `tag` of `folder` is applied (the drizzle migrator's journal time is in its table). */

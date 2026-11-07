@@ -1373,6 +1373,13 @@
       "when": 1794028097737,
       "tag": "0195_r2_04a_deals",
       "breakpoints": true
+    },
+    {
+      "idx": 196,
+      "version": "7",
+      "when": 1794031107390,
+      "tag": "0196_r2_04b_deal_room",
+      "breakpoints": true
     }
   ]
 }

@@ -49,6 +49,17 @@ export function registerChatSubscriptions(): void {
         }),
       { name: 'chat.viewingThread.seat' },
     ),
+    // R2-04b: a new deal thread seats both parties' default members
+    subscribe(
+      chatEvents.dealThreadOpened,
+      (payload, meta) =>
+        chatJobs.seatDealThread.enqueue({
+          eventId: meta.eventId,
+          agencyId: meta.agencyId,
+          threadId: payload.threadId,
+        }),
+      { name: 'chat.dealThread.seat' },
+    ),
     // a declined, cancelled or expired viewing request makes its thread read-only
     subscribe(
       mls.mlsEvents.viewingChanged,

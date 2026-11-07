@@ -46,6 +46,8 @@ export const TaskDto = z.strictObject({
   contactId: z.uuid().nullable(),
   leadId: z.uuid().nullable(),
   listingId: z.uuid().nullable(),
+  /** R2-04b: the deal (deal room) it is about — the agency's own task, never shown to the other party. */
+  dealId: z.uuid().nullable(),
   completedAt: z.iso.datetime().nullable(),
   createdAt: z.iso.datetime(),
   version: z.number().int(),
@@ -72,6 +74,8 @@ export const ListTasksQuery = PageQuery.extend({
   contactId: z.uuid().optional(),
   leadId: z.uuid().optional(),
   listingId: z.uuid().optional(),
+  /** R2-04b: the agency's tasks about one deal. */
+  dealId: z.uuid().optional(),
 }).refine((q) => !q.noDue || (q.dueFrom === undefined && q.dueTo === undefined), {
   message: 'noDue excludes dueFrom and dueTo',
   path: ['noDue'],

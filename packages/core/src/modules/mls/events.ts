@@ -66,4 +66,14 @@ export const mlsEvents = {
       userId: z.uuid().nullable(),
     }),
   ),
+  /**
+   * `mls.dealDocument.removed` (R2-04b) — the uploading agency (`agencyId`) removed a document of a deal (both copies
+   * marked removed in the same statement). Consumer: `mls.deleteDealDocumentObject` (the object leaves the bucket). IDs
+   * only.
+   */
+  dealDocumentRemoved: defineEvent(
+    'mls.dealDocument.removed',
+    1,
+    z.object({ agencyId: z.uuid(), dealId: z.uuid(), documentId: z.uuid() }),
+  ),
 };

@@ -2,7 +2,7 @@ import { closeDb, pingDb } from '@inmolink/core';
 import * as identity from '@inmolink/core/modules/identity';
 import * as mls from '@inmolink/core/modules/mls';
 import { countQueries, createFounder, type Founder } from '@inmolink/core/test';
-import { adminQuery, setupTestDb } from '@inmolink/db/testing';
+import { adminQuery, setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
 import { createKeyring, generateKey, rowCipher } from '@inmolink/platform/crypto';
 import { newId } from '@inmolink/platform/ids';
 import {
@@ -14,6 +14,7 @@ import {
 } from '@inmolink/platform/jwt';
 import { createLogger } from '@inmolink/platform/logger';
 import type { RateLimiter } from '@inmolink/platform/rate-limit';
+import { configureStorage, createMemoryStore } from '@inmolink/platform/storage';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from './app';
 
@@ -112,8 +113,11 @@ beforeAll(async () => {
     keyring: createKeyring({ keys: { t1: generateKey() }, activeKeyId: 't1' }),
   });
   mls.configureMls({ keyring, fingerprintKey: 'test-fingerprint-key-s11-06-0123456789abcdef' });
+  configureStorage(createMemoryStore());
   app = await build();
   [a, b] = await Promise.all([createFounder(), createFounder()]);
+  // R2-04b: the deal room's writes are for verified agencies
+  for (const m of [a, b]) await setAgencyStatus(m.agencyId, 'VERIFIED');
   await adminQuery(`begin; set local session_replication_role = replica;
     ${registrations(a.agencyId, b.agencyId)}
     ${registrations(b.agencyId, a.agencyId)}
@@ -126,6 +130,10 @@ beforeAll(async () => {
 afterAll(async () => {
   for (const m of [a, b]) {
     await adminQuery(`begin; set local session_replication_role = replica;
+      delete from deal_documents where agency_id = '${m.agencyId}';
+      delete from tasks where agency_id = '${m.agencyId}' and deal_id is not null;
+      delete from chat_participants where agency_id = '${m.agencyId}';
+      delete from chat_threads where agency_id = '${m.agencyId}' and kind = 'DEAL';
       delete from deals where agency_id = '${m.agencyId}';
       delete from viewing_request_receipts where introducer_agency_id = '${m.agencyId}' or agency_id = '${m.agencyId}';
       delete from viewing_requests where agency_id = '${m.agencyId}';
@@ -225,5 +233,75 @@ describe('my collaborations over HTTP', () => {
       payload: { reason: 'x', price: { amountCents: 1, currency: 'EUR' } },
     });
     expect(mediate.statusCode).toBe(403);
+  });
+
+  it('[R2-04b] the deal room over HTTP: a raw PDF upload (named in a header; a retry answers the same document), the other party lists it within budget and opens it, oversize and non-PDF refused, removal 204; deal tasks 201 then 200 on a replay; the deal thread opens', async () => {
+    const ha = await bearer(a);
+    const hb = await bearer(b);
+    const deal = (await app.inject({ method: 'GET', url: '/v1/mls/deals?limit=1', headers: ha })).json().items[0]
+      .id as string;
+    const body = Buffer.from(`%PDF-1.7\n% r2-04b ${deal}\n%%EOF\n`);
+    const send = (payload: Buffer, type = 'application/pdf', name = 'Oferta firmada.pdf') =>
+      app.inject({
+        method: 'POST',
+        url: `/v1/mls/deals/${deal}/documents?kind=OFFER`,
+        headers: { ...ha, 'content-type': type, 'x-file-name': encodeURIComponent(name) },
+        payload,
+      });
+    const first = await send(body);
+    expect(first.statusCode, first.body).toBe(201);
+    const doc = first.json() as { id: string; fileName: string; kind: string };
+    expect(doc).toMatchObject({ fileName: 'Oferta firmada.pdf', kind: 'OFFER' });
+    const retry = await send(body);
+    expect(retry.statusCode).toBe(201);
+    expect(retry.json().id).toBe(doc.id);
+    expect((await send(Buffer.from('GIF89a not a pdf'), 'application/octet-stream')).statusCode).toBe(415);
+    expect((await send(Buffer.alloc(20 * 1024 * 1024 + 1, 0x25))).statusCode).toBe(413);
+
+    let listed: { items: { id: string }[] } | undefined;
+    const queries = await countQueries(async () => {
+      const res = await app.inject({ method: 'GET', url: `/v1/mls/deals/${deal}/documents`, headers: hb });
+      expect(res.statusCode).toBe(200);
+      listed = res.json();
+    });
+    expect(queries).toBeLessThanOrEqual(10);
+    expect(listed?.items.map((d) => d.id)).toEqual([doc.id]);
+    const url = await app.inject({ method: 'GET', url: `/v1/mls/deals/${deal}/documents/${doc.id}/url`, headers: hb });
+    expect(url.statusCode).toBe(200);
+    expect(
+      (await app.inject({ method: 'DELETE', url: `/v1/mls/deals/${deal}/documents/${doc.id}`, headers: hb }))
+        .statusCode,
+    ).toBe(404);
+    expect(
+      (await app.inject({ method: 'DELETE', url: `/v1/mls/deals/${deal}/documents/${doc.id}`, headers: ha }))
+        .statusCode,
+    ).toBe(204);
+
+    const task = (key: string) =>
+      app.inject({
+        method: 'POST',
+        url: `/v1/mls/deals/${deal}/tasks`,
+        headers: { ...ha, 'idempotency-key': key },
+        payload: { title: 'Send the arras draft' },
+      });
+    const key = `r2-04b-${deal}`;
+    const made = await task(key);
+    expect(made.statusCode).toBe(201);
+    expect(made.json().dealId).toBe(deal);
+    const replay = await task(key);
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json().id).toBe(made.json().id);
+    const tasks = await app.inject({ method: 'GET', url: `/v1/crm/tasks?dealId=${deal}&assignee=any`, headers: hb });
+    expect(tasks.statusCode).toBe(200);
+    expect(tasks.json().items).toEqual([]);
+
+    const thread = await app.inject({
+      method: 'POST',
+      url: '/v1/chat/deal-threads',
+      headers: ha,
+      payload: { dealId: deal },
+    });
+    expect(thread.statusCode).toBeLessThan(300);
+    expect(thread.json()).toMatchObject({ id: deal, kind: 'DEAL', dealId: deal });
   });
 });

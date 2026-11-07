@@ -201,3 +201,33 @@ export async function mediateDeal(tx: Tx, row: DealRow, patch: MediationPatch): 
     .returning(columns);
   return out ? asRow(out) : null;
 }
+
+// ---- worker (app_system) ----------------------------------------------------------------------------------------------
+
+export interface DealCopy {
+  agencyId: string;
+  party: Party;
+  peerAgencyId: string;
+  viewingRequestId: string;
+  targetKind: string;
+  targetId: string;
+  stage: string;
+}
+
+/** R2-04b, worker side: both parties' copies of a deal (`deals_id_party_uq`: `where id = ?`; at most two rows). */
+export async function copiesOf(tx: Tx, id: string): Promise<DealCopy[]> {
+  const rows = await tx
+    .select({
+      agencyId: deals.agencyId,
+      party: deals.party,
+      peerAgencyId: deals.peerAgencyId,
+      viewingRequestId: deals.viewingRequestId,
+      targetKind: deals.targetKind,
+      targetId: deals.targetId,
+      stage: deals.stage,
+    })
+    .from(deals)
+    .where(eq(deals.id, id))
+    .limit(2);
+  return rows.map((r) => ({ ...r, party: r.party as Party }));
+}

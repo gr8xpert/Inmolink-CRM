@@ -51,10 +51,10 @@ export const chatThreads = pgTable(
   },
   (t) => [
     primaryKey({ name: 'chat_threads_pk', columns: [t.agencyId, t.id] }),
-    check('chat_threads_kind_ck', sql`${t.kind} in ('DIRECT', 'VIEWING', 'NETWORK')`),
+    check('chat_threads_kind_ck', sql`${t.kind} in ('DIRECT', 'VIEWING', 'NETWORK', 'DEAL')`),
     check(
       'chat_threads_peer_ck',
-      sql`(${t.kind} in ('VIEWING', 'NETWORK')) = (${t.peerAgencyId} is not null)
+      sql`(${t.kind} in ('VIEWING', 'NETWORK', 'DEAL')) = (${t.peerAgencyId} is not null)
         and (${t.peerAgencyId} is null or ${t.peerAgencyId} <> ${t.agencyId})`,
     ),
     check('chat_threads_network_ck', sql`(${t.kind} = 'NETWORK') = (${t.networkPostId} is not null)`),

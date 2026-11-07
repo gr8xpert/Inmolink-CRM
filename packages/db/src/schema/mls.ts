@@ -470,3 +470,59 @@ export const deals = pgTable(
     ),
   ],
 );
+
+/*
+ * R2-04b, the deal room's documents (PLAN §7 M10): PDFs both parties of a deal read — the offer, the reservation and
+ * arras contracts, the deed, a commission invoice. One object in the private bucket (`deal-documents/<deal>/<id>`), one
+ * row per party like the deal itself (`agency_id` the holder, the same `id` on both copies, STRICT):
+ * - `deal_documents_guard` (invoker): app_user appends only its own upload — to its own copy of an open deal, as
+ *   itself, under the key the deal and id name (never another object) — and changes nothing but removing its own
+ *   agency's upload while the deal is open (stamped by the database). A closed deal's documents are fixed; nobody but
+ *   app_owner deletes a row (a removed document stays listed as removed: the deal's evidence).
+ * - `deal_documents_mirror` (definer) appends the peer's copy on upload and copies a removal to it.
+ */
+export const dealDocuments = pgTable(
+  'deal_documents',
+  {
+    /** The holder of this copy. */
+    agencyId: uuid('agency_id').notNull(),
+    /** The same on both copies. */
+    id: uuid('id').notNull(),
+    dealId: uuid('deal_id').notNull(),
+    /** The agency that uploaded it (only it removes it). */
+    uploaderAgencyId: uuid('uploader_agency_id').notNull(),
+    uploadedByUserId: uuid('uploaded_by_user_id').notNull(),
+    /** The uploader's display name when uploaded (the other agency cannot read its members). */
+    uploaderName: text('uploader_name').notNull(),
+    /** `OFFER`, `RESERVATION`, `ARRAS`, `DEED`, `INVOICE` or `OTHER`. */
+    kind: text('kind').notNull(),
+    fileName: text('file_name').notNull(),
+    sizeBytes: integer('size_bytes').notNull(),
+    sha256: text('sha256').notNull(),
+    /** `deal-documents/<deal_id>/<id>` (the guard checks it): one object for both copies. */
+    storageKey: text('storage_key').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    /** Removed by its uploader (the object is deleted by the worker); the row stays as the deal's evidence. */
+    removedAt: timestamp('removed_at', { withTimezone: true }),
+    removedByUserId: uuid('removed_by_user_id'),
+  },
+  (t) => [
+    primaryKey({ name: 'deal_documents_pk', columns: [t.agencyId, t.id] }),
+    // a deal's documents, oldest first: where agency_id = ? and deal_id = ? order by created_at, id (also the FK)
+    index('deal_documents_deal_idx').on(t.agencyId, t.dealId, t.createdAt, t.id),
+    // the orphan sweep (all agencies): where storage_key = any(?) and removed_at is null
+    index('deal_documents_storage_key_idx').on(t.storageKey).where(sql`${t.removedAt} is null`),
+    foreignKey({
+      name: 'deal_documents_deal_fk',
+      columns: [t.agencyId, t.dealId],
+      foreignColumns: [deals.agencyId, deals.id],
+    }),
+    check('deal_documents_kind_ck', sql`${t.kind} in ('OFFER', 'RESERVATION', 'ARRAS', 'DEED', 'INVOICE', 'OTHER')`),
+    check('deal_documents_file_name_ck', sql`char_length(${t.fileName}) between 1 and 200`),
+    check('deal_documents_uploader_name_ck', sql`char_length(${t.uploaderName}) <= 200`),
+    check('deal_documents_size_ck', sql`${t.sizeBytes} between 1 and 20971520`),
+    check('deal_documents_sha256_ck', sql`${t.sha256} ~ '^[0-9a-f]{64}$'`),
+    check('deal_documents_removed_ck', sql`(${t.removedAt} is null) = (${t.removedByUserId} is null)`),
+  ],
+);

@@ -1,6 +1,6 @@
 import { defineJob } from '@inmolink/platform/queue';
 import { z } from 'zod';
-import { closeViewingThread, deliverMessage, pushRead, seatViewingThread } from './delivery';
+import { closeViewingThread, deliverMessage, pushRead, seatDealThread, seatViewingThread } from './delivery';
 
 /**
  * chat worker jobs (PATTERNS §12). Idempotent, per-tenant fair share (the event's agency). Job ID = the outbox event's
@@ -11,6 +11,7 @@ import { closeViewingThread, deliverMessage, pushRead, seatViewingThread } from 
  * - `chat.pushRead` — a read receipt to every participant's sockets.
  * - `chat.seatViewingThread` — a new viewing thread's default members on both sides, and its subject.
  * - `chat.closeViewingThread` — a declined, cancelled or expired viewing request's thread becomes read-only.
+ * - `chat.seatDealThread` (R2-04b) — a new deal thread's default members on both sides, and its subject.
  *
  * Pools (S11 review): the live pushes (`deliverMessage`, `pushRead`) run in `realtime` with `notifications.pushRealtime` —
  * the live-push lane, which no mail or digest burst shares (digests have their own `digest` pool); seating and closing
@@ -82,6 +83,20 @@ export const chatJobs = {
     timeoutMs: 30_000,
     async run(p) {
       return closeViewingThread(p);
+    },
+  }),
+
+  seatDealThread: defineJob({
+    name: 'chat.seatDealThread',
+    pool: 'email',
+    payload: z.object({ eventId: z.uuid(), agencyId: z.uuid(), threadId: z.uuid() }),
+    jobId: (p) => p.eventId,
+    group: (p) => p.agencyId,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 2_000 },
+    timeoutMs: 30_000,
+    async run(p) {
+      return seatDealThread(p);
     },
   }),
 };

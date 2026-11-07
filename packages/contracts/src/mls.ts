@@ -7,6 +7,7 @@
  */
 import { z } from 'zod';
 import { CurrencyCode, PageQuery, pageOf } from './common';
+import { fileNameHeaders } from './file-name-header';
 
 export const REGISTRATION_TARGET_KINDS = ['LISTING', 'DEVELOPMENT'] as const;
 export const RegistrationTargetKind = z.enum(REGISTRATION_TARGET_KINDS);
@@ -374,3 +375,49 @@ export const MediateDealBody = z
   .strictObject({ reason: DealText, stage: DealStage.optional(), price: DealPrice.optional() })
   .refine((b) => b.stage !== undefined || b.price !== undefined, { message: 'a stage or a price to set' });
 export type MediateDealBody = z.infer<typeof MediateDealBody>;
+
+// ---- R2-04b: the deal room's documents ------------------------------------------------------------------------------
+
+/**
+ * What a deal document is: the offer, the reservation contract, the arras contract, the deed (escritura), a commission
+ * invoice, or anything else. Both parties read every document of the deal; only the uploading agency removes one.
+ */
+export const DEAL_DOCUMENT_KINDS = ['OFFER', 'RESERVATION', 'ARRAS', 'DEED', 'INVOICE', 'OTHER'] as const;
+export const DealDocumentKind = z.enum(DEAL_DOCUMENT_KINDS);
+export type DealDocumentKind = z.infer<typeof DealDocumentKind>;
+/** One document: a PDF (checked by its magic bytes), at most 20 MB. */
+export const DEAL_DOCUMENT_MAX_BYTES = 20 * 1024 * 1024;
+/** Documents per deal (removed ones included: they stay listed as removed). */
+export const DEAL_DOCUMENTS_MAX = 50;
+/** How long an opened document's signed URL works. */
+export const DEAL_DOCUMENT_URL_TTL_SECONDS = 300;
+
+export const DealDocumentParams = z.strictObject({ id: z.uuid(), documentId: z.uuid() });
+export type DealDocumentParams = z.infer<typeof DealDocumentParams>;
+
+/** `POST /v1/mls/deals/:id/documents?kind=` — the raw PDF body, its name in `X-File-Name` (percent-encoded). */
+export const UploadDealDocumentHeaders = fileNameHeaders(z.string().trim().min(1).max(200));
+export const UploadDealDocumentQuery = z.strictObject({ kind: DealDocumentKind.optional() });
+export type UploadDealDocumentQuery = z.infer<typeof UploadDealDocumentQuery>;
+
+/**
+ * A deal document as either party sees it. `ownAgency`: the caller's agency uploaded it (only it removes it, while the
+ * deal is open). A removed document stays listed (who removed it and when) but no longer opens.
+ */
+export const DealDocumentDto = z.strictObject({
+  id: z.uuid(),
+  dealId: z.uuid(),
+  kind: DealDocumentKind,
+  fileName: z.string(),
+  sizeBytes: z.number().int(),
+  uploadedBy: z.strictObject({ name: z.string(), ownAgency: z.boolean() }),
+  createdAt: z.iso.datetime(),
+  removedAt: z.iso.datetime().nullable(),
+});
+export type DealDocumentDto = z.infer<typeof DealDocumentDto>;
+export const DealDocumentList = z.strictObject({ items: z.array(DealDocumentDto) });
+export type DealDocumentList = z.infer<typeof DealDocumentList>;
+
+/** A short signed GET; the file downloads under its name. */
+export const DealDocumentUrlDto = z.strictObject({ url: z.string(), expiresAt: z.iso.datetime() });
+export type DealDocumentUrlDto = z.infer<typeof DealDocumentUrlDto>;

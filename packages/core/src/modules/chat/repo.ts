@@ -181,6 +181,22 @@ export async function insertViewingThread(
 }
 
 /**
+ * R2-04b: the agency's copy of a deal's thread (id = the deal's), unless it exists already (the other party opened it
+ * first: its copy was appended by `chat_threads_mirror`, which checks the deal is between exactly these two agencies).
+ * True when this call created it.
+ */
+export async function insertDealThread(
+  tx: Tx,
+  t: { agencyId: string; id: string; peerAgencyId: string },
+): Promise<boolean> {
+  const rows = await tx
+    .insert(chatThreads)
+    .values({ agencyId: t.agencyId, id: t.id, kind: 'DEAL', peerAgencyId: t.peerAgencyId })
+    .onConflictDoNothing()
+    .returning({ id: chatThreads.id });
+  return rows.length > 0;
+}
+/**
  * S11-05: the agency's copy of its reply thread to a network post (`chat_threads_mirror` checks the post is an open one
  * of `peerAgencyId`, copies it to that agency with the post's title and seats the post's author), unless the agency
  * has one already (`chat_threads_network_uq`). The thread's id either way.

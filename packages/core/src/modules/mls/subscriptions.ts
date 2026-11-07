@@ -57,6 +57,31 @@ export function registerMlsSubscriptions(): void {
       },
       { name: 'mls.viewings.termsPdf' },
     ),
+    // R2-04b: each deal change notifies the other party (the job re-reads the deal: staff can write the event for any
+    // agency, so the event's agency must prove one of the deal's parties)
+    subscribe(
+      mlsEvents.dealChanged,
+      (payload, meta) =>
+        mlsJobs.notifyDeal.enqueue({
+          eventId: meta.eventId,
+          agencyId: meta.agencyId,
+          createdMs: meta.createdAt.getTime(),
+          change: payload,
+        }),
+      { name: 'mls.deals.notify' },
+    ),
+    // R2-04b: a removed deal document's object leaves the bucket
+    subscribe(
+      mlsEvents.dealDocumentRemoved,
+      (payload, meta) =>
+        mlsJobs.deleteDealDocumentObject.enqueue({
+          eventId: meta.eventId,
+          agencyId: meta.agencyId,
+          dealId: payload.dealId,
+          documentId: payload.documentId,
+        }),
+      { name: 'mls.dealDocuments.deleteObject' },
+    ),
   ];
 }
 

@@ -11,6 +11,8 @@ import { z } from 'zod';
  * - `chat.thread.read` — a participant read a thread up to `at` (epoch ms). Subscriber: `chat.pushRead` (read receipt).
  * - `chat.viewingThread.opened` — the first copy of a viewing request's thread. Subscriber: `chat.seatViewingThread`
  *   (both sides' default members and the listing's reference).
+ * - `chat.dealThread.opened` (R2-04b) — the first copy of a deal's thread. Subscriber: `chat.seatDealThread` (both
+ *   parties' default members and the listing's reference).
  */
 export const chatEvents = {
   messageSent: defineEvent(
@@ -24,4 +26,5 @@ export const chatEvents = {
     z.object({ threadId: z.uuid(), userId: z.uuid(), at: z.number().int() }),
   ),
   viewingThreadOpened: defineEvent('chat.viewingThread.opened', 1, z.object({ threadId: z.uuid() })),
+  dealThreadOpened: defineEvent('chat.dealThread.opened', 1, z.object({ threadId: z.uuid() })),
 };

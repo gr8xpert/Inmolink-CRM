@@ -27,6 +27,7 @@ export const taskColumns = {
   contactId: tasks.contactId,
   leadId: tasks.leadId,
   listingId: tasks.listingId,
+  dealId: tasks.dealId,
   completedAt: tasks.completedAt,
   createdAt: tasks.createdAt,
   version: tasks.version,
@@ -46,6 +47,7 @@ export type TaskRow = {
   contactId: string | null;
   leadId: string | null;
   listingId: string | null;
+  dealId: string | null;
   completedAt: Date | null;
   createdAt: Date;
   version: number;
@@ -64,6 +66,7 @@ export interface NewTask {
   contactId: string | null;
   leadId: string | null;
   listingId: string | null;
+  dealId: string | null;
   idempotencyHash: string | null;
   requestHash: string | null;
 }
@@ -151,6 +154,7 @@ export interface TaskFilter {
   contactId?: string;
   leadId?: string;
   listingId?: string;
+  dealId?: string;
 }
 
 /**
@@ -173,6 +177,7 @@ export async function listTasks(
   if (filter.contactId) conds.push(eq(tasks.contactId, filter.contactId));
   if (filter.leadId) conds.push(eq(tasks.leadId, filter.leadId));
   if (filter.listingId) conds.push(eq(tasks.listingId, filter.listingId));
+  if (filter.dealId) conds.push(eq(tasks.dealId, filter.dealId));
   // on the sort key itself, so the range and the no-date list are index conditions (a dated task is below the sentinel)
   if (filter.noDue) conds.push(eq(tasks.dueSortMs, NO_DUE_SORT_MS));
   if (filter.dueFrom) conds.push(gte(tasks.dueSortMs, filter.dueFrom), lt(tasks.dueSortMs, NO_DUE_SORT_MS));

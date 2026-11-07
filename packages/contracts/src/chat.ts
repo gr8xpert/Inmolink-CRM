@@ -17,7 +17,8 @@ export const CHAT_LIMITS = {
   titleChars: 120,
 } as const;
 
-export const ChatThreadKind = z.enum(['DIRECT', 'VIEWING', 'NETWORK']);
+/** R2-04b: `DEAL` — the two agencies of a deal (deal room); its id is the deal's. */
+export const ChatThreadKind = z.enum(['DIRECT', 'VIEWING', 'NETWORK', 'DEAL']);
 export type ChatThreadKind = z.infer<typeof ChatThreadKind>;
 
 /**
@@ -74,6 +75,8 @@ export const ChatThreadDto = z.strictObject({
   kind: ChatThreadKind,
   /** `VIEWING` only: the viewing request (its id is the thread's). */
   viewingRequestId: z.uuid().nullable(),
+  /** `DEAL` only (R2-04b): the deal (its id is the thread's). */
+  dealId: z.uuid().nullable(),
   /** `NETWORK` only (S11-05): the network board post this thread replies to. */
   networkPostId: z.uuid().nullable(),
   /** `VIEWING` / `NETWORK`: the other agency and its directory name (null when not listed). */
@@ -124,6 +127,10 @@ export type CreateDirectThreadBody = z.infer<typeof CreateDirectThreadBody>;
 /** `POST /v1/chat/viewing-threads`: opens (or joins) the thread of a viewing request the caller's agency is party to. */
 export const OpenViewingThreadBody = z.strictObject({ viewingRequestId: z.uuid() });
 export type OpenViewingThreadBody = z.infer<typeof OpenViewingThreadBody>;
+
+/** `POST /v1/chat/deal-threads` (R2-04b): opens (or joins) the thread of a deal the caller's agency is party to. */
+export const OpenDealThreadBody = z.strictObject({ dealId: z.uuid() });
+export type OpenDealThreadBody = z.infer<typeof OpenDealThreadBody>;
 
 /** `POST /v1/chat/threads/:id/messages`; `clientKey` (a UUID the client picks) makes a retried send idempotent. */
 export const SendChatMessageBody = z.strictObject({

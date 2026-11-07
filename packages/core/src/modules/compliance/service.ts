@@ -155,6 +155,11 @@ export const AUDIT_TYPES = [
   'mls.deal.confirmationWithdrawn',
   'mls.deal.completed',
   'mls.deal.fellThrough',
+  // R2-04b: a deal document uploaded (also a retried upload: `duplicate`), opened (by either party, in its own log) or
+  // removed by its uploader (target: the document; metadata: the deal, its kind — never the file's name).
+  'mls.dealDocument.uploaded',
+  'mls.dealDocument.opened',
+  'mls.dealDocument.removed',
   // S11-F2: a member's ICS feed URL (a credential) issued (none before), rotated (replacing a live one) or revoked.
   'crm.calendarFeed.issued',
   'crm.calendarFeed.rotated',
@@ -210,6 +215,7 @@ export interface AuditTarget {
     | 'dataExport'
     | 'viewingRequest'
     | 'deal'
+    | 'dealDocument'
     | 'calendarFeed'
     | 'calendarEvent'
     | 'contact'

@@ -70,6 +70,7 @@ export function toTaskDto(row: tasksRepo.TaskRow): TaskDto {
     contactId: row.contactId,
     leadId: row.leadId,
     listingId: row.listingId,
+    dealId: row.dealId,
     completedAt: row.completedAt ? row.completedAt.toISOString() : null,
     createdAt: row.createdAt.toISOString(),
     version: row.version,
@@ -106,6 +107,7 @@ export async function listTasks(ctx: Ctx, query: ListTasksQuery): Promise<TaskPa
   if (query.contactId) filter.contactId = query.contactId;
   if (query.leadId) filter.leadId = query.leadId;
   if (query.listingId) filter.listingId = query.listingId;
+  if (query.dealId) filter.dealId = query.dealId;
   const rows = await tasksRepo.listTasks(
     ctx.tx,
     ctx.tenant.agencyId,
@@ -133,12 +135,18 @@ export async function getTask(ctx: Ctx, id: string): Promise<TaskDto> {
 export async function createTask(
   ctx: Ctx,
   input: CreateTaskBody,
-  opts: { idempotencyKey?: string } = {},
+  opts: { idempotencyKey?: string; dealId?: string } = {},
 ): Promise<{ task: TaskDto; replayed: boolean }> {
   assertCan(ctx, 'crm.tasks.write');
   const agencyId = ctx.tenant.agencyId;
   const now = new Date();
-  const idempotency = idempotencyOf('crm.task', userIdOf(ctx), opts.idempotencyKey, input);
+  // R2-04b: a deal's task (`mls.createDealTask` checked the deal) hashes the deal with the body: a key reused on another deal is refused
+  const idempotency = idempotencyOf(
+    'crm.task',
+    userIdOf(ctx),
+    opts.idempotencyKey,
+    opts.dealId ? { ...input, dealId: opts.dealId } : input,
+  );
   const prior = await replayOf(
     ctx.tx,
     idempotency,
@@ -184,6 +192,7 @@ export async function createTask(
       contactId,
       leadId: input.leadId ?? null,
       listingId,
+      dealId: opts.dealId ?? null,
       idempotencyHash: idempotency?.hash ?? null,
       requestHash: idempotency?.requestHash ?? null,
     })

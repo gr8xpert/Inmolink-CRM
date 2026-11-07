@@ -1468,6 +1468,38 @@ export const tenantTables: Record<string, TenantTable> = {
       currency: 'EUR',
     },
   },
+  // R2-04b, the deal room's documents. Each party's copy of a document of a deal (one object in the private bucket).
+  // `deal_documents_guard` lets app_user append only its own upload, as itself, to its own copy of an open deal under
+  // the key the deal and id name (`guardedInsert`), and change a document only by removing its own agency's upload of
+  // an open deal; nobody but app_owner deletes a row (`userNoDelete`). `deal_documents_mirror` (definer) appends the
+  // peer's copy and copies a removal to it.
+  deal_documents: {
+    kind: 'STRICT',
+    guardedInsert: true,
+    userNoDelete: true,
+    definerSync: { functions: ['deal_documents_mirror'], ops: ['read', 'append', 'update'] },
+    userNoUpdateColumns: [
+      'id',
+      'deal_id',
+      'uploader_agency_id',
+      'uploaded_by_user_id',
+      'uploader_name',
+      'kind',
+      'file_name',
+      'size_bytes',
+      'sha256',
+      'storage_key',
+      'created_at',
+    ],
+    triggers: ['deal_documents_guard', 'deal_documents_mirror'],
+    base: {
+      kind: 'OTHER',
+      file_name: 'iso.pdf',
+      uploader_name: 'Iso',
+      size_bytes: 1,
+      sha256: '0'.repeat(64),
+    },
+  },
   // S11-03, chat (PLAN §7 M12). Each agency reads its own copy of a thread (one policy per table). The thread row
   // (kind, the other agency, title, subject, last activity — no content) is agency-visible; app_user inserts its own
   // (`chat_threads_insert_guard` stamps the starter and times); only a DIRECT thread's starter renames it and nobody

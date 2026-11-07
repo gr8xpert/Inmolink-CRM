@@ -24,7 +24,8 @@
   "kinds": {
     "DIRECT": "Team",
     "VIEWING": "Viewing request",
-    "NETWORK": "Network board"
+    "NETWORK": "Network board",
+    "DEAL": "Deal"
   },
   "viewingWarning": "This conversation is with another agency. Never share your client's name, e-mail or phone number here: the other side must not learn who your client is.",
   "errors": {

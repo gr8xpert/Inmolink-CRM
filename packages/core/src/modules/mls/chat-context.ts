@@ -3,6 +3,7 @@ import { AppError } from '@inmolink/platform/errors';
 import type { Ctx } from '../../context';
 import * as identity from '../identity';
 import * as properties from '../properties';
+import * as deals from './deals-repo';
 import { assertCan } from './policy';
 import * as repo from './viewings-repo';
 
@@ -60,6 +61,66 @@ export async function viewingChatContext(tx: Tx, requestId: string): Promise<Vie
     status: r.status,
     introducerUserIds: await membersOf(tx, r.introducerAgencyId, r.requestedByUserId),
     ownerUserIds: await membersOf(tx, r.ownerAgencyId, listing?.ownerUserId ?? null),
+    subject: listing?.ref ?? null,
+  };
+}
+
+/**
+ * R2-04b chat: the caller's side of a deal, as little as a thread needs — the other party and the stage
+ * (`mls.deals.read`; one primary-key read). `DEAL_NOT_FOUND` when the caller's agency is no party.
+ */
+export async function dealCounterpart(
+  ctx: Ctx,
+  id: string,
+): Promise<{ id: string; counterpartAgencyId: string; stage: string }> {
+  assertCan(ctx, 'mls.deals.read');
+  const r = await deals.dealOf(ctx.tx, ctx.tenant.agencyId, id);
+  if (!r) throw new AppError('DEAL_NOT_FOUND');
+  return { id: r.id, counterpartAgencyId: r.peerAgencyId, stage: r.stage };
+}
+
+/** Who a deal's thread seats and its notifications tell, on each side, and its subject (R2-04b). */
+export interface DealChatContext {
+  introducerAgencyId: string;
+  ownerAgencyId: string;
+  stage: string;
+  /** The member who asked for the viewing (introducer), the listing's agent (owner), else the admins. */
+  introducerUserIds: string[];
+  ownerUserIds: string[];
+  /** The listing's reference (never the client); null for a development or a listing without one. */
+  subject: string | null;
+}
+
+/**
+ * Worker form (app_system, `withSystem`; PATTERNS §12): a deal's chat and notice context, or null when there is no
+ * such deal with both parties' copies in step (the two copies name each other). The viewing request may be gone
+ * (pruned with its registration, S16-F5): then the introducer's admins.
+ */
+export async function dealChatContext(tx: Tx, dealId: string): Promise<DealChatContext | null> {
+  const copies = await deals.copiesOf(tx, dealId);
+  const owner = copies.find((c) => c.party === 'OWNER');
+  const introducer = copies.find((c) => c.party === 'INTRODUCER');
+  if (
+    !owner ||
+    !introducer ||
+    owner.peerAgencyId !== introducer.agencyId ||
+    introducer.peerAgencyId !== owner.agencyId
+  ) {
+    return null;
+  }
+  const viewing = await repo.forNotice(tx, introducer.viewingRequestId);
+  const listing =
+    owner.targetKind === 'LISTING' ? await properties.leadTargetListing(tx, owner.agencyId, owner.targetId) : null;
+  return {
+    introducerAgencyId: introducer.agencyId,
+    ownerAgencyId: owner.agencyId,
+    stage: owner.stage,
+    introducerUserIds: await membersOf(
+      tx,
+      introducer.agencyId,
+      viewing && viewing.introducerAgencyId === introducer.agencyId ? viewing.requestedByUserId : null,
+    ),
+    ownerUserIds: await membersOf(tx, owner.agencyId, listing?.ownerUserId ?? null),
     subject: listing?.ref ?? null,
   };
 }

@@ -157,6 +157,8 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     // S11-03: viewing threads seated and closed (the live pushes run in `realtime`).
     chatJobs.seatViewingThread,
     chatJobs.closeViewingThread,
+    // R2-04b: deal threads seated.
+    chatJobs.seatDealThread,
   ],
   // S11 review: live socket pushes, never behind mail or digests (delivery target: queue age p95 < 30 s, PLAN §9).
   realtime: [
@@ -255,6 +257,11 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     // S11-02: unanswered viewing proposals expire; each viewing request change notifies the other side.
     mlsJobs.expireViewingRequests,
     mlsJobs.notifyViewing,
+    // R2-04b: each deal change notifies the other party; a removed deal document's object leaves the bucket, hourly
+    // sweep of orphan deal-document objects.
+    mlsJobs.notifyDeal,
+    mlsJobs.deleteDealDocumentObject,
+    mlsJobs.sweepOrphanDealDocuments,
     // S12-05: a viewing request's accepted terms are queued for their PDF.
     mlsJobs.queueViewingTermsPdf,
     // S12-02: Listing Studio batch records past their retention are deleted daily.
