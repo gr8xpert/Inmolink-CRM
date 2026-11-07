@@ -36,6 +36,8 @@ export const REDACT_KEYS = [
   // R2-04a: a deal's free-text reasons (may name the client)
   'fellThroughReason',
   'mediationReason',
+  // R2-04c: staff's note on a deal dispute (may name the client)
+  'resolutionNote',
   'password',
   'passwordHash',
   'twoFactorCode',

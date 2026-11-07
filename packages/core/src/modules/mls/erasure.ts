@@ -138,3 +138,29 @@ export async function eraseAgencyDealDocuments(p: { agencyId: string }): Promise
     return { rows: res.rows.length, more: own === BATCH };
   });
 }
+
+/** What an erased agency's dispute texts become (the checks need 1–2,000 characters). */
+export const ERASED_DISPUTE_TEXT = '[erased]';
+
+/**
+ * Agency erasure, the disputes side (R2-04c security review): a batch of the agency's own disputes of deals loses its
+ * free text — the reason a member wrote and staff's note (either may name the client). The rows stay (status, times:
+ * the mediation's record). Worker-only (`app_system`). `more`: call again. Idempotent.
+ */
+export async function eraseAgencyDealDisputes(p: { agencyId: string }): Promise<{ rows: number; more: boolean }> {
+  return withSystem('mls.eraseAgencyDealDisputes', async (tx) => {
+    const res = await tx.execute(sql`
+      with b as (
+        select id from deal_disputes
+         where agency_id = ${p.agencyId}
+           and (reason <> ${ERASED_DISPUTE_TEXT} or coalesce(resolution_note, ${ERASED_DISPUTE_TEXT}) <> ${ERASED_DISPUTE_TEXT})
+         order by id limit ${BATCH})
+      update deal_disputes dd
+         set reason = ${ERASED_DISPUTE_TEXT},
+             resolution_note = case when dd.resolution_note is null then null else ${ERASED_DISPUTE_TEXT} end,
+             updated_at = now()
+        from b where dd.agency_id = ${p.agencyId} and dd.id = b.id
+      returning dd.id`);
+    return { rows: res.rows.length, more: res.rows.length === BATCH };
+  });
+}

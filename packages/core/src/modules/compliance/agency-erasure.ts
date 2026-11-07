@@ -35,7 +35,8 @@ import { auditSystem } from './service';
  * good (children cascade, photos recounted), then the agency's `documents/` objects. 9. `chat` — the agency's message
  * copies, then its threads and participants (S16-F5: deleted, not only untitled). 9b. `dealDocuments` (R2-04b) — the
  * member and file names of its uploads to deals, on both parties' copies (the rows and PDFs stay as the deal's
- * evidence). 10. `savedSearches`.
+ * evidence). 9c. `dealDisputes` (R2-04c) — the reasons and staff notes of its deal disputes (the rows stay).
+ * 10. `savedSearches`.
  * 11. `notifications` — every notification and preference. 12. `contactImports` — files and the
  * `crm/contact-imports/<agency>/` prefix. 13. `exports` — every data export. 14. `memberProfiles` (S15-F10) — the
  * members' published portal profiles (names, phones, e-mails they published), then their photo uploads
@@ -57,6 +58,7 @@ export const AGENCY_ERASURE_PHASES = [
   'listingPurge',
   'chat',
   'dealDocuments',
+  'dealDisputes',
   'savedSearches',
   'notifications',
   'contactImports',
@@ -135,6 +137,8 @@ async function runPhase(
       return chat.eraseAgencyChat({ agencyId });
     case 'dealDocuments':
       return mls.eraseAgencyDealDocuments({ agencyId });
+    case 'dealDisputes':
+      return mls.eraseAgencyDealDisputes({ agencyId });
     case 'savedSearches':
       return matching.deleteAgencySavedSearches({ agencyId });
     case 'notifications':

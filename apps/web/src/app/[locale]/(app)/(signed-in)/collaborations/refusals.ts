@@ -29,6 +29,8 @@ export const REFUSALS = [
   'STATE_NOT_SCHEDULED',
   'STATE_TOO_EARLY',
   'STATE_CHANGED',
+  // R2-04c: opening the deal of a viewing
+  'DEAL_VIEWING_NOT_ELIGIBLE',
   'generic',
 ] as const;
 export type Refusal = (typeof REFUSALS)[number];

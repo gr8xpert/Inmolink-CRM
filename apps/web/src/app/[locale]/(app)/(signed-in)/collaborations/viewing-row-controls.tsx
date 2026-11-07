@@ -1,6 +1,7 @@
-import type { ViewingRequestDto } from '@inmolink/contracts';
+import { NETWORK_CURRENCY, type ViewingRequestDto } from '@inmolink/contracts';
 import { getTranslations } from 'next-intl/server';
 import { Link } from '@/i18n/navigation';
+import { openDealAction } from '../deals/actions';
 import { ActionButton } from './action-button';
 import {
   acceptViewingAction,
@@ -10,7 +11,7 @@ import {
   rescheduleViewingAction,
 } from './actions';
 import { TimeField } from './time-field';
-import { viewingHints } from './viewing-controls';
+import { dealEligible, viewingHints } from './viewing-controls';
 
 const SUMMARY = 'w-fit cursor-pointer font-medium underline-offset-4 hover:underline';
 
@@ -86,6 +87,38 @@ export async function ViewingRowControls(props: {
             <TimeField now={props.now} until={v.terms.validUntil} timeZone={props.timeZone} />
             <ActionButton label={t('actions.rescheduleSubmit')} />
             {bindsTerms ? <p className="basis-full text-muted-foreground">{t('actions.rescheduleNote')}</p> : null}
+          </form>
+        </details>
+      ) : null}
+      {dealEligible(v) ? (
+        <details>
+          <summary className={SUMMARY}>{t('deal.open')}</summary>
+          <form action={openDealAction} className="mt-2 flex flex-wrap items-end gap-2">
+            <input type="hidden" name="viewingRequestId" value={v.id} />
+            <label className="flex flex-col gap-1">
+              <span>{t('deal.price')}</span>
+              <input
+                name="amount"
+                required
+                inputMode="decimal"
+                autoComplete="off"
+                className="h-9 rounded-md border bg-background px-2"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span>{t('deal.currency')}</span>
+              <input
+                name="currency"
+                required
+                pattern="[A-Z]{3}"
+                maxLength={3}
+                defaultValue={v.terms.commissionFixed?.currency ?? NETWORK_CURRENCY}
+                autoComplete="off"
+                className="h-9 w-20 rounded-md border bg-background px-2 uppercase"
+              />
+            </label>
+            <ActionButton label={t('deal.submit')} variant="default" />
+            <p className="basis-full text-muted-foreground">{t('deal.note')}</p>
           </form>
         </details>
       ) : null}

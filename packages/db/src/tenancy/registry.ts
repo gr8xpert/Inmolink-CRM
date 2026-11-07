@@ -1500,6 +1500,27 @@ export const tenantTables: Record<string, TenantTable> = {
       sha256: '0'.repeat(64),
     },
   },
+  // R2-04c: a party's dispute of a deal (its own row, on its own copy of the deal) — a member opens one (OPEN, as
+  // themself), never changes or removes it; staff read every agency's and resolve them (data ops and super admins:
+  // status, who, when, the note). The mediation itself is a staff update of `deals`.
+  deal_disputes: {
+    kind: 'STRICT',
+    memberWrite: {
+      insert:
+        "opened_by_user_id = app_user_id() and status = 'OPEN' and resolved_at is null and resolved_by_user_id is null and resolution_note is null",
+      own: { opened_by_user_id: SAMPLE_USER },
+    },
+    userNoUpdate: true,
+    userNoDelete: true,
+    staff: {
+      select: 'true',
+      update: STAFF_OPERATOR,
+      updateColumns: ['status', 'resolved_by_user_id', 'resolution_note', 'resolved_at', 'updated_at'],
+    },
+    // stamps the creation, OPEN → RESOLVED only, staff resolve as themselves (migration 0198)
+    triggers: ['deal_disputes_guard'],
+    base: { reason: 'iso', status: 'OPEN' },
+  },
   // S11-03, chat (PLAN §7 M12). Each agency reads its own copy of a thread (one policy per table). The thread row
   // (kind, the other agency, title, subject, last activity — no content) is agency-visible; app_user inserts its own
   // (`chat_threads_insert_guard` stamps the starter and times); only a DIRECT thread's starter renames it and nobody

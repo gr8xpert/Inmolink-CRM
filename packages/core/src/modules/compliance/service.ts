@@ -132,6 +132,9 @@ export const AUDIT_TYPES = [
   // R2-04a: staff mediated a deal (one row per party's agency; target: the deal; metadata: stage and price before and
   // after — the reason is on the deal, not here).
   'staff.mls.dealMediated',
+  // R2-04c: staff resolved a party's dispute of a deal (the raising agency's log; target: the dispute; metadata: the
+  // deal — never the note).
+  'staff.mls.dealDisputeResolved',
   'compliance.dataExport.requested',
   'compliance.dataExport.downloaded',
   // S16-04: the agency's retention period changed (metadata: from, to — months or null).
@@ -155,6 +158,9 @@ export const AUDIT_TYPES = [
   'mls.deal.confirmationWithdrawn',
   'mls.deal.completed',
   'mls.deal.fellThrough',
+  // R2-04c: a party raised a dispute of a deal for staff mediation (target: the dispute; metadata: the deal, its stage —
+  // never the reason).
+  'mls.deal.disputed',
   // R2-04b: a deal document uploaded (also a retried upload: `duplicate`), opened (by either party, in its own log) or
   // removed by its uploader (target: the document; metadata: the deal, its kind — never the file's name).
   'mls.dealDocument.uploaded',
@@ -234,6 +240,7 @@ export interface AuditTarget {
     | 'supportTicket'
     // R2-03b
     | 'dedupeDispute'
+    | 'dealDispute'
     // S14-06
     | 'cutover';
   id: string;

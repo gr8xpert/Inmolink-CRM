@@ -2,7 +2,7 @@ import { closeDb, pingDb } from '@inmolink/core';
 import * as identity from '@inmolink/core/modules/identity';
 import * as mls from '@inmolink/core/modules/mls';
 import { countQueries, createFounder, type Founder } from '@inmolink/core/test';
-import { adminQuery, setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
+import { adminQuery, createStaffUser, setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
 import { createKeyring, generateKey, rowCipher } from '@inmolink/platform/crypto';
 import { newId } from '@inmolink/platform/ids';
 import {
@@ -131,6 +131,7 @@ afterAll(async () => {
   for (const m of [a, b]) {
     await adminQuery(`begin; set local session_replication_role = replica;
       delete from deal_documents where agency_id = '${m.agencyId}';
+      delete from deal_disputes where agency_id = '${m.agencyId}';
       delete from tasks where agency_id = '${m.agencyId}' and deal_id is not null;
       delete from chat_participants where agency_id = '${m.agencyId}';
       delete from chat_threads where agency_id = '${m.agencyId}' and kind = 'DEAL';
@@ -303,5 +304,75 @@ describe('my collaborations over HTTP', () => {
     });
     expect(thread.statusCode).toBeLessThan(300);
     expect(thread.json()).toMatchObject({ id: deal, kind: 'DEAL', dealId: deal });
+  });
+
+  it('[R2-04c] disputes over HTTP: a party raises one (201, a second 409), lists its own; the staff queue pages within budget; members are refused staff routes; data ops resolve (200, again 409)', async () => {
+    const ha = await bearer(a);
+    const hb = await bearer(b);
+    const deal = (await app.inject({ method: 'GET', url: '/v1/mls/deals?limit=1', headers: ha })).json().items[0]
+      .id as string;
+    const raise = (headers: Record<string, string>) =>
+      app.inject({
+        method: 'POST',
+        url: `/v1/mls/deals/${deal}/disputes`,
+        headers,
+        payload: { reason: 'Commission invoice disputed' },
+      });
+    const first = await raise(ha);
+    expect(first.statusCode, first.body).toBe(201);
+    const dispute = first.json() as { id: string; status: string };
+    expect(dispute.status).toBe('OPEN');
+    expect((await raise(ha)).statusCode).toBe(409);
+    expect(
+      (await app.inject({ method: 'POST', url: `/v1/mls/deals/${deal}/disputes`, headers: ha, payload: {} }))
+        .statusCode,
+    ).toBe(422);
+    const own = await app.inject({ method: 'GET', url: `/v1/mls/deals/${deal}/disputes`, headers: ha });
+    expect(own.json().items.map((d: { id: string }) => d.id)).toEqual([dispute.id]);
+    const theirs = await app.inject({ method: 'GET', url: `/v1/mls/deals/${deal}/disputes`, headers: hb });
+    expect(theirs.json().items).toEqual([]);
+    expect(
+      (await app.inject({ method: 'GET', url: `/v1/mls/deals/${newId()}/disputes`, headers: ha })).statusCode,
+    ).toBe(404);
+
+    // members never reach the staff routes
+    for (const req of [
+      { method: 'GET' as const, url: '/v1/staff/deal-disputes' },
+      { method: 'GET' as const, url: `/v1/staff/deals/${deal}/disputes` },
+      { method: 'POST' as const, url: `/v1/staff/deal-disputes/${dispute.id}/resolve`, payload: { note: 'x' } },
+    ]) {
+      expect((await app.inject({ ...req, headers: ha })).statusCode).toBe(403);
+    }
+
+    const staffHeaders = async (role: 'STAFF_SUPPORT' | 'STAFF_DATA_OPS') => ({
+      authorization: `Bearer ${(await signer.sign({ sub: (await createStaffUser(role)).userId, aud: 'api', sv: 1 })).token}`,
+    });
+    const support = await staffHeaders('STAFF_SUPPORT');
+    const ops = await staffHeaders('STAFF_DATA_OPS');
+    const queries = await countQueries(async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/staff/deal-disputes?status=OPEN&limit=100',
+        headers: support,
+      });
+      expect(res.statusCode, res.body).toBe(200);
+    });
+    expect(queries).toBeLessThanOrEqual(10);
+    const ofDeal = await app.inject({ method: 'GET', url: `/v1/staff/deals/${deal}/disputes`, headers: support });
+    expect(ofDeal.json().items).toEqual([
+      expect.objectContaining({ id: dispute.id, agency: expect.objectContaining({ id: a.agencyId }) }),
+    ]);
+    const resolve = (headers: Record<string, string>) =>
+      app.inject({
+        method: 'POST',
+        url: `/v1/staff/deal-disputes/${dispute.id}/resolve`,
+        headers,
+        payload: { note: 'Invoice corrected by the owner' },
+      });
+    expect((await resolve(support)).statusCode).toBe(403);
+    const done = await resolve(ops);
+    expect(done.statusCode, done.body).toBe(200);
+    expect(done.json()).toMatchObject({ status: 'RESOLVED', resolutionNote: 'Invoice corrected by the owner' });
+    expect((await resolve(ops)).statusCode).toBe(409);
   });
 });

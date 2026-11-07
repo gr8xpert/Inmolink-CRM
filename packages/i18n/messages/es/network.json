@@ -216,7 +216,8 @@
       "STATE_TOO_EARLY": "El resultado se puede registrar después de la hora programada.",
       "STATE_CHANGED": "Esta visita acaba de cambiar. Comprueba cómo está e inténtalo de nuevo.",
       "generic": "No ha funcionado. Inténtalo de nuevo.",
-      "NETWORK_GIVE_TO_GET_LOCKED": "Tu agencia debe compartir más inmuebles antes de iniciar nuevas colaboraciones. Puede seguir respondiendo a las que ya están abiertas."
+      "NETWORK_GIVE_TO_GET_LOCKED": "Tu agencia debe compartir más inmuebles antes de iniciar nuevas colaboraciones. Puede seguir respondiendo a las que ya están abiertas.",
+      "DEAL_VIEWING_NOT_ELIGIBLE": "Esta visita no admite una operación: las condiciones deben estar aceptadas y la visita programada o realizada."
     },
     "done": {
       "registered": "Cliente registrado. Ya puedes solicitar una visita abajo.",
@@ -238,6 +239,14 @@
       "pdf": "Abrir las condiciones aceptadas (PDF)",
       "pdfPending": "El PDF se está preparando. Recarga esta página en un momento.",
       "pdfAfterAccept": "El PDF estará disponible cuando el propietario acepte las condiciones."
+    },
+    "dealsLink": "Operaciones con otras agencias",
+    "deal": {
+      "open": "Abrir la operación",
+      "price": "Precio ofrecido",
+      "submit": "Abrir la sala de la operación",
+      "note": "La operación lleva las condiciones de comisión que aceptaron ambas agencias. Si la visita ya tiene una operación, vas a ella.",
+      "currency": "Moneda"
     }
   },
   "board": {
@@ -386,6 +395,191 @@
       "SAVED_SEARCH_LIMIT": "Puedes tener como máximo {max} búsquedas guardadas. Elimina una primero.",
       "NETWORK_GIVE_TO_GET_LOCKED": "Tu agencia comparte muy pocos inmuebles con la red para vigilarla. Elige «Solo nuestros inmuebles» o comparte más inmuebles primero.",
       "VERIFICATION_REQUIRED": "Solo las agencias verificadas pueden vigilar la red. Elige «Solo nuestros inmuebles» hasta que tu agencia esté verificada."
+    }
+  },
+  "deals": {
+    "title": "Operaciones",
+    "intro": "Ventas con otras agencias, de la visita aceptada a la escritura: la fase, el precio, la comisión de las condiciones acordadas, documentos, tareas y el chat.",
+    "stageFilter": "Fase",
+    "allStages": "Todas",
+    "stages": {
+      "OFFER": "Oferta",
+      "RESERVATION": "Reserva",
+      "ARRAS": "Arras",
+      "COMPLETION": "Escritura",
+      "FELL_THROUGH": "Caída"
+    },
+    "parties": {
+      "OWNER": "Tu agencia tiene el inmueble",
+      "INTRODUCER": "Tu agencia aportó el comprador"
+    },
+    "kinds": {
+      "LISTING": "Inmueble",
+      "DEVELOPMENT": "Promoción"
+    },
+    "unknownAgency": "Agencia no listada",
+    "with": "con {agency}",
+    "back": "Todas las operaciones",
+    "list": {
+      "share": "tu parte {amount}"
+    },
+    "loadMore": "Ver más",
+    "empty": "Aún no hay operaciones.",
+    "emptyHint": "Abre una operación desde una visita aceptada en Mis colaboraciones.",
+    "actingReadOnly": "Estás actuando como este usuario: la operación se muestra solo para consulta.",
+    "bindHint": "En tu lado, solo los administradores de tu agencia o el agente del inmueble pueden mover esta operación.",
+    "sections": {
+      "stage": "Fase",
+      "money": "Precio y comisión",
+      "handshake": "Confirmación del cierre",
+      "documents": "Documentos",
+      "tasks": "Tus tareas",
+      "chat": "Chat con la otra agencia",
+      "disputes": "Disputas"
+    },
+    "timeline": {
+      "label": "Fases de la operación",
+      "states": {
+        "done": "hecha",
+        "current": "fase actual",
+        "next": "por llegar",
+        "skipped": "no alcanzada"
+      },
+      "since": "{stage} desde el {date}",
+      "fellThrough": "Caída (cerrada por {by})",
+      "mediated": "Inmolink medió el {date}"
+    },
+    "closedBy": {
+      "OWNER": "la agencia propietaria",
+      "INTRODUCER": "la agencia colaboradora",
+      "STAFF": "Inmolink"
+    },
+    "price": {
+      "label": "Precio acordado",
+      "change": "Cambiar el precio",
+      "new": "Nuevo precio ({currency})",
+      "submit": "Guardar precio",
+      "note": "Cambiar el precio borra las confirmaciones de cierre de ambas partes."
+    },
+    "commission": {
+      "total": "Comisión",
+      "introducer": "Parte de la agencia colaboradora",
+      "owner": "Parte de la agencia propietaria",
+      "yours": "la tuya",
+      "rate": "{rate} del precio",
+      "fixed": "{amount} fijos",
+      "split": "{split} para la colaboradora",
+      "vatIncluded": "IVA incluido",
+      "vatExcluded": "IVA no incluido",
+      "snapshot": "condiciones acordadas el {date}"
+    },
+    "advance": {
+      "label": "Avanzar:",
+      "to": "A {stage}",
+      "confirm": "¿Pasar la operación a {stage}? Una operación nunca retrocede."
+    },
+    "fallThrough": {
+      "open": "La operación se ha caído",
+      "reason": "Qué ha pasado",
+      "note": "Una operación caída queda cerrada para ambas agencias; solo Inmolink puede reabrirla.",
+      "submit": "Cerrar como caída",
+      "confirm": "¿Cerrar esta operación como caída? Ninguna agencia podrá deshacerlo."
+    },
+    "handshake": {
+      "intro": "La operación se cierra cuando ambas agencias confirman el cierre al mismo precio.",
+      "mine": "Tu agencia",
+      "theirs": "La otra agencia",
+      "confirmedAt": "confirmado el {date}",
+      "pending": "aún sin confirmar",
+      "confirm": "Confirmar el cierre a {price}",
+      "confirmAsk": "¿Confirmar el cierre a {price}? Cuando ambas agencias confirmen, la operación queda cerrada.",
+      "withdraw": "Retirar mi confirmación",
+      "withdrawAsk": "¿Retirar la confirmación de tu agencia?"
+    },
+    "documents": {
+      "intro": "PDF que leen ambas agencias: la oferta, los contratos, la escritura, facturas. Solo la agencia que lo subió lo retira, mientras la operación está abierta.",
+      "empty": "Aún no hay documentos.",
+      "kinds": {
+        "OFFER": "Oferta",
+        "RESERVATION": "Contrato de reserva",
+        "ARRAS": "Contrato de arras",
+        "DEED": "Escritura",
+        "INVOICE": "Factura de comisión",
+        "OTHER": "Otro"
+      },
+      "byOther": "{name} (otra agencia)",
+      "removedAt": "retirado el {date}",
+      "open": "Abrir",
+      "remove": "Retirar",
+      "removeAsk": "¿Retirar «{name}»? Seguirá en la lista como retirado para ambas agencias.",
+      "kind": "Tipo de documento",
+      "file": "PDF, hasta {max} MB",
+      "upload": "Subir"
+    },
+    "tasks": {
+      "intro": "Las tareas propias de tu agencia sobre esta operación. La otra agencia nunca las ve.",
+      "empty": "No hay tareas abiertas.",
+      "noDue": "sin fecha",
+      "all": "Todas mis tareas",
+      "title": "Nueva tarea",
+      "due": "Vence",
+      "remind": "Recordármelo",
+      "add": "Añadir tarea"
+    },
+    "chat": {
+      "intro": "Un hilo entre las personas de ambas agencias en esta operación. No se comparte nada del cliente.",
+      "open": "Abrir el chat de la operación"
+    },
+    "disputes": {
+      "intro": "Si las dos agencias no se ponen de acuerdo —el precio, una fase, el cierre o la comisión—, pide a Inmolink que medie. La otra agencia sabrá que hay una disputa, no lo que has escrito.",
+      "statuses": {
+        "OPEN": "Abierta",
+        "RESOLVED": "Resuelta"
+      },
+      "note": "Nota de Inmolink",
+      "open": "Abrir una disputa",
+      "reason": "¿Qué debe revisar Inmolink?",
+      "hint": "Para enviar pruebas (un contrato, un correo), abre una incidencia de soporte y adjúntalas.",
+      "submit": "Enviar a Inmolink",
+      "confirm": "¿Enviar esta disputa a Inmolink para su mediación?"
+    },
+    "done": {
+      "opened": "Sala de la operación abierta.",
+      "advanced": "Fase actualizada.",
+      "priced": "Precio guardado. Se han borrado ambas confirmaciones.",
+      "confirmed": "Confirmación registrada.",
+      "withdrawn": "Confirmación retirada.",
+      "fellThrough": "La operación queda cerrada como caída.",
+      "uploaded": "Documento subido.",
+      "removed": "Documento retirado.",
+      "taskAdded": "Tarea añadida.",
+      "disputed": "Disputa enviada. Inmolink te responderá aquí."
+    },
+    "errors": {
+      "load": "No se ha podido cargar la operación. Inténtalo de nuevo.",
+      "generic": "Algo ha fallado. Inténtalo de nuevo.",
+      "FORBIDDEN": "No puedes hacer esto en esta operación.",
+      "DEAL_NOT_FOUND": "Esta operación no existe o no es de tu agencia.",
+      "DEAL_DOCUMENT_NOT_FOUND": "Este documento ya no está disponible.",
+      "DEAL_DISPUTE_STATE": "Tu agencia ya tiene una disputa abierta en esta operación.",
+      "DEAL_STATE": "La operación no admite esto ahora.",
+      "VALIDATION_FAILED": "Revisa los campos e inténtalo de nuevo.",
+      "RATE_LIMITED": "Demasiados intentos. Espera un minuto e inténtalo de nuevo.",
+      "IDEMPOTENCY_KEY_REUSED": "Este formulario ya se envió. Recarga la página.",
+      "DOCUMENT_TYPE_NOT_ALLOWED": "Solo se pueden subir archivos PDF.",
+      "DOCUMENT_LIMIT_REACHED": "Esta operación ya tiene el máximo de documentos.",
+      "PAYLOAD_TOO_LARGE": "El archivo es demasiado grande.",
+      "CHAT_THREAD_NOT_FOUND": "El chat no está disponible para esta operación.",
+      "states": {
+        "closed": "La operación está cerrada: ahora solo Inmolink puede cambiarla. Abre una disputa si algo no está bien.",
+        "backwards": "Una operación solo avanza.",
+        "price_changed": "El precio ha cambiado mientras tanto. Revisa el nuevo precio y vuelve a confirmar.",
+        "confirmed": "Tu agencia ya ha confirmado.",
+        "not_confirmed": "Tu agencia no ha confirmado.",
+        "unchanged": "No ha cambiado nada.",
+        "changed": "La operación ha cambiado mientras tanto. Revísala e inténtalo de nuevo.",
+        "live_deal": "Esta visita tiene otra operación en curso."
+      }
     }
   }
 }

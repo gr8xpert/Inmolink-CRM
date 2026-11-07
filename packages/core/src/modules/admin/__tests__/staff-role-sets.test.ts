@@ -39,6 +39,7 @@ const POLICY_OF: Record<string, Policy> = {
   'tenant.dedupe_disputes.staff.update': dedupeResolve,
   'tenant.outbox_events.staff.insert[mls.deal.changed]': dealMediate, // R2-04a
   'tenant.deals.staff.update': dealMediate,
+  'tenant.deal_disputes.staff.update': dealMediate, // R2-04c
   'tenant.billing_plan_grants.staff.insert': billingGrant,
   'tenant.billing_plan_grants.staff.update': billingGrant,
   'tenant.billing_price_locks.staff.insert': billingGrant,

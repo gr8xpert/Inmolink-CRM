@@ -216,7 +216,8 @@
       "STATE_TOO_EARLY": "The outcome can be recorded after the scheduled time.",
       "STATE_CHANGED": "This viewing has just changed. Check where it stands and try again.",
       "generic": "That did not work. Try again.",
-      "NETWORK_GIVE_TO_GET_LOCKED": "Your agency has to share more listings before it can start new collaborations. It can still answer the ones already open."
+      "NETWORK_GIVE_TO_GET_LOCKED": "Your agency has to share more listings before it can start new collaborations. It can still answer the ones already open.",
+      "DEAL_VIEWING_NOT_ELIGIBLE": "This viewing cannot carry a deal: the terms must be accepted and the viewing scheduled or attended."
     },
     "done": {
       "registered": "Client registered. You can now request a viewing below.",
@@ -238,6 +239,14 @@
       "pdf": "Open the accepted terms (PDF)",
       "pdfPending": "The PDF is being prepared. Reload this page shortly.",
       "pdfAfterAccept": "The PDF is available once the owner accepts the terms."
+    },
+    "dealsLink": "Deals with other agencies",
+    "deal": {
+      "open": "Open the deal",
+      "price": "Offered price",
+      "submit": "Open the deal room",
+      "note": "The deal carries the commission terms both agencies accepted. If the viewing has a deal already, you go to it.",
+      "currency": "Currency"
     }
   },
   "board": {
@@ -386,6 +395,191 @@
       "SAVED_SEARCH_LIMIT": "You can keep at most {max} saved searches. Delete one first.",
       "NETWORK_GIVE_TO_GET_LOCKED": "Your agency shares too few listings with the network to watch it. Choose “Our listings only”, or share more listings first.",
       "VERIFICATION_REQUIRED": "Only verified agencies can watch the network. Choose “Our listings only” until your agency is verified."
+    }
+  },
+  "deals": {
+    "title": "Deals",
+    "intro": "Sales with other agencies, from an accepted viewing to the completion: the stage, the price, the commission from the agreed terms, documents, tasks and the chat.",
+    "stageFilter": "Stage",
+    "allStages": "All",
+    "stages": {
+      "OFFER": "Offer",
+      "RESERVATION": "Reservation",
+      "ARRAS": "Arras",
+      "COMPLETION": "Completion",
+      "FELL_THROUGH": "Fell through"
+    },
+    "parties": {
+      "OWNER": "You own the property",
+      "INTRODUCER": "You introduced the buyer"
+    },
+    "kinds": {
+      "LISTING": "Listing",
+      "DEVELOPMENT": "Development"
+    },
+    "unknownAgency": "Agency not listed",
+    "with": "with {agency}",
+    "back": "All deals",
+    "list": {
+      "share": "your share {amount}"
+    },
+    "loadMore": "Show more",
+    "empty": "No deals yet.",
+    "emptyHint": "Open a deal from an accepted viewing in My collaborations.",
+    "actingReadOnly": "You are acting as this member: the deal is shown read-only.",
+    "bindHint": "Only your agency’s admins or the listing’s agent can move this deal on your side.",
+    "sections": {
+      "stage": "Stage",
+      "money": "Price and commission",
+      "handshake": "Completion handshake",
+      "documents": "Documents",
+      "tasks": "Your tasks",
+      "chat": "Chat with the other agency",
+      "disputes": "Disputes"
+    },
+    "timeline": {
+      "label": "Deal stages",
+      "states": {
+        "done": "done",
+        "current": "current stage",
+        "next": "to come",
+        "skipped": "not reached"
+      },
+      "since": "{stage} since {date}",
+      "fellThrough": "Fell through (closed by {by})",
+      "mediated": "Inmolink mediated on {date}"
+    },
+    "closedBy": {
+      "OWNER": "the owner",
+      "INTRODUCER": "the introducer",
+      "STAFF": "Inmolink"
+    },
+    "price": {
+      "label": "Agreed price",
+      "change": "Change the price",
+      "new": "New price ({currency})",
+      "submit": "Save price",
+      "note": "Changing the price clears both sides’ completion confirmations."
+    },
+    "commission": {
+      "total": "Commission",
+      "introducer": "Introducing agency’s share",
+      "owner": "Owner agency’s share",
+      "yours": "yours",
+      "rate": "{rate} of the price",
+      "fixed": "fixed {amount}",
+      "split": "{split} to the introducer",
+      "vatIncluded": "VAT included",
+      "vatExcluded": "VAT not included",
+      "snapshot": "terms agreed {date}"
+    },
+    "advance": {
+      "label": "Move forward:",
+      "to": "To {stage}",
+      "confirm": "Move the deal to {stage}? A deal never moves back."
+    },
+    "fallThrough": {
+      "open": "The deal fell through",
+      "reason": "What happened",
+      "note": "A fallen-through deal is closed for both agencies; only Inmolink can reopen it.",
+      "submit": "Close as fallen through",
+      "confirm": "Close this deal as fallen through? This cannot be undone by either agency."
+    },
+    "handshake": {
+      "intro": "The deal completes when both agencies confirm the completion at the same price.",
+      "mine": "Your agency",
+      "theirs": "The other agency",
+      "confirmedAt": "confirmed {date}",
+      "pending": "not confirmed yet",
+      "confirm": "Confirm completion at {price}",
+      "confirmAsk": "Confirm the completion at {price}? Once both agencies confirm, the deal is closed.",
+      "withdraw": "Withdraw my confirmation",
+      "withdrawAsk": "Withdraw your agency’s confirmation?"
+    },
+    "documents": {
+      "intro": "PDFs both agencies read: the offer, the contracts, the deed, invoices. Only the uploading agency removes one, while the deal is open.",
+      "empty": "No documents yet.",
+      "kinds": {
+        "OFFER": "Offer",
+        "RESERVATION": "Reservation contract",
+        "ARRAS": "Arras contract",
+        "DEED": "Deed (escritura)",
+        "INVOICE": "Commission invoice",
+        "OTHER": "Other"
+      },
+      "byOther": "{name} (other agency)",
+      "removedAt": "removed {date}",
+      "open": "Open",
+      "remove": "Remove",
+      "removeAsk": "Remove “{name}”? It stays listed as removed for both agencies.",
+      "kind": "Document type",
+      "file": "PDF, up to {max} MB",
+      "upload": "Upload"
+    },
+    "tasks": {
+      "intro": "Your agency’s own tasks about this deal. The other agency never sees them.",
+      "empty": "No open tasks.",
+      "noDue": "no date",
+      "all": "All my tasks",
+      "title": "New task",
+      "due": "Due",
+      "remind": "Remind me",
+      "add": "Add task"
+    },
+    "chat": {
+      "intro": "One thread between the two agencies’ people on this deal. Nothing about the client is shared.",
+      "open": "Open the deal chat"
+    },
+    "disputes": {
+      "intro": "If the two agencies cannot agree — on the price, a stage, the completion or the commission — ask Inmolink to mediate. The other agency is told a dispute was raised, not what you wrote.",
+      "statuses": {
+        "OPEN": "Open",
+        "RESOLVED": "Resolved"
+      },
+      "note": "Inmolink’s note",
+      "open": "Raise a dispute",
+      "reason": "What should Inmolink look at?",
+      "hint": "To send evidence (a contract, an e-mail), open a support ticket and attach it.",
+      "submit": "Send to Inmolink",
+      "confirm": "Send this dispute to Inmolink for mediation?"
+    },
+    "done": {
+      "opened": "Deal room open.",
+      "advanced": "Stage updated.",
+      "priced": "Price saved. Both confirmations were cleared.",
+      "confirmed": "Confirmation recorded.",
+      "withdrawn": "Confirmation withdrawn.",
+      "fellThrough": "The deal is closed as fallen through.",
+      "uploaded": "Document uploaded.",
+      "removed": "Document removed.",
+      "taskAdded": "Task added.",
+      "disputed": "Dispute sent. Inmolink will get back to you here."
+    },
+    "errors": {
+      "load": "The deal could not be loaded. Try again.",
+      "generic": "Something went wrong. Try again.",
+      "FORBIDDEN": "You cannot do this on this deal.",
+      "DEAL_NOT_FOUND": "This deal does not exist or is not your agency’s.",
+      "DEAL_DOCUMENT_NOT_FOUND": "This document is not available any more.",
+      "DEAL_DISPUTE_STATE": "Your agency already has an open dispute on this deal.",
+      "DEAL_STATE": "The deal cannot take this now.",
+      "VALIDATION_FAILED": "Check the fields and try again.",
+      "RATE_LIMITED": "Too many attempts. Wait a minute and try again.",
+      "IDEMPOTENCY_KEY_REUSED": "This form was sent already. Reload the page.",
+      "DOCUMENT_TYPE_NOT_ALLOWED": "Only PDF files can be uploaded.",
+      "DOCUMENT_LIMIT_REACHED": "This deal has the most documents it can hold.",
+      "PAYLOAD_TOO_LARGE": "The file is too large.",
+      "CHAT_THREAD_NOT_FOUND": "The chat is not available for this deal.",
+      "states": {
+        "closed": "The deal is closed: only Inmolink can change it now. Raise a dispute if something is wrong.",
+        "backwards": "A deal only moves forward.",
+        "price_changed": "The price changed meanwhile. Check the new price and confirm again.",
+        "confirmed": "Your agency has confirmed already.",
+        "not_confirmed": "Your agency has not confirmed.",
+        "unchanged": "Nothing changed.",
+        "changed": "The deal changed meanwhile. Check it and try again.",
+        "live_deal": "This viewing has another live deal."
+      }
     }
   }
 }

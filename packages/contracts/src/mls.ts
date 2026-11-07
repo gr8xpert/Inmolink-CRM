@@ -250,8 +250,11 @@ export type DealStage = z.infer<typeof DealStage>;
 /** The stages a party moves a deal forward to by hand (completion is the handshake's, a fall-through its own move). */
 export const DEAL_ADVANCE_STAGES = ['RESERVATION', 'ARRAS'] as const;
 
-/** The moves the API takes from this member on this deal now. */
-export const DEAL_ACTIONS = ['ADVANCE', 'SET_PRICE', 'CONFIRM', 'WITHDRAW', 'FALL_THROUGH'] as const;
+/**
+ * The moves the API takes from this member on this deal now. `DISPUTE` (R2-04c): raise a dispute for staff mediation —
+ * also on a closed deal (refused while the agency has one open on it).
+ */
+export const DEAL_ACTIONS = ['ADVANCE', 'SET_PRICE', 'CONFIRM', 'WITHDRAW', 'FALL_THROUGH', 'DISPUTE'] as const;
 export const DealAction = z.enum(DEAL_ACTIONS);
 export type DealAction = z.infer<typeof DealAction>;
 
@@ -421,3 +424,60 @@ export type DealDocumentList = z.infer<typeof DealDocumentList>;
 /** A short signed GET; the file downloads under its name. */
 export const DealDocumentUrlDto = z.strictObject({ url: z.string(), expiresAt: z.iso.datetime() });
 export type DealDocumentUrlDto = z.infer<typeof DealDocumentUrlDto>;
+
+// ---- R2-04c: disputes (a party asks staff to mediate) -----------------------------------------------------------------
+
+/**
+ * A party's dispute of a deal (PLAN §3 #10 "disputes → staff mediation"): the agency asks staff to step in — the price,
+ * the stage, the completion or the commission — with a reason. `OPEN` until staff resolve it with a note the raising
+ * agency reads; what staff change on the deal is a mediation (`POST /v1/staff/deals/:id/mediate`, with its own reason
+ * both parties see). One open dispute per agency and deal; the other party is told one was raised, never its text.
+ */
+export const DEAL_DISPUTE_STATUSES = ['OPEN', 'RESOLVED'] as const;
+export const DealDisputeStatus = z.enum(DEAL_DISPUTE_STATUSES);
+export type DealDisputeStatus = z.infer<typeof DealDisputeStatus>;
+
+const DisputeText = z.string().trim().min(1).max(2_000);
+
+/** `POST /v1/mls/deals/:id/disputes`: raise a dispute (201). Refused: `DEAL_DISPUTE_STATE` (one is open already). */
+export const OpenDealDisputeBody = z.strictObject({ reason: DisputeText });
+export type OpenDealDisputeBody = z.infer<typeof OpenDealDisputeBody>;
+
+/** A dispute as the raising agency sees it. */
+export const DealDisputeDto = z.strictObject({
+  id: z.uuid(),
+  dealId: z.uuid(),
+  status: DealDisputeStatus,
+  reason: z.string(),
+  resolutionNote: z.string().nullable(),
+  createdAt: z.iso.datetime(),
+  resolvedAt: z.iso.datetime().nullable(),
+});
+export type DealDisputeDto = z.infer<typeof DealDisputeDto>;
+/** `GET /v1/mls/deals/:id/disputes`: the agency's disputes of the deal, newest first (at most `DEAL_DISPUTES_LISTED`). */
+export const DealDisputeList = z.strictObject({ items: z.array(DealDisputeDto) });
+export type DealDisputeList = z.infer<typeof DealDisputeList>;
+export const DEAL_DISPUTES_LISTED = 50;
+
+export const DealDisputeParams = z.strictObject({ id: z.uuid() });
+export type DealDisputeParams = z.infer<typeof DealDisputeParams>;
+
+/** Staff: a dispute with the raising agency, its side and the deal's stage now. */
+export const StaffDealDisputeDto = DealDisputeDto.extend({
+  agency: z.strictObject({ id: z.uuid(), name: z.string() }),
+  party: ViewingSide,
+  dealStage: DealStage,
+});
+export type StaffDealDisputeDto = z.infer<typeof StaffDealDisputeDto>;
+export const StaffDealDisputePage = pageOf(StaffDealDisputeDto);
+export type StaffDealDisputePage = z.infer<typeof StaffDealDisputePage>;
+export const StaffDealDisputeList = z.strictObject({ items: z.array(StaffDealDisputeDto) });
+export type StaffDealDisputeList = z.infer<typeof StaffDealDisputeList>;
+
+/** `GET /v1/staff/deal-disputes`: every agency's disputes of one status, oldest first (the mediation queue). */
+export const StaffDealDisputesQuery = PageQuery.extend({ status: DealDisputeStatus.default('OPEN') }).strict();
+export type StaffDealDisputesQuery = z.input<typeof StaffDealDisputesQuery>;
+
+/** `POST /v1/staff/deal-disputes/:id/resolve` (data ops, super admins): close an open dispute with a note; audited. */
+export const ResolveDealDisputeBody = z.strictObject({ note: DisputeText });
+export type ResolveDealDisputeBody = z.infer<typeof ResolveDealDisputeBody>;

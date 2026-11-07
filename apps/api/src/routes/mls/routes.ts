@@ -7,6 +7,9 @@ import {
   CreateTaskBody,
   CreateViewingRequestBody,
   DEAL_DOCUMENT_MAX_BYTES,
+  DealDisputeDto,
+  DealDisputeList,
+  DealDisputeParams,
   DealDocumentDto,
   DealDocumentList,
   DealDocumentParams,
@@ -19,11 +22,17 @@ import {
   ListRegistrationsQuery,
   ListViewingRequestsQuery,
   MediateDealBody,
+  OpenDealDisputeBody,
   ReceivedRegistrationPage,
   RegistrationDto,
   RegistrationPage,
   RescheduleViewingBody,
+  ResolveDealDisputeBody,
   SetDealPriceBody,
+  StaffDealDisputeDto,
+  StaffDealDisputeList,
+  StaffDealDisputePage,
+  StaffDealDisputesQuery,
   StaffDealDto,
   TaskDto,
   UploadDealDocumentHeaders,
@@ -517,6 +526,45 @@ export async function mlsRoutes(app: FastifyZod): Promise<void> {
 
   await app.register(dealDocumentUploadRoute);
 
+  // ── R2-04c, disputes: a party asks staff to mediate ──────────────────────────────────────────────
+
+  app.post(
+    '/v1/mls/deals/:id/disputes',
+    {
+      schema: {
+        tags,
+        operationId: 'mls.openDealDispute',
+        summary:
+          'Raise a dispute of a deal for staff mediation, with a reason (201); also on a closed deal. One open dispute per agency and deal; the other party is told one was raised, never its text',
+        params: DealParams,
+        body: OpenDealDisputeBody,
+        response: { 201: DealDisputeDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: WRITE_LIMITS },
+    },
+    async (req, reply) => {
+      const dispute = await app.withCtx(req, (ctx) => mls.openDealDispute(ctx, req.params.id, req.body));
+      return reply.code(201).send(dispute);
+    },
+  );
+
+  app.get(
+    '/v1/mls/deals/:id/disputes',
+    {
+      schema: {
+        tags,
+        operationId: 'mls.listDealDisputes',
+        summary: 'The caller’s agency’s disputes of a deal, newest first, with staff’s notes',
+        params: DealParams,
+        response: { 200: DealDisputeList },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: READ_LIMITS },
+    },
+    (req) => app.withCtx(req, (ctx) => mls.listDealDisputes(ctx, req.params.id)),
+  );
+
   // ── Staff: mediation ───────────────────────────────────────────────────────────────────────────
 
   app.get(
@@ -551,6 +599,58 @@ export async function mlsRoutes(app: FastifyZod): Promise<void> {
       config: { rateLimit: STAFF_LIMITS },
     },
     (req) => app.withStaffCtx(req, 'mls.mediateDeal', (ctx) => mls.mediateDeal(ctx, req.params.id, req.body)),
+  );
+
+  app.get(
+    '/v1/staff/deal-disputes',
+    {
+      schema: {
+        tags: ['staff'],
+        operationId: 'mls.listStaffDealDisputes',
+        summary: 'Every agency’s deal disputes of one status, oldest first (the mediation queue)',
+        querystring: StaffDealDisputesQuery,
+        response: { 200: StaffDealDisputePage },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: STAFF_LIMITS },
+    },
+    (req) => app.withStaffCtx(req, 'mls.listStaffDealDisputes', (ctx) => mls.listStaffDealDisputes(ctx, req.query)),
+  );
+
+  app.get(
+    '/v1/staff/deals/:id/disputes',
+    {
+      schema: {
+        tags: ['staff'],
+        operationId: 'mls.listStaffDisputesOfDeal',
+        summary: 'Both parties’ disputes of a deal, newest first',
+        params: DealParams,
+        response: { 200: StaffDealDisputeList },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: STAFF_LIMITS },
+    },
+    (req) =>
+      app.withStaffCtx(req, 'mls.listStaffDisputesOfDeal', (ctx) => mls.listStaffDisputesOfDeal(ctx, req.params.id)),
+  );
+
+  app.post(
+    '/v1/staff/deal-disputes/:id/resolve',
+    {
+      schema: {
+        tags: ['staff'],
+        operationId: 'mls.resolveDealDispute',
+        summary:
+          'Resolve an open deal dispute with a note the raising agency reads (data ops, super admins); audited. Changing the deal is a mediation',
+        params: DealDisputeParams,
+        body: ResolveDealDisputeBody,
+        response: { 200: StaffDealDisputeDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: STAFF_LIMITS },
+    },
+    (req) =>
+      app.withStaffCtx(req, 'mls.resolveDealDispute', (ctx) => mls.resolveDealDispute(ctx, req.params.id, req.body)),
   );
 }
 

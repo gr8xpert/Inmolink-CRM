@@ -14,7 +14,8 @@
     "flags": "Feature flags",
     "system": "Colas e IA",
     "migration": "Migración",
-    "duplicates": "Duplicados"
+    "duplicates": "Duplicados",
+    "deals": "Disputas de operaciones"
   },
   "taxonomy": {
     "title": "Taxonomía",
@@ -38,9 +39,15 @@
     },
     "catalog": {
       "addGroup": "Añadir grupo",
-      "add": { "propertyType": "Añadir tipo de propiedad", "feature": "Añadir característica" },
+      "add": {
+        "propertyType": "Añadir tipo de propiedad",
+        "feature": "Añadir característica"
+      },
       "newGroup": "Nuevo grupo",
-      "new": { "propertyType": "Nuevo tipo de propiedad", "feature": "Nueva característica" },
+      "new": {
+        "propertyType": "Nuevo tipo de propiedad",
+        "feature": "Nueva característica"
+      },
       "icon": "Icono",
       "iconHint": "Nombre de un icono de Lucide en minúsculas, como check o waves."
     },
@@ -595,5 +602,100 @@
       "VALIDATION_FAILED": "Escribe una nota.",
       "generic": "Algo ha fallado."
     }
+  },
+  "deals": {
+    "title": "Disputas de operaciones",
+    "intro": "Las agencias piden a Inmolink que medie en una operación: el precio, una fase, el cierre o la comisión. Media en la operación y luego resuelve la disputa con una nota.",
+    "statuses": {
+      "OPEN": "Abiertas",
+      "RESOLVED": "Resueltas"
+    },
+    "parties": {
+      "OWNER": "propietaria",
+      "INTRODUCER": "colaboradora"
+    },
+    "stages": {
+      "OFFER": "Oferta",
+      "RESERVATION": "Reserva",
+      "ARRAS": "Arras",
+      "COMPLETION": "Escritura",
+      "FELL_THROUGH": "Caída"
+    },
+    "kinds": {
+      "LISTING": "Inmueble",
+      "DEVELOPMENT": "Promoción"
+    },
+    "empty": "No hay disputas.",
+    "row": "{agency} ({party}) · {stage}",
+    "deal": "Operación {id}",
+    "note": "Nota",
+    "next": "Página siguiente",
+    "back": "Disputas de operaciones",
+    "dealTitle": "Operación {id}",
+    "noDisputes": "No hay disputas en esta operación.",
+    "documentsNote": "El equipo no abre los documentos de la operación. Pide a las agencias que envíen pruebas en una incidencia de soporte.",
+    "notices": {
+      "mediated": "Mediación registrada. Se avisa a ambas agencias.",
+      "resolved": "Disputa resuelta. Se avisa a la agencia."
+    },
+    "sections": {
+      "deal": "La operación",
+      "disputes": "Disputas",
+      "mediate": "Mediar"
+    },
+    "facts": {
+      "owner": "Agencia propietaria",
+      "introducer": "Agencia colaboradora",
+      "target": "Inmueble",
+      "stage": "Fase",
+      "price": "Precio",
+      "terms": "Condiciones",
+      "total": "Comisión",
+      "introducerShare": "Parte de la colaboradora",
+      "ownerShare": "Parte de la propietaria",
+      "ownerConfirmed": "Confirmó la propietaria",
+      "introducerConfirmed": "Confirmó la colaboradora",
+      "completed": "Cerrada",
+      "fellThrough": "Caída",
+      "mediated": "Última mediación"
+    },
+    "terms": {
+      "rate": "{rate} del precio",
+      "fixed": "{amount} fijos",
+      "split": "{split} para la colaboradora",
+      "vatIncluded": "IVA incluido",
+      "vatExcluded": "IVA no incluido"
+    },
+    "resolve": {
+      "note": "Nota para la agencia (la lee)",
+      "submit": "Resolver disputa",
+      "confirm": "¿Resolver esta disputa? La agencia leerá tu nota."
+    },
+    "mediate": {
+      "intro": "Fija la fase (en cualquier sentido, también saliendo de una cerrada) y/o el precio. Salir del cierre, o un precio nuevo, borra ambas confirmaciones. Queda auditado para ambas agencias.",
+      "stage": "Fase",
+      "keepStage": "Mantener ({stage})",
+      "price": "Nuevo precio ({currency}, vacío lo mantiene)",
+      "reason": "Motivo (lo leen ambas agencias)",
+      "note": "No escribas nunca nada sobre el cliente.",
+      "submit": "Mediar",
+      "confirm": "¿Mediar en esta operación? Ambas agencias leerán el motivo y el cambio queda auditado."
+    },
+    "errors": {
+      "generic": "Algo ha fallado.",
+      "FORBIDDEN": "Solo operaciones de datos y superadministradores median en operaciones y resuelven disputas.",
+      "DEAL_NOT_FOUND": "Esta operación no existe.",
+      "DEAL_DISPUTE_NOT_FOUND": "Esta disputa ya no existe.",
+      "DEAL_DISPUTE_STATE": "Esta disputa ya estaba resuelta.",
+      "DEAL_STATE": "La operación no admite esto.",
+      "VALIDATION_FAILED": "Escribe un motivo y una fase o un precio válido.",
+      "states": {
+        "unchanged": "No cambiaría nada.",
+        "changed": "La operación ha cambiado mientras tanto. Recárgala.",
+        "live_deal": "La visita tiene otra operación en curso: esta no puede reabrirse."
+      }
+    },
+    "statusFilter": "Estado",
+    "rowStatus": "{agency} ({party}) · {status}"
   }
 }

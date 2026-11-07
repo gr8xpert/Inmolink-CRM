@@ -60,6 +60,9 @@ export const mlsEvents = {
         'COMPLETED',
         'FELL_THROUGH',
         'MEDIATED',
+        // R2-04c: a party raised a dispute (the other party is told); staff resolved one (the raising agency is told)
+        'DISPUTED',
+        'DISPUTE_RESOLVED',
       ]),
       by: z.enum(['INTRODUCER', 'OWNER', 'STAFF']),
       /** The member or staff user who acted. */

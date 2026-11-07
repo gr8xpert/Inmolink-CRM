@@ -14,7 +14,7 @@
     "BILLING_PLAN_ENDING": "Your {subject} {kind, select, TRIAL {trial} other {plan}} ends on {date, date, medium}. Subscribe on the billing page to keep it.",
     "BILLING_PLAN_FREE": "Your agency is on the Free plan now. Your data is untouched; subscribe on the billing page to get your plan back.",
     "MIGRATION_CUT_OVER": "Your agency now works on Inmolink v2: your listings, contacts and leads are here, and your team has been sent sign-in e-mails.",
-    "DEAL_UPDATED": "{action, select, OPENED {{actor} opened a deal} ADVANCED {{actor} moved a deal forward} PRICE_CHANGED {{actor} changed a deal’s price} CONFIRMED {{actor} confirmed a deal’s completion} WITHDRAWN {{actor} withdrew a deal’s confirmation} COMPLETED {Deal completed} FELL_THROUGH {Deal fell through} MEDIATED {Inmolink mediated a deal} other {Deal updated}}: {subject}"
+    "DEAL_UPDATED": "{action, select, OPENED {{actor} opened a deal} ADVANCED {{actor} moved a deal forward} PRICE_CHANGED {{actor} changed a deal’s price} CONFIRMED {{actor} confirmed a deal’s completion} WITHDRAWN {{actor} withdrew a deal’s confirmation} COMPLETED {Deal completed} FELL_THROUGH {Deal fell through} MEDIATED {Inmolink mediated a deal} DISPUTED {{actor} raised a dispute on a deal} DISPUTE_RESOLVED {Inmolink resolved your dispute of a deal} other {Deal updated}}: {subject}"
   },
   "typeLabels": {
     "LEAD_ASSIGNED": "Leads assigned to me",

@@ -13,6 +13,13 @@ export {
 export { applyBp, type CommissionAmounts, type CommissionTerms, commissionOf } from './commission';
 export { configureMls, type MlsConfig, REGISTRATION_CLAIM_DAYS, VIEWING_REQUEST_EXPIRY_DAYS } from './config';
 export {
+  listDealDisputes,
+  listStaffDealDisputes,
+  listStaffDisputesOfDeal,
+  openDealDispute,
+  resolveDealDispute,
+} from './deal-disputes';
+export {
   DEAL_DOCUMENTS_PREFIX,
   dealDocumentKey,
   listDealDocuments,
@@ -36,6 +43,8 @@ export {
 } from './deals';
 export {
   ERASED_CLIENT,
+  ERASED_DISPUTE_TEXT,
+  eraseAgencyDealDisputes,
   eraseAgencyDealDocuments,
   eraseAgencyRegistrations,
   eraseContactRegistrations,

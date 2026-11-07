@@ -9,7 +9,14 @@ import type { mlsEvents } from './events';
 export const dealLink = (dealId: string) => `/deals/${dealId}`;
 
 /** The moves whose message names the agency that made them. */
-const NAMED: ReadonlySet<string> = new Set(['OPENED', 'ADVANCED', 'PRICE_CHANGED', 'CONFIRMED', 'WITHDRAWN']);
+const NAMED: ReadonlySet<string> = new Set([
+  'OPENED',
+  'ADVANCED',
+  'PRICE_CHANGED',
+  'CONFIRMED',
+  'WITHDRAWN',
+  'DISPUTED',
+]);
 
 /**
  * `mls.notifyDeal` (R2-04b; one job per `mls.deal.changed`, job ID = the event's id): the deal's members on the side to

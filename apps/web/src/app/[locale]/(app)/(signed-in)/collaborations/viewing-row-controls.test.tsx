@@ -14,6 +14,7 @@ vi.mock('./actions', () => ({
   recordOutcomeAction: () => undefined,
   rescheduleViewingAction: () => undefined,
 }));
+vi.mock('../deals/actions', () => ({ openDealAction: () => undefined }));
 
 const ID = '01900000-0000-7000-8000-000000000001';
 const CONTACT = '01900000-0000-7000-8000-000000000002';
@@ -78,5 +79,20 @@ describe('[S17-F56] a viewing row as rendered', () => {
     const html = await render(viewing({ status: 'DECLINED', awaiting: null, allowedActions: [] }));
     expect(html).not.toContain('<form');
     expect(html).toContain('actions.terms');
+  });
+
+  it('[R2-04c] an accepted, scheduled viewing offers to open its deal; one awaiting the terms does not', async () => {
+    const html = await render(
+      viewing({
+        status: 'SCHEDULED',
+        awaiting: null,
+        mayBind: true,
+        allowedActions: ['CANCEL'],
+        terms: { validUntil: '2027-05-01T12:00:00.000Z', accepted: true } as ViewingRequestDto['terms'],
+      }),
+    );
+    expect(html).toContain('deal.open');
+    expect(html).toContain(`name="viewingRequestId" value="${ID}"`);
+    expect(await render(viewing({}))).not.toContain('deal.open');
   });
 });

@@ -110,6 +110,9 @@ export default async function CollaborationsPage({ searchParams }: { searchParam
     <div className="flex flex-col gap-4 p-6">
       <h1 className="text-xl font-semibold">{t('title')}</h1>
       <p className="text-sm text-muted-foreground">{t('intro')}</p>
+      <Link href="/deals" className="self-start text-sm font-medium underline-offset-4 hover:underline">
+        {t('dealsLink')}
+      </Link>
       {block ? <BlockNotice block={block} /> : null}
       {refusal ? (
         <p role="alert" className="text-sm text-destructive">

@@ -57,8 +57,10 @@ const ADMIN_ROLES = new Set(['AGENCY_ADMIN', 'DEVELOPER_ADMIN']);
 
 const iso = (d: Date | null): string | null => (d ? d.toISOString() : null);
 const isAdmin = (ctx: Ctx) => ctx.actor.kind === 'user' && ADMIN_ROLES.has(ctx.actor.role);
-const ownerOf = (r: repo.DealRow) => (r.party === 'OWNER' ? r.agencyId : r.peerAgencyId);
-const introducerOf = (r: repo.DealRow) => (r.party === 'INTRODUCER' ? r.agencyId : r.peerAgencyId);
+export const ownerOf = (r: Pick<repo.DealRow, 'party' | 'agencyId' | 'peerAgencyId'>) =>
+  r.party === 'OWNER' ? r.agencyId : r.peerAgencyId;
+export const introducerOf = (r: Pick<repo.DealRow, 'party' | 'agencyId' | 'peerAgencyId'>) =>
+  r.party === 'INTRODUCER' ? r.agencyId : r.peerAgencyId;
 const ownConfirmation = (r: repo.DealRow) => (r.party === 'OWNER' ? r.ownerConfirmedAt : r.introducerConfirmedAt);
 const peerConfirmation = (r: repo.DealRow) => (r.party === 'OWNER' ? r.introducerConfirmedAt : r.ownerConfirmedAt);
 
@@ -133,14 +135,16 @@ function mayBind(ctx: Ctx, r: repo.DealRow, listingAgents: Lookups['listingAgent
 
 /** What the moves below would take from this member now, so a screen offers only those. The moves stay the authority. */
 function allowedActions(ctx: Ctx, r: repo.DealRow, bind: boolean): DealAction[] {
-  if (!can(ctx, 'mls.deals.write') || CLOSED.has(r.stage)) return [];
+  if (!can(ctx, 'mls.deals.write') || !bind) return [];
   const actions: DealAction[] = [];
-  if (bind) {
+  if (!CLOSED.has(r.stage)) {
     if ((RANK[r.stage] ?? 0) < (RANK.ARRAS ?? 0)) actions.push('ADVANCE');
     actions.push('SET_PRICE');
     actions.push(ownConfirmation(r) ? 'WITHDRAW' : 'CONFIRM');
     actions.push('FALL_THROUGH');
   }
+  // R2-04c: a dispute also on a closed deal (the API refuses a second open one)
+  actions.push('DISPUTE');
   return actions;
 }
 
@@ -155,7 +159,7 @@ function toDto(ctx: Ctx, r: repo.DealRow, { names, labels, listingAgents }: Look
   };
 }
 
-/** Names and labels for a page: two statements; a third only for a non-admin owner member with open listing deals. */
+/** Names and labels for a page: two statements; a third only for a non-admin owner member with listing deals. */
 async function lookupsFor(ctx: Ctx, rows: readonly repo.DealRow[]): Promise<Lookups> {
   if (rows.length === 0) return { names: new Map(), labels: new Map(), listingAgents: new Map() };
   const names = await agencies.networkAgencyNames(
@@ -168,9 +172,7 @@ async function lookupsFor(ctx: Ctx, rows: readonly repo.DealRow[]): Promise<Look
   );
   const asked =
     can(ctx, 'mls.deals.write') && !isAdmin(ctx)
-      ? rows
-          .filter((r) => r.party === 'OWNER' && r.targetKind === 'LISTING' && !CLOSED.has(r.stage))
-          .map((r) => r.targetId)
+      ? rows.filter((r) => r.party === 'OWNER' && r.targetKind === 'LISTING').map((r) => r.targetId)
       : [];
   const listingAgents = await properties.ownListingAgents(ctx.tx, ctx.tenant.agencyId, asked);
   return { names, labels, listingAgents };
@@ -225,7 +227,10 @@ const auditDeal = (
  * Binding the owner agency to a price or a completion is for its admins or the listing's own agent (as accepting a
  * viewing's terms); the introducer's members bind theirs.
  */
-async function assertMayBind(ctx: Ctx, r: { party: repo.Party; targetKind: string; targetId: string }): Promise<void> {
+export async function assertMayBind(
+  ctx: Ctx,
+  r: { party: repo.Party; targetKind: string; targetId: string },
+): Promise<void> {
   if (r.party !== 'OWNER' || isAdmin(ctx)) return;
   if (r.targetKind === 'LISTING') {
     const agents = await properties.ownListingAgents(ctx.tx, ctx.tenant.agencyId, [r.targetId]);

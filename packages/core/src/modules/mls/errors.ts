@@ -12,4 +12,6 @@ export const mlsErrors = [
   'DEAL_NOT_FOUND',
   'DEAL_VIEWING_NOT_ELIGIBLE',
   'DEAL_STATE',
+  'DEAL_DISPUTE_NOT_FOUND',
+  'DEAL_DISPUTE_STATE',
 ] as const satisfies readonly ErrorCode[];

@@ -397,7 +397,8 @@ describe('[R2-04a] stages and the handshake', () => {
 
     await as(a, (ctx) => mls.confirmDeal(ctx, id, { price: eur(59_500_000) }));
     const done = await as(b, (ctx) => mls.confirmDeal(ctx, id, { price: eur(59_500_000) }));
-    expect(done).toMatchObject({ stage: 'COMPLETION', allowedActions: [] });
+    // R2-04c: a closed deal takes one move from a binding member: a dispute
+    expect(done).toMatchObject({ stage: 'COMPLETION', allowedActions: ['DISPUTE'] });
     expect(done.completedAt).not.toBeNull();
     for (const r of await copies(id)) {
       expect(r).toMatchObject({ stage: 'COMPLETION', commission_total_cents: '2082500' });
@@ -572,5 +573,202 @@ describe('[R2-04a] completed deals are immutable except via audited staff mediat
     ).toBe('FORBIDDEN');
     // reading is allowed
     expect((await as(b, async (ctx) => mls.getDeal(await impersonatedCtx(ctx, staffId), deal.id))).id).toBe(deal.id);
+  });
+});
+
+describe('[R2-04c] disputes → staff mediation', () => {
+  const dealEvents = (dealId: string, action: string) =>
+    rows<{ agency_id: string; payload: { by: string } }>(
+      sql`select agency_id, payload from outbox_events
+        where type = 'mls.deal.changed' and payload->>'dealId' = ${dealId} and payload->>'action' = ${action}`,
+    );
+
+  it('[R2-04c] a party raises a dispute, also on a completed deal; one open per agency; only its agency reads it', async () => {
+    const vr = await viewing(pctListing);
+    const { deal } = await as(a, (ctx) => mls.openDeal(ctx, { viewingRequestId: vr, price: eur(41_000_000) }));
+    await as(a, (ctx) => mls.confirmDeal(ctx, deal.id, { price: eur(41_000_000) }));
+    await as(b, (ctx) => mls.confirmDeal(ctx, deal.id, { price: eur(41_000_000) }));
+
+    const opened = await as(a, (ctx) =>
+      mls.openDealDispute(ctx, deal.id, { reason: 'Commission share paid short by 2,000 EUR' }),
+    );
+    expect(opened).toMatchObject({ dealId: deal.id, status: 'OPEN', resolutionNote: null });
+    expect(await refusal(as(a, (ctx) => mls.openDealDispute(ctx, deal.id, { reason: 'again' })))).toBe(
+      'DEAL_DISPUTE_STATE:open',
+    );
+    // the owner may raise its own; a stranger has no deal to dispute
+    await as(b, (ctx) => mls.openDealDispute(ctx, deal.id, { reason: 'Paid in full' }));
+    expect(await refusal(as(c, (ctx) => mls.openDealDispute(ctx, deal.id, { reason: 'x' })))).toBe('DEAL_NOT_FOUND');
+
+    // each party lists its own dispute only (RLS): the other party never reads the text
+    const mine = await as(a, (ctx) => mls.listDealDisputes(ctx, deal.id));
+    expect(mine.items.map((d) => d.reason)).toEqual(['Commission share paid short by 2,000 EUR']);
+    const theirs = await as(b, (ctx) => mls.listDealDisputes(ctx, deal.id));
+    expect(theirs.items.map((d) => d.reason)).toEqual(['Paid in full']);
+    const direct = await withTenant({ agencyId: b.agencyId, userId: b.userId }, (tx) =>
+      tx.execute(sql`select id from deal_disputes where id = ${opened.id}`),
+    );
+    expect(direct.rows).toEqual([]);
+    // a member never resolves a dispute
+    expect(
+      await sqlState(
+        withTenant({ agencyId: a.agencyId, userId: a.userId }, (tx) =>
+          tx.execute(sql`update deal_disputes set status = 'RESOLVED' where id = ${opened.id}`),
+        ),
+      ),
+    ).toBe('42501');
+
+    // the other party is told one was raised (by the raising side), audited without the text
+    expect((await dealEvents(deal.id, 'DISPUTED')).map((e) => [e.agency_id, e.payload.by]).sort()).toEqual(
+      [
+        [a.agencyId, 'INTRODUCER'],
+        [b.agencyId, 'OWNER'],
+      ].sort(),
+    );
+    const [audit] = await rows<{ metadata: Record<string, unknown> }>(
+      sql`select metadata from audit_logs where type = 'mls.deal.disputed' and target_id = ${opened.id}`,
+    );
+    expect(audit?.metadata).toMatchObject({ dealId: deal.id, party: 'INTRODUCER', stage: 'COMPLETION' });
+    expect(JSON.stringify(audit?.metadata)).not.toContain('2,000');
+
+    // the notice: the raising side's event tells the other party's members (with the raising agency's name), never the text
+    const [ev] = await rows<{ id: string; agency_id: string; payload: unknown; created_at: Date }>(
+      sql`select id, agency_id, payload, created_at from outbox_events
+        where type = 'mls.deal.changed' and payload->>'dealId' = ${deal.id} and payload->>'action' = 'DISPUTED'
+          and agency_id = ${a.agencyId}`,
+    );
+    if (!ev) throw new Error('no DISPUTED event');
+    await mls.notifyDealChange(mls.mlsEvents.dealChanged.schema.parse(ev.payload), {
+      eventId: ev.id,
+      agencyId: ev.agency_id,
+      createdAt: new Date(ev.created_at),
+    });
+    const told = await rows<{ agency_id: string; params: Record<string, unknown> }>(
+      sql`select agency_id, params from notifications where source_key like ${`${ev.id}:%`}`,
+    );
+    expect(told.map((n) => n.agency_id)).toEqual([b.agencyId]);
+    expect(told[0]?.params).toMatchObject({ action: expect.stringMatching(/^(DISPUTED|UPDATED)$/) });
+    expect(JSON.stringify(told)).not.toContain('2,000');
+  });
+
+  it('[R2-04c] binding members only, never impersonated; the owner side by its admins or the listing agent', async () => {
+    const vr = await viewing(pctListing);
+    const { deal } = await as(a, (ctx) => mls.openDeal(ctx, { viewingRequestId: vr, price: eur(42_000_000) }));
+    const stranger = newId();
+    expect(await refusal(asAgent(b, stranger, (ctx) => mls.openDealDispute(ctx, deal.id, { reason: 'x' })))).toBe(
+      'FORBIDDEN',
+    );
+    expect(
+      await refusal(
+        as(a, async (ctx) => mls.openDealDispute(await impersonatedCtx(ctx, newId()), deal.id, { reason: 'x' })),
+      ),
+    ).toBe('FORBIDDEN');
+    // an agent who is not the listing's sees no DISPUTE among its moves; the admin does
+    expect((await asAgent(b, stranger, (ctx) => mls.getDeal(ctx, deal.id))).allowedActions).toEqual([]);
+    expect((await as(b, (ctx) => mls.getDeal(ctx, deal.id))).allowedActions).toContain('DISPUTE');
+  });
+
+  it('[R2-04c] staff read the queue; data ops resolve with a note the raising agency reads, audited and told', async () => {
+    const vr = await viewing(fixedListing);
+    const { deal } = await as(a, (ctx) => mls.openDeal(ctx, { viewingRequestId: vr, price: eur(50_000_000) }));
+    const d = await as(a, (ctx) => mls.openDealDispute(ctx, deal.id, { reason: 'Owner stopped answering' }));
+
+    // the queue (oldest first, every agency): ours is in it, with the raising agency and its side
+    let found: Awaited<ReturnType<typeof mls.listStaffDealDisputes>>['items'][number] | undefined;
+    let cursor: string | undefined;
+    for (let i = 0; i < 50 && !found; i += 1) {
+      const page = await asStaff(support, (ctx) =>
+        mls.listStaffDealDisputes(ctx, { status: 'OPEN', limit: 100, ...(cursor ? { cursor } : {}) }),
+      );
+      found = page.items.find((x) => x.id === d.id);
+      if (!page.nextCursor) break;
+      cursor = page.nextCursor;
+    }
+    expect(found).toMatchObject({ agency: { id: a.agencyId }, party: 'INTRODUCER', dealStage: 'OFFER' });
+    const ofDeal = await asStaff(support, (ctx) => mls.listStaffDisputesOfDeal(ctx, deal.id));
+    expect(ofDeal.items.map((x) => x.id)).toEqual([d.id]);
+
+    // support reads, may not resolve; data ops resolve once
+    expect(await refusal(asStaff(support, (ctx) => mls.resolveDealDispute(ctx, d.id, { note: 'x' })))).toBe(
+      'FORBIDDEN',
+    );
+    const note = 'Spoke to both agencies; the arras is signed Monday';
+    const resolved = await asStaff(dataOps, (ctx) => mls.resolveDealDispute(ctx, d.id, { note }));
+    expect(resolved).toMatchObject({ status: 'RESOLVED', resolutionNote: note });
+    expect(await refusal(asStaff(dataOps, (ctx) => mls.resolveDealDispute(ctx, d.id, { note: 'again' })))).toBe(
+      'DEAL_DISPUTE_STATE:resolved',
+    );
+    expect(await refusal(asStaff(dataOps, (ctx) => mls.resolveDealDispute(ctx, newId(), { note: 'x' })))).toBe(
+      'DEAL_DISPUTE_NOT_FOUND',
+    );
+
+    const [mine] = (await as(a, (ctx) => mls.listDealDisputes(ctx, deal.id))).items;
+    expect(mine).toMatchObject({ status: 'RESOLVED', resolutionNote: note });
+    // a new dispute may follow a resolved one
+    await as(a, (ctx) => mls.openDealDispute(ctx, deal.id, { reason: 'Still nothing' }));
+
+    const audit = await rows<{ agency_id: string; actor_kind: string; actor_user_id: string; metadata: unknown }>(
+      sql`select agency_id, actor_kind, actor_user_id, metadata from audit_logs
+        where type = 'staff.mls.dealDisputeResolved' and target_id = ${d.id}`,
+    );
+    expect(audit).toEqual([
+      expect.objectContaining({ agency_id: a.agencyId, actor_kind: 'staff', actor_user_id: dataOps }),
+    ]);
+    expect(JSON.stringify(audit[0]?.metadata)).not.toContain('arras');
+    expect((await dealEvents(deal.id, 'DISPUTE_RESOLVED')).map((e) => [e.agency_id, e.payload.by])).toEqual([
+      [a.agencyId, 'STAFF'],
+    ]);
+  });
+
+  it('[R2-04c] the database stamps a dispute’s creation, moves it OPEN → RESOLVED only, and staff resolve as themselves', async () => {
+    const vr = await viewing(pctListing);
+    const { deal } = await as(a, (ctx) => mls.openDeal(ctx, { viewingRequestId: vr, price: eur(43_000_000) }));
+    const id = newId();
+    await withTenant({ agencyId: a.agencyId, userId: a.userId }, (tx) =>
+      tx.execute(sql`insert into deal_disputes (id, agency_id, deal_id, reason, opened_by_user_id, created_at)
+        values (${id}, ${a.agencyId}, ${deal.id}, 'backdated', ${a.userId}, '2001-01-01')`),
+    );
+    const [row] = await rows<{ created_at: Date }>(sql`select created_at from deal_disputes where id = ${id}`);
+    expect(new Date(row?.created_at ?? 0).getUTCFullYear()).toBeGreaterThan(2001);
+    // staff resolving in someone else's name, or rewriting the reason
+    expect(
+      await sqlState(
+        asStaff(dataOps, (ctx) =>
+          ctx.tx.execute(sql`update deal_disputes set status = 'RESOLVED', resolved_by_user_id = ${newId()},
+            resolution_note = 'x', resolved_at = now() where id = ${id}`),
+        ),
+      ),
+    ).toBe('23514');
+    expect(
+      await sqlState(
+        asStaff(dataOps, (ctx) =>
+          ctx.tx.execute(sql`update deal_disputes set status = 'RESOLVED', resolved_by_user_id = ${dataOps},
+            resolution_note = 'x', resolved_at = now(), reason = 'rewritten' where id = ${id}`),
+        ),
+      ),
+    ).toBe('42501'); // staff hold no grant on the reason at all
+    await asStaff(dataOps, (ctx) => mls.resolveDealDispute(ctx, id, { note: 'done' }));
+    // a resolved dispute never reopens, not even for a worker
+    expect(
+      await sqlState(
+        system((tx) =>
+          tx.execute(sql`update deal_disputes set status = 'OPEN', resolved_by_user_id = null, resolution_note = null,
+            resolved_at = null where id = ${id}`),
+        ),
+      ),
+    ).toBe('23514');
+
+    // agency erasure blanks the texts and keeps the rows
+    const erased = await mls.eraseAgencyDealDisputes({ agencyId: a.agencyId });
+    expect(erased.rows).toBeGreaterThan(0);
+    const after = await rows<{ reason: string; resolution_note: string | null; status: string }>(
+      sql`select reason, resolution_note, status from deal_disputes where id = ${id}`,
+    );
+    expect(after).toEqual([
+      { reason: mls.ERASED_DISPUTE_TEXT, resolution_note: mls.ERASED_DISPUTE_TEXT, status: 'RESOLVED' },
+    ]);
+    let more = erased.more;
+    while (more) more = (await mls.eraseAgencyDealDisputes({ agencyId: a.agencyId })).more;
+    expect((await mls.eraseAgencyDealDisputes({ agencyId: a.agencyId })).rows).toBe(0);
   });
 });

@@ -14,7 +14,8 @@
     "flags": "Feature flags",
     "system": "Queues & AI",
     "migration": "Migration",
-    "duplicates": "Duplicates"
+    "duplicates": "Duplicates",
+    "deals": "Deal disputes"
   },
   "taxonomy": {
     "title": "Taxonomy",
@@ -38,9 +39,15 @@
     },
     "catalog": {
       "addGroup": "Add group",
-      "add": { "propertyType": "Add property type", "feature": "Add feature" },
+      "add": {
+        "propertyType": "Add property type",
+        "feature": "Add feature"
+      },
       "newGroup": "New group",
-      "new": { "propertyType": "New property type", "feature": "New feature" },
+      "new": {
+        "propertyType": "New property type",
+        "feature": "New feature"
+      },
       "icon": "Icon",
       "iconHint": "A Lucide icon name in lowercase, such as check or waves."
     },
@@ -595,5 +602,100 @@
       "VALIDATION_FAILED": "Write a note.",
       "generic": "Something went wrong."
     }
+  },
+  "deals": {
+    "title": "Deal disputes",
+    "intro": "Agencies ask Inmolink to mediate a deal: the price, a stage, the completion or the commission. Mediate the deal, then resolve the dispute with a note.",
+    "statuses": {
+      "OPEN": "Open",
+      "RESOLVED": "Resolved"
+    },
+    "parties": {
+      "OWNER": "owner",
+      "INTRODUCER": "introducer"
+    },
+    "stages": {
+      "OFFER": "Offer",
+      "RESERVATION": "Reservation",
+      "ARRAS": "Arras",
+      "COMPLETION": "Completion",
+      "FELL_THROUGH": "Fell through"
+    },
+    "kinds": {
+      "LISTING": "Listing",
+      "DEVELOPMENT": "Development"
+    },
+    "empty": "No disputes.",
+    "row": "{agency} ({party}) · {stage}",
+    "deal": "Deal {id}",
+    "note": "Note",
+    "next": "Next page",
+    "back": "Deal disputes",
+    "dealTitle": "Deal {id}",
+    "noDisputes": "No disputes on this deal.",
+    "documentsNote": "Staff do not open the deal’s documents. Ask the agencies to send evidence through a support ticket.",
+    "notices": {
+      "mediated": "Deal mediated. Both agencies are told.",
+      "resolved": "Dispute resolved. The agency is told."
+    },
+    "sections": {
+      "deal": "The deal",
+      "disputes": "Disputes",
+      "mediate": "Mediate"
+    },
+    "facts": {
+      "owner": "Owner agency",
+      "introducer": "Introducing agency",
+      "target": "Property",
+      "stage": "Stage",
+      "price": "Price",
+      "terms": "Terms",
+      "total": "Commission",
+      "introducerShare": "Introducer’s share",
+      "ownerShare": "Owner’s share",
+      "ownerConfirmed": "Owner confirmed",
+      "introducerConfirmed": "Introducer confirmed",
+      "completed": "Completed",
+      "fellThrough": "Fell through",
+      "mediated": "Last mediation"
+    },
+    "terms": {
+      "rate": "{rate} of the price",
+      "fixed": "fixed {amount}",
+      "split": "{split} to the introducer",
+      "vatIncluded": "VAT included",
+      "vatExcluded": "VAT not included"
+    },
+    "resolve": {
+      "note": "Note to the agency (it reads it)",
+      "submit": "Resolve dispute",
+      "confirm": "Resolve this dispute? The agency reads your note."
+    },
+    "mediate": {
+      "intro": "Set the stage (any way, also out of a closed one) and / or the price. Leaving the completion, or a new price, clears both confirmations. Audited for both agencies.",
+      "stage": "Stage",
+      "keepStage": "Keep ({stage})",
+      "price": "New price ({currency}, empty keeps it)",
+      "reason": "Reason (both agencies read it)",
+      "note": "Never write anything about the client.",
+      "submit": "Mediate",
+      "confirm": "Mediate this deal? Both agencies read the reason, and the change is audited."
+    },
+    "errors": {
+      "generic": "Something went wrong.",
+      "FORBIDDEN": "Only data ops and super admins mediate deals and resolve disputes.",
+      "DEAL_NOT_FOUND": "This deal does not exist.",
+      "DEAL_DISPUTE_NOT_FOUND": "This dispute no longer exists.",
+      "DEAL_DISPUTE_STATE": "This dispute was resolved already.",
+      "DEAL_STATE": "The deal cannot take this.",
+      "VALIDATION_FAILED": "Write a reason, and a stage or a valid price.",
+      "states": {
+        "unchanged": "Nothing would change.",
+        "changed": "The deal changed meanwhile. Reload it.",
+        "live_deal": "The viewing has another live deal: this one cannot reopen."
+      }
+    },
+    "statusFilter": "Status",
+    "rowStatus": "{agency} ({party}) · {status}"
   }
 }

@@ -526,3 +526,54 @@ export const dealDocuments = pgTable(
     check('deal_documents_removed_ck', sql`(${t.removedAt} is null) = (${t.removedByUserId} is null)`),
   ],
 );
+
+/*
+ * R2-04c, disputes (PLAN §3 #10 "disputes → staff mediation"): a party asks staff to step in on a deal, with a reason.
+ * The raising agency's own row (`agency_id`, STRICT), on its own copy of the deal (FK). A member opens one (`OPEN`, as
+ * themself), never changes or removes it; one open dispute per agency and deal. Staff read every agency's disputes and
+ * data ops / super admins resolve one with a note the raising agency reads (audited `staff.mls.dealDisputeResolved`);
+ * what changes on the deal is a mediation of its own.
+ */
+export const dealDisputes = pgTable(
+  'deal_disputes',
+  {
+    id: uuid('id').primaryKey(),
+    /** The raising agency (its copy of the deal). */
+    agencyId: uuid('agency_id').notNull(),
+    dealId: uuid('deal_id').notNull(),
+    reason: text('reason').notNull(),
+    /** `OPEN` or `RESOLVED`. */
+    status: text('status').notNull().default('OPEN'),
+    openedByUserId: uuid('opened_by_user_id').notNull(),
+    resolvedByUserId: uuid('resolved_by_user_id'),
+    resolutionNote: text('resolution_note'),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // one open dispute per agency and deal
+    uniqueIndex('deal_disputes_open_uq').on(t.agencyId, t.dealId).where(sql`${t.status} = 'OPEN'`),
+    // a deal's disputes, newest first: where agency_id = ? and deal_id = ? order by created_at desc (also the FK)
+    index('deal_disputes_deal_idx').on(t.agencyId, t.dealId, t.createdAt),
+    // staff: a deal's disputes of both parties: where deal_id = ?
+    index('deal_disputes_deal_id_idx').on(t.dealId),
+    // the staff queue by status, oldest first: where status = ? order by created_at, id
+    index('deal_disputes_status_idx').on(t.status, t.createdAt, t.id),
+    foreignKey({
+      name: 'deal_disputes_deal_fk',
+      columns: [t.agencyId, t.dealId],
+      foreignColumns: [deals.agencyId, deals.id],
+    }),
+    check('deal_disputes_status_ck', sql`${t.status} in ('OPEN', 'RESOLVED')`),
+    check('deal_disputes_reason_ck', sql`char_length(${t.reason}) between 1 and 2000`),
+    check(
+      'deal_disputes_resolved_ck',
+      sql`(${t.status} = 'OPEN') = (${t.resolvedAt} is null and ${t.resolvedByUserId} is null and ${t.resolutionNote} is null)`,
+    ),
+    check(
+      'deal_disputes_note_ck',
+      sql`${t.resolutionNote} is null or char_length(${t.resolutionNote}) between 1 and 2000`,
+    ),
+  ],
+);

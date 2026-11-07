@@ -335,6 +335,10 @@ export const ErrorCodes = {
   DEAL_STATE: 409,
   /** R2-04b: no such document on the caller's side of the deal (or it was removed and no longer opens). */
   DEAL_DOCUMENT_NOT_FOUND: 404,
+  /** R2-04c: no such dispute (on the caller's side, or for staff at all). */
+  DEAL_DISPUTE_NOT_FOUND: 404,
+  /** R2-04c: the agency has an open dispute on this deal already, or (staff) the dispute is resolved already. */
+  DEAL_DISPUTE_STATE: 409,
   // chat (S11-03)
   /** No thread with this id that the caller takes part in (none, another agency's, or one they are not in). */
   CHAT_THREAD_NOT_FOUND: 404,
