@@ -242,6 +242,9 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     // S16-04 review: an erased contact's client registrations (details tombstoned, fingerprints gone) and selections.
     mlsJobs.eraseContactRegistrations,
     presentationsJobs.eraseContactSelections,
+    // R2-05a: an erased contact's forms are deleted (PDFs, then rows).
+    documentsJobs.eraseContactForms,
+    documentsJobs.repointContactForms,
     // S11-01: a contact merge moves the agency's client registrations to the survivor.
     mlsJobs.repointRegistrations,
     // R2-02a: a contact merge moves its client profiles to the survivor; an erasure deletes them with their vectors.
@@ -313,7 +316,7 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     socialJobs.backfillMetaUsers,
   ],
   // S12-05: brochures and portfolios, and accepted viewing terms (Chrome through @inmolink/platform/pdf).
-  pdf: [documentsJobs.renderListings, documentsJobs.renderViewingTerms],
+  pdf: [documentsJobs.renderListings, documentsJobs.renderViewingTerms, documentsJobs.renderForm],
 };
 
 /** Digests in flight per process (each one a database claim and one e-mail): the SMTP relay sets the pace, not slots. */

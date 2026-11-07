@@ -30,7 +30,6 @@ const NO_IMPERSONATION_RULES: Readonly<Record<string, string>> = {
   quality: 'one read action',
   search: 'read actions only',
   taxonomy: 'one member-side read action',
-  documents: "renders a white-labelled PDF of listings: no client data, nothing written in the member's name",
 };
 
 describe('impersonation rules', () => {

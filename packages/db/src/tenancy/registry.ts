@@ -1500,6 +1500,27 @@ export const tenantTables: Record<string, TenantTable> = {
       sha256: '0'.repeat(64),
     },
   },
+  // R2-05a: the forms library's generated documents (merged data snapshot, the rendered PDF's hash). A member creates
+  // one as themself, PENDING and unrendered; only the pdf worker (app_system) records the render (status, hash, size)
+  // and only erasure removes one — no member UPDATE or DELETE, so the hash a signature is made over cannot be rewritten.
+  form_documents: {
+    kind: 'STRICT',
+    memberWrite: {
+      insert:
+        "created_by_user_id = app_user_id() and status = 'PENDING' and sha256 is null and size_bytes is null and rendered_at is null",
+      own: { created_by_user_id: SAMPLE_USER },
+    },
+    userNoUpdate: true,
+    userNoDelete: true,
+    base: {
+      template: 'OFFER',
+      locale: 'en',
+      template_version: 1,
+      status: 'PENDING',
+      label: 'iso',
+      data: '{}',
+    },
+  },
   // R2-04c: a party's dispute of a deal (its own row, on its own copy of the deal) — a member opens one (OPEN, as
   // themself), never changes or removes it; staff read every agency's and resolve them (data ops and super admins:
   // status, who, when, the note). The mediation itself is a staff update of `deals`.

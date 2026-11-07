@@ -442,6 +442,12 @@ export const ErrorCodes = {
   DOCUMENT_NOT_FOUND: 404,
   /** None of the chosen listings has a public document (only public listings go into a brochure), or too many. */
   DOCUMENT_LISTINGS_INVALID: 422,
+  // R2-05a: the forms library.
+  /** Generating forms is off for this agency (feature flag `documents.forms`). */
+  FORMS_NOT_ENABLED: 403,
+  FORM_DOCUMENT_NOT_FOUND: 404,
+  /** The data a form is merged from is missing (`details.missing`: e.g. the listing's price or commission). */
+  FORM_DATA_INCOMPLETE: 422,
 } as const;
 
 export type ErrorCode = keyof typeof ErrorCodes;

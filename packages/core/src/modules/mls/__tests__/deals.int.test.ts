@@ -3,6 +3,7 @@ import { closeDb, withSystem, withTenant } from '@inmolink/db';
 import { createStaffUser, loadStackEnv, setAgencyStatus, setupTestDb } from '@inmolink/db/testing';
 import { createKeyring, generateKey } from '@inmolink/platform/crypto';
 import { isAppError } from '@inmolink/platform/errors';
+import { invalidateFlags, setFlag, setFlagOverride } from '@inmolink/platform/flags';
 import { newId } from '@inmolink/platform/ids';
 import { closeRateLimit, configureRateLimit } from '@inmolink/platform/rate-limit';
 import { sql } from 'drizzle-orm';
@@ -12,6 +13,7 @@ import { withMemberCtx } from '../../../member';
 import { withStaffCtx } from '../../../staff';
 import { createFounder, type Founder, impersonatedCtx } from '../../../testing/factories';
 import * as crm from '../../crm';
+import * as documents from '../../documents';
 import * as properties from '../../properties';
 import * as taxonomy from '../../taxonomy';
 import * as mls from '../index';
@@ -770,5 +772,50 @@ describe('[R2-04c] disputes → staff mediation', () => {
     let more = erased.more;
     while (more) more = (await mls.eraseAgencyDealDisputes({ agencyId: a.agencyId })).more;
     expect((await mls.eraseAgencyDealDisputes({ agencyId: a.agencyId })).rows).toBe(0);
+  });
+});
+
+describe('[R2-05a] the deal’s collaboration agreement', () => {
+  it('[R2-05a] a party makes it from the deal as the database keeps it; strangers, flag-off agencies and fallen-through deals cannot', async () => {
+    await withSystem('mls.deals.test', async (tx) => {
+      await setFlag(tx, documents.FORMS_FLAG, { enabled: false });
+      await setFlagOverride(tx, documents.FORMS_FLAG, a.agencyId, true);
+    });
+    invalidateFlags();
+    try {
+      const vr = await viewing(pctListing);
+      const { deal } = await as(a, (ctx) => mls.openDeal(ctx, { viewingRequestId: vr, price: eur(58_000_001) }));
+      const { form, replayed } = await as(a, (ctx) =>
+        mls.createDealCollaborationAgreement(ctx, deal.id, { locale: 'en' }),
+      );
+      expect(replayed).toBe(false);
+      expect(form).toMatchObject({ template: 'COLLABORATION_AGREEMENT', dealId: deal.id, status: 'PENDING' });
+      const [row] = await rows<{ data: unknown }>(sql`select data from form_documents where id = ${form.id}`);
+      expect(documents.FormData.parse(row?.data)).toMatchObject({
+        template: 'COLLABORATION_AGREEMENT',
+        dealId: deal.id,
+        party: 'INTRODUCER',
+        price: eur(58_000_001),
+        terms: { commissionBp: 350, commissionFixed: null, splitBp: 6000, includesVat: true },
+        commission: { totalCents: 2_030_000, introducerShareCents: 1_218_000, ownerShareCents: 812_000 },
+      });
+      const html = (await documents.formDocumentHtml(form.id))?.html ?? '';
+      for (const amount of ['€580,000.01', '€20,300.00', '€12,180.00', '€8,120.00']) expect(html).toContain(amount);
+
+      expect(await refusal(as(c, (ctx) => mls.createDealCollaborationAgreement(ctx, deal.id, {})))).toBe(
+        'DEAL_NOT_FOUND',
+      );
+      expect(await refusal(as(b, (ctx) => mls.createDealCollaborationAgreement(ctx, deal.id, {})))).toBe(
+        'FORMS_NOT_ENABLED',
+      );
+      await as(a, (ctx) => mls.fallThroughDeal(ctx, deal.id, { reason: 'Mortgage refused' }));
+      expect(await refusal(as(a, (ctx) => mls.createDealCollaborationAgreement(ctx, deal.id, {})))).toBe('DEAL_STATE');
+    } finally {
+      await withSystem('mls.deals.test', async (tx) => {
+        await tx.execute(sql`delete from form_documents where agency_id = ${a.agencyId}`);
+        await setFlagOverride(tx, documents.FORMS_FLAG, a.agencyId, null);
+      });
+      invalidateFlags();
+    }
   });
 });

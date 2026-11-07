@@ -66,5 +66,112 @@
     "acceptedByOwner": "Aceptadas por la agencia captadora",
     "scheduledAt": "Visita",
     "auditNote": "Estas condiciones se registraron al solicitar la visita y no pueden modificarse. Ambas agencias las aceptaron en los momentos indicados."
+  },
+  "forms": {
+    "placeholderNotice": "Cláusulas provisionales pendientes de revisión jurídica — no usar con clientes hasta su aprobación",
+    "common": {
+      "agency": "Agencia",
+      "name": "Nombre",
+      "taxId": "NIF/CIF",
+      "address": "Dirección",
+      "registerNumber": "N.º de registro de agente inmobiliario",
+      "email": "Correo electrónico",
+      "phone": "Teléfono",
+      "idDocument": "Documento de identidad (DNI/NIE/pasaporte)",
+      "reference": "Referencia",
+      "property": "Inmueble",
+      "cadastralRef": "Referencia catastral",
+      "transaction": "Operación",
+      "askingPrice": "Precio de oferta",
+      "commission": "Honorarios",
+      "commissionPercent": "{percent} del precio",
+      "vatIncluded": "IVA incluido",
+      "vatExcluded": "IVA no incluido",
+      "terms": "Condiciones",
+      "clauses": "Cláusulas",
+      "parties": "Partes",
+      "notStated": "—",
+      "months": "{count, plural, one {# mes} other {# meses}}",
+      "days": "{count, plural, one {# día} other {# días}}",
+      "signatureDate": "Firma y fecha",
+      "footer": "Documento {id} · plantilla v{version}"
+    },
+    "signers": {
+      "seller": "Propietario (vendedor)",
+      "buyer": "Cliente (comprador)",
+      "agency": "Por la agencia",
+      "ownerAgency": "Agencia captadora",
+      "introducerAgency": "Agencia colaboradora"
+    },
+    "LISTING_AGREEMENT": {
+      "title": "Hoja de encargo",
+      "subtitle": "Encargo de comercialización de un inmueble en venta o alquiler",
+      "mandate": "Encargo",
+      "exclusive": "En exclusiva",
+      "open": "Sin exclusiva",
+      "term": "Duración",
+      "clauses": {
+        "c1": "[TEXTO PROVISIONAL — pendiente de revisión jurídica] El propietario encarga a la agencia la comercialización del inmueble descrito en las condiciones indicadas.",
+        "c2": "[TEXTO PROVISIONAL — pendiente de revisión jurídica] El encargo dura {months, plural, one {# mes} other {# meses}} desde la fecha de firma.",
+        "c3": "[TEXTO PROVISIONAL — pendiente de revisión jurídica] Los honorarios indicados se devengan al formalizarse la venta o el alquiler con un cliente presentado por la agencia.",
+        "c4": "[TEXTO PROVISIONAL — pendiente de revisión jurídica] El propietario declara tener capacidad para disponer del inmueble y aportará la documentación legalmente exigida.",
+        "c5": "[TEXTO PROVISIONAL — pendiente de revisión jurídica] La agencia trata los datos personales para ejecutar este encargo, según su política de privacidad."
+      }
+    },
+    "RESERVATION": {
+      "title": "Contrato de reserva",
+      "subtitle": "Reserva de un inmueble mediante una señal",
+      "price": "Precio acordado",
+      "deposit": "Importe de la reserva",
+      "hold": "Plazo de reserva",
+      "clauses": {
+        "c1": "[TEXTO PROVISIONAL — pendiente de revisión jurídica] El cliente reserva el inmueble descrito al precio acordado y entrega el importe de reserva indicado.",
+        "c2": "[TEXTO PROVISIONAL — pendiente de revisión jurídica] El inmueble se retira del mercado durante {days, plural, one {# día} other {# días}} desde la fecha de firma.",
+        "c3": "[TEXTO PROVISIONAL — pendiente de revisión jurídica] El importe de la reserva se descuenta del precio al firmar el contrato privado de compraventa.",
+        "c4": "[TEXTO PROVISIONAL — pendiente de revisión jurídica] Los supuestos de devolución o pérdida de la reserva los fijarán los abogados de las partes.",
+        "c5": "[TEXTO PROVISIONAL — pendiente de revisión jurídica] La agencia trata los datos personales para ejecutar este contrato, según su política de privacidad."
+      }
+    },
+    "VIEWING_SHEET": {
+      "title": "Hoja de visita",
+      "subtitle": "Constancia de los inmuebles mostrados a un cliente",
+      "visited": "Inmuebles visitados el {date}",
+      "clauses": {
+        "c1": "[TEXTO PROVISIONAL — pendiente de revisión jurídica] El cliente confirma que la agencia le mostró {count, plural, one {el inmueble indicado} other {los # inmuebles indicados}} en la fecha señalada.",
+        "c2": "[TEXTO PROVISIONAL — pendiente de revisión jurídica] El cliente se compromete a tratar con la agencia cualquier compra o alquiler de estos inmuebles.",
+        "c3": "[TEXTO PROVISIONAL — pendiente de revisión jurídica] La agencia trata los datos personales para organizar las visitas, según su política de privacidad."
+      }
+    },
+    "OFFER": {
+      "title": "Oferta de compra",
+      "subtitle": "Oferta por escrito para comprar un inmueble",
+      "amount": "Precio ofrecido",
+      "validUntil": "Oferta válida hasta",
+      "conditions": "Condiciones",
+      "clauses": {
+        "c1": "[TEXTO PROVISIONAL — pendiente de revisión jurídica] El cliente ofrece comprar el inmueble descrito al precio y en las condiciones indicadas.",
+        "c2": "[TEXTO PROVISIONAL — pendiente de revisión jurídica] La oferta es válida hasta la fecha indicada y caduca si el propietario no la ha aceptado para entonces.",
+        "c3": "[TEXTO PROVISIONAL — pendiente de revisión jurídica] La agencia trasladará la oferta al propietario y dejará constancia de su respuesta.",
+        "c4": "[TEXTO PROVISIONAL — pendiente de revisión jurídica] La agencia trata los datos personales para gestionar la oferta, según su política de privacidad."
+      }
+    },
+    "COLLABORATION_AGREEMENT": {
+      "title": "Acuerdo de colaboración",
+      "subtitle": "Reparto de honorarios entre dos agencias en una operación",
+      "issuedBy": "Emitido por",
+      "deal": "Operación",
+      "price": "Precio de la operación",
+      "split": "Parte de la agencia colaboradora",
+      "total": "Honorarios totales",
+      "ownerShare": "Parte de la agencia captadora",
+      "introducerShare": "Parte de la agencia colaboradora (importe)",
+      "clauses": {
+        "c1": "[TEXTO PROVISIONAL — pendiente de revisión jurídica] La agencia captadora y la agencia colaboradora colaboran en la operación descrita.",
+        "c2": "[TEXTO PROVISIONAL — pendiente de revisión jurídica] Los honorarios se reparten como se indica, según las condiciones que ambas agencias aceptaron en la red.",
+        "c3": "[TEXTO PROVISIONAL — pendiente de revisión jurídica] Cada agencia factura su parte una vez cobrados los honorarios.",
+        "c4": "[TEXTO PROVISIONAL — pendiente de revisión jurídica] Ninguna agencia contacta directamente con el cliente de la otra sin su consentimiento.",
+        "c5": "[TEXTO PROVISIONAL — pendiente de revisión jurídica] Las discrepancias se someten primero a la mediación de Inmolink."
+      }
+    }
   }
 }

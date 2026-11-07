@@ -1,6 +1,7 @@
 import {
   AdvanceDealBody,
   ConfirmDealBody,
+  CreateCollaborationAgreementBody,
   CreateContactHeaders,
   CreateDealBody,
   CreateRegistrationBody,
@@ -18,6 +19,7 @@ import {
   DealPage,
   DealParams,
   FallThroughDealBody,
+  FormDocumentDto,
   ListDealsQuery,
   ListRegistrationsQuery,
   ListViewingRequestsQuery,
@@ -48,6 +50,7 @@ import { AppError } from '@inmolink/platform/errors';
 import type { RateLimitRule } from '@inmolink/platform/rate-limit';
 import type { FastifyZod } from '@inmolink/platform/server';
 import { z } from 'zod';
+import { DOCUMENT_RENDER_LIMITS } from '../documents/routes';
 import { takeUploadSlot } from '../media/routes';
 
 const READ_LIMITS: readonly RateLimitRule[] = [
@@ -521,6 +524,32 @@ export async function mlsRoutes(app: FastifyZod): Promise<void> {
         mls.createDealTask(ctx, req.params.id, req.body, idempotencyKey ? { idempotencyKey } : {}),
       );
       return reply.code(result.replayed ? 200 : 201).send(result.task);
+    },
+  );
+
+  // R2-05a: the deal's collaboration agreement, from the forms library (rendered by the pdf pool; poll the form).
+  app.post(
+    '/v1/mls/deals/:id/collaboration-agreement',
+    {
+      schema: {
+        tags,
+        operationId: 'mls.createDealCollaborationAgreement',
+        summary:
+          'Make the deal’s collaboration agreement (201, PENDING; poll GET /v1/documents/forms/:id) — both agencies, the price and the commission split from the deal. With an Idempotency-Key, a retry within 24 h answers the first form (200)',
+        params: DealParams,
+        headers: CreateContactHeaders,
+        body: CreateCollaborationAgreementBody,
+        response: { 201: FormDocumentDto, 200: FormDocumentDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: DOCUMENT_RENDER_LIMITS },
+    },
+    async (req, reply) => {
+      const idempotencyKey = req.headers['idempotency-key'];
+      const result = await app.withCtx(req, (ctx) =>
+        mls.createDealCollaborationAgreement(ctx, req.params.id, req.body, idempotencyKey ? { idempotencyKey } : {}),
+      );
+      return reply.code(result.replayed ? 200 : 201).send(result.form);
     },
   );
 

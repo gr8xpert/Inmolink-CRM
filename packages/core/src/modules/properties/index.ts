@@ -33,6 +33,8 @@ export {
   listingRefs,
   ownListingIds,
 } from './export-selection';
+// R2-05a: what the forms library merges from the agency's own listings.
+export { type FormListing, formListings } from './forms';
 export {
   confirmListing,
   type ListingQualityInputs,

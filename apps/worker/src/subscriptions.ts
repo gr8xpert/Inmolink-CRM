@@ -116,6 +116,8 @@ export function registerSubscriptions(): void {
   dedupe.registerDedupeSubscriptions();
   // S12-04: a client's view, like or enquiry on a selection reaches the CRM timeline.
   presentations.registerPresentationsSubscriptions();
+  // R2-05a: a made form is rendered; an erased contact's forms are deleted.
+  documents.registerDocumentsSubscriptions();
   // S13-03: a staff bulk operation gets its job.
   admin.registerAdminSubscriptions();
   // S13-05: a support message visible to the agency is e-mailed (staff reply → member, member → support inbox).

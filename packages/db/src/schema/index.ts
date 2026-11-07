@@ -13,6 +13,7 @@ export * from './compliance';
 export * from './crm';
 export * from './dedupe';
 export * from './developments';
+export * from './documents';
 export * from './exports';
 export * from './flags';
 export * from './identity';

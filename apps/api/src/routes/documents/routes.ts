@@ -1,4 +1,15 @@
-import { CreateBrochureBody, CreatePortfolioBody, PdfDocumentDto, PdfDocumentParams } from '@inmolink/contracts';
+import {
+  CreateBrochureBody,
+  CreateContactHeaders,
+  CreateFormDocumentBody,
+  CreatePortfolioBody,
+  FormDocumentDto,
+  FormDocumentPage,
+  FormDocumentParams,
+  ListFormDocumentsQuery,
+  PdfDocumentDto,
+  PdfDocumentParams,
+} from '@inmolink/contracts';
 import * as documents from '@inmolink/core/modules/documents';
 import type { RateLimitRule } from '@inmolink/platform/rate-limit';
 import type { FastifyZod } from '@inmolink/platform/server';
@@ -57,6 +68,64 @@ export async function documentsRoutes(app: FastifyZod): Promise<void> {
     },
     async (req, reply) =>
       reply.code(202).send(await documents.requestPortfolio((fn) => app.withCtx(req, fn), req.body)),
+  );
+
+  // ── R2-05a, the forms library ───────────────────────────────────────────────────────────────────────
+
+  app.post(
+    '/v1/documents/forms',
+    {
+      schema: {
+        tags,
+        operationId: 'documents.createForm',
+        summary:
+          'Make a form (listing agreement, reservation, viewing sheet, offer) merged from the agency’s data (201, PENDING; poll the form). With an Idempotency-Key, a retry within 24 h answers the first form (200)',
+        headers: CreateContactHeaders,
+        body: CreateFormDocumentBody,
+        response: { 201: FormDocumentDto, 200: FormDocumentDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: DOCUMENT_RENDER_LIMITS },
+    },
+    async (req, reply) => {
+      const idempotencyKey = req.headers['idempotency-key'];
+      const result = await app.withCtx(req, (ctx) =>
+        documents.createFormDocument(ctx, req.body, idempotencyKey ? { idempotencyKey } : {}),
+      );
+      return reply.code(result.replayed ? 200 : 201).send(result.form);
+    },
+  );
+
+  app.get(
+    '/v1/documents/forms',
+    {
+      schema: {
+        tags,
+        operationId: 'documents.listForms',
+        summary: 'The agency’s forms, newest first (keyset); optionally one template and a contact, listing or deal',
+        querystring: ListFormDocumentsQuery,
+        response: { 200: FormDocumentPage },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: READ_LIMITS },
+    },
+    async (req) => app.withCtx(req, (ctx) => documents.listFormDocuments(ctx, req.query)),
+  );
+
+  app.get(
+    '/v1/documents/forms/:id',
+    {
+      schema: {
+        tags,
+        operationId: 'documents.getForm',
+        summary: 'A form with its SHA-256 and, once READY, a short signed download link',
+        params: FormDocumentParams,
+        response: { 200: FormDocumentDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: READ_LIMITS },
+    },
+    async (req) => app.withCtx(req, (ctx) => documents.getFormDocument(ctx, req.params.id)),
   );
 
   app.get(

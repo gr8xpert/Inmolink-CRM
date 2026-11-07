@@ -1,6 +1,7 @@
 import { withTenant } from '@inmolink/db';
 import type { ExportCell } from '@inmolink/platform/sheet';
 import * as crm from '../crm';
+import * as documents from '../documents';
 import * as matching from '../matching';
 import * as mls from '../mls';
 import * as presentations from '../presentations';
@@ -16,7 +17,7 @@ import * as gdprRepo from './gdpr-repo';
  * S16-F5: every category the privacy notice lists (`SUBJECT_EXPORT_CATEGORIES`) — besides the contact, notes, leads,
  * tasks, activities and consents, the website enquiries their leads came from, the calendar events they attend, their
  * seller prospects, the selections made for them (and what they did on them), their client registrations and viewing
- * requests (R2-02a: and their search profiles) — and every table is paged (`crm.SUBJECT_PAGE_MAX` rows per read), so nothing stops at 1,000 rows.
+ * requests (R2-02a: and their search profiles; R2-05a: the forms made for them) — and every table is paged (`crm.SUBJECT_PAGE_MAX` rows per read), so nothing stops at 1,000 rows.
  */
 
 export type SubjectTableName =
@@ -32,6 +33,7 @@ export type SubjectTableName =
   | 'client_profiles'
   | 'registrations'
   | 'viewings'
+  | 'forms'
   | 'activities'
   | 'consents';
 
@@ -283,6 +285,21 @@ export function subjectTables(agencyId: string, contactId: string): SubjectTable
         );
         for await (const p of all) {
           yield [p.id, p.title, p.address, p.area, p.stage, p.confidentialNotes, p.listingId, p.createdAt, p.deletedAt];
+        }
+      },
+    },
+    {
+      // R2-05a: the forms made for them (listing agreements, reservations, viewing sheets, offers) — what and when
+      name: 'forms',
+      header: ['id', 'template', 'locale', 'status', 'label', 'listing_id', 'sha256', 'created_at', 'rendered_at'],
+      async *rows() {
+        const all = paged(
+          (after: string | null) => as((tx) => documents.subjectForms(tx, agencyId, contactId, after, PAGE)),
+          (f) => f.id,
+          PAGE,
+        );
+        for await (const f of all) {
+          yield [f.id, f.template, f.locale, f.status, f.label, f.listingId, f.sha256, f.createdAt, f.renderedAt];
         }
       },
     },

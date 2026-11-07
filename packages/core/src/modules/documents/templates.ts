@@ -15,6 +15,8 @@ import { placeText } from '../../place-text';
 export interface DocFormat {
   locale: string;
   money(cents: number, currency: string): string;
+  /** To the cent (forms: deposits, offers, commission shares). */
+  exactMoney(cents: number, currency: string): string;
   date(at: Date): string;
   dateTime(at: Date): string;
   number(n: number): string;
@@ -28,6 +30,8 @@ export function docFormat(locale: string, timeZone = 'Europe/Madrid'): DocFormat
     locale,
     money: (cents, currency) =>
       new Intl.NumberFormat(locale, { style: 'currency', currency, maximumFractionDigits: 0 }).format(cents / 100),
+    exactMoney: (cents, currency) =>
+      new Intl.NumberFormat(locale, { style: 'currency', currency, minimumFractionDigits: 2 }).format(cents / 100),
     date: (at) => d.format(at),
     dateTime: (at) => dt.format(at),
     number: (x) => n.format(x),

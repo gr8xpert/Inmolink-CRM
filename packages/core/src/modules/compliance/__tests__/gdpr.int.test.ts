@@ -246,6 +246,7 @@ describe('data subject export', () => {
         'contact.csv',
         'enquiries.csv',
         'events.csv',
+        'forms.csv',
         'leads.csv',
         'manifest.json',
         'notes.csv',

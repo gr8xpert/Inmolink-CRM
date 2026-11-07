@@ -66,5 +66,112 @@
     "acceptedByOwner": "Accepted by the listing agency",
     "scheduledAt": "Viewing",
     "auditNote": "These terms were recorded when the viewing was requested and cannot be changed. Both agencies accepted them at the times shown."
+  },
+  "forms": {
+    "placeholderNotice": "Draft clauses pending lawyer review — not for use with clients until approved",
+    "common": {
+      "agency": "Agency",
+      "name": "Name",
+      "taxId": "Tax ID (NIF/CIF)",
+      "address": "Address",
+      "registerNumber": "Estate agent register no.",
+      "email": "Email",
+      "phone": "Phone",
+      "idDocument": "ID document (DNI/NIE/passport)",
+      "reference": "Reference",
+      "property": "Property",
+      "cadastralRef": "Cadastral reference",
+      "transaction": "Operation",
+      "askingPrice": "Asking price",
+      "commission": "Commission",
+      "commissionPercent": "{percent} of the price",
+      "vatIncluded": "VAT included",
+      "vatExcluded": "VAT not included",
+      "terms": "Terms",
+      "clauses": "Clauses",
+      "parties": "Parties",
+      "notStated": "—",
+      "months": "{count, plural, one {# month} other {# months}}",
+      "days": "{count, plural, one {# day} other {# days}}",
+      "signatureDate": "Signature and date",
+      "footer": "Document {id} · template v{version}"
+    },
+    "signers": {
+      "seller": "Owner (seller)",
+      "buyer": "Client (buyer)",
+      "agency": "For the agency",
+      "ownerAgency": "Listing agency",
+      "introducerAgency": "Collaborating agency"
+    },
+    "LISTING_AGREEMENT": {
+      "title": "Listing agreement",
+      "subtitle": "Mandate to market a property for sale or rent",
+      "mandate": "Mandate",
+      "exclusive": "Exclusive",
+      "open": "Non-exclusive",
+      "term": "Term",
+      "clauses": {
+        "c1": "[PLACEHOLDER — pending lawyer review] The owner instructs the agency to market the property described above on the terms stated.",
+        "c2": "[PLACEHOLDER — pending lawyer review] The mandate runs for {months, plural, one {# month} other {# months}} from the date of signature.",
+        "c3": "[PLACEHOLDER — pending lawyer review] The commission stated above is due on completion of a sale or letting to a client introduced by the agency.",
+        "c4": "[PLACEHOLDER — pending lawyer review] The owner confirms they are entitled to dispose of the property and will provide the documents the law requires.",
+        "c5": "[PLACEHOLDER — pending lawyer review] Personal data is processed by the agency to perform this agreement, as its privacy notice describes."
+      }
+    },
+    "RESERVATION": {
+      "title": "Reservation agreement",
+      "subtitle": "Reservation of a property against a deposit",
+      "price": "Agreed price",
+      "deposit": "Reservation deposit",
+      "hold": "Reservation period",
+      "clauses": {
+        "c1": "[PLACEHOLDER — pending lawyer review] The client reserves the property described above at the agreed price and pays the reservation deposit stated.",
+        "c2": "[PLACEHOLDER — pending lawyer review] The property is taken off the market for {days, plural, one {# day} other {# days}} from the date of signature.",
+        "c3": "[PLACEHOLDER — pending lawyer review] The deposit is credited against the price on signature of the private purchase contract.",
+        "c4": "[PLACEHOLDER — pending lawyer review] The conditions under which the deposit is returned or kept are to be set by the parties' lawyers.",
+        "c5": "[PLACEHOLDER — pending lawyer review] Personal data is processed by the agency to perform this agreement, as its privacy notice describes."
+      }
+    },
+    "VIEWING_SHEET": {
+      "title": "Viewing sheet",
+      "subtitle": "Record of properties shown to a client",
+      "visited": "Properties shown on {date}",
+      "clauses": {
+        "c1": "[PLACEHOLDER — pending lawyer review] The client confirms the agency showed them the {count, plural, one {property} other {# properties}} listed above on the date stated.",
+        "c2": "[PLACEHOLDER — pending lawyer review] The client agrees to deal with the agency for any purchase or rental of these properties.",
+        "c3": "[PLACEHOLDER — pending lawyer review] Personal data is processed by the agency to arrange the viewings, as its privacy notice describes."
+      }
+    },
+    "OFFER": {
+      "title": "Purchase offer",
+      "subtitle": "Written offer to buy a property",
+      "amount": "Offered price",
+      "validUntil": "Offer valid until",
+      "conditions": "Conditions",
+      "clauses": {
+        "c1": "[PLACEHOLDER — pending lawyer review] The client offers to buy the property described above at the price and on the conditions stated.",
+        "c2": "[PLACEHOLDER — pending lawyer review] The offer stands until the date stated and lapses if the owner has not accepted it by then.",
+        "c3": "[PLACEHOLDER — pending lawyer review] The agency will pass the offer on to the owner and record the owner's answer.",
+        "c4": "[PLACEHOLDER — pending lawyer review] Personal data is processed by the agency to handle the offer, as its privacy notice describes."
+      }
+    },
+    "COLLABORATION_AGREEMENT": {
+      "title": "Collaboration agreement",
+      "subtitle": "Sharing of the commission between two agencies on one transaction",
+      "issuedBy": "Issued by",
+      "deal": "Deal",
+      "price": "Transaction price",
+      "split": "Collaborating agency's share",
+      "total": "Total commission",
+      "ownerShare": "Listing agency's share",
+      "introducerShare": "Collaborating agency's share (amount)",
+      "clauses": {
+        "c1": "[PLACEHOLDER — pending lawyer review] The listing agency and the collaborating agency collaborate on the transaction described above.",
+        "c2": "[PLACEHOLDER — pending lawyer review] The commission is shared as stated above, from the terms both agencies accepted on the network.",
+        "c3": "[PLACEHOLDER — pending lawyer review] Each agency invoices its own share once the commission has been collected.",
+        "c4": "[PLACEHOLDER — pending lawyer review] Neither agency contacts the other's client directly without its consent.",
+        "c5": "[PLACEHOLDER — pending lawyer review] Disputes are first referred to Inmolink's mediation."
+      }
+    }
   }
 }

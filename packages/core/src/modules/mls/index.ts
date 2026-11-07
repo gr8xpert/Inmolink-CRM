@@ -27,6 +27,7 @@ export {
   removeDealDocument,
   uploadDealDocument,
 } from './deal-documents';
+export { createDealCollaborationAgreement } from './deal-forms';
 export { dealLink, notifyDealChange } from './deal-notices';
 export { createDealTask } from './deal-tasks';
 export {

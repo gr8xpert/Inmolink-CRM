@@ -1357,7 +1357,10 @@
                             "SELECTION_GONE",
                             "SELECTION_ITEMS_INVALID",
                             "DOCUMENT_NOT_FOUND",
-                            "DOCUMENT_LISTINGS_INVALID"
+                            "DOCUMENT_LISTINGS_INVALID",
+                            "FORMS_NOT_ENABLED",
+                            "FORM_DOCUMENT_NOT_FOUND",
+                            "FORM_DATA_INCOMPLETE"
                           ],
                           "type": "string"
                         },
@@ -3634,7 +3637,10 @@
                             "SELECTION_GONE",
                             "SELECTION_ITEMS_INVALID",
                             "DOCUMENT_NOT_FOUND",
-                            "DOCUMENT_LISTINGS_INVALID"
+                            "DOCUMENT_LISTINGS_INVALID",
+                            "FORMS_NOT_ENABLED",
+                            "FORM_DOCUMENT_NOT_FOUND",
+                            "FORM_DATA_INCOMPLETE"
                           ],
                           "type": "string"
                         },

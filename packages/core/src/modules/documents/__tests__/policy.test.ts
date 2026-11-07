@@ -37,4 +37,25 @@ describe('documents policy', () => {
       admin,
     });
   });
+
+  it('[R2-05a] forms: no Client Mode (they state commission); impersonating staff read forms but never make one', () => {
+    const clientMode = { ...admin, clientMode: true };
+    expect(can(clientMode, 'documents.forms.create')).toBe(false);
+    expect(can(clientMode, 'documents.forms.read')).toBe(false);
+    expect(can(clientMode, 'documents.create')).toBe(true);
+    const impersonated = ctxAs({
+      kind: 'user',
+      userId: '01900000-0000-7000-8000-0000000000ab',
+      role: 'AGENCY_ADMIN',
+      impersonatedBy: '01900000-0000-7000-8000-0000000000ff',
+    });
+    expect(can(impersonated, 'documents.forms.create')).toBe(false);
+    expect(can(impersonated, 'documents.forms.read')).toBe(true);
+    expect(can(impersonated, 'documents.create')).toBe(true);
+    // a PARTNER membership works no clients: no forms (brochures yes)
+    const partner = ctxAs({ kind: 'user', userId: '01900000-0000-7000-8000-0000000000ac', role: 'PARTNER' });
+    expect(can(partner, 'documents.forms.read')).toBe(false);
+    expect(can(partner, 'documents.forms.create')).toBe(false);
+    expect(can(partner, 'documents.create')).toBe(true);
+  });
 });
