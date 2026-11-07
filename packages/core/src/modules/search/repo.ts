@@ -463,6 +463,7 @@ export async function ownListingDetails(tx: Tx, agencyId: string, ids: readonly 
       locale: listingReadModels.locale,
       detail: listingReadModels.detail,
       updatedAt: listingReadModels.updatedAt,
+      clusterId: listingReadModels.clusterId,
     })
     .from(listingReadModels)
     .where(

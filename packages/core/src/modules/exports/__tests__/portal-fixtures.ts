@@ -90,7 +90,7 @@ export const ownDetail = (
   doc: ListingDetailDoc,
   locale = 'en',
   updatedAt = new Date('2026-10-20T10:00:00Z'),
-): OwnListingDetail => ({ targetId, locale, doc, updatedAt });
+): OwnListingDetail => ({ targetId, locale, doc, updatedAt, clusterId: null });
 
 export const PRESENTER = {
   name: 'Costa Homes',

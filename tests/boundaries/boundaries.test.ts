@@ -125,6 +125,24 @@ describe('module scaffolder and boundaries', () => {
     );
   });
 
+  it("[R2-03c] another module's testing.ts: a module's tests may use it, its code may not", async () => {
+    const importer =
+      "import { publicFallbackSql } from '../search/testing';\nexport const planted = publicFallbackSql;\n";
+    const denied = await planted('packages/core/src/modules/dedupe/planted.ts', importer, () =>
+      sb.boundaries(['packages/core/src/modules/dedupe/planted.ts']),
+    );
+    expect(denied.code).not.toBe(0);
+    expect(denied.output).toMatch(
+      /core-module-testing-in-tests-only: packages\/core\/src\/modules\/dedupe\/planted\.ts → packages\/core\/src\/modules\/search\/testing\.ts/,
+    );
+    const allowed = await planted(
+      'packages/core/src/modules/dedupe/__tests__/planted.test.ts',
+      importer.replace('../search/testing', '../../search/testing'),
+      () => sb.boundaries(['packages/core/src/modules/dedupe/__tests__/planted.test.ts']),
+    );
+    expect(allowed.output).not.toMatch(/planted\.test\.ts →/);
+  });
+
   it("[S9-02] a module's worker.ts (feed writers running as app_system) is for the worker: the API importing it fails", async () => {
     const result = await planted(
       'apps/api/src/planted.ts',

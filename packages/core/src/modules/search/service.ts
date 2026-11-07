@@ -818,6 +818,8 @@ export interface OwnListingDetail {
   locale: string;
   doc: ListingDetailDoc;
   updatedAt: Date;
+  /** R2-03c: its duplicate cluster (null: in none) — feeds read cluster members only for clustered listings. */
+  clusterId: string | null;
 }
 
 /**
@@ -834,7 +836,9 @@ export async function ownListingDetails(
   const rows = await repo.ownListingDetails(tx, agencyId, ids, locales);
   return rows.flatMap((r) => {
     const doc = ListingDetailDoc.safeParse(r.detail);
-    return doc.success ? [{ targetId: r.targetId, locale: r.locale, doc: doc.data, updatedAt: r.updatedAt }] : [];
+    return doc.success
+      ? [{ targetId: r.targetId, locale: r.locale, doc: doc.data, updatedAt: r.updatedAt, clusterId: r.clusterId }]
+      : [];
   });
 }
 

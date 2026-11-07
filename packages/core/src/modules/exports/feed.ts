@@ -359,9 +359,13 @@ export async function writePlannedFeeds(
         bound === null || (p.nextCursor === null && kept[i]?.length === p.ids.length) ? null : bound,
       );
       const selected = [...new Set(kept.flat())].sort();
+      // The documents once for every connection's page (S10-F9), with each listing's duplicate cluster.
+      const docs = selected.length > 0 ? await search.ownListingDetails(tx, agencyId, selected, locales) : [];
       // R2-03c: never two members of one duplicate cluster in a portal's feed (both the agency's own, confirmed as
-      // one): per connection, the best-ranked member it selects goes; the others' documents are not even read
-      const members = selected.length > 0 ? await dedupe.clusterMembersOf(tx, selected) : [];
+      // one): per connection, the best-ranked member it selects goes. The members are read only when a document of the
+      // round is clustered (almost never): no statement for the round otherwise.
+      const clustered = [...new Set(docs.flatMap((d) => (d.clusterId === null ? [] : [d.targetId])))];
+      const members = clustered.length > 0 ? await dedupe.clusterMembersOf(tx, clustered) : [];
       const hiddenOf: Set<string>[] = [];
       for (const [i, lane] of open.entries()) {
         hiddenOf.push(
@@ -372,7 +376,6 @@ export async function writePlannedFeeds(
       }
       const shown = new Set(kept.flatMap((k, i) => k.filter((id) => !hiddenOf[i]?.has(id))));
       const union = hiddenOf.some((h) => h.size > 0) ? selected.filter((id) => shown.has(id)) : selected;
-      const docs = union.length > 0 ? await search.ownListingDetails(tx, agencyId, union, locales) : [];
       const built = buildItems(union, docs, { locales, baseLocale, mediaBase, presenter });
       const items = new Map(built.items.map((x) => [x.id, x.item]));
       const missing = new Set(built.missing);

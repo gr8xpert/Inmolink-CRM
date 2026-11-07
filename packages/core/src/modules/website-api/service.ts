@@ -260,8 +260,9 @@ export async function searchListings(
   const cards =
     found.ids.length === 0
       ? []
-      : await withPublicRead(async (tx) => {
-          // R2-03c: members of duplicate clusters the site does not show are left out
+      : await search.withSiteRead(inventory, async (tx) => {
+          // R2-03c: members of duplicate clusters the site does not show are left out (the cluster probe compiles the
+          // site filter: its minimum commission must be set on the transaction, `withSiteRead`)
           const rows = await search.publicSiteDocs(tx, inventory, found.ids, 'card', lang, site.scope.defaultLocale);
           const byId = new Map(rows.map((r) => [r.targetId, r]));
           // The engine's order; a target whose read model went in between is left out.

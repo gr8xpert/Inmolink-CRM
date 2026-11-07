@@ -91,7 +91,9 @@ module.exports = {
       from: { path: '^packages/core/src/modules/([^/]+)/' },
       to: {
         path: '^packages/core/src/modules/',
-        pathNot: ['^packages/core/src/modules/$1/', '^packages/core/src/modules/[^/]+/index\\.ts$'],
+        // A module's tests may also use another module's test-only `testing.ts` (R2-03c): the rule
+        // core-module-testing-in-tests-only still keeps that entry out of every non-test file.
+        pathNot: ['^packages/core/src/modules/$1/', '^packages/core/src/modules/[^/]+/index\\.ts$', MODULE_TESTING],
       },
     },
     {

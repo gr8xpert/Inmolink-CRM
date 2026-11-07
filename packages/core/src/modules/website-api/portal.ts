@@ -824,7 +824,9 @@ export async function portalSearch(input: PortalSearchInput): Promise<PortalSear
     return { ...empty, total: found.total, pageCount, ...counts, degraded: true, pageUnavailable: true };
   }
   const items =
-    found.ids.length === 0 ? [] : await withPublicRead((tx) => portalCards(tx, inventory, found.ids, locale));
+    found.ids.length === 0
+      ? []
+      : await search.withSiteRead(inventory, (tx) => portalCards(tx, inventory, found.ids, locale));
   return {
     items,
     total: found.total,
