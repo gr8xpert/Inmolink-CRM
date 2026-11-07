@@ -106,6 +106,10 @@ const HANDLER_LIMITS: Readonly<Record<string, { how: string; evidence: [file: st
     how: 'per-IP selection page / action limits (selections handlers)',
     evidence: ['apps/public/src/selections/handlers.ts', 'rateLimiter'],
   },
+  'apps/public/src/app/u/[token]/route.ts': {
+    how: 'per-IP and per-link unsubscribe limits (crm.checkUnsubscribeLimits, R2-02g)',
+    evidence: ['apps/public/src/unsubscribe/handlers.ts', 'checkUnsubscribeLimits(rateLimiter()'],
+  },
   'apps/public/src/app/sitemap.xml/route.ts': {
     how: 'exempt: one stored file, CDN-cached an hour (SITEMAP_CACHE)',
     evidence: ['apps/public/src/portal/sitemaps.ts', 'SITEMAP_CACHE'],
