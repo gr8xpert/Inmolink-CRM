@@ -13,7 +13,8 @@
     "support": "Soporte",
     "flags": "Feature flags",
     "system": "Colas e IA",
-    "migration": "Migración"
+    "migration": "Migración",
+    "duplicates": "Duplicados"
   },
   "taxonomy": {
     "title": "Taxonomía",
@@ -562,5 +563,37 @@
       "MISSING": "No resuelve"
     },
     "imageCheck": "{attached} adjuntas, {pending} pendientes de {checked}"
+  },
+  "duplicates": {
+    "title": "Disputas de duplicados",
+    "intro": "Las agencias disputan cómo se agruparon sus anuncios como duplicados. Una disputa aceptada se aplica a los grupos en un minuto.",
+    "statuses": {
+      "OPEN": "Abiertas",
+      "UPHELD": "Aceptadas",
+      "REJECTED": "Rechazadas"
+    },
+    "kinds": {
+      "NOT_DUPLICATE": "No es el mismo inmueble",
+      "CANONICAL": "Debería ser el anuncio mostrado"
+    },
+    "empty": "No hay disputas.",
+    "listing": "Anuncio {id}",
+    "reason": "Motivo",
+    "members": "El grupo ahora",
+    "member": "{rank}. {listing} · agencia {agency} · {via}",
+    "noMembers": "El anuncio ya no está agrupado.",
+    "note": "Nota para el registro (la agencia la lee: no nombres otra agencia ni su anuncio)",
+    "uphold": "Aceptar",
+    "reject": "Rechazar",
+    "resolved": "Resuelta: {status}",
+    "next": "Página siguiente",
+    "notice": "Disputa resuelta.",
+    "errors": {
+      "DEDUPE_DISPUTE_NOT_FOUND": "Esta disputa ya no existe.",
+      "DEDUPE_DISPUTE_STATE": "Esta disputa ya se resolvió.",
+      "FORBIDDEN": "Solo data ops y super admins resuelven disputas.",
+      "VALIDATION_FAILED": "Escribe una nota.",
+      "generic": "Algo ha fallado."
+    }
   }
 }

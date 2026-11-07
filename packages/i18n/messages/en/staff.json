@@ -13,7 +13,8 @@
     "support": "Support",
     "flags": "Feature flags",
     "system": "Queues & AI",
-    "migration": "Migration"
+    "migration": "Migration",
+    "duplicates": "Duplicates"
   },
   "taxonomy": {
     "title": "Taxonomy",
@@ -562,5 +563,37 @@
       "MISSING": "Does not resolve"
     },
     "imageCheck": "{attached} attached, {pending} pending of {checked}"
+  },
+  "duplicates": {
+    "title": "Duplicate disputes",
+    "intro": "Agencies dispute how their listings were grouped as duplicates. An upheld dispute is applied to the groups within a minute.",
+    "statuses": {
+      "OPEN": "Open",
+      "UPHELD": "Upheld",
+      "REJECTED": "Rejected"
+    },
+    "kinds": {
+      "NOT_DUPLICATE": "Not the same property",
+      "CANONICAL": "Should be the listing shown"
+    },
+    "empty": "No disputes.",
+    "listing": "Listing {id}",
+    "reason": "Reason",
+    "members": "The group now",
+    "member": "{rank}. {listing} · agency {agency} · {via}",
+    "noMembers": "The listing is not grouped any more.",
+    "note": "Note to record (the agency reads it: never name another agency or its listing)",
+    "uphold": "Uphold",
+    "reject": "Reject",
+    "resolved": "Resolved: {status}",
+    "next": "Next page",
+    "notice": "Dispute resolved.",
+    "errors": {
+      "DEDUPE_DISPUTE_NOT_FOUND": "This dispute no longer exists.",
+      "DEDUPE_DISPUTE_STATE": "This dispute was resolved already.",
+      "FORBIDDEN": "Only data ops and super admins resolve disputes.",
+      "VALIDATION_FAILED": "Write a note.",
+      "generic": "Something went wrong."
+    }
   }
 }

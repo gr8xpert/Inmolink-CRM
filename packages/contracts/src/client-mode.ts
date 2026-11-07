@@ -91,6 +91,8 @@ export const CLIENT_MODE_REVIEWED_FIELDS: Readonly<Record<string, string>> = {
   ownerAcceptedAt: 'a timestamp of an MLS viewing (MLS routes are refused in Client Mode)',
   introducerAcceptedAt: 'a timestamp of an MLS viewing (MLS routes are refused in Client Mode)',
   canSetCommission: 'a boolean permission flag, always false for Client Mode tokens (S17-F5); no commission value',
+  resolutionNote:
+    'the staff note on a duplicate dispute (R2-03b): dedupe routes are refused in Client Mode, and the note is written for the disputing agency',
 };
 
 /**

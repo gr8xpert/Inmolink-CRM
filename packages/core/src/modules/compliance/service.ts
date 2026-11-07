@@ -126,6 +126,9 @@ export const AUDIT_TYPES = [
   'staff.support.replied',
   'staff.support.noted',
   'staff.support.triaged',
+  // R2-03b: staff upheld or rejected an agency's duplicate dispute (target: the dispute; metadata: outcome, kind, the
+  // listing id — never the note).
+  'staff.dedupe.disputeResolved',
   'compliance.dataExport.requested',
   'compliance.dataExport.downloaded',
   // S16-04: the agency's retention period changed (metadata: from, to — months or null).
@@ -210,6 +213,8 @@ export interface AuditTarget {
     | 'planGrant'
     | 'priceLock'
     | 'supportTicket'
+    // R2-03b
+    | 'dedupeDispute'
     // S14-06
     | 'cutover';
   id: string;

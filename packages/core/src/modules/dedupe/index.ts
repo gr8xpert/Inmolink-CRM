@@ -1,7 +1,38 @@
 /** dedupe — public API (PATTERNS §1). The only import path for other modules and apps. */
+
+// R2-03b: clusters (pure rules), the recluster pass (worker), the review queue and disputes (requests, staff).
+export {
+  type ClusterDecision,
+  type ClusterNode,
+  type ClusterPair,
+  canonicalOrder,
+  type FormedCluster,
+  formClusters,
+  hasConflict,
+  MAX_CLUSTER_MEMBERS,
+} from './clusters';
 export { dedupeErrors } from './errors';
-export { dedupeEvents } from './events';
+export { dedupeEvents, PAIRS_EVENT_IDS } from './events';
 export { DEDUPE_SWEEP_EVERY_MS, dedupeJobs } from './jobs';
+export {
+  CLIENT_MODE_ALLOWED,
+  can,
+  canStaff,
+  DEDUPE_ACTIONS,
+  DEDUPE_IMPERSONATION,
+  type DedupeAction,
+  type StaffDedupeAction,
+} from './policy';
+export { MAX_COMPONENT, MAX_ROUNDS, type ReclusterResult } from './recluster';
+export {
+  decideDuplicateReview,
+  listDuplicateClusters,
+  listDuplicateDisputes,
+  listDuplicateReviews,
+  listStaffDuplicateDisputes,
+  openDuplicateDispute,
+  resolveDuplicateDispute,
+} from './review';
 export {
   AUTO_CLUSTER_SCORE,
   PAIR_STORE_MIN,
@@ -13,6 +44,8 @@ export {
   WEIGHTS,
 } from './scoring';
 export {
+  applyDispute,
+  applyReview,
   BACKFILL_RUN,
   BACKFILL_WINDOW,
   backfillWindow,
@@ -20,6 +53,7 @@ export {
   MAX_CANDIDATES,
   MAX_PAIRS_PER_LISTING,
   type RescoreResult,
+  recluster,
   rescoreListings,
   sweepWindow,
 } from './service';

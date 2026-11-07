@@ -385,9 +385,11 @@ export const tenantTables: Record<string, TenantTable> = {
       // S13-02: a staff plan grant announces the agency's plan (`billing.plan.changed`). S13-03: a staff bulk operation
       // asks for its job (`admin.operation.requested`, a platform event). S13-05: a support agent's reply on a ticket
       // (`support.message.posted`, the ticket's agency; support staff and super admins only) e-mails the member.
+      // R2-03b: a resolved duplicate dispute (`dedupe.dispute.resolved`, the dispute's agency; data ops and super
+      // admins only) is applied to the clusters by the dedupe worker.
       // S13 review: only an active super admin (the plan grant's own gate) may append `billing.plan.changed` — a
       // support or data-ops session cannot forge a plan notice.
-      insert: `(starts_with(type, 'agencies.') and agency_id <> '${PLATFORM_AGENCY_ID}'::uuid) or (type = 'billing.plan.changed' and agency_id <> '${PLATFORM_AGENCY_ID}'::uuid and ${SUPER_ADMIN}) or (type = 'taxonomy.data.changed' and agency_id = '${PLATFORM_AGENCY_ID}'::uuid) or (type = 'admin.operation.requested' and agency_id = '${PLATFORM_AGENCY_ID}'::uuid and ${STAFF_OPERATOR}) or (type = 'support.message.posted' and agency_id <> '${PLATFORM_AGENCY_ID}'::uuid and ${SUPPORT_AGENT})`,
+      insert: `(starts_with(type, 'agencies.') and agency_id <> '${PLATFORM_AGENCY_ID}'::uuid) or (type = 'billing.plan.changed' and agency_id <> '${PLATFORM_AGENCY_ID}'::uuid and ${SUPER_ADMIN}) or (type = 'taxonomy.data.changed' and agency_id = '${PLATFORM_AGENCY_ID}'::uuid) or (type = 'admin.operation.requested' and agency_id = '${PLATFORM_AGENCY_ID}'::uuid and ${STAFF_OPERATOR}) or (type = 'support.message.posted' and agency_id <> '${PLATFORM_AGENCY_ID}'::uuid and ${SUPPORT_AGENT}) or (type = 'dedupe.dispute.resolved' and agency_id <> '${PLATFORM_AGENCY_ID}'::uuid and ${STAFF_OPERATOR})`,
     },
   },
   // The tenant itself (S1-01). Sign-up (app_auth) creates it PENDING; a repeated sign-up for an
@@ -1582,6 +1584,57 @@ export const tenantTables: Record<string, TenantTable> = {
   // `userNoUpdateColumns`), along the review moves the guard trigger allows (approve, dismiss, restore, expire; 0189),
   // and never insert (the guard: no request forges a match) or delete one (`userNoDelete`: deleting a pair would let
   // the engine send the same listing to the client again).
+  // R2-03b: the agency's own clustered listings (cluster, rank, members in canonical order), written by the dedupe
+  // worker (app_system) with the cluster; members only read them.
+  dedupe_listing_clusters: {
+    kind: 'STRICT',
+    userReadOnly: true,
+    base: {
+      rank: 0,
+      via: 'AUTO',
+      member_ids: '{01900000-0000-7000-8000-000000000001,01900000-0000-7000-8000-000000000002}',
+    },
+  },
+  // R2-03b: the duplicate review queue — pairs written by the dedupe worker (never inserted by a request; the worker
+  // applies a decision only for the agency's own listing); a member decides one (status, who, when — never the pair or
+  // its score; the service allows agency admins only). Removing one only loses the agency's own history.
+  dedupe_reviews: {
+    kind: 'STRICT',
+    // a member decides a pending pair, as themself; a decided pair is changed only by whoever decided it
+    memberWrite: {
+      update: "status = 'PENDING' or decided_by_user_id = app_user_id()",
+      own: { status: 'CONFIRMED', decided_by_user_id: SAMPLE_USER, decided_at: '2026-11-07T00:00:00Z' },
+    },
+    userNoInsert: true,
+    userNoUpdateColumns: ['id', 'listing_id', 'other_listing_id', 'score', 'signals', 'created_at'],
+    // the samples' colleague row: decided by someone else (a pending row is every member's to decide)
+    base: {
+      score: 0.8,
+      signals: '{}',
+      status: 'NOT_DUPLICATE',
+      decided_by_user_id: '01900000-0000-7000-8000-0000000000aa',
+      decided_at: '2026-11-07T00:00:00Z',
+    },
+  },
+
+  // R2-03b: an agency's disputes of its listings' clustering — a member opens one (OPEN, as themself), never changes or
+  // removes it; staff read every agency's and resolve them (data ops and super admins: status, who, when, the note).
+  dedupe_disputes: {
+    kind: 'STRICT',
+    memberWrite: {
+      insert:
+        "opened_by_user_id = app_user_id() and status = 'OPEN' and resolved_at is null and resolved_by_user_id is null and resolution_note is null",
+      own: { opened_by_user_id: SAMPLE_USER },
+    },
+    userNoUpdate: true,
+    userNoDelete: true,
+    staff: {
+      select: 'true',
+      update: STAFF_OPERATOR,
+      updateColumns: ['status', 'resolved_by_user_id', 'resolution_note', 'resolved_at', 'updated_at'],
+    },
+    base: { kind: 'NOT_DUPLICATE', reason: 'iso', status: 'OPEN' },
+  },
   client_profile_matches: {
     kind: 'STRICT',
     guardedInsert: true,
@@ -1866,6 +1919,30 @@ export const globalTables: Record<string, GlobalTable> = {
     reason: 'scored duplicate candidate pairs of listings across agencies (worker-only: cross-agency dedupe)',
     noUserRead: true,
     base: { score: 0.5, signals: '{}', scorer_version: 1, version_a: 1, version_b: 1 },
+  },
+  // R2-03b: duplicate clusters across agencies, their members, decided pairs and staff-pinned canonicals — written by
+  // the dedupe worker via withSystem() only. No tenant reads them (a cluster names other agencies' listings: members
+  // read their own listings' projection, `dedupe_listing_clusters`); staff read clusters and members in the console.
+  dedupe_clusters: {
+    reason: 'duplicate clusters of listings across agencies (worker-written: cross-agency dedupe)',
+    noUserRead: true,
+    staffRead: true,
+    base: { size: 2 },
+  },
+  dedupe_cluster_members: {
+    reason: 'members of duplicate clusters, listings of every agency (worker-written: cross-agency dedupe)',
+    noUserRead: true,
+    staffRead: true,
+    base: { rank: 0, via: 'AUTO' },
+  },
+  dedupe_pair_decisions: {
+    reason: 'decided duplicate pairs of listings across agencies (worker-written from reviews and disputes)',
+    noUserRead: true,
+    base: { decision: 'NOT_DUPLICATE', source: 'REVIEW' },
+  },
+  dedupe_canonical_pins: {
+    reason: 'listings staff made canonical of their duplicate cluster (worker-written from upheld disputes)',
+    noUserRead: true,
   },
   // Read-model rebuild queue (S5-F4): written by the search subscriptions and drained by the search worker via withSystem().
   read_model_queue: {

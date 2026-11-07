@@ -11,11 +11,26 @@
  *   cursor: a version change is a new walk).
  * - `dedupe.sweep` — every 24 hours: starts `dedupe.sweepWindow` (job ID per day), which walks the stored signatures in
  *   windows and drops those whose listing has no read model any more (a lost event, an erased agency).
+ * - `dedupe.recluster` (R2-03b) — one per `dedupe.pairs.changed` event (job ID = the event's id): the clusters around
+ *   the listings re-formed (`recluster.ts`). Every pass takes one advisory lock, so passes run one after another.
+ * - `dedupe.applyReview` / `dedupe.applyDispute` (R2-03b) — one per `dedupe.review.decided` / `dedupe.dispute.resolved`
+ *   (job ID = the review / dispute: applied once; group = the agency): the decision recorded and the pair or listing
+ *   reclustered.
  */
 import { clock } from '@inmolink/platform/clock';
 import { defineJob } from '@inmolink/platform/queue';
 import { z } from 'zod';
-import { BACKFILL_RUN, backfillWindow, RESCORE_BATCH, rescoreListings, sweepWindow } from './service';
+import { PAIRS_EVENT_IDS } from './events';
+import {
+  applyDispute,
+  applyReview,
+  BACKFILL_RUN,
+  backfillWindow,
+  RESCORE_BATCH,
+  recluster,
+  rescoreListings,
+  sweepWindow,
+} from './service';
 
 export const DEDUPE_SWEEP_EVERY_MS = 24 * 3_600_000;
 const RUN = z.string().regex(/^[0-9A-Za-z.-]{1,32}$/);
@@ -68,6 +83,46 @@ export const dedupeJobs = {
       await dedupeJobs.sweepWindow.enqueue({ run, after: null });
       return { run };
     },
+  }),
+
+  recluster: defineJob({
+    name: 'dedupe.recluster',
+    pool: 'matching',
+    payload: z.object({ eventId: z.uuid(), listingIds: z.array(z.uuid()).min(1).max(PAIRS_EVENT_IDS) }),
+    jobId: (p) => `dedupe-recluster:${p.eventId}`,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 5_000 },
+    timeoutMs: 120_000,
+    async run(p, { log }) {
+      const r = await recluster(p.listingIds);
+      if (r.changed > 0 || r.dissolved > 0) log.info(r, 'duplicate clusters re-formed');
+      if (r.truncated) log.warn({ listings: r.listings }, 'duplicate component cut at its bound');
+      return r;
+    },
+  }),
+
+  applyReview: defineJob({
+    name: 'dedupe.applyReview',
+    pool: 'matching',
+    payload: z.object({ agencyId: z.uuid(), reviewId: z.uuid() }),
+    jobId: (p) => `dedupe-review:${p.reviewId}`,
+    group: (p) => p.agencyId,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 5_000 },
+    timeoutMs: 120_000,
+    run: (p) => applyReview(p.reviewId),
+  }),
+
+  applyDispute: defineJob({
+    name: 'dedupe.applyDispute',
+    pool: 'matching',
+    payload: z.object({ agencyId: z.uuid(), disputeId: z.uuid() }),
+    jobId: (p) => `dedupe-dispute:${p.disputeId}`,
+    group: (p) => p.agencyId,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 5_000 },
+    timeoutMs: 120_000,
+    run: (p) => applyDispute(p.disputeId),
   }),
 
   sweepWindow: defineJob({

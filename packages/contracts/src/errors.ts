@@ -386,6 +386,17 @@ export const ErrorCodes = {
   CLIENT_PROFILE_MATCH_STATE: 409,
   /** The listing can no longer be offered to this client (withdrawn, no longer shared): the match is expired. */
   CLIENT_PROFILE_MATCH_EXPIRED: 410,
+  // R2-03b: duplicate review queue and disputes.
+  DEDUPE_REVIEW_NOT_FOUND: 404,
+  /** The review is decided already (a "not a duplicate" is final). */
+  DEDUPE_REVIEW_STATE: 409,
+  /** The listing is not the caller's or is in no duplicate cluster now. */
+  DEDUPE_LISTING_NOT_CLUSTERED: 404,
+  /** The listing has an open dispute already, or a `CANONICAL` dispute names the canonical listing itself. */
+  DEDUPE_DISPUTE_CONFLICT: 409,
+  DEDUPE_DISPUTE_NOT_FOUND: 404,
+  /** The dispute is resolved already. */
+  DEDUPE_DISPUTE_STATE: 409,
   // AI gateway (S12-01, ADR 0008). Features catch these and degrade (keep the owner text, "try later").
   /** The agency's monthly AI hard cap is reached: nothing was sent to the provider. */
   AI_BUDGET_EXCEEDED: 429,

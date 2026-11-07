@@ -13,6 +13,7 @@ import { billingRoutes } from './routes/billing/routes';
 import { chatRoutes } from './routes/chat/routes';
 import { complianceRoutes } from './routes/compliance/routes';
 import { crmRoutes } from './routes/crm/routes';
+import { dedupeRoutes } from './routes/dedupe/routes';
 import { developmentsRoutes } from './routes/developments/routes';
 import { documentsRoutes } from './routes/documents/routes'; // S12-05
 import { exportsRoutes } from './routes/exports/routes';
@@ -105,6 +106,7 @@ export async function buildApp(deps: ApiDeps): Promise<FastifyZod> {
   await app.register(networkRoutes);
   await app.register(aiFeaturesRoutes);
   await app.register(matchingRoutes);
+  await app.register(dedupeRoutes); // R2-03b
   await app.register(socialRoutes);
   await app.register(presentationsRoutes);
   await app.register(adminRoutes);

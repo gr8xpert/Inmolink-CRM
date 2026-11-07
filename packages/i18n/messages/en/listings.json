@@ -487,5 +487,85 @@
       "FORBIDDEN": "Your role cannot change the text of listings.",
       "SESSION_REVOKED": "Your session has ended. Sign in again."
     }
+  },
+  "duplicates": {
+    "link": "Duplicates",
+    "title": "Duplicate listings",
+    "intro": "Listings that look like the same property. Pairs that are almost certainly the same are grouped automatically and your clients see one of them; check the likely ones here.",
+    "views": {
+      "reviews": "To review",
+      "clusters": "Grouped listings"
+    },
+    "viewsLabel": "View",
+    "statusFilter": "Status",
+    "statuses": {
+      "PENDING": "Pending",
+      "CONFIRMED": "Confirmed",
+      "NOT_DUPLICATE": "Not a duplicate"
+    },
+    "listLabel": "Likely duplicates",
+    "clustersLabel": "Grouped listings",
+    "yours": "Your listing",
+    "other": "Other listing",
+    "network": "Another agency’s listing",
+    "own": "Your agency’s listing",
+    "score": "{pct} alike",
+    "signalsLabel": "Signals",
+    "signals": {
+      "images": "Same photos",
+      "phash": "Similar photos",
+      "geo": "Location",
+      "type": "Type",
+      "beds": "Bedrooms",
+      "baths": "Bathrooms",
+      "area": "Built area",
+      "price": "Price",
+      "text": "Description"
+    },
+    "priceOnRequest": "Price on request",
+    "confirm": "Same property",
+    "notDuplicate": "Not a duplicate",
+    "confirmLabel": "Mark {ref} and {other} as the same property",
+    "notDuplicateLabel": "Mark {ref} and {other} as different properties",
+    "notDuplicateHint": "“Not a duplicate” is final: the pair is never grouped again.",
+    "empty": "Nothing to review.",
+    "emptyDecided": "No decided pairs yet.",
+    "emptyClusters": "None of your listings is grouped with another.",
+    "pageHidden": "Nothing on this page you may see; older ones follow.",
+    "loadMore": "Load more",
+    "canonical": "Your clients see this listing",
+    "notCanonical": "Your clients see the first listing of the group instead",
+    "via": {
+      "AUTO": "Grouped automatically",
+      "CONFIRMED": "Confirmed by a member"
+    },
+    "dispute": {
+      "title": "Dispute this grouping",
+      "kind": "What is wrong",
+      "kinds": {
+        "NOT_DUPLICATE": "It is not the same property",
+        "CANONICAL": "Our listing should be the one shown"
+      },
+      "reason": "Why (for Inmolink staff)",
+      "submit": "Send dispute",
+      "open": "Dispute open: {kind}",
+      "hint": "The listing stays grouped until Inmolink staff decide."
+    },
+    "done": {
+      "CONFIRMED": "Confirmed: the listings are grouped shortly.",
+      "NOT_DUPLICATE": "Saved: the pair will not be grouped.",
+      "disputed": "Dispute sent: Inmolink staff will review it."
+    },
+    "errors": {
+      "DEDUPE_REVIEW_NOT_FOUND": "This pair is no longer in your queue.",
+      "DEDUPE_REVIEW_STATE": "This pair was decided already.",
+      "DEDUPE_LISTING_NOT_CLUSTERED": "This listing is not grouped any more.",
+      "DEDUPE_DISPUTE_CONFLICT": "This listing has an open dispute already, or it is already the one shown.",
+      "FORBIDDEN": "Only agency admins may decide or dispute.",
+      "VALIDATION_FAILED": "Check the form and try again.",
+      "RATE_LIMITED": "Too many requests. Try again in a minute.",
+      "generic": "Something went wrong. Try again.",
+      "load": "Could not load duplicate listings."
+    }
   }
 }

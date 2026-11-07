@@ -18,10 +18,15 @@
  *    upserted (unchanged ones untouched, never over a score from newer signatures), at most `MAX_PAIRS_PER_LISTING` a
  *    listing (its lowest go); stored pairs now below it, or whose other listing has no signature, are deleted.
  *    Re-running the same batch changes nothing (idempotent). Writes go in key order (no deadlock between jobs).
+ * 4. **Clusters** (R2-03b): when a signature, pair or listing changed, `dedupe.pairs.changed` names the batch's
+ *    listings (same transaction) and `dedupe.recluster` re-forms the clusters around them (`recluster.ts`).
  */
 import { type Tx, withSystem } from '@inmolink/db';
+import { emit } from '@inmolink/platform/outbox';
 import * as media from '../media';
 import * as search from '../search';
+import { dedupeEvents } from './events';
+import { applyDisputeIn, applyReviewIn, type ReclusterResult, reclusterIn } from './recluster';
 import * as repo from './repo';
 import { PAIR_STORE_MIN, type PairSignals, SCORER_VERSION, scorePair, WIDE_IMAGE_LISTINGS } from './scoring';
 import { MAX_IMAGES, probeKeysOf, SIGNATURE_VERSION, type Signature, signatureOf } from './signature';
@@ -308,6 +313,10 @@ export async function rescoreListings(
     const { live: mine, changed, dropped } = await refreshSignatures(tx, ids);
     const todo = options.force ? mine : mine.filter((s) => changed.has(s.listingId));
     const scored = await score(tx, todo);
+    // R2-03b: the clusters around these listings are re-formed (`dedupe.recluster`) when anything here moved
+    if (changed.size > 0 || dropped > 0 || scored.stored > 0 || scored.deleted > 0) {
+      await emit(tx, dedupeEvents.pairsChanged({ listingIds: ids }));
+    }
     return { signatures: mine.length, changed: changed.size, dropped, ...scored };
   });
 }
@@ -345,4 +354,22 @@ export async function sweepWindow(
     dropped += (await rescoreListings(ids.slice(i, i + RESCORE_BATCH))).dropped;
   }
   return { next: ids.length < limit ? null : (ids.at(-1) ?? null), listings: ids.length, dropped };
+}
+
+/**
+ * `dedupe.recluster` (worker): the clusters around these listings re-formed, the canonicals re-picked and the review
+ * queue kept in step (`recluster.ts`), in one transaction.
+ */
+export function recluster(listingIds: readonly string[]): Promise<ReclusterResult> {
+  return withSystem('dedupe.recluster', (tx) => reclusterIn(tx, listingIds));
+}
+
+/** `dedupe.applyReview` (worker): a member's review decision recorded and its pair reclustered. */
+export function applyReview(reviewId: string): Promise<ReclusterResult | null> {
+  return withSystem('dedupe.applyReview', (tx) => applyReviewIn(tx, reviewId));
+}
+
+/** `dedupe.applyDispute` (worker): an upheld dispute applied (split, or pinned canonical) and reclustered. */
+export function applyDispute(disputeId: string): Promise<ReclusterResult | null> {
+  return withSystem('dedupe.applyDispute', (tx) => applyDisputeIn(tx, disputeId));
 }

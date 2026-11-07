@@ -3,6 +3,7 @@ import { registry, staffRoleSql } from '@inmolink/db';
 import { describe, expect, it } from 'vitest';
 import type { StaffCtx, StaffRole } from '../../../context';
 import * as billing from '../../billing';
+import * as dedupe from '../../dedupe';
 import * as identity from '../../identity';
 import * as support from '../../support';
 import { canStaff } from '../policy';
@@ -24,6 +25,7 @@ const billingGrant: Policy = (c) => billing.canStaff(c, 'staff.billing.grant');
 const runOperation: Policy = (c) => canStaff(c, 'staff.admin.runOperation');
 const setFlag: Policy = (c) => canStaff(c, 'staff.admin.setFlag');
 const supportWrite: Policy = (c) => support.canStaff(c, 'staff.support.write');
+const dedupeResolve: Policy = (c) => dedupe.canStaff(c, 'staff.dedupe.resolve');
 const manageImpersonation: Policy = (c) => identity.canStaff(c, 'staff.impersonation.manage');
 
 /** Registry path (`tenant|global.<table>.<field…>`, `[event type]` for one outbox clause) → the policy it mirrors. */
@@ -31,6 +33,8 @@ const POLICY_OF: Record<string, Policy> = {
   'tenant.outbox_events.staff.insert[billing.plan.changed]': billingGrant,
   'tenant.outbox_events.staff.insert[admin.operation.requested]': runOperation,
   'tenant.outbox_events.staff.insert[support.message.posted]': supportWrite,
+  'tenant.outbox_events.staff.insert[dedupe.dispute.resolved]': dedupeResolve, // R2-03b
+  'tenant.dedupe_disputes.staff.update': dedupeResolve,
   'tenant.billing_plan_grants.staff.insert': billingGrant,
   'tenant.billing_plan_grants.staff.update': billingGrant,
   'tenant.billing_price_locks.staff.insert': billingGrant,

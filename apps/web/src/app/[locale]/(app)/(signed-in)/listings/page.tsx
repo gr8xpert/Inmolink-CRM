@@ -85,6 +85,10 @@ export default async function ListingsPage(props: { searchParams: Promise<Record
           <Link href="/bookmarks" className={buttonVariants({ variant: 'outline' })}>
             {t('bookmarks.open')}
           </Link>
+          {/* R2-03b: likely duplicates to review, grouped listings and disputes */}
+          <Link href="/duplicates" className={buttonVariants({ variant: 'outline' })}>
+            {t('duplicates.link')}
+          </Link>
           <Link href="/listings/new" className={buttonVariants()}>
             {t('new')}
           </Link>

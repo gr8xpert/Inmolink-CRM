@@ -219,7 +219,7 @@ do $$
 declare p record;
 begin
   for p in select tablename, policyname from pg_policies
-            where schemaname = 'public' and tablename = any (array['activities', 'agencies', 'agency_directory', 'agency_invites', 'agency_members', 'agency_portal_connections', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'ai_feedback', 'ai_jobs', 'ai_usage_monthly', 'api_keys', 'audit_logs', 'auth_tokens', 'billing_catalog_items', 'billing_customers', 'billing_invoices', 'billing_plan_grants', 'billing_price_locks', 'billing_prices', 'billing_stripe_events', 'billing_subscriptions', 'bookmark_folders', 'calendar_event_attendees', 'calendar_events', 'calendar_feeds', 'chat_messages', 'chat_participants', 'chat_threads', 'client_profile_affinities', 'client_profile_deliveries', 'client_profile_embeddings', 'client_profile_feedback', 'client_profile_matches', 'client_profiles', 'client_registration_fingerprints', 'client_registration_receipts', 'client_registrations', 'consent_records', 'contact_emails', 'contact_facets', 'contact_imports', 'contact_notes', 'contact_phones', 'contacts', 'crm_response_rollups', 'crm_stage_counts', 'crm_stage_move_rollups', 'data_export_jobs', 'dedupe_listing_signatures', 'dedupe_pair_scores', 'development_access', 'development_documents', 'development_phases', 'development_translations', 'developments', 'feature_aliases', 'feature_flags', 'feature_group_translations', 'feature_groups', 'feature_translations', 'features', 'feed_connections', 'feed_image_queue', 'feed_image_sources', 'feed_item_errors', 'feed_mapping_profiles', 'feed_runs', 'feed_sheet_releases', 'feed_source_hashes', 'job_checkpoints', 'lead_introductions', 'lead_routing_settings', 'lead_stage_history', 'leads', 'legacy_id_maps', 'legacy_url_redirects', 'listing_bookmarks', 'listing_bulk_actions', 'listing_documents', 'listing_embeddings', 'listing_overrides', 'listing_public_changes', 'listing_public_codes', 'listing_read_models', 'listing_search_commissions', 'listing_search_developments', 'listing_search_docs', 'listing_studio_batches', 'listing_studio_usage', 'listing_views', 'location_aliases', 'location_group_members', 'location_group_translations', 'location_groups', 'location_translations', 'locations', 'matching_listing_facts', 'matching_listing_states', 'media_objects', 'member_public_profiles', 'migration_batches', 'migration_cutovers', 'migration_validation_reports', 'network_post_authors', 'network_posts', 'network_subscription_terms', 'network_subscriptions', 'notification_preferences', 'notifications', 'onboarding_steps', 'outbox_events', 'pipeline_stages', 'portal_channels', 'portal_connection_issues', 'portal_connection_properties', 'portal_feed_runs', 'portal_listing_sync', 'preferred_agencies', 'preferred_agency_notes', 'price_lists', 'prompt_versions', 'properties', 'property_features', 'property_import_seen', 'property_import_staging', 'property_media', 'property_price_histories', 'property_privates', 'property_status_histories', 'property_tags', 'property_translations', 'property_type_aliases', 'property_type_group_translations', 'property_type_groups', 'property_type_translations', 'property_types', 'quality_queue', 'read_model_queue', 'retention_settings', 'saved_search_alerts', 'saved_searches', 'search_index_queue', 'selection_interactions', 'selection_items', 'selections', 'seller_prospects', 'social_accounts', 'social_posts', 'staff_impersonations', 'staff_operations', 'staff_users', 'support_ticket_attachments', 'support_ticket_messages', 'support_ticket_notes', 'support_tickets', 'tasks', 'taxonomy_unmatched', 'unit_price_histories', 'unit_status_histories', 'units', 'user_mfa', 'user_recovery_codes', 'users', 'viewing_request_receipts', 'viewing_requests', 'website_feeds', 'website_leads', 'website_sites', 'white_label_batches'])
+            where schemaname = 'public' and tablename = any (array['activities', 'agencies', 'agency_directory', 'agency_invites', 'agency_members', 'agency_portal_connections', 'agency_profiles', 'agency_settings', 'agency_translations', 'agency_verification_documents', 'agency_verification_requests', 'ai_feedback', 'ai_jobs', 'ai_usage_monthly', 'api_keys', 'audit_logs', 'auth_tokens', 'billing_catalog_items', 'billing_customers', 'billing_invoices', 'billing_plan_grants', 'billing_price_locks', 'billing_prices', 'billing_stripe_events', 'billing_subscriptions', 'bookmark_folders', 'calendar_event_attendees', 'calendar_events', 'calendar_feeds', 'chat_messages', 'chat_participants', 'chat_threads', 'client_profile_affinities', 'client_profile_deliveries', 'client_profile_embeddings', 'client_profile_feedback', 'client_profile_matches', 'client_profiles', 'client_registration_fingerprints', 'client_registration_receipts', 'client_registrations', 'consent_records', 'contact_emails', 'contact_facets', 'contact_imports', 'contact_notes', 'contact_phones', 'contacts', 'crm_response_rollups', 'crm_stage_counts', 'crm_stage_move_rollups', 'data_export_jobs', 'dedupe_canonical_pins', 'dedupe_cluster_members', 'dedupe_clusters', 'dedupe_disputes', 'dedupe_listing_clusters', 'dedupe_listing_signatures', 'dedupe_pair_decisions', 'dedupe_pair_scores', 'dedupe_reviews', 'development_access', 'development_documents', 'development_phases', 'development_translations', 'developments', 'feature_aliases', 'feature_flags', 'feature_group_translations', 'feature_groups', 'feature_translations', 'features', 'feed_connections', 'feed_image_queue', 'feed_image_sources', 'feed_item_errors', 'feed_mapping_profiles', 'feed_runs', 'feed_sheet_releases', 'feed_source_hashes', 'job_checkpoints', 'lead_introductions', 'lead_routing_settings', 'lead_stage_history', 'leads', 'legacy_id_maps', 'legacy_url_redirects', 'listing_bookmarks', 'listing_bulk_actions', 'listing_documents', 'listing_embeddings', 'listing_overrides', 'listing_public_changes', 'listing_public_codes', 'listing_read_models', 'listing_search_commissions', 'listing_search_developments', 'listing_search_docs', 'listing_studio_batches', 'listing_studio_usage', 'listing_views', 'location_aliases', 'location_group_members', 'location_group_translations', 'location_groups', 'location_translations', 'locations', 'matching_listing_facts', 'matching_listing_states', 'media_objects', 'member_public_profiles', 'migration_batches', 'migration_cutovers', 'migration_validation_reports', 'network_post_authors', 'network_posts', 'network_subscription_terms', 'network_subscriptions', 'notification_preferences', 'notifications', 'onboarding_steps', 'outbox_events', 'pipeline_stages', 'portal_channels', 'portal_connection_issues', 'portal_connection_properties', 'portal_feed_runs', 'portal_listing_sync', 'preferred_agencies', 'preferred_agency_notes', 'price_lists', 'prompt_versions', 'properties', 'property_features', 'property_import_seen', 'property_import_staging', 'property_media', 'property_price_histories', 'property_privates', 'property_status_histories', 'property_tags', 'property_translations', 'property_type_aliases', 'property_type_group_translations', 'property_type_groups', 'property_type_translations', 'property_types', 'quality_queue', 'read_model_queue', 'retention_settings', 'saved_search_alerts', 'saved_searches', 'search_index_queue', 'selection_interactions', 'selection_items', 'selections', 'seller_prospects', 'social_accounts', 'social_posts', 'staff_impersonations', 'staff_operations', 'staff_users', 'support_ticket_attachments', 'support_ticket_messages', 'support_ticket_notes', 'support_tickets', 'tasks', 'taxonomy_unmatched', 'unit_price_histories', 'unit_status_histories', 'units', 'user_mfa', 'user_recovery_codes', 'users', 'viewing_request_receipts', 'viewing_requests', 'website_feeds', 'website_leads', 'website_sites', 'white_label_batches'])
   loop
     execute format('drop policy %I on public.%I', p.policyname, p.tablename);
   end loop;
@@ -914,17 +914,91 @@ revoke all on table public."data_export_jobs" from public, app_user, app_system,
 grant select, insert on table public."data_export_jobs" to app_user;
 grant select, insert, update, delete on table public."data_export_jobs" to app_system;
 
+-- dedupe_canonical_pins: GLOBAL
+alter table public."dedupe_canonical_pins" enable row level security;
+alter table public."dedupe_canonical_pins" force row level security;
+revoke all on table public."dedupe_canonical_pins" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
+grant select, insert, update, delete on table public."dedupe_canonical_pins" to app_system;
+
+-- dedupe_cluster_members: GLOBAL
+alter table public."dedupe_cluster_members" enable row level security;
+alter table public."dedupe_cluster_members" force row level security;
+revoke all on table public."dedupe_cluster_members" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
+grant select, insert, update, delete on table public."dedupe_cluster_members" to app_system;
+create policy staff_select on public."dedupe_cluster_members" for select to app_staff using ((select public.app_is_staff()));
+grant select on table public."dedupe_cluster_members" to app_staff;
+
+-- dedupe_clusters: GLOBAL
+alter table public."dedupe_clusters" enable row level security;
+alter table public."dedupe_clusters" force row level security;
+revoke all on table public."dedupe_clusters" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
+grant select, insert, update, delete on table public."dedupe_clusters" to app_system;
+create policy staff_select on public."dedupe_clusters" for select to app_staff using ((select public.app_is_staff()));
+grant select on table public."dedupe_clusters" to app_staff;
+
+-- dedupe_disputes: STRICT
+alter table public."dedupe_disputes" enable row level security;
+alter table public."dedupe_disputes" force row level security;
+create policy own_insert on public."dedupe_disputes" for insert to app_user
+  with check (agency_id = app_agency() and (opened_by_user_id = app_user_id() and status = 'OPEN' and resolved_at is null and resolved_by_user_id is null and resolution_note is null));
+create policy own_select on public."dedupe_disputes" for select to app_user
+  using (agency_id = app_agency());
+revoke all on table public."dedupe_disputes" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
+grant select, insert on table public."dedupe_disputes" to app_user;
+grant select, insert, update, delete on table public."dedupe_disputes" to app_system;
+create policy staff_select on public."dedupe_disputes" for select to app_staff
+  using ((select public.app_is_staff()) and (true));
+create policy staff_update on public."dedupe_disputes" for update to app_staff
+  using ((select public.app_is_staff()) and (exists (select 1 from public.staff_users s where s.user_id = app_user_id() and s.role in ('SUPER_ADMIN', 'STAFF_DATA_OPS') and s.deactivated_at is null))) with check ((select public.app_is_staff()) and (exists (select 1 from public.staff_users s where s.user_id = app_user_id() and s.role in ('SUPER_ADMIN', 'STAFF_DATA_OPS') and s.deactivated_at is null)));
+grant select on table public."dedupe_disputes" to app_staff;
+grant update ("status", "resolved_by_user_id", "resolution_note", "resolved_at", "updated_at") on table public."dedupe_disputes" to app_staff;
+
+-- dedupe_listing_clusters: STRICT
+alter table public."dedupe_listing_clusters" enable row level security;
+alter table public."dedupe_listing_clusters" force row level security;
+create policy own_rows on public."dedupe_listing_clusters" for select to app_user
+  using (agency_id = app_agency());
+revoke all on table public."dedupe_listing_clusters" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
+grant select on table public."dedupe_listing_clusters" to app_user;
+grant select, insert, update, delete on table public."dedupe_listing_clusters" to app_system;
+
 -- dedupe_listing_signatures: GLOBAL
 alter table public."dedupe_listing_signatures" enable row level security;
 alter table public."dedupe_listing_signatures" force row level security;
 revoke all on table public."dedupe_listing_signatures" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."dedupe_listing_signatures" to app_system;
 
+-- dedupe_pair_decisions: GLOBAL
+alter table public."dedupe_pair_decisions" enable row level security;
+alter table public."dedupe_pair_decisions" force row level security;
+revoke all on table public."dedupe_pair_decisions" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
+grant select, insert, update, delete on table public."dedupe_pair_decisions" to app_system;
+
 -- dedupe_pair_scores: GLOBAL
 alter table public."dedupe_pair_scores" enable row level security;
 alter table public."dedupe_pair_scores" force row level security;
 revoke all on table public."dedupe_pair_scores" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
 grant select, insert, update, delete on table public."dedupe_pair_scores" to app_system;
+
+-- dedupe_reviews: STRICT
+alter table public."dedupe_reviews" enable row level security;
+alter table public."dedupe_reviews" force row level security;
+create policy own_update on public."dedupe_reviews" for update to app_user
+  using (agency_id = app_agency() and (status = 'PENDING' or decided_by_user_id = app_user_id())) with check (agency_id = app_agency() and (status = 'PENDING' or decided_by_user_id = app_user_id()));
+create policy own_delete on public."dedupe_reviews" for delete to app_user
+  using (agency_id = app_agency());
+create policy own_select on public."dedupe_reviews" for select to app_user
+  using (agency_id = app_agency());
+revoke all on table public."dedupe_reviews" from public, app_user, app_system, app_public, app_auth, app_staff, app_media, app_intake;
+grant select, delete on table public."dedupe_reviews" to app_user;
+do $$
+declare cols text;
+begin
+  select string_agg(format('%I', attname), ', ' order by attnum) into cols from pg_attribute
+   where attrelid = 'public."dedupe_reviews"'::regclass and attnum > 0 and not attisdropped and attname <> all (array['id', 'listing_id', 'other_listing_id', 'score', 'signals', 'created_at']);
+  execute format('grant update (%s) on table public."dedupe_reviews" to app_user', cols);
+end $$;
+grant select, insert, update, delete on table public."dedupe_reviews" to app_system;
 
 -- development_access: NETWORK_READ
 alter table public."development_access" enable row level security;
@@ -1639,7 +1713,7 @@ create policy auth_append on public."outbox_events" for insert to app_auth
   with check (agency_id = '00000000-0000-0000-0000-000000000000'::uuid and starts_with("type", 'identity.'));
 grant insert on table public."outbox_events" to app_auth;
 create policy staff_insert on public."outbox_events" for insert to app_staff
-  with check ((select public.app_is_staff()) and ((starts_with(type, 'agencies.') and agency_id <> '00000000-0000-0000-0000-000000000000'::uuid) or (type = 'billing.plan.changed' and agency_id <> '00000000-0000-0000-0000-000000000000'::uuid and exists (select 1 from public.staff_users s where s.user_id = app_user_id() and s.role = 'SUPER_ADMIN' and s.deactivated_at is null)) or (type = 'taxonomy.data.changed' and agency_id = '00000000-0000-0000-0000-000000000000'::uuid) or (type = 'admin.operation.requested' and agency_id = '00000000-0000-0000-0000-000000000000'::uuid and exists (select 1 from public.staff_users s where s.user_id = app_user_id() and s.role in ('SUPER_ADMIN', 'STAFF_DATA_OPS') and s.deactivated_at is null)) or (type = 'support.message.posted' and agency_id <> '00000000-0000-0000-0000-000000000000'::uuid and exists (select 1 from public.staff_users s where s.user_id = app_user_id() and s.role in ('SUPER_ADMIN', 'STAFF_SUPPORT') and s.deactivated_at is null))));
+  with check ((select public.app_is_staff()) and ((starts_with(type, 'agencies.') and agency_id <> '00000000-0000-0000-0000-000000000000'::uuid) or (type = 'billing.plan.changed' and agency_id <> '00000000-0000-0000-0000-000000000000'::uuid and exists (select 1 from public.staff_users s where s.user_id = app_user_id() and s.role = 'SUPER_ADMIN' and s.deactivated_at is null)) or (type = 'taxonomy.data.changed' and agency_id = '00000000-0000-0000-0000-000000000000'::uuid) or (type = 'admin.operation.requested' and agency_id = '00000000-0000-0000-0000-000000000000'::uuid and exists (select 1 from public.staff_users s where s.user_id = app_user_id() and s.role in ('SUPER_ADMIN', 'STAFF_DATA_OPS') and s.deactivated_at is null)) or (type = 'support.message.posted' and agency_id <> '00000000-0000-0000-0000-000000000000'::uuid and exists (select 1 from public.staff_users s where s.user_id = app_user_id() and s.role in ('SUPER_ADMIN', 'STAFF_SUPPORT') and s.deactivated_at is null)) or (type = 'dedupe.dispute.resolved' and agency_id <> '00000000-0000-0000-0000-000000000000'::uuid and exists (select 1 from public.staff_users s where s.user_id = app_user_id() and s.role in ('SUPER_ADMIN', 'STAFF_DATA_OPS') and s.deactivated_at is null))));
 grant insert on table public."outbox_events" to app_staff;
 
 -- pipeline_stages: STRICT

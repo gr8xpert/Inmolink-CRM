@@ -110,6 +110,9 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     dedupeJobs.rescoreListings,
     dedupeJobs.backfill,
     dedupeJobs.sweepWindow,
+    dedupeJobs.recluster,
+    dedupeJobs.applyReview,
+    dedupeJobs.applyDispute,
   ],
   // S7-07: per-site XML feeds (Kyero and generic) and their 15-minute refresh sweep; S9-03: portal feeds.
   exports: [

@@ -1,5 +1,6 @@
 import { subscribe } from '@inmolink/platform/outbox';
 import * as search from '../search';
+import { dedupeEvents } from './events';
 import { dedupeJobs } from './jobs';
 
 let unsubscribe: (() => void)[] | undefined;
@@ -21,6 +22,22 @@ export function registerDedupeSubscriptions(): void {
           listingIds: payload.listingIds,
         }),
       { name: 'dedupe.rescore' },
+    ),
+    // R2-03b: clusters follow the pairs; members' and staff's decisions are applied by the worker
+    subscribe(
+      dedupeEvents.pairsChanged,
+      (payload, meta) => dedupeJobs.recluster.enqueue({ eventId: meta.eventId, listingIds: payload.listingIds }),
+      { name: 'dedupe.recluster' },
+    ),
+    subscribe(
+      dedupeEvents.reviewDecided,
+      (payload, meta) => dedupeJobs.applyReview.enqueue({ agencyId: meta.agencyId, reviewId: payload.reviewId }),
+      { name: 'dedupe.applyReview' },
+    ),
+    subscribe(
+      dedupeEvents.disputeResolved,
+      (payload, meta) => dedupeJobs.applyDispute.enqueue({ agencyId: meta.agencyId, disputeId: payload.disputeId }),
+      { name: 'dedupe.applyDispute' },
     ),
   ];
 }

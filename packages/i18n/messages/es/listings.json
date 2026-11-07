@@ -487,5 +487,85 @@
       "FORBIDDEN": "Tu rol no puede cambiar el texto de los inmuebles.",
       "SESSION_REVOKED": "Tu sesión ha terminado. Vuelve a iniciar sesión."
     }
+  },
+  "duplicates": {
+    "link": "Duplicados",
+    "title": "Anuncios duplicados",
+    "intro": "Anuncios que parecen el mismo inmueble. Los pares casi seguros se agrupan automáticamente y tus clientes ven uno solo; revisa aquí los probables.",
+    "views": {
+      "reviews": "Por revisar",
+      "clusters": "Anuncios agrupados"
+    },
+    "viewsLabel": "Vista",
+    "statusFilter": "Estado",
+    "statuses": {
+      "PENDING": "Pendientes",
+      "CONFIRMED": "Confirmados",
+      "NOT_DUPLICATE": "No duplicados"
+    },
+    "listLabel": "Duplicados probables",
+    "clustersLabel": "Anuncios agrupados",
+    "yours": "Tu anuncio",
+    "other": "Otro anuncio",
+    "network": "Anuncio de otra agencia",
+    "own": "Anuncio de tu agencia",
+    "score": "{pct} de parecido",
+    "signalsLabel": "Señales",
+    "signals": {
+      "images": "Mismas fotos",
+      "phash": "Fotos parecidas",
+      "geo": "Ubicación",
+      "type": "Tipo",
+      "beds": "Dormitorios",
+      "baths": "Baños",
+      "area": "Superficie construida",
+      "price": "Precio",
+      "text": "Descripción"
+    },
+    "priceOnRequest": "Precio a consultar",
+    "confirm": "Mismo inmueble",
+    "notDuplicate": "No es duplicado",
+    "confirmLabel": "Marcar {ref} y {other} como el mismo inmueble",
+    "notDuplicateLabel": "Marcar {ref} y {other} como inmuebles distintos",
+    "notDuplicateHint": "«No es duplicado» es definitivo: el par no se vuelve a agrupar.",
+    "empty": "Nada por revisar.",
+    "emptyDecided": "Aún no hay pares decididos.",
+    "emptyClusters": "Ninguno de tus anuncios está agrupado con otro.",
+    "pageHidden": "No hay nada que puedas ver en esta página; siguen otros más antiguos.",
+    "loadMore": "Cargar más",
+    "canonical": "Tus clientes ven este anuncio",
+    "notCanonical": "Tus clientes ven en su lugar el primer anuncio del grupo",
+    "via": {
+      "AUTO": "Agrupado automáticamente",
+      "CONFIRMED": "Confirmado por un miembro"
+    },
+    "dispute": {
+      "title": "Disputar esta agrupación",
+      "kind": "Qué está mal",
+      "kinds": {
+        "NOT_DUPLICATE": "No es el mismo inmueble",
+        "CANONICAL": "Nuestro anuncio debería ser el que se muestra"
+      },
+      "reason": "Motivo (para el equipo de Inmolink)",
+      "submit": "Enviar disputa",
+      "open": "Disputa abierta: {kind}",
+      "hint": "El anuncio sigue agrupado hasta que el equipo de Inmolink decida."
+    },
+    "done": {
+      "CONFIRMED": "Confirmado: los anuncios se agruparán en breve.",
+      "NOT_DUPLICATE": "Guardado: el par no se agrupará.",
+      "disputed": "Disputa enviada: el equipo de Inmolink la revisará."
+    },
+    "errors": {
+      "DEDUPE_REVIEW_NOT_FOUND": "Este par ya no está en tu cola.",
+      "DEDUPE_REVIEW_STATE": "Este par ya se decidió.",
+      "DEDUPE_LISTING_NOT_CLUSTERED": "Este anuncio ya no está agrupado.",
+      "DEDUPE_DISPUTE_CONFLICT": "Este anuncio ya tiene una disputa abierta, o ya es el que se muestra.",
+      "FORBIDDEN": "Solo los administradores de la agencia pueden decidir o disputar.",
+      "VALIDATION_FAILED": "Revisa el formulario e inténtalo de nuevo.",
+      "RATE_LIMITED": "Demasiadas solicitudes. Inténtalo en un minuto.",
+      "generic": "Algo ha fallado. Inténtalo de nuevo.",
+      "load": "No se pudieron cargar los anuncios duplicados."
+    }
   }
 }
