@@ -17,6 +17,7 @@ export {
   importFeedDevelopments,
 } from './feed';
 export { DEVELOPMENT_DOCUMENT_ORPHAN_MIN_AGE_MS, developmentsJobs, PURGE_UNIT_BUDGET } from './jobs';
+export { readKyeroUnits } from './kyero-units';
 export {
   importLegacyDevelopments,
   type LegacyDevelopmentInput,

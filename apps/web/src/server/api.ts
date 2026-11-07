@@ -43,6 +43,7 @@ import {
   type InviteMemberInput,
   InvitePage,
   IssuedApiKeyDto,
+  KyeroUnitsPreview,
   ListingBookmarkList,
   ListingBulkDto,
   ListingContentDto,
@@ -1231,6 +1232,19 @@ export function uploadDevelopmentDocument(
     method: 'POST',
     raw: { bytes, contentType: 'application/pdf' },
     headers: fileNameHeader(query.fileName),
+    timeoutMs: 60_000,
+  });
+}
+
+/** R2-07a: a Kyero v3 file read as the development's units (nothing stored); the units go to `createUnits`. */
+export function readKyeroUnits(
+  session: SessionRef,
+  id: string,
+  bytes: Uint8Array,
+): Promise<ApiResult<KyeroUnitsPreview>> {
+  return apiRequest(session, `${developmentPath(id)}/units/kyero`, KyeroUnitsPreview, {
+    method: 'POST',
+    raw: { bytes, contentType: 'application/xml' },
     timeoutMs: 60_000,
   });
 }

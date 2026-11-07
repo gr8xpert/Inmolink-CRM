@@ -224,6 +224,8 @@ export const ErrorCodes = {
   PRICE_LIST_SUPERSEDED: 409,
   // development documents (S4-F4)
   DEVELOPMENT_DOCUMENT_NOT_FOUND: 404,
+  /** R2-07a: an uploaded Kyero file is not XML, has no `<property>`, or breaks the parser's bounds. */
+  KYERO_FILE_INVALID: 422,
   // feed imports (S6-01)
   FEED_CONNECTION_NOT_FOUND: 404,
   FEED_RUN_NOT_FOUND: 404,

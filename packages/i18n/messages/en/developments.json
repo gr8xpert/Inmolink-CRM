@@ -78,10 +78,17 @@
     "title": "Sharing",
     "intro": "Who may see and sell this development. Sharing needs a verified agency.",
     "agencies": "Agencies that may see it",
-    "noPartners": "Add agencies on the Preferred agencies page to name them here.",
+    "noPartners": "No preferred agencies yet: find agencies by name below.",
     "other": "Agency {id}",
     "save": "Save sharing",
-    "saved": "Sharing saved."
+    "saved": "Sharing saved.",
+    "search": {
+      "label": "Find a verified agency by name",
+      "submit": "Search",
+      "none": "No verified agency has this name.",
+      "short": "Type at least 3 letters.",
+      "add": "Add {name}"
+    }
   },
   "units": {
     "title": "Units",
@@ -221,6 +228,25 @@
     "PRICE_LIST_SUPERSEDED": "A newer price list was uploaded; approve that one instead.",
     "RATE_LIMITED": "Too many changes at once; wait a moment.",
     "NETWORK": "The connection failed; try again.",
-    "generic": "Something went wrong. Try again."
+    "generic": "Something went wrong. Try again.",
+    "KYERO_FILE_INVALID": "This file is not a Kyero XML file we can read (no property element found, or malformed).",
+    "UNSUPPORTED_MEDIA_TYPE": "Send the file as XML."
+  },
+  "kyero": {
+    "hint": "Or a Kyero v3 XML file (one property element per unit: id, type, price, beds, baths, surface_area). At most {max} properties and {mb} MB; every unit starts available.",
+    "file": "Units Kyero XML file",
+    "submit": "Import units from Kyero",
+    "ready": "{count} units ready to import from the Kyero file.",
+    "problem": "Property {position} ({ref}), {field}: {reason}",
+    "tooLarge": "The file is larger than {mb} MB.",
+    "reasons": {
+      "required": "required",
+      "invalid": "not a valid value",
+      "unknownType": "no property type has this name",
+      "duplicate": "this id appears twice",
+      "tooMany": "more than {max} properties",
+      "currency": "the price is in another currency than the development's",
+      "notSale": "a rental, not a unit for sale"
+    }
   }
 }

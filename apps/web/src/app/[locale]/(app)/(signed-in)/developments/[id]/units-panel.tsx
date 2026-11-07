@@ -22,6 +22,7 @@ import {
   type UnitStatusValue,
   unitsFromCsv,
 } from '../csv';
+import { KyeroImport } from './kyero-import';
 
 const SELECT = 'h-8 rounded-md border bg-background px-2 text-sm disabled:opacity-60';
 const STATUSES: UnitStatusValue[] = ['AVAILABLE', 'RESERVED', 'SOLD'];
@@ -143,6 +144,17 @@ export function UnitsPanel({ developmentId, currency, initial, propertyTypes, re
     setCsv(file ? unitsFromCsv(await file.text(), typeId) : null);
   };
 
+  /** After an import: the first page again, nothing ticked. */
+  const imported = async (count: number) => {
+    setStatus({ kind: 'saved', text: t('units.import.done', { count: String(count) }) });
+    const first = await unitsPageAction(developmentId, null, filter);
+    if (first.ok) {
+      setPage(first.data);
+      setCursor(null);
+      setSelected(new Set());
+    }
+  };
+
   const importCsv = () => {
     if (!csv || csv.units.length === 0) return;
     setStatus(null);
@@ -150,13 +162,7 @@ export function UnitsPanel({ developmentId, currency, initial, propertyTypes, re
       const res = await createUnitsAction(developmentId, { units: csv.units });
       if (!res.ok) return fail(res);
       setCsv(null);
-      setStatus({ kind: 'saved', text: t('units.import.done', { count: String(res.data.items.length) }) });
-      const first = await unitsPageAction(developmentId, null, filter);
-      if (first.ok) {
-        setPage(first.data);
-        setCursor(null);
-        setSelected(new Set());
-      }
+      await imported(res.data.items.length);
     });
   };
 
@@ -373,6 +379,15 @@ export function UnitsPanel({ developmentId, currency, initial, propertyTypes, re
           {csv ? (
             <CsvReport csv={csv} ready={t('units.import.ready', { count: String(csv.units.length) })} t={t} />
           ) : null}
+          <KyeroImport
+            developmentId={developmentId}
+            t={t}
+            onImported={(count) => {
+              setStatus(null);
+              startTransition(() => imported(count));
+            }}
+            onError={fail}
+          />
         </div>
       )}
 

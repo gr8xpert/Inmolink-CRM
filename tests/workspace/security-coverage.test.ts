@@ -46,6 +46,10 @@ const HANDLER_LIMITS: Readonly<Record<string, { how: string; evidence: [file: st
     how: 'session required; per-user upload slots, then the api upload route (its own rules)',
     evidence: ['apps/web/src/app/api/developments/[id]/documents/route.ts', 'upload-slots'],
   },
+  'apps/web/src/app/api/developments/[id]/units/kyero/route.ts': {
+    how: 'R2-07a: session required; per-user upload slots, then the api Kyero units route (its own rules)',
+    evidence: ['apps/web/src/app/api/developments/[id]/units/kyero/route.ts', 'upload-slots'],
+  },
   'apps/web/src/app/api/listings/[id]/documents/route.ts': {
     how: 'session required; per-user upload slots, then the api upload route',
     evidence: ['apps/web/src/app/api/listings/[id]/documents/route.ts', 'upload-slots'],

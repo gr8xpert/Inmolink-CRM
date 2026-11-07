@@ -185,3 +185,27 @@ export async function seedImportAdmin(): Promise<{ email: string; agencyId: stri
     return { email, agencyId, company };
   });
 }
+
+/**
+ * R2-07a: a verified developer account (kind DEVELOPER) with its admin, who shares developments. An admin owes a
+ * second factor (`passTwoFactor`). Uses the names of `LISTING_TAXONOMY`.
+ */
+export async function seedDeveloperAdmin(): Promise<{ email: string; agencyId: string; company: string }> {
+  const tag = randomBytes(4).toString('hex');
+  const email = `developer-${tag}@example.com`;
+  const company = `Promotora ${tag} S.L.`;
+  return asOwner(async (admin) => {
+    const [userId, agencyId] = [randomUUID(), randomUUID()];
+    await admin.query(INSERT_USER, [userId, email, await hashPassword(SEED_PASSWORD), 'Lucía']);
+    await admin.query(`insert into agencies (agency_id, kind, name, status) values ($1, 'DEVELOPER', $2, 'VERIFIED')`, [
+      agencyId,
+      company,
+    ]);
+    await admin.query(`insert into agency_settings (agency_id, enabled_locales) values ($1, '{en}')`, [agencyId]);
+    await admin.query(
+      `insert into agency_members (agency_id, user_id, role, name, email) values ($1, $2, 'DEVELOPER_ADMIN', 'Lucía', $3)`,
+      [agencyId, userId, email],
+    );
+    return { email, agencyId, company };
+  });
+}

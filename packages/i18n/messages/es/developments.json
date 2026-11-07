@@ -78,10 +78,17 @@
     "title": "Compartir",
     "intro": "Quién puede ver y vender esta promoción. Para compartirla, tu agencia debe estar verificada.",
     "agencies": "Agencias que pueden verla",
-    "noPartners": "Añade agencias en la página de Agencias preferentes para poder indicarlas aquí.",
+    "noPartners": "Aún no tienes agencias preferentes: busca agencias por nombre abajo.",
     "other": "Agencia {id}",
     "save": "Guardar",
-    "saved": "Configuración guardada."
+    "saved": "Configuración guardada.",
+    "search": {
+      "label": "Buscar una agencia verificada por nombre",
+      "submit": "Buscar",
+      "none": "Ninguna agencia verificada tiene este nombre.",
+      "short": "Escribe al menos 3 letras.",
+      "add": "Añadir {name}"
+    }
   },
   "units": {
     "title": "Unidades",
@@ -221,6 +228,25 @@
     "PRICE_LIST_SUPERSEDED": "Se ha subido una lista más reciente; aprueba esa.",
     "RATE_LIMITED": "Demasiados cambios a la vez; espera un momento.",
     "NETWORK": "La conexión ha fallado; inténtalo de nuevo.",
-    "generic": "Algo ha fallado. Inténtalo de nuevo."
+    "generic": "Algo ha fallado. Inténtalo de nuevo.",
+    "KYERO_FILE_INVALID": "Este archivo no es un XML Kyero que podamos leer (sin elementos property o mal formado).",
+    "UNSUPPORTED_MEDIA_TYPE": "Envía el archivo como XML."
+  },
+  "kyero": {
+    "hint": "O un archivo XML Kyero v3 (un elemento property por unidad: id, type, price, beds, baths, surface_area). Máximo {max} inmuebles y {mb} MB; todas las unidades empiezan disponibles.",
+    "file": "Archivo XML Kyero de unidades",
+    "submit": "Importar unidades de Kyero",
+    "ready": "{count} unidades listas para importar del archivo Kyero.",
+    "problem": "Inmueble {position} ({ref}), {field}: {reason}",
+    "tooLarge": "El archivo supera los {mb} MB.",
+    "reasons": {
+      "required": "obligatorio",
+      "invalid": "no es un valor válido",
+      "unknownType": "ningún tipo de inmueble tiene este nombre",
+      "duplicate": "este id aparece dos veces",
+      "tooMany": "más de {max} inmuebles",
+      "currency": "el precio está en otra moneda que la de la promoción",
+      "notSale": "un alquiler, no una unidad en venta"
+    }
   }
 }

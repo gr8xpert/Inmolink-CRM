@@ -319,7 +319,12 @@ describe('development service', () => {
         allowedAgencyIds: [allowed.agencyId],
       }),
     );
-    expect(shared.access).toEqual({ kind: 'PRIVATE_NETWORK', allowedAgencyIds: [allowed.agencyId] });
+    // R2-07a: the owner sees the named agencies by their directory name.
+    expect(shared.access).toEqual({
+      kind: 'PRIVATE_NETWORK',
+      allowedAgencyIds: [allowed.agencyId],
+      agencyNames: { [allowed.agencyId]: 'Costa Homes S.L.' },
+    });
     // S4-F5: an agency that does not exist is a validation error, not a 500.
     expect(
       await as(owner, (ctx) =>

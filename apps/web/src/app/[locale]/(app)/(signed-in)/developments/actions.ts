@@ -9,6 +9,8 @@ import {
   type DevelopmentDocumentList,
   type DevelopmentDocumentUrlDto,
   type DevelopmentDto,
+  DirectorySearchQuery,
+  type DirectorySearchResult,
   type PriceListDto,
   SetDevelopmentAccessBody,
   type UnitDto,
@@ -38,6 +40,7 @@ import {
   fetchUnits,
   openDevelopmentDocument,
   type SessionRef,
+  searchAgencyDirectory,
   sessionRef,
   setDevelopmentAccess,
   updateDevelopment,
@@ -103,6 +106,13 @@ export async function saveAccessAction(id: string, body: unknown): Promise<DevRe
   const parsed = SetDevelopmentAccessBody.safeParse(body);
   if (!parsed.success) return invalid(issuePaths(parsed.error.issues));
   return withSession((s) => setDevelopmentAccess(s, id, parsed.data));
+}
+
+/** R2-07a: verified agencies by name for the sharing list (the API answers verified agencies only, ≤ 20). */
+export async function searchDirectoryAction(q: unknown): Promise<DevResult<DirectorySearchResult>> {
+  const parsed = DirectorySearchQuery.safeParse({ q });
+  if (!parsed.success) return invalid(['q']);
+  return withSession((s) => searchAgencyDirectory(s, parsed.data.q));
 }
 
 export async function unitsPageAction(

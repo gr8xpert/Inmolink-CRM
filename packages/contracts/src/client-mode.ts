@@ -54,6 +54,8 @@ export const CLIENT_MODE_STRIPPED_FIELDS: ReadonlySet<string> = new Set([
   'counterpartName',
   'presentingAgencyId',
   'allowedAgencyIds',
+  // R2-07a: the allowed agencies' names (inside `access`, null in Client Mode like the ids)
+  'agencyNames',
   // internal notes and labels
   'internalNotes',
   'confidentialNotes',

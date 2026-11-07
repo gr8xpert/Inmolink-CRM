@@ -14,4 +14,5 @@ export const developmentsErrors = [
   'DOCUMENT_TYPE_NOT_ALLOWED',
   'DOCUMENT_LIMIT_REACHED',
   'PAYLOAD_TOO_LARGE',
+  'KYERO_FILE_INVALID',
 ] as const satisfies readonly ErrorCode[];

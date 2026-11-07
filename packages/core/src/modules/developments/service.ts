@@ -102,7 +102,13 @@ export async function withDbErrors<T>(fn: () => Promise<T>): Promise<T> {
  * The DTO for `ctx`: the owner gets the sharing settings, other agencies the network view, and Client Mode
  * neither the commission nor, on another agency's development, who maintains it.
  */
-export function toDevelopmentDto(ctx: Ctx, row: repo.DevelopmentListRow, allowed: string[] | null): DevelopmentDto {
+export function toDevelopmentDto(
+  ctx: Ctx,
+  row: repo.DevelopmentListRow,
+  allowed: string[] | null,
+  /** R2-07a: the allowed agencies' directory names (the single view and the access change). */
+  names?: ReadonlyMap<string, string>,
+): DevelopmentDto {
   const own = row.agencyId === ctx.tenant.agencyId;
   const lat = num(row.lat);
   const lng = num(row.lng);
@@ -122,7 +128,14 @@ export function toDevelopmentDto(ctx: Ctx, row: repo.DevelopmentListRow, allowed
     currency: row.currency,
     managedBy: row.managedBy,
     lastVerifiedAt: row.lastVerifiedAt?.toISOString() ?? null,
-    access: own && !ctx.clientMode ? { kind: row.access, allowedAgencyIds: allowed ?? [] } : null,
+    access:
+      own && !ctx.clientMode
+        ? {
+            kind: row.access,
+            allowedAgencyIds: allowed ?? [],
+            ...(names ? { agencyNames: Object.fromEntries(names) } : {}),
+          }
+        : null,
     feed:
       own && !ctx.clientMode && row.fromFeed
         ? { lockedFields: [...(row.lockedFields as LockableDevelopmentField[])].sort() }
@@ -217,8 +230,11 @@ export async function createDevelopment(ctx: Ctx, input: CreateDevelopmentBody):
 export async function getDevelopment(ctx: Ctx, id: string): Promise<DevelopmentDto> {
   const row = await readable(ctx, id);
   const own = row.agencyId === ctx.tenant.agencyId;
-  const allowed = own ? ((await repo.accessOf(ctx.tx, [id])).get(id) ?? []) : null;
-  return toDevelopmentDto(ctx, row, allowed);
+  const allowed = own && !ctx.clientMode ? ((await repo.accessOf(ctx.tx, [id])).get(id) ?? []) : null;
+  // R2-07a: the owner sees whom it shares with by name (one statement, only when it shares with someone).
+  const names =
+    allowed && allowed.length > 0 ? await agencies.networkAgencyNames(ctx, allowed) : new Map<string, string>();
+  return toDevelopmentDto(ctx, row, allowed, names);
 }
 
 /** `GET /v1/developments`: the agency's own developments, newest first. Two statements. */
@@ -367,11 +383,13 @@ export async function setDevelopmentAccess(
   const added = input.allowedAgencyIds.filter((a) => !previous.includes(a));
   // Only agencies in the directory (listed, verified): an unknown, unlisted or suspended one gets the same answer,
   // so the call reveals nothing about agencies the caller cannot see (S5-F1). Already allowed ones stay.
-  if (added.length > 0) {
-    const listed = await agencies.networkAgencyNames(ctx, added);
-    if (added.some((a) => !listed.has(a))) {
-      throw new AppError('VALIDATION_FAILED', { field: 'allowedAgencyIds', reason: 'unknown' });
-    }
+  // One statement for the check and the names the owner sees (R2-07a).
+  const listed =
+    input.allowedAgencyIds.length > 0
+      ? await agencies.networkAgencyNames(ctx, input.allowedAgencyIds)
+      : new Map<string, string>();
+  if (added.some((a) => !listed.has(a))) {
+    throw new AppError('VALIDATION_FAILED', { field: 'allowedAgencyIds', reason: 'unknown' });
   }
   const updated = await repo.updateDevelopment(ctx.tx, id, input.version, { access: input.kind });
   if (!updated) throw new AppError('VERSION_CONFLICT');
@@ -395,7 +413,7 @@ export async function setDevelopmentAccess(
     ctx.tx,
     developmentsEvents.accessChanged({ developmentId: id, agencyId: updated.agencyId, version: updated.version }),
   );
-  return toDevelopmentDto(ctx, updated, [...input.allowedAgencyIds].sort());
+  return toDevelopmentDto(ctx, updated, [...input.allowedAgencyIds].sort(), listed);
 }
 
 /** `DELETE /v1/developments/:id?version=`: soft delete; no agency reads it from then on. */

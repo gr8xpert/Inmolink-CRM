@@ -72,7 +72,17 @@ export const DevelopmentDto = z.object({
   managedBy: DevelopmentManager,
   lastVerifiedAt: z.iso.datetime().nullable(),
   /** The owner's sharing settings; null for other agencies. */
-  access: z.object({ kind: DevelopmentAccess, allowedAgencyIds: z.array(z.uuid()) }).nullable(),
+  access: z
+    .object({
+      kind: DevelopmentAccess,
+      allowedAgencyIds: z.array(z.uuid()),
+      /**
+       * R2-07a: the directory names of the allowed agencies, by id (the single development view and the access
+       * change only; lists leave it out). An agency missing here left the directory (unlisted or suspended).
+       */
+      agencyNames: z.record(z.uuid(), z.string()).optional(),
+    })
+    .nullable(),
   /**
    * A development a feed import created, for its owner (null otherwise, and for other agencies): the feed keeps
    * `LOCKABLE_DEVELOPMENT_FIELDS` current except the locked ones (S8-F5).
@@ -200,6 +210,43 @@ export const CreateUnitsBody = z
   })
   .strict();
 export type CreateUnitsBody = z.infer<typeof CreateUnitsBody>;
+
+/** R2-07a: the biggest Kyero XML file a developer uploads for a development's units (500 units fit in far less). */
+export const KYERO_UNITS_MAX_BYTES = 5 * 1024 * 1024;
+
+/** Why one `<property>` of an uploaded Kyero file is not a unit (R2-07a). */
+export const KyeroUnitProblemReason = z.enum([
+  'required',
+  'invalid',
+  'unknownType',
+  'duplicate',
+  'tooMany',
+  'currency',
+  'notSale',
+]);
+export type KyeroUnitProblemReason = z.infer<typeof KyeroUnitProblemReason>;
+
+/**
+ * `POST /v1/developments/:id/units/kyero` (R2-07a): an uploaded Kyero v3 file read as the development's units, not
+ * stored — the dashboard shows the count or the problems, then sends `units` to `createUnits` (the CSV path).
+ * `position` is the property's 1-based place in the file; `ref` its id when it has one.
+ */
+export const KyeroUnitsPreview = z.object({
+  units: z.array(UnitFields).max(MAX_UNITS_PER_BULK),
+  problems: z
+    .array(
+      z.object({
+        position: z.number().int().min(1),
+        ref: z.string().nullable(),
+        field: z.string(),
+        reason: KyeroUnitProblemReason,
+      }),
+    )
+    .max(100),
+  /** More problems than `problems` lists. */
+  moreProblems: z.number().int().min(0),
+});
+export type KyeroUnitsPreview = z.infer<typeof KyeroUnitsPreview>;
 
 export const UpdateUnitBody = UnitFields.partial()
   .extend({ version: z.number().int().min(1) })

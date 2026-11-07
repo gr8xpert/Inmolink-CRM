@@ -12,6 +12,8 @@ import {
   DevelopmentPage,
   DevelopmentParams,
   DevelopmentVersionQuery,
+  KYERO_UNITS_MAX_BYTES,
+  KyeroUnitsPreview,
   ListDevelopmentsQuery,
   ListUnitsQuery,
   PageQuery,
@@ -44,6 +46,13 @@ const WRITE_LIMITS: readonly RateLimitRule[] = [
   { name: 'developments.write.ip', scope: 'ip', limit: 600, windowSeconds: 60 },
   { name: 'developments.write.user', scope: 'user', limit: 120, windowSeconds: 60 },
   { name: 'developments.write.tenant', scope: 'tenant', limit: 1_200, windowSeconds: 60 },
+];
+
+/** R2-07a: each Kyero upload is parsed in the request (≤ 5 MB): a few a minute per user and per agency. */
+const KYERO_LIMITS: readonly RateLimitRule[] = [
+  { name: 'developments.kyero.ip', scope: 'ip', limit: 30, windowSeconds: 60 },
+  { name: 'developments.kyero.user', scope: 'user', limit: 10, windowSeconds: 60 },
+  { name: 'developments.kyero.tenant', scope: 'tenant', limit: 30, windowSeconds: 60 },
 ];
 
 /**
@@ -411,6 +420,7 @@ export async function developmentsRoutes(app: FastifyZod): Promise<void> {
   );
 
   await app.register(documentUploadRoute);
+  await app.register(kyeroUnitsRoute);
 }
 
 /**
@@ -451,6 +461,40 @@ async function documentUploadRoute(upload: FastifyZod): Promise<void> {
         body,
       });
       return reply.status(201).send(doc);
+    },
+  );
+}
+
+/**
+ * R2-07a: a developer's Kyero v3 file read as the development's units, in its own plugin — its body is the raw XML
+ * (only this route takes XML, up to 5 MB). Nothing is stored: the answer is the units to send to
+ * `POST /v1/developments/:id/units`, or the problems by property. The service checks the content, not the header.
+ */
+async function kyeroUnitsRoute(upload: FastifyZod): Promise<void> {
+  upload.addContentTypeParser(
+    ['application/xml', 'text/xml'],
+    { parseAs: 'buffer', bodyLimit: KYERO_UNITS_MAX_BYTES },
+    (_req, body, done) => done(null, body),
+  );
+
+  upload.post(
+    '/v1/developments/:id/units/kyero',
+    {
+      schema: {
+        tags: ['developments'],
+        operationId: 'developments.readKyeroUnits',
+        summary: "Read an uploaded Kyero v3 file (raw XML, max 5 MB) as the development's units; stores nothing",
+        params: DevelopmentParams,
+        response: { 200: KyeroUnitsPreview },
+      },
+      // The body limit is the XML parser's only: other content types keep the default and are refused.
+      onRequest: [upload.requireSession, takeUploadSlot],
+      config: { rateLimit: KYERO_LIMITS },
+    },
+    async (req) => {
+      if (!Buffer.isBuffer(req.body)) throw new AppError('UNSUPPORTED_MEDIA_TYPE');
+      const bytes = new Uint8Array(req.body.buffer, req.body.byteOffset, req.body.byteLength);
+      return developments.readKyeroUnits(upload.ctxRunner(req), req.params.id, bytes);
     },
   );
 }
