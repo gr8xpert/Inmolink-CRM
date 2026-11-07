@@ -93,6 +93,18 @@ const viewings = (introducer: string, owner: string) => `
          created_at, updated_at
     from viewing_requests where agency_id = '${introducer}' and owner_agency_id = '${owner}';`;
 
+/** R2-04a: `N` deals of `introducer` and `owner`, both copies (3 % of 500,000.00 €, split 50 / 50). */
+const deals = (introducer: string, owner: string) => `
+  with d as (
+    select gen_random_uuid() as id, gen_random_uuid() as vr, gen_random_uuid() as target, g
+      from generate_series(1, ${N}) g)
+  insert into deals (agency_id, id, party, peer_agency_id, viewing_request_id, target_kind, target_id, commission_bp,
+                     split_bp, commission_includes_vat, terms_at, stage, price_cents, currency, created_at, updated_at)
+  select x.agency, d.id, x.party, x.peer, d.vr, 'LISTING', d.target, 300, 5000, false, now(), 'OFFER', 50000000, 'EUR',
+         now() - d.g * interval '1 day', now()
+    from d cross join (values ('${introducer}'::uuid, 'INTRODUCER', '${owner}'::uuid),
+                              ('${owner}'::uuid, 'OWNER', '${introducer}'::uuid)) x(agency, party, peer);`;
+
 beforeAll(async () => {
   await setupTestDb('http');
   identity.configureIdentity({
@@ -107,12 +119,14 @@ beforeAll(async () => {
     ${registrations(b.agencyId, a.agencyId)}
     ${viewings(a.agencyId, b.agencyId)}
     ${viewings(b.agencyId, a.agencyId)}
+    ${deals(a.agencyId, b.agencyId)}
     commit;`);
 }, 120_000);
 
 afterAll(async () => {
   for (const m of [a, b]) {
     await adminQuery(`begin; set local session_replication_role = replica;
+      delete from deals where agency_id = '${m.agencyId}';
       delete from viewing_request_receipts where introducer_agency_id = '${m.agencyId}' or agency_id = '${m.agencyId}';
       delete from viewing_requests where agency_id = '${m.agencyId}';
       delete from client_registration_receipts where introducer_agency_id = '${m.agencyId}' or agency_id = '${m.agencyId}';
@@ -178,5 +192,38 @@ describe('my collaborations over HTTP', () => {
       headers: await bearer(a),
     });
     expect(res.statusCode).toBe(422);
+  });
+
+  it('[R2-04a] the deal list loads within the dashboard budget with the database’s commission; staff routes refuse members', async () => {
+    for (const [m, party] of [
+      [a, 'INTRODUCER'],
+      [b, 'OWNER'],
+    ] as const) {
+      const headers = await bearer(m);
+      let body: { items: { party: string; commission: Record<string, number | string | boolean> }[] } | undefined;
+      const queries = await countQueries(async () => {
+        const res = await app.inject({ method: 'GET', url: '/v1/mls/deals?limit=25', headers });
+        expect(res.statusCode).toBe(200);
+        body = res.json();
+      });
+      expect(queries).toBeLessThanOrEqual(10);
+      expect(body?.items).toHaveLength(25);
+      expect(body?.items[0]).toMatchObject({
+        party,
+        commission: { totalCents: 1_500_000, introducerShareCents: 750_000, ownerShareCents: 750_000, currency: 'EUR' },
+      });
+    }
+    const someDeal = (
+      await app.inject({ method: 'GET', url: '/v1/mls/deals?limit=1', headers: await bearer(a) })
+    ).json().items[0].id as string;
+    const staff = await app.inject({ method: 'GET', url: `/v1/staff/deals/${someDeal}`, headers: await bearer(a) });
+    expect(staff.statusCode).toBe(403);
+    const mediate = await app.inject({
+      method: 'POST',
+      url: `/v1/staff/deals/${someDeal}/mediate`,
+      headers: await bearer(a),
+      payload: { reason: 'x', price: { amountCents: 1, currency: 'EUR' } },
+    });
+    expect(mediate.statusCode).toBe(403);
   });
 });

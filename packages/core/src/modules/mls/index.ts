@@ -7,7 +7,20 @@ export {
   viewingChatContext,
   viewingCounterpart,
 } from './chat-context';
+export { applyBp, type CommissionAmounts, type CommissionTerms, commissionOf } from './commission';
 export { configureMls, type MlsConfig, REGISTRATION_CLAIM_DAYS, VIEWING_REQUEST_EXPIRY_DAYS } from './config';
+export {
+  advanceDeal,
+  confirmDeal,
+  fallThroughDeal,
+  getDeal,
+  getStaffDeal,
+  listDeals,
+  mediateDeal,
+  openDeal,
+  setDealPrice,
+  withdrawDealConfirmation,
+} from './deals';
 export { ERASED_CLIENT, eraseAgencyRegistrations, eraseContactRegistrations } from './erasure';
 export { mlsErrors } from './errors';
 export { mlsEvents } from './events';
@@ -27,7 +40,15 @@ export {
   REHASH_ALERT_BEFORE_MS,
   rehashAgencyFingerprints,
 } from './maintenance';
-export { CLIENT_MODE_ALLOWED, can, MLS_ACTIONS, MLS_IMPERSONATION, type MlsAction } from './policy';
+export {
+  CLIENT_MODE_ALLOWED,
+  can,
+  canStaff,
+  MLS_ACTIONS,
+  MLS_IMPERSONATION,
+  type MlsAction,
+  type StaffMlsAction,
+} from './policy';
 export {
   listReceivedRegistrations,
   listRegistrations,

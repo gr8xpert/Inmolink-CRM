@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { Ctx } from '../../../context';
+import type { Ctx, StaffCtx, StaffRole } from '../../../context';
 import { expectImpersonationRules } from '../../../testing/impersonation-rules';
-import { CLIENT_MODE_ALLOWED, can, MLS_ACTIONS, MLS_IMPERSONATION } from '../policy';
+import { CLIENT_MODE_ALLOWED, can, canStaff, MLS_ACTIONS, MLS_IMPERSONATION } from '../policy';
 
 const AGENCY = '01900000-0000-7000-8000-000000000001';
 const OTHER_AGENCY = '01900000-0000-7000-8000-000000000002';
@@ -62,5 +62,25 @@ describe('mls policy', () => {
     expect(can(ctxAs('PARTNER'), 'mls.viewings.read')).toBe(false);
     expect(can({ ...agent, clientMode: true }, 'mls.viewings.read')).toBe(false);
     expect(MLS_IMPERSONATION['mls.viewings.write']).toBe('forbidden');
+  });
+
+  it('[R2-04a] deals: members read and move them; unverified agencies only read; impersonators never bind; staff operators mediate', () => {
+    const unverified = ctxAs('AGENT', { tenant: { agencyId: AGENCY, verified: false, plan: 'test', locales: ['en'] } });
+    expect(can(agent, 'mls.deals.write')).toBe(true);
+    expect(can(unverified, 'mls.deals.read')).toBe(true);
+    expect(can(unverified, 'mls.deals.write')).toBe(false);
+    expect(can(ctxAs('PARTNER'), 'mls.deals.read')).toBe(false);
+    expect(can({ ...agent, clientMode: true }, 'mls.deals.read')).toBe(false);
+    expect(MLS_IMPERSONATION['mls.deals.write']).toBe('forbidden');
+    const staff = (role: StaffRole): StaffCtx => ({
+      tx: {} as StaffCtx['tx'],
+      actor: { kind: 'staff', userId: '01900000-0000-7000-8000-0000000000bb', role },
+      locale: 'en',
+      requestId: 'test',
+    });
+    expect(canStaff(staff('STAFF_SUPPORT'), 'staff.mls.read')).toBe(true);
+    expect(canStaff(staff('STAFF_SUPPORT'), 'staff.mls.mediate')).toBe(false);
+    expect(canStaff(staff('STAFF_DATA_OPS'), 'staff.mls.mediate')).toBe(true);
+    expect(canStaff(staff('SUPER_ADMIN'), 'staff.mls.mediate')).toBe(true);
   });
 });

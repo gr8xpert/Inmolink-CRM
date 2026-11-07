@@ -39,11 +39,15 @@ export const CLIENT_MODE_STRIPPED_FIELDS: ReadonlySet<string> = new Set([
   'defaultCommission',
   'defaultSplitBp',
   'minCommissionBp',
+  // R2-04a: a deal's commission shares
+  'introducerShareCents',
+  'ownerShareCents',
   // the owner agency and the agencies behind a deal
   'ownerAgency',
   'ownerAgencyId',
   'ownerAcceptedByUserId',
   'introducerAgencyId',
+  'introducerAgency',
   'introducerName',
   'introducerAcceptedByUserId',
   'counterpartAgencyId',
@@ -90,6 +94,8 @@ export const CLIENT_MODE_REVIEWED_FIELDS: Readonly<Record<string, string>> = {
   ownerUserId: 'the agent of an own record; serializers null it on network records',
   ownerAcceptedAt: 'a timestamp of an MLS viewing (MLS routes are refused in Client Mode)',
   introducerAcceptedAt: 'a timestamp of an MLS viewing (MLS routes are refused in Client Mode)',
+  ownerConfirmedAt: 'a timestamp of an MLS deal handshake (R2-04a; MLS routes are refused in Client Mode)',
+  introducerConfirmedAt: 'a timestamp of an MLS deal handshake (R2-04a; MLS routes are refused in Client Mode)',
   canSetCommission: 'a boolean permission flag, always false for Client Mode tokens (S17-F5); no commission value',
   resolutionNote:
     'the staff note on a duplicate dispute (R2-03b): dedupe routes are refused in Client Mode, and the note is written for the disputing agency',

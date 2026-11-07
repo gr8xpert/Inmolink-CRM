@@ -749,14 +749,17 @@ describe.each(tenantNames)('tenant table %s', (table) => {
     if (staff.selectColumns || staff.updateColumns) {
       // S6-08: column allowlists — any other column is neither readable nor writable by staff.
       it(`[S6-08] ${table}: staff read and write only their column allowlists`, async () => {
-        const cols = (await columnsOf(admin, table)).map((c) => c.name);
+        const all = await columnsOf(admin, table);
+        const cols = all.map((c) => c.name);
+        // R2-04a: a generated column is written by no role (the database refuses it to everyone, 428C9)
+        const writable = all.filter((c) => !c.generated).map((c) => c.name);
         for (const c of cols.filter((x) => staff.selectColumns && !staff.selectColumns.includes(x))) {
           await expectSqlState(
             () => asStaff((tx) => tx.execute(sql`select ${sql.identifier(c)} from ${sql.identifier(table)} limit 1`)),
             DENIED,
           );
         }
-        for (const c of cols.filter((x) => staff.updateColumns && !staff.updateColumns.includes(x))) {
+        for (const c of writable.filter((x) => staff.updateColumns && !staff.updateColumns.includes(x))) {
           await expectSqlState(
             () =>
               asStaff((tx) =>

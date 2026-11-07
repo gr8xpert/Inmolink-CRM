@@ -318,6 +318,21 @@ export const ErrorCodes = {
   VIEWING_REQUEST_STATE: 409,
   /** The target publishes no complete commission terms (a commission or fixed amount, and a split): no snapshot to agree. */
   VIEWING_TERMS_INCOMPLETE: 422,
+  // mls: the deal room (R2-04a)
+  /** No deal with this id on the caller's side (or, for staff, at all). */
+  DEAL_NOT_FOUND: 404,
+  /**
+   * The viewing request cannot carry a deal: the owner has not accepted its terms, or it is declined, cancelled,
+   * expired, a no-show, or scheduled past its terms.
+   */
+  DEAL_VIEWING_NOT_ELIGIBLE: 422,
+  /**
+   * The deal's state does not allow this now (`details.reason`): `closed` (completed or fallen through: only staff
+   * mediation changes it), `backwards` (a stage moves forward only), `price_changed` (confirm the current price),
+   * `confirmed` (already confirmed), `not_confirmed`, `unchanged`, `changed` (it moved meanwhile) or `live_deal` (staff:
+   * the viewing request has another live deal).
+   */
+  DEAL_STATE: 409,
   // chat (S11-03)
   /** No thread with this id that the caller takes part in (none, another agency's, or one they are not in). */
   CHAT_THREAD_NOT_FOUND: 404,

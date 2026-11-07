@@ -129,6 +129,9 @@ export const AUDIT_TYPES = [
   // R2-03b: staff upheld or rejected an agency's duplicate dispute (target: the dispute; metadata: outcome, kind, the
   // listing id — never the note).
   'staff.dedupe.disputeResolved',
+  // R2-04a: staff mediated a deal (one row per party's agency; target: the deal; metadata: stage and price before and
+  // after — the reason is on the deal, not here).
+  'staff.mls.dealMediated',
   'compliance.dataExport.requested',
   'compliance.dataExport.downloaded',
   // S16-04: the agency's retention period changed (metadata: from, to — months or null).
@@ -143,6 +146,15 @@ export const AUDIT_TYPES = [
   'mls.registration.conflicted',
   // S11-02: one side accepted a viewing request's terms snapshot (the introducer by requesting, the owner by accepting).
   'mls.viewing.termsAccepted',
+  // R2-04a: the deal room (target: the deal; metadata: stage, price, currency and the commission amounts — never a
+  // reason's text). Opened, moved forward, repriced, one side's completion confirmed or withdrawn, completed, fallen through.
+  'mls.deal.opened',
+  'mls.deal.advanced',
+  'mls.deal.priceChanged',
+  'mls.deal.confirmed',
+  'mls.deal.confirmationWithdrawn',
+  'mls.deal.completed',
+  'mls.deal.fellThrough',
   // S11-F2: a member's ICS feed URL (a credential) issued (none before), rotated (replacing a live one) or revoked.
   'crm.calendarFeed.issued',
   'crm.calendarFeed.rotated',
@@ -197,6 +209,7 @@ export interface AuditTarget {
     | 'portalConnection'
     | 'dataExport'
     | 'viewingRequest'
+    | 'deal'
     | 'calendarFeed'
     | 'calendarEvent'
     | 'contact'

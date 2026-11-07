@@ -342,3 +342,131 @@ export const viewingRequestReceipts = pgTable(
     ...viewingChecks('viewing_request_receipts', t),
   ],
 );
+
+/*
+ * R2-04a, the deal room (PLAN §3 #10, §7 M10): a sale between the two agencies of an accepted viewing request. One row
+ * per agency (`agency_id` the holder, `party` its side, `peer_agency_id` the other), one RLS policy (STRICT), the same
+ * `id` on both copies — like chat threads (S11-03):
+ * - `deals_insert_guard` (invoker): app_user opens its own copy only for a viewing request of its side between exactly
+ *   these two agencies whose terms the owner accepted (scheduled, or completed and attended) and copies the target and
+ *   the terms snapshot from it — whatever the insert says. A deal starts at `OFFER`, nothing confirmed or closed.
+ * - `deals_mirror` (definer) appends the peer's copy; `deals_sync` (definer) copies the shared state to it on update.
+ * - `deals_guard` (invoker): the parties, target and terms never change (every role but app_owner); app_user moves the
+ *   stage forward only, reaches `COMPLETION` only by the handshake (both sides confirmed), confirms or withdraws only its
+ *   own side, never mediates, and a price change clears both confirmations; a completed or fallen-through deal is
+ *   immutable for every role but app_owner and app_staff (staff mediation, audited); nobody but app_owner deletes one.
+ * Commission amounts are generated columns of the price and the snapshot (integer cents, half-up to the cent): the same
+ * expression on both copies, recomputed by the database on every price change — never written by anyone.
+ */
+
+/** The whole commission: price × bp, half-up to the cent (values are ≥ 0, so `/` floors), or the fixed amount. */
+const COMMISSION_TOTAL = sql.raw(
+  'case when commission_bp is not null then (price_cents * commission_bp + 5000) / 10000 else commission_fixed_cents end',
+);
+
+export const deals = pgTable(
+  'deals',
+  {
+    /** The holder of this copy. */
+    agencyId: uuid('agency_id').notNull(),
+    /** The same on both copies. */
+    id: uuid('id').notNull(),
+    /** The holder's side: `OWNER` (the target's owner) or `INTRODUCER` (who registered the client). */
+    party: text('party').notNull(),
+    peerAgencyId: uuid('peer_agency_id').notNull(),
+    /** The accepted viewing request the deal comes from (each side's own copy of it; no FK across the two tables). */
+    viewingRequestId: uuid('viewing_request_id').notNull(),
+    targetKind: text('target_kind').notNull(),
+    targetId: uuid('target_id').notNull(),
+    // ---- the terms snapshot, copied from the viewing request by `deals_insert_guard` ----
+    commissionBp: integer('commission_bp'),
+    commissionFixedCents: bigint('commission_fixed_cents', { mode: 'number' }),
+    commissionCurrency: char('commission_currency', { length: 3 }),
+    splitBp: integer('split_bp').notNull(),
+    commissionIncludesVat: boolean('commission_includes_vat').notNull(),
+    termsAt: timestamp('terms_at', { withTimezone: true }).notNull(),
+    // ---- the shared state ----
+    /** `OFFER` → `RESERVATION` → `ARRAS` → `COMPLETION`; or `FELL_THROUGH`. */
+    stage: text('stage').notNull(),
+    stageAt: timestamp('stage_at', { withTimezone: true }).notNull().defaultNow(),
+    /** The agreed sale price (integer cents). */
+    priceCents: bigint('price_cents', { mode: 'number' }).notNull(),
+    currency: char('currency', { length: 3 }).notNull(),
+    /** Generated: the whole commission, in `currency` (cents). */
+    commissionTotalCents: bigint('commission_total_cents', { mode: 'number' })
+      .notNull()
+      .generatedAlwaysAs((): SQL => sql`${COMMISSION_TOTAL}`),
+    /** Generated: the introducer's (collaborating agent's) share = total × `split_bp`, half-up to the cent. */
+    introducerShareCents: bigint('introducer_share_cents', { mode: 'number' })
+      .notNull()
+      .generatedAlwaysAs((): SQL => sql`((${COMMISSION_TOTAL}) * split_bp + 5000) / 10000`),
+    /** Generated: the owner's share = total − the introducer's share (the two add up to the total exactly). */
+    ownerShareCents: bigint('owner_share_cents', { mode: 'number' })
+      .notNull()
+      .generatedAlwaysAs((): SQL => sql`(${COMMISSION_TOTAL}) - ((${COMMISSION_TOTAL}) * split_bp + 5000) / 10000`),
+    /** The handshake: each side confirms the completion at the current price; both → `COMPLETION`. */
+    ownerConfirmedAt: timestamp('owner_confirmed_at', { withTimezone: true }),
+    ownerConfirmedBy: uuid('owner_confirmed_by'),
+    introducerConfirmedAt: timestamp('introducer_confirmed_at', { withTimezone: true }),
+    introducerConfirmedBy: uuid('introducer_confirmed_by'),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    fellThroughAt: timestamp('fell_through_at', { withTimezone: true }),
+    fellThroughReason: text('fell_through_reason'),
+    /** `OWNER`, `INTRODUCER` or `STAFF`: who closed it as fallen through. */
+    closedBy: text('closed_by'),
+    /** The last staff mediation (each one audited in `audit_logs`, for both agencies). */
+    mediatedAt: timestamp('mediated_at', { withTimezone: true }),
+    mediatedBy: uuid('mediated_by'),
+    mediationReason: text('mediation_reason'),
+    /** The holder's member who opened it (null on the peer's copy). */
+    openedByUserId: uuid('opened_by_user_id'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    /** `created_at` to the millisecond (stored): the keyset sort key. */
+    createdMs: timestamp('created_ms', { withTimezone: true })
+      .notNull()
+      .generatedAlwaysAs((): SQL => sql`date_trunc('milliseconds', created_at, 'UTC')`),
+  },
+  (t) => [
+    primaryKey({ name: 'deals_pk', columns: [t.agencyId, t.id] }),
+    // the agency's deals: where agency_id = ? and (created_ms, id) < (?, ?) order by created_ms desc, id desc
+    index('deals_agency_created_idx').on(t.agencyId, t.createdMs, t.id),
+    // staff mediation: where id = ? and party = 'OWNER' (staff see a deal by its id alone); one copy per side
+    uniqueIndex('deals_id_party_uq').on(t.id, t.party),
+    // one live deal per viewing request on each side (a fallen-through deal leaves room for another)
+    uniqueIndex('deals_viewing_open_uq').on(t.agencyId, t.viewingRequestId).where(sql`${t.stage} <> 'FELL_THROUGH'`),
+    check('deals_party_ck', sql`${t.party} in ('OWNER', 'INTRODUCER') and ${t.peerAgencyId} <> ${t.agencyId}`),
+    check('deals_target_ck', sql`${t.targetKind} in ('LISTING', 'DEVELOPMENT')`),
+    check('deals_stage_ck', sql`${t.stage} in ('OFFER', 'RESERVATION', 'ARRAS', 'COMPLETION', 'FELL_THROUGH')`),
+    check(
+      'deals_terms_ck',
+      sql`(${t.commissionBp} is null) <> (${t.commissionFixedCents} is null)
+        and (${t.commissionBp} is null or ${t.commissionBp} between 1 and 10000)
+        and (${t.commissionFixedCents} is null
+             or (${t.commissionFixedCents} between 1 and 100000000000 and ${t.commissionCurrency} = ${t.currency}))
+        and ${t.splitBp} between 0 and 10000`,
+    ),
+    // ≤ 100 bn in the currency: price × 10,000 stays far inside bigint
+    check('deals_price_ck', sql`${t.priceCents} between 1 and 10000000000000 and ${t.currency} ~ '^[A-Z]{3}$'`),
+    check('deals_completion_ck', sql`(${t.stage} = 'COMPLETION') = (${t.completedAt} is not null)`),
+    check(
+      'deals_fell_through_ck',
+      sql`(${t.stage} = 'FELL_THROUGH') = (${t.fellThroughAt} is not null)
+        and (${t.stage} = 'FELL_THROUGH') = (${t.fellThroughReason} is not null)
+        and (${t.stage} = 'FELL_THROUGH') = (${t.closedBy} is not null)
+        and (${t.closedBy} is null or ${t.closedBy} in ('OWNER', 'INTRODUCER', 'STAFF'))
+        and (${t.fellThroughReason} is null or length(${t.fellThroughReason}) between 1 and 2000)`,
+    ),
+    check(
+      'deals_confirmed_ck',
+      sql`(${t.ownerConfirmedAt} is null) = (${t.ownerConfirmedBy} is null)
+        and (${t.introducerConfirmedAt} is null) = (${t.introducerConfirmedBy} is null)`,
+    ),
+    check(
+      'deals_mediated_ck',
+      sql`(${t.mediatedAt} is null) = (${t.mediatedBy} is null)
+        and (${t.mediatedAt} is null) = (${t.mediationReason} is null)
+        and (${t.mediationReason} is null or length(${t.mediationReason}) between 1 and 2000)`,
+    ),
+  ],
+);

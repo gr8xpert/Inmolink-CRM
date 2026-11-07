@@ -9,4 +9,7 @@ export const mlsErrors = [
   'VIEWING_REQUEST_OPEN',
   'VIEWING_REQUEST_STATE',
   'VIEWING_TERMS_INCOMPLETE',
+  'DEAL_NOT_FOUND',
+  'DEAL_VIEWING_NOT_ELIGIBLE',
+  'DEAL_STATE',
 ] as const satisfies readonly ErrorCode[];

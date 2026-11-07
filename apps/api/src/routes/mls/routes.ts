@@ -1,13 +1,24 @@
 import {
+  AdvanceDealBody,
+  ConfirmDealBody,
   CreateContactHeaders,
+  CreateDealBody,
   CreateRegistrationBody,
   CreateViewingRequestBody,
+  DealDto,
+  DealPage,
+  DealParams,
+  FallThroughDealBody,
+  ListDealsQuery,
   ListRegistrationsQuery,
   ListViewingRequestsQuery,
+  MediateDealBody,
   ReceivedRegistrationPage,
   RegistrationDto,
   RegistrationPage,
   RescheduleViewingBody,
+  SetDealPriceBody,
+  StaffDealDto,
   ViewingOutcomeBody,
   ViewingRequestDto,
   ViewingRequestPage,
@@ -28,6 +39,11 @@ const WRITE_LIMITS: readonly RateLimitRule[] = [
   { name: 'mls.write.tenant', scope: 'tenant', limit: 1_000, windowSeconds: 3_600 },
 ];
 
+const STAFF_LIMITS: readonly RateLimitRule[] = [
+  { name: 'staff.mls.ip', scope: 'ip', limit: 600, windowSeconds: 60 },
+  { name: 'staff.mls.user', scope: 'user', limit: 300, windowSeconds: 60 },
+];
+
 const tags = ['mls'];
 
 /**
@@ -35,6 +51,8 @@ const tags = ['mls'];
  * development, the agency's registrations, and the ones other agencies made for its targets (never the client).
  * S11-02, viewing requests: request a viewing for a registered client with the target's terms as a snapshot, answer it
  * (accept and with it the terms, decline, another time), cancel, record the outcome; the accepted terms.
+ * R2-04a, the deal room: open a deal of an accepted viewing, move it forward, set its price, the completion handshake,
+ * fall-through; staff read and mediate a deal.
  * Registrations name clients and viewing terms carry commission: every answer is `no-store`.
  */
 export async function mlsRoutes(app: FastifyZod): Promise<void> {
@@ -261,5 +279,180 @@ export async function mlsRoutes(app: FastifyZod): Promise<void> {
       config: { rateLimit: WRITE_LIMITS },
     },
     (req) => app.withCtx(req, (ctx) => mls.recordViewingOutcome(ctx, req.params.id, req.body)),
+  );
+
+  // ── R2-04a, the deal room ──────────────────────────────────────────────────────────────────────
+
+  app.post(
+    '/v1/mls/deals',
+    {
+      schema: {
+        tags,
+        operationId: 'mls.openDeal',
+        summary:
+          'Open the deal of an accepted viewing request at the offered price (201), with its terms snapshot; the live deal of the viewing answers a repeat (200)',
+        body: CreateDealBody,
+        response: { 200: DealDto, 201: DealDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: WRITE_LIMITS },
+    },
+    async (req, reply) => {
+      const result = await app.withCtx(req, (ctx) => mls.openDeal(ctx, req.body));
+      return reply.code(result.created ? 201 : 200).send(result.deal);
+    },
+  );
+
+  app.get(
+    '/v1/mls/deals',
+    {
+      schema: {
+        tags,
+        operationId: 'mls.listDeals',
+        summary: 'The agency’s deals (as owner and as introducer) with their commission, newest first',
+        querystring: ListDealsQuery,
+        response: { 200: DealPage },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: READ_LIMITS },
+    },
+    (req) => app.withCtx(req, (ctx) => mls.listDeals(ctx, req.query)),
+  );
+
+  app.get(
+    '/v1/mls/deals/:id',
+    {
+      schema: {
+        tags,
+        operationId: 'mls.getDeal',
+        summary: 'A deal as the caller’s side holds it',
+        params: DealParams,
+        response: { 200: DealDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: READ_LIMITS },
+    },
+    (req) => app.withCtx(req, (ctx) => mls.getDeal(ctx, req.params.id)),
+  );
+
+  app.post(
+    '/v1/mls/deals/:id/advance',
+    {
+      schema: {
+        tags,
+        operationId: 'mls.advanceDeal',
+        summary: 'Move an open deal forward to reservation or arras (never back)',
+        params: DealParams,
+        body: AdvanceDealBody,
+        response: { 200: DealDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: WRITE_LIMITS },
+    },
+    (req) => app.withCtx(req, (ctx) => mls.advanceDeal(ctx, req.params.id, req.body)),
+  );
+
+  app.post(
+    '/v1/mls/deals/:id/price',
+    {
+      schema: {
+        tags,
+        operationId: 'mls.setDealPrice',
+        summary: 'Set the agreed price of an open deal; both sides’ completion confirmations are cleared',
+        params: DealParams,
+        body: SetDealPriceBody,
+        response: { 200: DealDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: WRITE_LIMITS },
+    },
+    (req) => app.withCtx(req, (ctx) => mls.setDealPrice(ctx, req.params.id, req.body)),
+  );
+
+  app.post(
+    '/v1/mls/deals/:id/confirm',
+    {
+      schema: {
+        tags,
+        operationId: 'mls.confirmDeal',
+        summary:
+          'Confirm the completion at the price seen (the handshake); the second side’s confirmation completes it',
+        params: DealParams,
+        body: ConfirmDealBody,
+        response: { 200: DealDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: WRITE_LIMITS },
+    },
+    (req) => app.withCtx(req, (ctx) => mls.confirmDeal(ctx, req.params.id, req.body)),
+  );
+
+  app.post(
+    '/v1/mls/deals/:id/withdraw',
+    {
+      schema: {
+        tags,
+        operationId: 'mls.withdrawDealConfirmation',
+        summary: 'Take the caller’s side’s completion confirmation back (before the deal completes)',
+        params: DealParams,
+        response: { 200: DealDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: WRITE_LIMITS },
+    },
+    (req) => app.withCtx(req, (ctx) => mls.withdrawDealConfirmation(ctx, req.params.id)),
+  );
+
+  app.post(
+    '/v1/mls/deals/:id/fall-through',
+    {
+      schema: {
+        tags,
+        operationId: 'mls.fallThroughDeal',
+        summary: 'Close an open deal as fallen through, with a reason',
+        params: DealParams,
+        body: FallThroughDealBody,
+        response: { 200: DealDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: WRITE_LIMITS },
+    },
+    (req) => app.withCtx(req, (ctx) => mls.fallThroughDeal(ctx, req.params.id, req.body)),
+  );
+
+  // ── Staff: mediation ───────────────────────────────────────────────────────────────────────────
+
+  app.get(
+    '/v1/staff/deals/:id',
+    {
+      schema: {
+        tags: ['staff'],
+        operationId: 'mls.getStaffDeal',
+        summary: 'A deal with both parties, for mediation',
+        params: DealParams,
+        response: { 200: StaffDealDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: STAFF_LIMITS },
+    },
+    (req) => app.withStaffCtx(req, 'mls.getStaffDeal', (ctx) => mls.getStaffDeal(ctx, req.params.id)),
+  );
+
+  app.post(
+    '/v1/staff/deals/:id/mediate',
+    {
+      schema: {
+        tags: ['staff'],
+        operationId: 'mls.mediateDeal',
+        summary:
+          'Mediate a deal (data ops, super admins): set its stage and / or price with a reason both parties see — the only change a closed deal takes; audited',
+        params: DealParams,
+        body: MediateDealBody,
+        response: { 200: StaffDealDto },
+      },
+      onRequest: [app.requireSession],
+      config: { rateLimit: STAFF_LIMITS },
+    },
+    (req) => app.withStaffCtx(req, 'mls.mediateDeal', (ctx) => mls.mediateDeal(ctx, req.params.id, req.body)),
   );
 }

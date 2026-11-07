@@ -10,6 +10,10 @@ import { z } from 'zod';
  *   accepted, declined, rescheduled, cancelled, completed or expired (`action`) by `by`. `agencyId` is the acting side's
  *   agency (the introducer's for `SYSTEM`). `termsAccepted`: this change bound both sides to the terms snapshot (the
  *   accepted-terms PDF, S12-05). Consumers: the other side's notification (both sides' on expiry).
+ * - `mls.deal.changed` (R2-04a) — a deal between `introducerAgencyId` and `ownerAgencyId` was opened, moved, repriced,
+ *   confirmed or withdrawn, completed (the handshake), fell through, or mediated by staff (`action`), by `by`.
+ *   `agencyId` is the acting side's agency (one event per party for a staff mediation). For the other side's
+ *   notification (R2-04b / c). IDs only.
  */
 export const mlsEvents = {
   registrationCreated: defineEvent(
@@ -37,6 +41,29 @@ export const mlsEvents = {
       /** The member who acted (null for the system). */
       userId: z.uuid().nullable(),
       termsAccepted: z.boolean(),
+    }),
+  ),
+  dealChanged: defineEvent(
+    'mls.deal.changed',
+    1,
+    z.object({
+      agencyId: z.uuid(),
+      dealId: z.uuid(),
+      introducerAgencyId: z.uuid(),
+      ownerAgencyId: z.uuid(),
+      action: z.enum([
+        'OPENED',
+        'ADVANCED',
+        'PRICE_CHANGED',
+        'CONFIRMED',
+        'WITHDRAWN',
+        'COMPLETED',
+        'FELL_THROUGH',
+        'MEDIATED',
+      ]),
+      by: z.enum(['INTRODUCER', 'OWNER', 'STAFF']),
+      /** The member or staff user who acted. */
+      userId: z.uuid().nullable(),
     }),
   ),
 };

@@ -5,6 +5,7 @@ import type { StaffCtx, StaffRole } from '../../../context';
 import * as billing from '../../billing';
 import * as dedupe from '../../dedupe';
 import * as identity from '../../identity';
+import * as mls from '../../mls';
 import * as support from '../../support';
 import { canStaff } from '../policy';
 
@@ -26,6 +27,7 @@ const runOperation: Policy = (c) => canStaff(c, 'staff.admin.runOperation');
 const setFlag: Policy = (c) => canStaff(c, 'staff.admin.setFlag');
 const supportWrite: Policy = (c) => support.canStaff(c, 'staff.support.write');
 const dedupeResolve: Policy = (c) => dedupe.canStaff(c, 'staff.dedupe.resolve');
+const dealMediate: Policy = (c) => mls.canStaff(c, 'staff.mls.mediate');
 const manageImpersonation: Policy = (c) => identity.canStaff(c, 'staff.impersonation.manage');
 
 /** Registry path (`tenant|global.<table>.<field…>`, `[event type]` for one outbox clause) → the policy it mirrors. */
@@ -35,6 +37,8 @@ const POLICY_OF: Record<string, Policy> = {
   'tenant.outbox_events.staff.insert[support.message.posted]': supportWrite,
   'tenant.outbox_events.staff.insert[dedupe.dispute.resolved]': dedupeResolve, // R2-03b
   'tenant.dedupe_disputes.staff.update': dedupeResolve,
+  'tenant.outbox_events.staff.insert[mls.deal.changed]': dealMediate, // R2-04a
+  'tenant.deals.staff.update': dealMediate,
   'tenant.billing_plan_grants.staff.insert': billingGrant,
   'tenant.billing_plan_grants.staff.update': billingGrant,
   'tenant.billing_price_locks.staff.insert': billingGrant,

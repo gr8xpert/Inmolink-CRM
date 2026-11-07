@@ -387,9 +387,10 @@ export const tenantTables: Record<string, TenantTable> = {
       // (`support.message.posted`, the ticket's agency; support staff and super admins only) e-mails the member.
       // R2-03b: a resolved duplicate dispute (`dedupe.dispute.resolved`, the dispute's agency; data ops and super
       // admins only) is applied to the clusters by the dedupe worker.
+      // R2-04a: a staff mediation of a deal (`mls.deal.changed`, each party's agency; data ops and super admins only).
       // S13 review: only an active super admin (the plan grant's own gate) may append `billing.plan.changed` — a
       // support or data-ops session cannot forge a plan notice.
-      insert: `(starts_with(type, 'agencies.') and agency_id <> '${PLATFORM_AGENCY_ID}'::uuid) or (type = 'billing.plan.changed' and agency_id <> '${PLATFORM_AGENCY_ID}'::uuid and ${SUPER_ADMIN}) or (type = 'taxonomy.data.changed' and agency_id = '${PLATFORM_AGENCY_ID}'::uuid) or (type = 'admin.operation.requested' and agency_id = '${PLATFORM_AGENCY_ID}'::uuid and ${STAFF_OPERATOR}) or (type = 'support.message.posted' and agency_id <> '${PLATFORM_AGENCY_ID}'::uuid and ${SUPPORT_AGENT}) or (type = 'dedupe.dispute.resolved' and agency_id <> '${PLATFORM_AGENCY_ID}'::uuid and ${STAFF_OPERATOR})`,
+      insert: `(starts_with(type, 'agencies.') and agency_id <> '${PLATFORM_AGENCY_ID}'::uuid) or (type = 'billing.plan.changed' and agency_id <> '${PLATFORM_AGENCY_ID}'::uuid and ${SUPER_ADMIN}) or (type = 'taxonomy.data.changed' and agency_id = '${PLATFORM_AGENCY_ID}'::uuid) or (type = 'admin.operation.requested' and agency_id = '${PLATFORM_AGENCY_ID}'::uuid and ${STAFF_OPERATOR}) or (type = 'support.message.posted' and agency_id <> '${PLATFORM_AGENCY_ID}'::uuid and ${SUPPORT_AGENT}) or (type = 'dedupe.dispute.resolved' and agency_id <> '${PLATFORM_AGENCY_ID}'::uuid and ${STAFF_OPERATOR}) or (type = 'mls.deal.changed' and agency_id <> '${PLATFORM_AGENCY_ID}'::uuid and ${STAFF_OPERATOR})`,
     },
   },
   // The tenant itself (S1-01). Sign-up (app_auth) creates it PENDING; a repeated sign-up for an
@@ -1395,6 +1396,76 @@ export const tenantTables: Record<string, TenantTable> = {
       split_bp: 5000,
       commission_includes_vat: false,
       terms_valid_until: '2026-07-01T00:00:00Z',
+    },
+  },
+  // R2-04a, the deal room (PLAN §3 #10). Each party's copy of a deal of an accepted viewing request: the stage, the price,
+  // the terms snapshot and the commission (generated columns), the handshake, the fall-through, staff mediation.
+  // `deals_insert_guard` lets app_user open only its own side's copy of an accepted viewing request between the two
+  // agencies (and copies the target and terms from it: `guardedInsert`); `deals_mirror` (definer) appends the peer's
+  // copy; `deals_sync` (definer) copies the shared state; `deals_guard` keeps the parties and terms fixed, the stage
+  // forward, the handshake per side, closed deals immutable but for staff mediation, and refuses deletes. Staff read every
+  // agency's deals; data ops and super admins mediate (one copy, as themself with a reason — audited; the sync copies it).
+  deals: {
+    kind: 'STRICT',
+    guardedInsert: true,
+    userNoDelete: true,
+    definerSync: { functions: ['deals_mirror', 'deals_sync'], ops: ['read', 'append', 'update'] },
+    userNoUpdateColumns: [
+      'id',
+      'party',
+      'peer_agency_id',
+      'viewing_request_id',
+      'target_kind',
+      'target_id',
+      'commission_bp',
+      'commission_fixed_cents',
+      'commission_currency',
+      'split_bp',
+      'commission_includes_vat',
+      'terms_at',
+      'commission_total_cents',
+      'introducer_share_cents',
+      'owner_share_cents',
+      'mediated_at',
+      'mediated_by',
+      'mediation_reason',
+      'opened_by_user_id',
+      'created_at',
+      'created_ms',
+    ],
+    staff: {
+      select: 'true',
+      update: STAFF_OPERATOR,
+      updateColumns: [
+        'stage',
+        'stage_at',
+        'price_cents',
+        'currency',
+        'owner_confirmed_at',
+        'owner_confirmed_by',
+        'introducer_confirmed_at',
+        'introducer_confirmed_by',
+        'completed_at',
+        'fell_through_at',
+        'fell_through_reason',
+        'closed_by',
+        'mediated_at',
+        'mediated_by',
+        'mediation_reason',
+        'updated_at',
+      ],
+    },
+    triggers: ['deals_insert_guard', 'deals_mirror', 'deals_sync', 'deals_guard'],
+    base: {
+      party: 'OWNER',
+      target_kind: 'LISTING',
+      commission_bp: 500,
+      split_bp: 5000,
+      commission_includes_vat: false,
+      terms_at: '2026-01-01T00:00:00Z',
+      stage: 'OFFER',
+      price_cents: 60_000_000,
+      currency: 'EUR',
     },
   },
   // S11-03, chat (PLAN §7 M12). Each agency reads its own copy of a thread (one policy per table). The thread row

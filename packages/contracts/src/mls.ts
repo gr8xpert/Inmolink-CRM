@@ -6,7 +6,7 @@
  * (`REGISTRATION_CONFLICT`). The owner of the target sees who registered a client and when, never the client.
  */
 import { z } from 'zod';
-import { PageQuery, pageOf } from './common';
+import { CurrencyCode, PageQuery, pageOf } from './common';
 
 export const REGISTRATION_TARGET_KINDS = ['LISTING', 'DEVELOPMENT'] as const;
 export const RegistrationTargetKind = z.enum(REGISTRATION_TARGET_KINDS);
@@ -234,3 +234,143 @@ export const ViewingTermsDocumentDto = z.strictObject({
   pdfUrl: z.string().nullable(),
 });
 export type ViewingTermsDocumentDto = z.infer<typeof ViewingTermsDocumentDto>;
+
+// ---- R2-04a, the deal room (PLAN §3 #10, §7 M10) ------------------------------------------------------------------------
+
+/**
+ * A deal between the two agencies of an accepted viewing request: `OFFER` → `RESERVATION` → `ARRAS` → `COMPLETION`, or
+ * `FELL_THROUGH` from any open stage. `COMPLETION` is reached only by the handshake — both sides confirm the completion
+ * at the current price. A completed or fallen-through deal is immutable except by staff mediation (audited).
+ */
+export const DEAL_STAGES = ['OFFER', 'RESERVATION', 'ARRAS', 'COMPLETION', 'FELL_THROUGH'] as const;
+export const DealStage = z.enum(DEAL_STAGES);
+export type DealStage = z.infer<typeof DealStage>;
+
+/** The stages a party moves a deal forward to by hand (completion is the handshake's, a fall-through its own move). */
+export const DEAL_ADVANCE_STAGES = ['RESERVATION', 'ARRAS'] as const;
+
+/** The moves the API takes from this member on this deal now. */
+export const DEAL_ACTIONS = ['ADVANCE', 'SET_PRICE', 'CONFIRM', 'WITHDRAW', 'FALL_THROUGH'] as const;
+export const DealAction = z.enum(DEAL_ACTIONS);
+export type DealAction = z.infer<typeof DealAction>;
+
+/** A sale price: integer cents, 1 cent to 100 bn (`deals_price_ck`). */
+export const DEAL_PRICE_MAX_CENTS = 10_000_000_000_000;
+export const DealPrice = z.strictObject({
+  amountCents: z.number().int().min(1).max(DEAL_PRICE_MAX_CENTS),
+  currency: CurrencyCode,
+});
+export type DealPrice = z.infer<typeof DealPrice>;
+
+const DealText = z.string().trim().min(1).max(2_000);
+
+export const DealParams = z.strictObject({ id: z.uuid() });
+export type DealParams = z.infer<typeof DealParams>;
+
+/**
+ * `POST /v1/mls/deals`: either party opens the deal of an accepted viewing request (the owner accepted the terms; the
+ * viewing scheduled, or completed with the client attended) at the offered price. A fixed commission is in its own
+ * currency: the price must be too. One live deal per viewing request: a repeat answers the live one (200).
+ * Refused: `VIEWING_REQUEST_NOT_FOUND`, `DEAL_VIEWING_NOT_ELIGIBLE`, `VALIDATION_FAILED` (`currency`).
+ */
+export const CreateDealBody = z.strictObject({ viewingRequestId: z.uuid(), price: DealPrice });
+export type CreateDealBody = z.infer<typeof CreateDealBody>;
+
+/** `POST /v1/mls/deals/:id/advance`: move the deal forward (never back; skipping a stage is allowed). */
+export const AdvanceDealBody = z.strictObject({ stage: z.enum(DEAL_ADVANCE_STAGES) });
+export type AdvanceDealBody = z.infer<typeof AdvanceDealBody>;
+
+/** `POST /v1/mls/deals/:id/price`: the agreed price changed — both sides' confirmations are cleared. */
+export const SetDealPriceBody = z.strictObject({ price: DealPrice });
+export type SetDealPriceBody = z.infer<typeof SetDealPriceBody>;
+
+/**
+ * `POST /v1/mls/deals/:id/confirm`: the caller's side confirms the completion at `price` — the price it saw (a price
+ * changed meanwhile answers `DEAL_STATE` `price_changed`). The second confirmation completes the deal.
+ */
+export const ConfirmDealBody = z.strictObject({ price: DealPrice });
+export type ConfirmDealBody = z.infer<typeof ConfirmDealBody>;
+
+/** `POST /v1/mls/deals/:id/fall-through`: either party closes an open deal as fallen through, with a reason. */
+export const FallThroughDealBody = z.strictObject({ reason: DealText });
+export type FallThroughDealBody = z.infer<typeof FallThroughDealBody>;
+
+/** The terms snapshot the deal carries (copied from the viewing request when opened; never changed). */
+export const DealTermsDto = z.strictObject({
+  commissionBp: z.number().int().nullable(),
+  commissionFixed: z.strictObject({ amountCents: z.number().int(), currency: z.string().length(3) }).nullable(),
+  splitBp: z.number().int(),
+  includesVat: z.boolean(),
+  snapshotAt: z.iso.datetime(),
+});
+export type DealTermsDto = z.infer<typeof DealTermsDto>;
+
+/**
+ * The commission of the current price, computed by the database from the snapshot (integer cents, half-up to the cent):
+ * total = price × `commissionBp` / 10,000 (or the fixed amount); the introducer's share = total × `splitBp` / 10,000;
+ * the owner's = total − the introducer's. VAT as the terms say (`includesVat`).
+ */
+export const DealCommissionDto = z.strictObject({
+  totalCents: z.number().int(),
+  introducerShareCents: z.number().int(),
+  ownerShareCents: z.number().int(),
+  currency: z.string().length(3),
+  includesVat: z.boolean(),
+});
+export type DealCommissionDto = z.infer<typeof DealCommissionDto>;
+
+const DealCore = {
+  id: z.uuid(),
+  viewingRequestId: z.uuid(),
+  target: RegistrationTarget,
+  stage: DealStage,
+  stageAt: z.iso.datetime(),
+  price: DealPrice,
+  terms: DealTermsDto,
+  commission: DealCommissionDto,
+  ownerConfirmedAt: z.iso.datetime().nullable(),
+  introducerConfirmedAt: z.iso.datetime().nullable(),
+  completedAt: z.iso.datetime().nullable(),
+  fellThroughAt: z.iso.datetime().nullable(),
+  fellThroughReason: z.string().nullable(),
+  closedBy: z.enum(['OWNER', 'INTRODUCER', 'STAFF']).nullable(),
+  /** The last staff mediation (when and why), if any. */
+  mediatedAt: z.iso.datetime().nullable(),
+  mediationReason: z.string().nullable(),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+};
+
+/** A deal as one party sees it. `party` is the caller's side; the counterpart's member ids are never shown. */
+export const DealDto = z.strictObject({
+  ...DealCore,
+  party: ViewingSide,
+  counterpartAgencyId: z.uuid(),
+  counterpartName: z.string().nullable(),
+  targetLabel: TargetLabel.nullable(),
+  allowedActions: z.array(DealAction),
+});
+export type DealDto = z.infer<typeof DealDto>;
+export const DealPage = pageOf(DealDto);
+export type DealPage = z.infer<typeof DealPage>;
+
+/** `GET /v1/mls/deals`: the agency's deals (both sides), newest first; optionally one stage. */
+export const ListDealsQuery = PageQuery.extend({ stage: DealStage.optional() });
+export type ListDealsQuery = z.infer<typeof ListDealsQuery>;
+
+/** Staff (mediation): a deal with both parties. */
+export const StaffDealDto = z.strictObject({
+  ...DealCore,
+  ownerAgency: z.strictObject({ id: z.uuid(), name: z.string() }),
+  introducerAgency: z.strictObject({ id: z.uuid(), name: z.string() }),
+});
+export type StaffDealDto = z.infer<typeof StaffDealDto>;
+
+/**
+ * `POST /v1/staff/deals/:id/mediate` (data ops, super admins): staff settle a dispute — set the stage (also back, or out
+ * of `COMPLETION` / `FELL_THROUGH`) and / or the price, with a reason both parties see. Audited for both agencies.
+ */
+export const MediateDealBody = z
+  .strictObject({ reason: DealText, stage: DealStage.optional(), price: DealPrice.optional() })
+  .refine((b) => b.stage !== undefined || b.price !== undefined, { message: 'a stage or a price to set' });
+export type MediateDealBody = z.infer<typeof MediateDealBody>;
