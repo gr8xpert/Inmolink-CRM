@@ -361,6 +361,25 @@ export async function renderVariants(master: Uint8Array, names: readonly Variant
   return { files: new Map(files), phash: phashOf(g.data, g.info.channels), width, height };
 }
 
+/**
+ * R2-03a: the pHash of an encoded image as the pipeline computes it for a master (rotated, flattened on white, grey,
+ * 32 × 32), so tools and the dedupe fixture set hash images exactly like stored ones. Tools and tests only — never
+ * a request path (uploads are checked and processed by the pipeline); inputs past `MAX_PHASH_INPUT_BYTES` are refused.
+ */
+export const MAX_PHASH_INPUT_BYTES = 30 * 1024 * 1024;
+export async function perceptualHash(bytes: Buffer): Promise<bigint> {
+  if (bytes.length > MAX_PHASH_INPUT_BYTES) throw new ImageInputError('image too large to hash');
+  const sharp = await loadSharp();
+  const g = await sharp(bytes, INPUT)
+    .rotate()
+    .flatten({ background: WHITE })
+    .greyscale()
+    .resize(32, 32, { fit: 'fill' })
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  return phashOf(g.data, g.info.channels);
+}
+
 const N = 32;
 const K = 8;
 /** cos((2x + 1)uπ / 2N) for the K lowest frequencies. */

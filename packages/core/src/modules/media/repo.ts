@@ -535,3 +535,31 @@ export async function listingImageRows(tx: Tx, propertyId: string, agencyId: str
     .orderBy(asc(propertyMedia.position), asc(propertyMedia.id))
     .limit(100);
 }
+
+/**
+ * R2-03a (dedupe worker): the first `perListing` processed images (kind IMAGE, display order) of each listing, with
+ * their hash and pHash. One statement: a lateral probe per listing on `property_media_property_idx`.
+ */
+export async function listingImageHashRows(
+  tx: Tx,
+  propertyIds: readonly string[],
+  perListing: number,
+): Promise<{ propertyId: string; sha256: string; phash: string | null }[]> {
+  if (propertyIds.length === 0) return [];
+  const res = await tx.execute<{ property_id: string; sha256: string; phash: string | null }>(sql`
+    select p.id as property_id, x.sha256, x.phash::text as phash
+      from unnest(array[${sql.join(
+        [...new Set(propertyIds)].map((id) => sql`${id}`),
+        sql`, `,
+      )}]::uuid[]) as p(id)
+      cross join lateral (
+        select m.sha256, o.phash, m.position
+          from ${propertyMedia} m
+          join ${mediaObjects} o on o.sha256 = m.sha256
+         where m.property_id = p.id and m.kind = 'IMAGE' and o.pipeline is not null
+         order by m.position, m.id
+         limit ${perListing}
+      ) x
+     order by p.id, x.position`);
+  return res.rows.map((r) => ({ propertyId: r.property_id, sha256: r.sha256, phash: r.phash }));
+}

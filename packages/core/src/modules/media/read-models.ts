@@ -87,3 +87,32 @@ export async function listingSocialImages(tx: Tx, listingId: string, agencyId: s
         : null,
   }));
 }
+
+/** R2-03a: one image of a listing as duplicate detection compares it — its content hash and 64-bit pHash. */
+export interface ListingImageHash {
+  sha256: string;
+  /** Null when the processing that recorded the image computed none. */
+  phash: bigint | null;
+}
+
+/**
+ * R2-03a (dedupe worker, PATTERNS §12 "Cross-module functions for workers"): each listing's first `perListing`
+ * processed images in display order, by listing id (a listing without one is missing). Raw `tx` (`withSystem`), no
+ * authorization, never called from request code. One statement.
+ */
+export async function listingImageHashes(
+  tx: Tx,
+  listingIds: readonly string[],
+  perListing: number,
+): Promise<Map<string, ListingImageHash[]>> {
+  const out = new Map<string, ListingImageHash[]>();
+  for (const row of await repo.listingImageHashRows(tx, listingIds, perListing)) {
+    let list = out.get(row.propertyId);
+    if (!list) {
+      list = [];
+      out.set(row.propertyId, list);
+    }
+    list.push({ sha256: row.sha256, phash: row.phash === null ? null : BigInt(row.phash) });
+  }
+  return out;
+}

@@ -32,7 +32,7 @@ export {
   listingVectors,
 } from './embeddings';
 export { searchErrors } from './errors';
-export { searchEvents } from './events';
+export { PUBLIC_DOCS_EVENT_TARGETS, searchEvents } from './events';
 export {
   buildIndexDoc,
   commissionShareBp,

@@ -9,6 +9,7 @@ import { chatJobs } from '@inmolink/core/modules/chat';
 import { complianceJobs } from '@inmolink/core/modules/compliance';
 import { dataExportJobs } from '@inmolink/core/modules/compliance/worker';
 import { crmJobs } from '@inmolink/core/modules/crm';
+import { dedupeJobs } from '@inmolink/core/modules/dedupe';
 import { developmentsJobs } from '@inmolink/core/modules/developments';
 import { documentsJobs } from '@inmolink/core/modules/documents';
 import { exportsJobs } from '@inmolink/core/modules/exports/worker';
@@ -105,6 +106,10 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
     // R2-02e: AUTO_SEND client alerts' digest sweep (hourly, local digest hour) and per-agency walks.
     deliveryJobs.sweepDeliveries,
     deliveryJobs.deliverDigests,
+    // R2-03a: duplicate candidates of changed listings, and the one-time backfill walk.
+    dedupeJobs.rescoreListings,
+    dedupeJobs.backfill,
+    dedupeJobs.sweepWindow,
   ],
   // S7-07: per-site XML feeds (Kyero and generic) and their 15-minute refresh sweep; S9-03: portal feeds.
   exports: [
@@ -169,6 +174,8 @@ export const POOL_JOBS: Record<Exclude<Pool, 'outbox'>, readonly JobDef[]> = {
   digest: [notificationsJobs.sendDigest],
   maintenance: [
     identityJobs.pruneAuthTokens,
+    // R2-03a: the daily walk over duplicate signatures (drops those whose listing is gone).
+    dedupeJobs.sweep,
     // S11-05: network board posts past their expiry are closed every 15 minutes.
     networkJobs.closeExpiredPosts,
     networkJobs.closePostThreads,

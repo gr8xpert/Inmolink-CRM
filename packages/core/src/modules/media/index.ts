@@ -44,8 +44,11 @@ export {
   portalImageKey,
   publishPortalImages,
 } from './portal-images';
-export { hammingDistance } from './processing';
+export { hammingDistance, perceptualHash } from './processing';
 export {
+  // R2-03a: the dedupe worker's image hashes
+  type ListingImageHash,
+  listingImageHashes,
   listingSocialImages,
   mediaForReadModels,
   type ReadModelMediaSet,

@@ -1855,6 +1855,18 @@ export const globalTables: Record<string, GlobalTable> = {
     noUserRead: true,
     base: { embedding: `[${new Array(1024).fill(0.1).join(',')}]` },
   },
+  // Duplicate detection (R2-03a): listing signatures and scored candidate pairs across agencies, written and read by
+  // the dedupe worker via withSystem() only. No tenant reads them: a pair names another agency's listing.
+  dedupe_listing_signatures: {
+    reason: 'duplicate-detection signatures of listings of every agency (worker-only: cross-agency blocking keys)',
+    noUserRead: true,
+    base: { transaction_type: 'SALE', source_version: 1, signature_version: 1 },
+  },
+  dedupe_pair_scores: {
+    reason: 'scored duplicate candidate pairs of listings across agencies (worker-only: cross-agency dedupe)',
+    noUserRead: true,
+    base: { score: 0.5, signals: '{}', scorer_version: 1, version_a: 1, version_b: 1 },
+  },
   // Read-model rebuild queue (S5-F4): written by the search subscriptions and drained by the search worker via withSystem().
   read_model_queue: {
     reason: 'listings and units of every agency whose read models must be rebuilt (worker-only work queue)',

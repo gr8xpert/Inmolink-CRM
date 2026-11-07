@@ -19,6 +19,7 @@ export * from './crm-leads';
 export * from './crm-pipeline';
 export * from './crm-prospects';
 export * from './crm-tasks';
+export * from './dedupe';
 export * from './developments';
 export * from './developments-csv';
 export * from './documents'; // S12-05

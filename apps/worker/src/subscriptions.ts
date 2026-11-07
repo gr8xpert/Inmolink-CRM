@@ -8,6 +8,7 @@ import * as compliance from '@inmolink/core/modules/compliance';
 import * as complianceWorker from '@inmolink/core/modules/compliance/worker';
 import * as crm from '@inmolink/core/modules/crm';
 import * as dashboard from '@inmolink/core/modules/dashboard';
+import * as dedupe from '@inmolink/core/modules/dedupe';
 import * as developments from '@inmolink/core/modules/developments';
 import * as documents from '@inmolink/core/modules/documents'; // S12-05
 import * as exports from '@inmolink/core/modules/exports';
@@ -68,6 +69,7 @@ export const MODULES = {
   admin,
   support,
   onboarding,
+  dedupe,
 } as const;
 
 /** Outbox subscriptions of every module. Called once at start-up. */
@@ -110,6 +112,8 @@ export function registerSubscriptions(): void {
   aiFeatures.registerAiFeaturesSubscriptions();
   // S5-06: listings whose read models changed are matched against the saved searches.
   matching.registerMatchingSubscriptions();
+  // R2-03a: listings whose read models changed get their duplicate candidates found and scored.
+  dedupe.registerDedupeSubscriptions();
   // S12-04: a client's view, like or enquiry on a selection reaches the CRM timeline.
   presentations.registerPresentationsSubscriptions();
   // S13-03: a staff bulk operation gets its job.
