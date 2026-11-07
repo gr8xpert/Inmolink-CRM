@@ -1,4 +1,4 @@
-import { hmacSha256, hmacSha256Candidates, safeEqual } from '@inmolink/platform/crypto';
+import { hmacSha256, hmacSha256Candidates, hmacSha256Hex, safeEqual } from '@inmolink/platform/crypto';
 import type { TurnstileVerifier } from '@inmolink/platform/turnstile';
 
 /**
@@ -135,4 +135,15 @@ export function maskedEmail(email: string): string {
   const at = email.lastIndexOf('@');
   if (at < 1) return '•••';
   return `${email.slice(0, 1)}•••${email.slice(at)}`;
+}
+
+const SIGNER_EMAIL_PURPOSE = 'esign-signer-email:documents.audit';
+
+/**
+ * R2-05c: the audit page's mark of an address the reader may not see (the other agency's signer of a collaboration
+ * agreement): a keyed HMAC (`HMAC_KEY`, its own purpose) of the lower-cased address, hex. Without the key nobody can
+ * confirm a guessed address against it; the server can (evidence of the code's channel). Ties to the key at seal time.
+ */
+export function signerEmailMac(email: string): string {
+  return hmacSha256Hex(signingConfig().tokenKey, SIGNER_EMAIL_PURPOSE, email.trim().toLowerCase());
 }

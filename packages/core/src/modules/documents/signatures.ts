@@ -51,7 +51,7 @@ import { signedFormKey } from './signature-keys';
 import { type AuditSigner, auditTrailHtml } from './signatures-audit';
 import { renderCodeEmail, renderCompletedEmail, renderInviteEmail } from './signatures-emails';
 import * as repo from './signatures-repo';
-import { signingCode, signingUrl } from './signing-token';
+import { signerEmailMac, signingCode, signingUrl } from './signing-token';
 
 /** The feature flag e-signature ships dark behind (on top of `documents.forms`; STATUS Decisions R2-05b). */
 export const ESIGN_FLAG = 'documents.esign';
@@ -97,7 +97,7 @@ const OWN_ROLE: Readonly<Record<string, string>> = { OWNER: 'ownerAgency', INTRO
 /**
  * R2-05c: the signer roles whose addresses the requesting agency does not see — on a collaboration agreement, the other
  * agency's block (the form's `party` is the agency's own side; unknown: both agency blocks). The real address stays in
- * the row, for the worker's mails only; the audit page shows the masked address and its SHA-256.
+ * the row, for the worker's mails only; the audit page shows the masked address and its keyed HMAC.
  */
 function hiddenRolesOf(form: { template: string; party: string | null } | null): ReadonlySet<string> {
   // no form (cannot happen: requests go with their form) — fail closed
@@ -518,14 +518,13 @@ export async function sealSignatureRequest(
   }
   const lang = uiLocale(form.locale);
   const t = translator(lang, 'documents');
-  // R2-05c: the other agency's addresses masked, with their SHA-256 as the evidence of the code's channel
+  // R2-05c: the other agency's addresses masked, with a keyed mark (HMAC, never a bare hash: an address is guessable)
+  // as the evidence of the code's channel
   const hidden = hiddenRolesOf(form);
   const signers: AuditSigner[] = work.trail.map((s) => ({
     ...s,
     role: roleLabel(t, s.role),
-    email: hidden.has(s.role)
-      ? `${maskEmail(s.email)} · SHA-256 ${sha256Hex(new TextEncoder().encode(s.email.trim().toLowerCase()))}`
-      : s.email,
+    email: hidden.has(s.role) ? `${maskEmail(s.email)} · HMAC ${signerEmailMac(s.email)}` : s.email,
   }));
   const html = auditTrailHtml({
     t,

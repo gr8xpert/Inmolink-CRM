@@ -347,7 +347,8 @@ describe('[R2-05b] signing requests', () => {
     let last = request.id;
     for (let i = 1; i < documents.DEAL_SIGNATURE_REQUESTS_PER_DAY; i++) last = (await askDeal(both)).request.id;
     expect(await refusal(askDeal(both))).toBe('RATE_LIMITED');
-    // R2-05c: the sealed PDF's audit page shows the other agency's address masked, with its SHA-256
+    // R2-05c: the sealed PDF's audit page shows the other agency's address masked, with a keyed mark (no bare hash a
+    // guessed address could be checked against)
     const signed = await as(a, (ctx) => documents.getSignatureRequest(ctx, last));
     await documents.inviteSigners({ agencyId: a.agencyId, requestId: last });
     for (const signer of signed.signers) {
@@ -365,7 +366,10 @@ describe('[R2-05b] signing requests', () => {
     const audit = pdfFake.documents.at(-1) as string;
     expect(audit).not.toContain(owner);
     expect(audit).toContain(documents.maskEmail(owner));
-    expect(audit).toContain(createHash('sha256').update(owner).digest('hex'));
+    expect(audit).not.toContain(createHash('sha256').update(owner).digest('hex'));
+    expect(audit).toContain(`HMAC ${documents.signerEmailMac(owner)}`);
+    expect(documents.signerEmailMac(owner.toUpperCase())).toBe(documents.signerEmailMac(owner));
+    expect(documents.signerEmailMac(owner)).not.toBe(createHash('sha256').update(owner).digest('hex'));
     expect(audit).toContain(intro.toUpperCase());
   });
 });

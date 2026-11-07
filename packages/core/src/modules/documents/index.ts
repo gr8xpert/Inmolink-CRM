@@ -106,6 +106,7 @@ export {
   maskedEmail,
   readSigningToken,
   SIGNING_TOKEN,
+  signerEmailMac,
   signingCode,
   signingCodeMatches,
   signingLinksConfigured,
