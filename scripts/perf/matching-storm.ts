@@ -146,16 +146,12 @@ async function seed(): Promise<void> {
   await execSql(
     'perf:matching-storm seed agencies',
     `insert into agencies (agency_id, kind, status, name, languages, give_to_get_exempt, onboarded_at)
-     select ${sid(NS.agency, 'i')}, 'AGENCY', 'VERIFIED', 'Storm R2-02f ' || i, '{en,es}', true, now()
+     select ${sid(NS.agency, 'i')}, 'AGENCY', case when i % 10 = 9 then 'PENDING' else 'VERIFIED' end::agency_status,
+            'Storm R2-02f ' || i, '{en,es}', true, now()
        from generate_series(0, ${A - 1}) i
      on conflict do nothing`,
   );
-  await execSql(
-    'perf:matching-storm seed directory',
-    `insert into agency_directory (agency_id, name, kind, listed)
-     select ${sid(NS.agency, 'i')}, 'Storm R2-02f ' || i, 'AGENCY', i % 10 <> 9 from generate_series(0, ${A - 1}) i
-     on conflict do nothing`,
-  );
+  // the directory rows (listed = VERIFIED: 1 in 10 not listed) come from the agencies trigger
   // taxonomy: the country, two regions, their cities and four areas a city (parents first)
   await execSql(
     'perf:matching-storm seed taxonomy',

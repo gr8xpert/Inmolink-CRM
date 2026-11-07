@@ -202,10 +202,6 @@ const KNOWN: Record<string, { status: boolean; emits?: true; exempt?: string }> 
     exempt:
       'perf seed: new synthetic agencies on a test or staging DB (nothing cached about them; deleted after the run)',
   },
-  'scripts/perf/matching-storm.ts::seed::directory': {
-    status: true,
-    exempt: 'perf seed: directory rows (listed or not) of the synthetic agencies above',
-  },
   'scripts/perf/smoke.ts::provisioned::sql': { status: false },
   'scripts/seed/agencies.ts::writeRows::copy': {
     status: true,
